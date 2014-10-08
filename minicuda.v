@@ -279,3 +279,13 @@ Module Minicuda.
       + by exists (sapp s_body (sseq (s_while e_cond s_body) rest)); apply S_loop_T.
         by exists rest; apply S_loop_F.
   Qed.
+
+  Lemma expr_deterministic (e : expr) (sv : store_v) (sa : store_a) (v v' : value) :
+    sv / sa / e || v -> sv / sa / e || v' -> v = v'.
+  Proof.
+    move=> H; move: H v'; elim.
+    - by move=> b v' H; inversion H; subst.
+    - by move=> n v' H; inversion H; subst.
+    - move=> var val Hst v' H; inversion H; subst.
+      by rewrite H1 in Hst; case: Hst.
+  Abort.
