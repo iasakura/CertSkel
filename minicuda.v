@@ -114,10 +114,10 @@ Module Minicuda.
                sv / sa / e1 || (V_nat v1) ->
                sv / sa / e2 || (V_nat v2) ->
                sv / sa / (e_op2 e1 Mult e2) || (V_nat (muln v1 v2))
-  | E_le : forall (e1 e2 : expr) (v1 v2 : bool),
+  | E_le : forall (e1 e2 : expr) (v1 v2 : nat),
               sv / sa / e1 || (V_nat v1) ->
               sv / sa / e2 || (V_nat v2) ->
-              sv / sa / (e_op2 e1 Le e2) || (V_nat (leq v1 v2))
+              sv / sa / (e_op2 e1 Le e2) || (V_bool (leq v1 v2))
   where "sv '/' sta '/' e '||' v" := (eval_expr sv sta e v).
 
   Inductive value_typing : value -> type -> Prop :=
@@ -137,17 +137,41 @@ Module Minicuda.
 
   Lemma expr_progress : forall (e : expr) (g ga : context) (sv : store_v) (sa : store_a) (typ : type),
     expr_typing g ga e typ -> store_typing g sv -> store_a_typing ga sa ->
-    exists (v : value), sv / sa / e || v.
+    exists (v : value), sv / sa / e || v /\ value_typing v typ.
   Proof.
     move=> e g ga sv sa typ; elim.
-    - by move=>b _ _; exists (V_bool b); apply E_bool.
-    - by move=>n _ _; exists (V_nat n); apply E_nat.
+    - move=>b _ _; exists (V_bool b); split; [apply: E_bool | apply: same_bool].
+    - by move=>n _ _; exists (V_nat n); split; [apply: E_nat | apply: same_nat].
     - rewrite / store_typing; move=> v ty Hty Hstore _.
       pose H := (Hstore v ty Hty).
-      case: H=> val [Hsv _].
-      by exists val; apply E_var.
-    - move=> arr idx typ0 Htyarr Hidx IH _ Hsa.
-  Abort.
-  
+      case: H=> val [Hsv Htyp].
+      exists val; split; first by apply E_var.
+      by done.
+    - move=> arr idx typ0 Htyarr Hidx IH Hs Hsa.
+      pose H := (IH Hs Hsa).
+      case: H=> idx_v [Hi Hity].
+      inversion Hity; subst.
+      case: (Hsa arr typ0 Htyarr)=> arr_v [H  Ha].
+      rewrite / array_typing in Ha.
+      by exists (arr_v n); split; [apply: E_arr | apply: Ha].
+    - move=> e1 e2 typ1 typ2 typ3; case;
+      move=> Hty1 IH1 Hty2 IH2 Hs Hsa;
+      case: (IH1 Hs Hsa)=> v1 [Hv1 Htyv1];
+      case: (IH2 Hs Hsa)=> v2 [Hv2 Htyv2];
+      inversion Htyv1; subst; inversion Htyv2; subst.
+      + exists (V_bool (andb b b0)); split; first by apply: E_and.
+        by apply: same_bool.
+      + exists (V_bool (orb b b0)); split; first by apply: E_or.
+        by apply: same_bool.
+      + exists (V_bool (negb b)); split; first by apply: E_not.
+        by apply: same_bool.
+      + exists (V_nat (n + n0)); split; first by apply: E_plus.
+        by apply: same_nat.
+      + exists (V_nat (n * n0)); split; first by apply: E_mult.
+        by apply: same_nat.
+      + exists (V_bool (leq n n0)); split; first by apply E_le.
+        by apply: same_bool.
+  Qed.
+
   Reserved Notation "stv / sta / s1 '==>s' stv' / sta'/ s2" (at level 40).
 
