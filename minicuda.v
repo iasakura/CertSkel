@@ -4,10 +4,29 @@
  *)
 
 Module Minicuda.
-  Require Import ssreflect ssrbool ssrnat seq.
+  Require Import ssreflect ssrbool ssrnat eqtype seq.
   
   Inductive var := Var of nat.
+  Definition var_eq (v1 v2 : var) :=
+    match v1, v2 with
+      | Var n1, Var n2 => n1 == n2
+    end.
 
+  Lemma var_eqP : Equality.axiom var_eq.
+  Proof.
+    rewrite / Equality.axiom.
+    case=>x [] y.
+    case: (@eqP _ x y).
+    by move=>-> /=; rewrite eq_refl; apply: ReflectT.
+    move=>H /=.
+    suff: (x == y = false).
+    - by move=>->; apply: ReflectF; case.
+      by case:eqP.
+  Qed.
+
+  Canonical var_eqMixin := EqMixin var_eqP.
+  Canonical nat_eqType := EqType var var_eqMixin.
+  
   Inductive type :=
   | Int | Bool.
   Inductive a_type :=
@@ -33,6 +52,12 @@ Module Minicuda.
   | snil
   | sseq of stmt & stmts.
 
+  Fixpoint sapp (ss1 ss2 : stmts) :=
+    match ss1 with
+      | snil => ss2
+      | sseq s ss1 => sseq s (sapp ss1 ss2)
+    end.
+  
   Scheme stmt_ind' := Induction for stmt Sort Prop
   with   stmts_ind' := Induction for stmts Sort Prop.
   
@@ -53,7 +78,10 @@ Module Minicuda.
                    expr_typing g ga (e_op2 e1 op e2) typ3.
 
   Inductive stmt_typing (g : context) (ga : context) : stmt -> Prop :=
-  | T_ass : forall (v : var) (e : expr), stmt_typing g ga (s_var_ass v e)
+  | T_ass : forall (v : var) (e : expr) (typ : type),
+      expr_typing g ga e typ ->
+      g v = Some typ ->
+      stmt_typing g ga (s_var_ass v e)
   | T_arr_ass : forall (v : var) (e1 e2 : expr) (T : type),
       ga v = Some T ->
       expr_typing g ga e1 Int ->
@@ -72,6 +100,11 @@ Module Minicuda.
   | T_nil : stmts_typing g ga snil
   | T_seq : forall (s : stmt) (ss : stmts),
               stmt_typing g ga s -> stmts_typing g ga ss -> stmts_typing g ga (sseq s ss).
+  
+  Scheme stmt_typing_ind' := Induction for stmt_typing Sort Prop
+  with   stmts_typing_ind' := Induction for stmts_typing Sort Prop.
+  
+  Combined Scheme stmt_typing_ind_mul from stmt_typing_ind', stmts_typing_ind'.
 
   Inductive value :=
   | V_bool of bool
@@ -80,7 +113,7 @@ Module Minicuda.
   Definition array_store := nat -> value.
   
   Definition store_v := var -> option value.
-  Definition store_a := var -> option (nat -> value).
+  Definition store_a := var -> option array_store.
 
   Reserved Notation "sv '/' sta '/' e '||' v" (at level 40, sta at level 39, e at level 39, v at level 39).
 
@@ -135,11 +168,11 @@ Module Minicuda.
     forall (v : var) (typ : type),
       ga v = Some typ -> exists arr, sa v = Some arr /\ array_typing arr typ.
 
-  Lemma expr_progress : forall (e : expr) (g ga : context) (sv : store_v) (sa : store_a) (typ : type),
+  Lemma expr_progress (e : expr) (g ga : context) (sv : store_v) (sa : store_a) (typ : type) :
     expr_typing g ga e typ -> store_typing g sv -> store_a_typing ga sa ->
     exists (v : value), sv / sa / e || v /\ value_typing v typ.
   Proof.
-    move=> e g ga sv sa typ; elim.
+    elim.
     - move=>b _ _; exists (V_bool b); split; [apply: E_bool | apply: same_bool].
     - by move=>n _ _; exists (V_nat n); split; [apply: E_nat | apply: same_nat].
     - rewrite / store_typing; move=> v ty Hty Hstore _.
@@ -173,5 +206,76 @@ Module Minicuda.
         by apply: same_bool.
   Qed.
 
-  Reserved Notation "stv / sta / s1 '==>s' stv' / sta'/ s2" (at level 40).
+  Definition update_v (var : var) (v : value) (store : store_v) := fun var' =>
+    if var' == var then Some v else store var'.
+  Definition update_a (arr : var) (i : nat) (v : value) (store_a : store_a) := fun arr' =>
+    if arr == arr' then
+      if store_a arr is Some val_a then
+        Some (fun i' => if i' == i then v
+                  else val_a i)
+      else None
+    else store_a arr'.
+  
+  Reserved Notation "'[' '==>' '(' stv ',' sta ',' s1 ')'  '(' stv' ',' sta' ',' s2 ')' ']'"
+           (at level 40, sta at level 39, e at level 39,
+            stv' at level 39).
+  
+  Inductive stmt_step (stv : store_v) (sta : store_a) :
+    stmts -> store_v -> store_a -> stmts -> Prop :=
+  | S_Assign : forall (var : var) (e : expr) (val : value) (rest : stmts), 
+      stv / sta / e || val ->
+      [ ==> (stv, sta, (sseq (s_var_ass var e) rest)) ((update_v var val stv), sta, rest)]
+  | S_Array : forall (e_idx e : expr) (idx : nat) (val : value) (a_var : var) (rest : stmts),
+      stv / sta / e_idx || (V_nat idx) ->
+      stv / sta / e     || val ->
+      [ ==> (stv, sta, (sseq (s_arr_ass a_var e_idx e) rest)) (stv, update_a a_var idx val sta, rest)]
+  | S_Ife_T : forall (e_cond : expr) (s_then s_else : stmts) (rest : stmts),
+      stv / sta / e_cond || (V_bool true) ->
+      [ ==> (stv, sta, sseq (s_if e_cond s_then s_else) rest) (stv, sta, sapp s_then rest)]
+  | S_Ife_F : forall (e_cond : expr) (s_then s_else rest : stmts),
+      stv / sta / e_cond || (V_bool false) ->
+      [ ==> (stv, sta, sseq (s_if e_cond s_then s_else) rest) (stv, sta, sapp s_else rest)]
+  | S_loop_T : forall (e_cond : expr) (s_body rest : stmts),
+      stv / sta / e_cond || (V_bool true) ->
+      [ ==> (stv, sta, sseq (s_while e_cond s_body) rest)
+            (stv, sta, sapp s_body (sseq (s_while e_cond s_body) rest))]
+  | S_loop_F : forall (e_cond : expr) (s_body rest : stmts),
+      stv / sta / e_cond || (V_bool false) ->
+      [ ==> (stv, sta, sseq (s_while e_cond s_body) rest)
+            (stv, sta, rest)]
+    where "'[' '==>' '(' stv ',' sta ',' ss1 ')' '(' stv' ',' sta' ',' ss2 ')' ']'" :=
+    (stmt_step stv sta ss1 stv' sta' ss2).
 
+  Lemma stmt_progress (ss : stmts) (g ga : context) (stv : store_v) (sta : store_a) :
+    stmts_typing g ga ss -> store_typing g stv -> store_a_typing ga sta ->
+    ss = snil \/ exists (stv' : store_v) (sta' : store_a) (ss' : stmts),
+                   [ ==> (stv, sta, ss) (stv', sta', ss')].
+  Proof.
+    elim; first by move=> _ _; left.
+    move=> s rest.
+    elim.
+    - move=> var e typ Hety Hgty Htyss IH Htysv Htysa; right. 
+      move: (expr_progress e g ga stv sta typ Hety Htysv Htysa)=>[val [Hval Hty]].
+      exists (update_v var val stv); exists sta; exists rest.
+      by apply: S_Assign.
+    - move=> arr_var e_idx e typ HgaT Hidxty Hety Htyss IH Htysv Htysa; right.
+      move: (expr_progress e_idx g ga stv sta Int Hidxty Htysv Htysa)=>[v_idx [Hv_idx Hty_idx]].
+      move: (expr_progress e g ga stv sta typ Hety Htysv Htysa)=>[v_e [Hv_e Hty_e]].
+      inversion Hty_idx; subst.
+      exists stv; exists (update_a arr_var n v_e sta); exists rest.
+      by apply: S_Array.
+    - move=> e_cond s_then s_else Hty_cond Hty_then Hty_else _ _ Htysv Htysa; right.
+      move: (expr_progress e_cond g ga stv sta Bool Hty_cond Htysv Htysa)=>[v_cond [Hv_cond Htyv_cond]].
+      exists stv; exists sta.
+      inversion Htyv_cond as [b_cond H |]; subst.
+      case: b_cond Hv_cond {Htyv_cond}.
+      + by exists (sapp s_then rest); apply: S_Ife_T.
+      + by exists (sapp s_else rest); apply: S_Ife_F.
+    - move=> e_cond s_body Hty_cond Hty_body _ _ Htysv Htysa; right.
+      exists stv; exists sta.
+      move: (expr_progress e_cond g ga stv sta Bool Hty_cond Htysv Htysa)=>[v_cond [Hv_cond Htyv_cond]].
+      inversion Htyv_cond as [b_cond H|]; subst.
+      case: b_cond Hv_cond {Htyv_cond}.
+      + by exists (sapp s_body (sseq (s_while e_cond s_body) rest)); apply S_loop_T.
+        by exists rest; apply S_loop_F.
+  Qed.
