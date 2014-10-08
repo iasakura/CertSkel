@@ -77,11 +77,10 @@ Module Minicuda.
   | V_bool of bool
   | V_nat of nat.
 
-  Definition array_store :=
-    nat -> option value.
+  Definition array_store := nat -> value.
   
   Definition store_v := var -> option value.
-  Definition store_a := var -> option (nat -> option value).
+  Definition store_a := var -> option (nat -> value).
 
   Reserved Notation "sv '/' sta '/' e '||' v" (at level 40, sta at level 39, e at level 39, v at level 39).
 
@@ -93,7 +92,7 @@ Module Minicuda.
   | E_arr : forall arr a_v e_i idx val,
               sa arr = Some a_v ->
               sv / sa / e_i || (V_nat idx) ->
-              a_v idx = Some val ->
+              a_v idx = val ->
               sv / sa / (e_arr arr e_i) || val
   | E_and : forall (e1 e2 : expr) (v1 v2 : bool),
               sv / sa / e1 || (V_bool v1) ->
@@ -126,7 +125,7 @@ Module Minicuda.
   | same_nat : forall n, value_typing (V_nat n) Int.
 
   Definition array_typing (arr : array_store) (typ : type) : Prop :=
-    forall (idx : nat) (v : value), arr idx = Some v -> value_typing v typ.
+    forall (idx : nat) (v : value), arr idx = v -> value_typing v typ.
 
   Definition store_typing (g : context) (sv : store_v) :=
     forall (v : var) (typ : type),
