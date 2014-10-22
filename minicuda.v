@@ -144,44 +144,47 @@ Module Minicuda.
   
   Combined Scheme stmt_typing_ind_mul from stmt_typing_ind', stmts_typing_ind'.
 
+  Inductive arr_acc := R | W.
+  Definition location := (arr_acc * var * nat)%type.
+  
   (* evaluation rule *)
-  Reserved Notation "sv '/' sta '/' e '||' v" (at level 40, sta at level 39, e at level 39, v at level 39).
+  Reserved Notation "sv '/' sta '/' e '||' '(' v ',' l ')'" (at level 40, sta at level 39, e at level 39, v at level 39).
 
-  Inductive eval_expr (sv : store_v) (sa : store_a) : expr -> value -> Prop :=
-  | E_bool : forall b,  sv / sa / (e_bool b) || (V_bool b)
-  | E_nat : forall n, sv / sa / (e_nat n) || (V_nat n)
+  Inductive eval_expr (sv : store_v) (sa : store_a) : expr -> value -> list location -> Prop :=
+  | E_bool : forall b,  sv / sa / (e_bool b) || (V_bool b,  [::])
+  | E_nat : forall n, sv / sa / (e_nat n) || (V_nat n, [::])
   | E_var : forall v val, sv v = Some val ->
-                          sv / sa / (e_var v) || val
-  | E_arr : forall arr a_v e_i idx val,
+                          sv / sa / (e_var v) || (val, [::])
+  | E_arr : forall arr a_v e_i idx val ls,
               sa arr = Some a_v ->
-              sv / sa / e_i || (V_nat idx) ->
+              sv / sa / e_i || (V_nat idx, ls) ->
               a_v idx = val ->
-              sv / sa / (e_arr arr e_i) || val
-  | E_and : forall (e1 e2 : expr) (v1 v2 : bool),
-              sv / sa / e1 || (V_bool v1) ->
-              sv / sa / e2 || (V_bool v2) ->
-              sv / sa / (e_op2 e1 And e2) || (V_bool (andb v1 v2))
-  | E_or : forall (e1 e2 : expr) (v1 v2 : bool),
-              sv / sa / e1 || (V_bool v1) ->
-              sv / sa / e2 || (V_bool v2) ->
-              sv / sa / (e_op2 e1 Or e2) || (V_bool (orb v1 v2))
-  | E_not : forall (e1 e2 : expr) (v1 v2 : bool),
-              sv / sa / e1 || (V_bool v1) ->
-              sv / sa / e2 || (V_bool v2) ->
-              sv / sa / (e_op2 e1 Not e2) || (V_bool (negb v1))
-  | E_plus : forall (e1 e2 : expr) (v1 v2 : nat),
-              sv / sa / e1 || (V_nat v1) ->
-              sv / sa / e2 || (V_nat v2) ->
-              sv / sa / (e_op2 e1 Plus e2) || (V_nat (addn v1 v2))
-  | E_mult : forall (e1 e2 : expr) (v1 v2 : nat),
-               sv / sa / e1 || (V_nat v1) ->
-               sv / sa / e2 || (V_nat v2) ->
-               sv / sa / (e_op2 e1 Mult e2) || (V_nat (muln v1 v2))
-  | E_le : forall (e1 e2 : expr) (v1 v2 : nat),
-              sv / sa / e1 || (V_nat v1) ->
-              sv / sa / e2 || (V_nat v2) ->
-              sv / sa / (e_op2 e1 Le e2) || (V_bool (leq v1 v2))
-  where "sv '/' sta '/' e '||' v" := (eval_expr sv sta e v).
+              sv / sa / (e_arr arr e_i) || (val, [:: (R, arr, idx) & ls])
+  | E_and : forall (e1 e2 : expr) (v1 v2 : bool) l1 l2,
+              sv / sa / e1 || (V_bool v1, l1) ->
+              sv / sa / e2 || (V_bool v2, l2) ->
+              sv / sa / (e_op2 e1 And e2) || (V_bool (andb v1 v2), app l1 l2)
+  | E_or : forall (e1 e2 : expr) (v1 v2 : bool) l1 l2,
+              sv / sa / e1 || (V_bool v1, l1) ->
+              sv / sa / e2 || (V_bool v2, l2) ->
+              sv / sa / (e_op2 e1 Or e2) || (V_bool (orb v1 v2), app l1 l2)
+  | E_not : forall (e1 e2 : expr) (v1 v2 : bool) l1 l2,
+              sv / sa / e1 || (V_bool v1, l1) ->
+              sv / sa / e2 || (V_bool v2, l2) ->
+              sv / sa / (e_op2 e1 Not e2) || (V_bool (negb v1), app l1 l2)
+  | E_plus : forall (e1 e2 : expr) (v1 v2 : nat) l1 l2,
+              sv / sa / e1 || (V_nat v1, l1) ->
+              sv / sa / e2 || (V_nat v2, l2) ->
+              sv / sa / (e_op2 e1 Plus e2) || (V_nat (addn v1 v2), app l1 l2)
+  | E_mult : forall (e1 e2 : expr) (v1 v2 : nat) l1 l2,
+               sv / sa / e1 || (V_nat v1, l1) ->
+               sv / sa / e2 || (V_nat v2, l2) ->
+               sv / sa / (e_op2 e1 Mult e2) || (V_nat (muln v1 v2), app l1 l2)
+  | E_le : forall (e1 e2 : expr) (v1 v2 : nat) l1 l2,
+              sv / sa / e1 || (V_nat v1, l1) ->
+              sv / sa / e2 || (V_nat v2, l2) ->
+              sv / sa / (e_op2 e1 Le e2) || (V_bool (leq v1 v2), app l1 l2)
+  where "sv '/' sta '/' e '||' '(' v ',' l ')'" := (eval_expr sv sta e v l).
 
   (* typing rule for value *)
   Inductive value_typing : value -> type -> Prop :=
@@ -203,41 +206,41 @@ Module Minicuda.
       ga v = Some typ -> exists arr, sa v = Some arr /\ array_typing arr typ.
 
   (* progress lemma for expression *)
-  Lemma expr_progress (e : expr) (g ga : context) (sv : store_v) (sa : store_a) (typ : type) :
+  Lemma expr_progress (e : expr) (g ga : context) (sv : store_v) (sa : store_a) (typ : type):
     expr_typing g ga e typ -> store_typing g sv -> store_a_typing ga sa ->
-    exists (v : value), sv / sa / e || v /\ value_typing v typ.
+    exists (v : value) (l : list location), sv / sa / e || (v, l) /\ value_typing v typ.
   Proof.
     elim.
-    - move=>b _ _; exists (V_bool b); split; [apply: E_bool | apply: TV_bool].
-    - by move=>n _ _; exists (V_nat n); split; [apply: E_nat | apply: TV_nat].
+    - move=>b _ _; exists (V_bool b); exists [::]; split; [apply: E_bool | apply: TV_bool].
+    - by move=>n _ _; exists (V_nat n); exists [::]; split; [apply: E_nat | apply: TV_nat].
     - rewrite / store_typing; move=> v ty Hty Hstore _.
       pose H := (Hstore v ty Hty).
       case: H=> val [Hsv Htyp].
-      exists val; split; first by apply E_var.
+      exists val; exists [::]; split; first by apply E_var.
       by done.
     - move=> arr idx typ0 Htyarr Hidx IH Hs Hsa.
-      pose H := (IH Hs Hsa).
-      case: H=> idx_v [Hi Hity].
+      move: (IH Hs Hsa)=> H.
+      case: H=> idx_v [l [Hi Hity]].
       inversion Hity; subst.
-      case: (Hsa arr typ0 Htyarr)=> arr_v [H  Ha].
+      case: (Hsa arr typ0 Htyarr)=> arr_v [H' Ha].
       rewrite / array_typing in Ha.
-      by exists (arr_v n); split; [apply: E_arr | apply: Ha].
+      by exists (arr_v n); exists [:: (R, arr, n) & l]; split; [apply: E_arr | apply: Ha].
     - move=> e1 e2 typ1 typ2 typ3; case;
       move=> Hty1 IH1 Hty2 IH2 Hs Hsa;
-      case: (IH1 Hs Hsa)=> v1 [Hv1 Htyv1];
-      case: (IH2 Hs Hsa)=> v2 [Hv2 Htyv2];
+      case: (IH1 Hs Hsa)=> v1 [l1 [Hv1 Htyv1]];
+      case: (IH2 Hs Hsa)=> v2 [l2 [Hv2 Htyv2]];
       inversion Htyv1; subst; inversion Htyv2; subst.
-      + exists (V_bool (andb b b0)); split; first by apply: E_and.
+      + exists (V_bool (andb b b0)); exists (cat l1 l2); split; first by apply: E_and.
         by apply: TV_bool.
-      + exists (V_bool (orb b b0)); split; first by apply: E_or.
+      + exists (V_bool (orb b b0)); exists (cat l1 l2); split; first by apply: E_or.
         by apply: TV_bool.
-      + exists (V_bool (negb b)); split; first by apply: E_not.
+      + exists (V_bool (negb b)); exists (cat l1 l2); split; first by apply: E_not.
         by apply: TV_bool.
-      + exists (V_nat (n + n0)); split; first by apply: E_plus.
+      + exists (V_nat (n + n0)); exists (cat l1 l2); split; first by apply: E_plus.
         by apply: TV_nat.
-      + exists (V_nat (n * n0)); split; first by apply: E_mult.
+      + exists (V_nat (n * n0)); exists (cat l1 l2); split; first by apply: E_mult.
         by apply: TV_nat.
-      + exists (V_bool (leq n n0)); split; first by apply E_le.
+      + exists (V_bool (leq n n0)); exists (cat l1 l2); split; first by apply E_le.
         by apply: TV_bool.
   Qed.
 
@@ -260,42 +263,45 @@ Module Minicuda.
       | snil => ss2
       | sseq s ss1 => sseq s (sapp ss1 ss2)
     end.
-  
-  Reserved Notation "'[' '==>s' '(' stv ',' sta ',' s1 ')'  '(' stv' ',' sta' ',' s2 ')' ']'"
-           (at level 40, sta at level 39, e at level 39,
-            stv' at level 39).
+
+  Reserved Notation "'[' '==>s' '(' stv ',' sta ',' s1 ')'  '(' stv' ',' sta' ',' s2 ')' 'at' loc ']'".
   
   Inductive stmt_step (stv : store_v) (sta : store_a) :
-    stmts -> store_v -> store_a -> stmts -> Prop :=
-  | S_Assign : forall (var : var) (e : expr) (val : value) (rest : stmts), 
-      stv / sta / e || val ->
-      [ ==>s (stv, sta, (sseq (s_var_ass var e) rest)) ((update_v var val stv), sta, rest)]
-  | S_Array : forall (e_idx e : expr) (idx : nat) (val : value) (a_var : var) (rest : stmts),
-      stv / sta / e_idx || (V_nat idx) ->
-      stv / sta / e     || val ->
-      [ ==>s (stv, sta, (sseq (s_arr_ass a_var e_idx e) rest)) (stv, update_a a_var idx val sta, rest)]
-  | S_Ife_T : forall (e_cond : expr) (s_then s_else : stmts) (rest : stmts),
-      stv / sta / e_cond || (V_bool true) ->
-      [ ==>s (stv, sta, sseq (s_if e_cond s_then s_else) rest) (stv, sta, sapp s_then rest)]
-  | S_Ife_F : forall (e_cond : expr) (s_then s_else rest : stmts),
-      stv / sta / e_cond || (V_bool false) ->
-      [ ==>s (stv, sta, sseq (s_if e_cond s_then s_else) rest) (stv, sta, sapp s_else rest)]
-  | S_loop_T : forall (e_cond : expr) (s_body rest : stmts),
-      stv / sta / e_cond || (V_bool true) ->
+    stmts -> store_v -> store_a -> stmts -> list location -> Prop :=
+  | S_Assign : forall (var : var) (e : expr) (val : value) (rest : stmts) l, 
+      stv / sta / e || (val, l) ->
+      [ ==>s (stv, sta, (sseq (s_var_ass var e) rest))
+             ((update_v var val stv), sta, rest) at l]
+  | S_Array : forall (e_idx e : expr) (idx : nat) (val : value) (a_var : var) (rest : stmts) lidx lv,
+      stv / sta / e_idx || (V_nat idx, lidx) ->
+      stv / sta / e     || (val, lv) ->
+      [ ==>s (stv, sta, (sseq (s_arr_ass a_var e_idx e) rest))
+             (stv, update_a a_var idx val sta, rest) at
+             [:: (W, a_var, idx) & lidx ++ lv ]]
+  | S_Ife_T : forall (e_cond : expr) (s_then s_else : stmts) (rest : stmts) l,
+      stv / sta / e_cond || (V_bool true, l) ->
+      [ ==>s (stv, sta, sseq (s_if e_cond s_then s_else) rest)
+             (stv, sta, sapp s_then rest) at l]
+  | S_Ife_F : forall (e_cond : expr) (s_then s_else rest : stmts) l,
+      stv / sta / e_cond || (V_bool false, l) ->
+      [ ==>s (stv, sta, sseq (s_if e_cond s_then s_else) rest)
+             (stv, sta, sapp s_else rest) at l]
+  | S_loop_T : forall (e_cond : expr) (s_body rest : stmts) l,
+      stv / sta / e_cond || (V_bool true, l) ->
       [ ==>s (stv, sta, sseq (s_while e_cond s_body) rest)
-            (stv, sta, sapp s_body (sseq (s_while e_cond s_body) rest))]
-  | S_loop_F : forall (e_cond : expr) (s_body rest : stmts),
-      stv / sta / e_cond || (V_bool false) ->
+            (stv, sta, sapp s_body (sseq (s_while e_cond s_body) rest)) at l]
+  | S_loop_F : forall (e_cond : expr) (s_body rest : stmts) l,
+      stv / sta / e_cond || (V_bool false, l) ->
       [ ==>s (stv, sta, sseq (s_while e_cond s_body) rest)
-            (stv, sta, rest)]
-    where "'[' '==>s' '(' stv ',' sta ',' ss1 ')' '(' stv' ',' sta' ',' ss2 ')' ']'" :=
-    (stmt_step stv sta ss1 stv' sta' ss2).
+            (stv, sta, rest) at l]
+    where "'[' '==>s' '(' stv ',' sta ',' ss1 ')' '(' stv' ',' sta' ',' ss2 ')' 'at' l ']'" :=
+    (stmt_step stv sta ss1 stv' sta' ss2 l).
   
-  (* This lemma is true, but barrier *)
+  (* This lemma is true, but barrier
   Lemma stmt_progress (ss : stmts) (g ga : context) (stv : store_v) (sta : store_a) :
     stmts_typing g ga ss -> store_typing g stv -> store_a_typing ga sta ->
-    ss = snil \/ exists (stv' : store_v) (sta' : store_a) (ss' : stmts),
-                   [ ==>s (stv, sta, ss) (stv', sta', ss')].
+    ss = snil \/ exists (stv' : store_v) (sta' : store_a) (ss' : stmts) l,
+                   [ ==>s (stv, sta, ss) (stv', sta', ss') at l].
   Proof.
     elim; first by move=> _ _; left.
     move=> s rest.
@@ -325,9 +331,10 @@ Module Minicuda.
       + by exists (sapp s_body (sseq (s_while e_cond s_body) rest)); apply S_loop_T.
         by exists rest; apply S_loop_F.
   Abort.
-
-  Lemma expr_deterministic (e : expr) (sv : store_v) (sa : store_a) (v v' : value) :
-    sv / sa / e || v -> sv / sa / e || v' -> v = v'.
+   *)
+  
+  Lemma expr_deterministic (e : expr) (sv : store_v) (sa : store_a) (v v' : value) l l' :
+    sv / sa / e || (v, l) -> sv / sa / e || (v', l') -> v = v'.
   Proof.
     move=> H; move: H v'; elim.
     - by move=> b v' H; inversion H; subst.
@@ -341,16 +348,16 @@ Module Minicuda.
       if i == j then st
       else m i H.
 
-  Reserved Notation "'[' '==>k' k k' ']'"
-           (at level 40, sta at level 39, e at level 39,
-            stv' at level 39).
+  Definition acc_log := option (nat * location)%type.
 
-  Inductive kernel_step : kernel_state -> kernel_state -> Prop :=
+  Reserved Notation "'[' '==>k' k k' at l ']'".
+
+  Inductive kernel_step : kernel_state -> kernel_state -> acc_log -> Prop :=
   | K_Step : forall (i : nat) (H : i < D) (m : state_map)
                     (sta : store_a)  (stv : store_v) (ss : stmts) 
-                    (sta' : store_a) (stv' : store_v) (ss' : stmts),
-               m i H = (stv, ss) -> [==>s (stv, sta, ss) (stv', sta', ss')] ->
-               kernel_step (sta, m) (sta', update_state m i H (stv', ss'))
+                    (sta' : store_a) (stv' : store_v) (ss' : stmts) (l : list location),
+               m i H = (stv, ss) -> [==>s (stv, sta, ss) (stv', sta', ss') at l] ->
+               kernel_step (sta, m) (sta', update_state m i H (stv', ss')) (i, l)
   | K_Barrier : forall (m : state_map) (m' : state_map) (sta : store_a),
                   (forall (t : nat) (Ht : t < D), exists stv,
                      (exists ss, m  t Ht = (stv, sseq s_barrier ss) /\
