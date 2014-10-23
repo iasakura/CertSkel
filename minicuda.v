@@ -348,16 +348,16 @@ Module Minicuda.
       if i == j then st
       else m i H.
 
-  Definition acc_log := option (nat * location)%type.
+  Inductive acc_log := Acc of nat & seq location | Barrier.
 
-  Reserved Notation "'[' '==>k' k k' at l ']'".
+  Reserved Notation "'[' '==>k' '(' sta ',' m ')' '(' sta' ',' m' ')' 'at' l ']'".
 
   Inductive kernel_step : kernel_state -> kernel_state -> acc_log -> Prop :=
   | K_Step : forall (i : nat) (H : i < D) (m : state_map)
                     (sta : store_a)  (stv : store_v) (ss : stmts) 
                     (sta' : store_a) (stv' : store_v) (ss' : stmts) (l : list location),
                m i H = (stv, ss) -> [==>s (stv, sta, ss) (stv', sta', ss') at l] ->
-               kernel_step (sta, m) (sta', update_state m i H (stv', ss')) (i, l)
+               [ ==>k (sta, m) (sta', update_state m i H (stv', ss')) at Acc i l ]
   | K_Barrier : forall (m : state_map) (m' : state_map) (sta : store_a),
                   (forall (t : nat) (Ht : t < D), exists stv,
                      (exists ss, m  t Ht = (stv, sseq s_barrier ss) /\
@@ -365,5 +365,17 @@ Module Minicuda.
                      (m t Ht = (stv, snil) /\ m' t Ht = (stv, snil))) ->
                   (exists (t : nat) (Ht : t < D) (stv : store_v) (ss : stmts),
                      m t Ht = (stv, sseq s_barrier ss)) ->
-                  kernel_step (sta, m) (sta, m')
-    where "'[' '==>k' k k' ']'" := (kernel_step k k').
+                  [ ==>k (sta, m) (sta, m') at Barrier ]
+    where "'[' '==>k' '(' sta ',' m ')' '(' sta' ',' m' ')' 'at' l ']'" :=
+       (kernel_step (sta, m) (sta', m') l).
+
+  Reserved Notation " '[' '==>k*' '(' sta ',' m ')' '(' sta' ',' m' ')' 'log' l ']'".
+
+  Inductive kernel_multi_step : kernel_state -> kernel_state -> list acc_log -> Prop :=
+  | KM_Nil : forall (sta : store_a) (m : state_map),
+               [ ==>k* (sta, m) (sta, m) log [::] ]
+  | KM_Step : forall (sta sta' sta'' : store_a) (m m' m'' : state_map) l l',
+               [ ==>k* (sta, m) (sta', m') log l ] -> [ ==>k (sta', m') (sta'', m'') at l'] ->
+               [ ==>k* (sta, m) (sta'', m'') log [:: l' & l]]
+    where " '[' '==>k*' '(' sta ',' m ')' '(' sta' ',' m' ')' 'log' l ']'" :=
+      (kernel_multi_step (sta, m) (sta', m') l).  
