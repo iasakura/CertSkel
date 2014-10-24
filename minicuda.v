@@ -4,7 +4,8 @@
  *)
 
 Module Minicuda.
-  Require Import ssreflect ssrbool ssrnat eqtype seq.
+  Require Import ssreflect ssrbool ssrnat eqtype seq fintype tuple.
+  Require Import Coq.Logic.FunctionalExtensionality.
 
   (* variable = nat *)
   Inductive var := Var of nat.
@@ -20,10 +21,8 @@ Module Minicuda.
     case=>x [] y.
     case: (@eqP _ x y).
     by move=>-> /=; rewrite eq_refl; apply: ReflectT.
-    move=>H /=.
-    suff: (x == y = false).
-    - by move=>->; apply: ReflectF; case.
-      by case:eqP.
+    move=>H; move:(H).
+    by move/eqP; rewrite <- eqbF_neg; move/eqP=>/= ->; apply: ReflectF; case.
   Qed.
 
   Canonical var_eqMixin := EqMixin var_eqP.
@@ -68,33 +67,74 @@ Module Minicuda.
   (* value *)
   Inductive value :=
   | V_bool of bool
-  | V_nat of nat.
+  | V_nat of nat
+  | Undef.
+
+  Fixpoint get_seq {A : Type} (s : seq A) (i : nat) : option A :=
+    if s is [:: x & s'] then 
+      if  i is S i' then get_seq s' i'
+      else Some x
+    else None.
+  Fixpoint set_seq {A : Type} (s : seq A) (i : nat) (y : A) : option (seq A) :=
+    if s is [:: x & s'] then 
+      if  i is S i' then
+        if set_seq s' i' y is Some s then Some [:: x & s]
+        else None
+      else Some [:: y & s']
+    else None.
+
+  Program Fixpoint get_seq_safe {A : Type} (s : seq A) (i : nat) (H : i < size s) : A :=
+    if s is [:: x & s'] then 
+      if  i is S i' then get_seq_safe s' i' _
+      else x
+    else _.
+  Next Obligation.
+  Proof.
+    suff: (s = [::]).
+    - by move=>Heq; move: Heq H; move=> -> /=.
+    - move=> {H}; move: H0; case: s=> //.
+      + by move=>a l H; move: (H a l).
+  Defined.
+  
+  Goal exists H, get_seq_safe [:: 1;2;3] 1 H == 2.
+  Proof.
+    have: (1 < 3) by done.
+    by move=> H; exists H.
+  Qed.
+  Program Fixpoint set_seq_safe {A : Type} (s : seq A) (i : nat) (y : A) (H : i < size s) : (seq A) :=
+    if s is [:: x & s'] then 
+      if  i is S i' then x :: set_seq_safe s' i' y _
+      else [:: y & s']
+    else match _: False with end.
+  Next Obligation.
+  Proof.
+    move: H0 H; case s.
+    - by move=>_ /=.
+    - by move=> a l H; move: (H a l).
+  Qed.
+  Goal exists H, set_seq_safe [:: 1;2;3] 2 5 H == [:: 1;2;5].
+  Proof.
+    have H: (2 < 3) by done.
+    by exists H.
+  Qed.
 
   (* array is function of nat to value *)
-  Definition array_store := nat -> value.
+  Definition array_store := seq value.
 
   (* store, distinguish between normal value and array value *)
   Definition store_v := var -> option value.
   Definition store_a := var -> option array_store.
   
-  (* number of threads *)
-  Parameter D : nat.
-
   (* state per threads *)
   Definition local_state  := (store_v * stmts)%type.
   (* thread map *)
-  Definition state_map := forall i, i < D -> local_state.
+  Definition state_map D := D.-tuple local_state.
 
   (* program variable ``tid'' *)
   Definition tid := Var 0.
-
-  (* variable tid is thread number 
-  Definition tid_is_tid (m : state_map) :=
-    forall (i : nat) (H : i < D), fst (m i H) tid = Some (V_nat i).
-   *)
   
   (* kernel is array and local state *)
-  Definition kernel_state := (store_a * state_map)%type.
+  Definition kernel_state D := (store_a * state_map D)%type.
 
   (* typing context *)
   Definition context := var -> option type.
@@ -158,7 +198,7 @@ Module Minicuda.
   | E_arr : forall arr a_v e_i idx val ls,
               sa arr = Some a_v ->
               sv / sa / e_i || (V_nat idx, ls) ->
-              a_v idx = val ->
+              get_seq a_v idx = Some val ->
               sv / sa / (e_arr arr e_i) || (val, [:: (R, arr, idx) & ls])
   | E_and : forall (e1 e2 : expr) (v1 v2 : bool) l1 l2,
               sv / sa / e1 || (V_bool v1, l1) ->
@@ -193,7 +233,7 @@ Module Minicuda.
 
   (* array is well typed ⇔ all elements have same type *)
   Definition array_typing (arr : array_store) (typ : type) : Prop :=
-    forall (idx : nat) (v : value), arr idx = v -> value_typing v typ.
+    forall (idx : nat) (v : value), nth Undef arr idx = v -> value_typing v typ.
 
   (* store is well typed ⇔ all valid variables are typed *)
   Definition store_typing (g : context) (sv : store_v) :=
@@ -205,7 +245,7 @@ Module Minicuda.
     forall (v : var) (typ : type),
       ga v = Some typ -> exists arr, sa v = Some arr /\ array_typing arr typ.
 
-  (* progress lemma for expression *)
+  (* progress lemma for expression
   Lemma expr_progress (e : expr) (g ga : context) (sv : store_v) (sa : store_a) (typ : type):
     expr_typing g ga e typ -> store_typing g sv -> store_a_typing ga sa ->
     exists (v : value) (l : list location), sv / sa / e || (v, l) /\ value_typing v typ.
@@ -243,19 +283,19 @@ Module Minicuda.
       + exists (V_bool (leq n n0)); exists (cat l1 l2); split; first by apply E_le.
         by apply: TV_bool.
   Qed.
-
+   *)
   (* value update*)
   Definition update_v (var : var) (v : value) (store : store_v) := fun var' =>
     if var' == var then Some v else store var'.
 
   (* array update *)
-  Definition update_a (arr : var) (i : nat) (v : value) (store_a : store_a) := fun arr' =>
+  Definition update_a (arr : var) (i : nat) (v : value) (sta : store_a) : store_a :=
+    fun arr' =>
     if arr == arr' then
-      if store_a arr is Some val_a then
-        Some (fun i' => if i' == i then v
-                  else val_a i)
+      if sta arr is Some val_a then
+        set_seq val_a i v
       else None
-    else store_a arr'.
+    else sta arr'.
 
   (* append sequences *)
   Fixpoint sapp (ss1 ss2 : stmts) :=
@@ -343,39 +383,135 @@ Module Minicuda.
       by rewrite H1 in Hst; case: Hst.
   Abort.
 
-  Definition update_state (m : state_map) (i : nat) (H : i < D) (st : local_state) :=
-    fun j (Hj : j < D) =>
-      if i == j then st
-      else m i H.
+  Definition set_nth {D : nat} {T : Type} (t : D.-tuple T) (i : 'I_D) (x : T) :=
+    mktuple (fun (j : 'I_D) => if i == j then x else tnth t j).
+  
+  Definition update_state {D : nat} (m : state_map D) (i : 'I_D)
+             (st : local_state) : state_map D :=
+    set_nth m i st.
 
   Inductive acc_log := Acc of nat & seq location | Barrier.
 
-  Reserved Notation "'[' '==>k' '(' sta ',' m ')' '(' sta' ',' m' ')' 'at' l ']'".
-
-  Inductive kernel_step : kernel_state -> kernel_state -> acc_log -> Prop :=
-  | K_Step : forall (i : nat) (H : i < D) (m : state_map)
+  Inductive kernel_step {D : nat} : kernel_state D -> kernel_state D -> acc_log -> Prop :=
+  | K_Step : forall (m : state_map D) (i : 'I_D)
                     (sta : store_a)  (stv : store_v) (ss : stmts) 
                     (sta' : store_a) (stv' : store_v) (ss' : stmts) (l : list location),
-               m i H = (stv, ss) -> [==>s (stv, sta, ss) (stv', sta', ss') at l] ->
-               [ ==>k (sta, m) (sta', update_state m i H (stv', ss')) at Acc i l ]
-  | K_Barrier : forall (m : state_map) (m' : state_map) (sta : store_a),
-                  (forall (t : nat) (Ht : t < D), exists stv,
-                     (exists ss, m  t Ht = (stv, sseq s_barrier ss) /\
-                                 m' t Ht = (stv, ss)) \/
-                     (m t Ht = (stv, snil) /\ m' t Ht = (stv, snil))) ->
-                  (exists (t : nat) (Ht : t < D) (stv : store_v) (ss : stmts),
-                     m t Ht = (stv, sseq s_barrier ss)) ->
-                  [ ==>k (sta, m) (sta, m') at Barrier ]
-    where "'[' '==>k' '(' sta ',' m ')' '(' sta' ',' m' ')' 'at' l ']'" :=
-       (kernel_step (sta, m) (sta', m') l).
+               tnth m i = (stv, ss) -> [==>s (stv, sta, ss) (stv', sta', ss') at l] ->
+               kernel_step (sta, m) (sta', update_state m i (stv', ss')) (Acc i l)
+  | K_Barrier : forall (m : state_map D) (m' : state_map D) (sta : store_a),
+                  (forall (t : 'I_D) , exists stv,
+                     (exists ss, tnth m t = (stv, sseq s_barrier ss) /\
+                                 tnth m' t = (stv, ss)) \/
+                     (tnth m t = (stv, snil) /\ tnth m' t = (stv, snil))) ->
+                  (exists (t : 'I_D) (stv : store_v) (ss : stmts),
+                     tnth m t  = (stv, sseq s_barrier ss)) ->
+                  kernel_step (sta, m) (sta, m') Barrier.
+   Notation "'[' '==>k' '(' sta ',' m ')' '(' sta' ',' m' ')' 'at' l ']'" := 
+       (kernel_step _ (sta, m) (sta', m') l).
 
-  Reserved Notation " '[' '==>k*' '(' sta ',' m ')' '(' sta' ',' m' ')' 'log' l ']'".
-
-  Inductive kernel_multi_step : kernel_state -> kernel_state -> list acc_log -> Prop :=
-  | KM_Nil : forall (sta : store_a) (m : state_map),
-               [ ==>k* (sta, m) (sta, m) log [::] ]
-  | KM_Step : forall (sta sta' sta'' : store_a) (m m' m'' : state_map) l l',
-               [ ==>k* (sta, m) (sta', m') log l ] -> [ ==>k (sta', m') (sta'', m'') at l'] ->
-               [ ==>k* (sta, m) (sta'', m'') log [:: l' & l]]
-    where " '[' '==>k*' '(' sta ',' m ')' '(' sta' ',' m' ')' 'log' l ']'" :=
+  Inductive kernel_multi_step {D : nat} : kernel_state D -> kernel_state D -> list acc_log -> Prop :=
+  | KM_Nil : forall (sta : store_a) (m : state_map D),
+               kernel_multi_step (sta, m) (sta, m) [::]
+  | KM_Step : forall (sta sta' sta'' : store_a) (m m' m'' : state_map D) l l',
+                kernel_step (sta, m) (sta', m') l' ->
+                kernel_multi_step (sta', m') (sta'', m'') l ->
+                kernel_multi_step (sta, m) (sta'', m'') [:: l' & l].
+   Notation " '[' '==>k*' '(' sta ',' m ')' '(' sta' ',' m' ')' 'log' l ']'" :=
       (kernel_multi_step (sta, m) (sta', m') l).  
+
+  Definition initial_sta : store_a := fun (_ : var) => None.
+  Definition initial_stv (t : nat) : store_v :=
+    fun (v : var) => if v == tid then Some (V_nat t) else None.
+  
+  Definition initial_state {D : nat}  (P : stmts) : kernel_state D :=
+    let st : state_map D := mktuple (fun i : 'I_D => (initial_stv i, P)) in
+    (initial_sta, st).
+
+  Section Example1.
+  
+    Definition X := Var 1.
+    Definition Y := Var 2.
+    Definition Z := Var 3.
+
+    Definition arr1 := Var 1.
+    Definition D := 3.
+    
+    Definition post_sta : store_a :=
+      fun (av : var) => if av == arr1 then Some (nseq D (V_nat 1)) else None.
+    
+    Definition map :=
+      sseq (s_arr_ass arr1 (e_var tid) (e_nat 1)) snil.
+
+    Fixpoint log i :=
+      if i is S i' then [:: Acc i' [ :: (W, arr1, i') ] & log i']
+      else [::].
+    Definition log' := log D.
+
+    Definition pre_sta : store_a :=
+      fun (av : var) => if av == arr1 then Some (nseq D (V_nat 0)) else None.
+    
+    Goal [ ==>k* (pre_sta, [tuple (initial_stv t, map) | t < D])
+                 (post_sta,    [tuple (initial_stv t, snil) | t < D]) log log' ].
+    Proof.
+      have: (2 < 3) by done. move => H2.
+      have: (1 < 3) by done. move => H1.
+      have: (0 < 3) by done. move => H0.
+
+      apply: (KM_Step _ _ _ _ _ _).
+      exact: (update_a arr1 2 (V_nat 1) pre_sta).
+      pose imap := [tuple (initial_stv t, map) | t < D].
+      exact: (update_state imap (Ordinal H2) (initial_stv 2, snil)).
+      move=>/=.
+      apply: (K_Step [tuple (initial_stv t, map)  | t < D] (Ordinal H2) _
+              (initial_stv 2)  map).
+      - by rewrite tnth_mktuple.
+        have: [:: (W, arr1, 2)] = [:: (W, arr1, 2) & [::] ++ [::]] by done.
+        move=>->. apply S_Array.
+        by apply: E_var.
+        by apply: E_nat.
+        move=>/=.
+        move Ha2 : (update_a arr1 2 (V_nat 1) pre_sta) => h2.
+        move Hm2 : (update_state [tuple (initial_stv t, map) | t < D]
+                                 (Ordinal (n:=3) (m:=2) H2) (initial_stv 2, snil)) => m2.
+        apply: (KM_Step _ (update_a arr1 1 (V_nat 1) h2) _
+                       _ (update_state m2 (Ordinal H1) (initial_stv 1, snil)) _).
+        apply: (K_Step _ _ _ (initial_stv 1) map).
+        by rewrite <- Hm2; rewrite !tnth_mktuple.
+        have ->: [:: (W, arr1, 1)] = [:: (W, arr1, 1) & [::] ++ [::]] by done.
+        apply: S_Array.
+        by apply: E_var.
+        by apply: E_nat.
+        move Ha1 : (update_a arr1 1 (V_nat 1) h2) => h1.
+        move Hm1 : (update_state m2 (Ordinal (n:=3) (m:=1) H1) (initial_stv 1, snil)) => m1.
+        apply: (KM_Step _ (update_a arr1 0 (V_nat 1) h1) _
+                        _ (update_state m1 (Ordinal H0) (initial_stv 0, snil)) _).
+        apply: (K_Step _ _ _ (initial_stv 0) map).
+        by rewrite -Hm1 -Hm2 !tnth_mktuple.
+        have ->: [:: (W, arr1, 0)] = [:: (W, arr1, 0) & [::] ++ [::]] by done.
+        apply: S_Array.
+        by apply: E_var.
+        by apply: E_nat.
+        have -> : (update_state m1 (Ordinal (n:=3) (m:=0) H0) (initial_stv 0, snil) =
+                   [tuple (initial_stv t, snil) | t < D]).
+        rewrite -Hm1 -Hm2 /update_state /set_nth.
+        apply: eq_from_tnth.
+        case; case.
+        move=> i.
+        - by rewrite !tnth_mktuple.
+        case. move=>i. by rewrite !tnth_mktuple.
+        case. move=>i'. by rewrite !tnth_mktuple.
+        by case.
+        have -> : (update_a arr1 0 (V_nat 1) h1 = post_sta).
+        apply: functional_extensionality.
+        move=>x.
+        case: (@eqP _ arr1 x).
+        move=><-.
+        by rewrite/ update_a / post_sta eqxx -Ha1 /update_a eqxx -Ha2 /update_a eqxx
+               /initial_sta /pre_sta eqxx.
+        move/eqP/negPf=>H.
+        by rewrite /update_a H /update_a -Ha1 /update_a H -Ha2 /update_a H /pre_sta eq_sym H
+                /post_sta eq_sym H.
+        apply: KM_Nil.
+    Qed.
+  End Example1.
+End Minicuda.
