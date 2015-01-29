@@ -75,7 +75,7 @@ Module PHeap.
     now unfold emp_h, pdisj; simpl; intros h x; destruct (h x) as [[? ?] | ?].
   Qed.
 
-  Definition upd (h : pheap) (x : Z) (v : Z) : pheap :=
+  Definition ph_upd (h : pheap) (x : Z) (v : Z) : pheap :=
     fun (x' : Z) => if Zeq_bool x x' then Some (full_p, v) else h x'.
 
   Definition empty_p := 0.
@@ -99,9 +99,9 @@ Module PHeap.
   
   Lemma pdisj_upd : forall (h h' : pheap) (H : is_pheap h) (H' : is_pheap h')
     (x w v : Z), h x = Some (full_p, w) -> 
-    (pdisj (upd h x v) h' <-> pdisj h h').
+    (pdisj (ph_upd h x v) h' <-> pdisj h h').
   Proof.
-    unfold pdisj, upd; ins.
+    unfold pdisj, ph_upd; ins.
     split. 
     - intros hp x0; specialize (hp x0); specialize (H x0); specialize (H' x0).
       destruct (Zeq_bool x x0), (h x0) as [[? ?] | ], (h' x0) as [[? ?] | ]; eauto.
@@ -289,8 +289,11 @@ Module PHeap.
     destruct (ph1 x) as [[? ?] |], (ph2 x) as [[? ?] |];
     des; eauto; try congruence.
   Qed.
+End PHeap.
 
 Module Language.
+  Import PHeap.
+  
   Definition var := Z.
   Definition stack := var -> Z.
   Definition state := (stack * heap)%type.
@@ -348,7 +351,7 @@ Module Language.
     end.
   
   Reserved Notation "c '/' st  '==>s'  c' '/' st' " (at level 40, st at level 39, c' at level 39).
-  Inductive red: (cmd * state) -> (cmd * state) -> Prop := 
+  Inductive red: cmd -> state -> cmd  -> state -> Prop := 
   | red_Seq1: forall (c : cmd) (ss : state), (SKIP ;; c) / ss ==>s c / ss
   | red_Seq2: forall (c1 : cmd) (ss : state) (c1' : cmd) (ss' : state) (c2 : cmd)
                      (R: c1 / ss ==>s c1' / ss'), 
@@ -374,10 +377,42 @@ Module Language.
                       (EQ1: ss = (s, h))
                       (EQ2: ss' = (s, upd h (edenot e1 s) (Some (edenot e2 s)))),
                       (Cwrite e1 e2) / ss ==>s Cskip / ss'
-   where  "c '/' st  '==>s'  c' '/' st' " := (red (c, st) (c', st')).
+   where  "c '/' st  '==>s'  c' '/' st' " := (red c st c' st').
 
-  Definition multi_red : (cmd * state) -> (cmd * state) -> Prop := clos_refl_trans_1n _ red.
-  Notation "c '/' st  '==>s*'  c' '/' st' " := (multi_red (c, st) (c', st')) (at level 40, st at level 39, c' at level 39).
+  Definition red_tup (st1 st2 : (cmd * state)) : Prop := red (fst st1) (snd st1) (fst st2) (snd st2).
+  Definition multi_red_tup : (cmd * state) -> (cmd * state) -> Prop := clos_refl_trans_1n _ red_tup.
+  Definition multi_red (c1 : cmd) (st1 : state) (c2 : cmd) (st2 : state) := 
+    multi_red_tup (c1, st1) (c2, st2).
+  
+  Notation "c '/' st  '==>s*'  c' '/' st' " := (multi_red c st c' st') (at level 40, st at level 39, c' at level 39).
+
+  Definition pstate := (stack * pheap)%type.
+  
+  Inductive red_p: (cmd * pstate) -> (cmd * pstate) -> Prop :=
+    redp_ster : forall (c1 c2 : cmd) (st1 st2 : stack) (ph1 ph2 phF : pheap) (h1 h2 : heap),
+      is_pheap ph1 -> is_pheap ph2 -> is_pheap phF ->
+      pdisj ph1 phF -> ptoheap (phplus ph1 phF) h1 ->
+      c1 / (st1, h1) ==>s c2 / (st2, h2) ->
+      pdisj ph2 phF -> ptoheap (phplus ph2 phF) h2 ->
+      red_p (c1, (st1, ph1)) (c2, (st2, ph2)).
+  Notation "c '/' st  '==>p'  c' '/' st' " := (red_p (c, st) (c', st')) (at level 40, st at level 39, c' at level 39).
+
+  Lemma red_det (st st1 st2 : (cmd * state)) :
+    fst st / snd st ==>s fst st1 / snd st1 -> 
+    fst st / snd st ==>s fst st2 / snd st2 -> 
+    fst st1 = fst st2 /\ snd st1 = snd st2.
+  Proof.
+    intros red1 red2.
+    induction red1.
+    
+  Lemma red_p_det (c c1 c2 : cmd) (st st1 st2 : stack) (ph ph1 ph2 : pheap) :
+    is_pheap ph -> is_pheap ph1 -> is_pheap ph2 ->
+    c / (st, ph) ==>p c1 / (st1, ph1) ->
+    c / (st, ph) ==>p c2 / (st2, ph2) ->
+    c1 = c2 /\ st1 = st2 /\ ph1 = ph2.
+  Proof.
+    intros isp isp1 isp2 red1 red2;
+    inversion red1.
   
   Fixpoint accesses (c : cmd) (s : stack) := 
     match c with
