@@ -583,7 +583,130 @@ Section NonInter.
 
     Definition terminal := option (nat * cmd).
 
-    Lemma non_interference_big (c : cmd) (st1 st2 st1' st2' : pstate) (t1 t2 : terminal) :
-      c / st1 || t1 / st1' -> c / st2 || t2 / st2' -> t1 = t2 /\ st_compat st1' st2'.
+    Lemma non_interference_hi (c : cmd) (st1 st2 st2' : pstate) (t : terminal) :
+      typing_cmd c Hi -> st_compat st1 st2 ->
+      c / st2 || t / st2' -> t = None /\ st_compat st1 st2'.
+    Proof.
+      intros htng1 hcomp ev.
+      induction ev.
+      - split; eauto. 
+      - inversion htng1; subst.
+        pose proof (IHev H1 hcomp) as [H ?]; inversion H.
+      - inversion htng1; subst.
+        pose proof (IHev1 H1 hcomp) as [_ hcomp'].
+        apply (IHev2 H3 hcomp').
+      - inversion htng1; subst.
+        assert (join Hi ty = Hi) by (destruct ty; simpl; eauto); subst; eauto.
+      - inversion htng1; subst.
+        assert (join Hi ty = Hi) by (destruct ty; simpl; eauto); subst; eauto.
+      - assert (typing_cmd (Cif b (c ;; Cwhile b c) SKIP) Hi).
+        inversion htng1; subst.
+        apply (ty_if H1); econstructor; eauto.
+        eauto.
+      - inversion htng1; subst.
+        cutrewrite (join ty Hi = Hi) in H5; [ | destruct ty; eauto].
+        assert (g x = Hi) by (destruct (g x); inversion H5; eauto).
+        destruct hcomp as [heq ?];
+        repeat split; destruct st1 as [s1 h1]; simpl; eauto.
+        intros y; unfold upd; destruct (Z.eq_dec y x); subst.
+        + intros H'; congruence.
+        + specialize (heq y); eauto.
+      - inversion htng1; subst.
+        cutrewrite (join ty Hi = Hi) in H6; [ | destruct ty; eauto].
+        assert (g x = Hi) by (destruct (g x); inversion H6; eauto).
+        destruct st1 as [s' h'], hcomp as [heq hdisj]; simpl in *.
+        repeat split; eauto; simpl.
+        intros y; unfold upd; destruct (Z.eq_dec y x); subst.
+        + intros H'; congruence.
+        + specialize (heq y); simpl; eauto.
+      - subst; destruct st1, hcomp; unfold st_compat in *; simpl in *; repeat split; eauto.
+        apply pdisjC. apply (pdisj_upd _ _ H0); apply pdisjC; eauto.
+      - inversion htng1.
+    Qed.
 
+    Lemma st_compat_refl (st1 st2 : pstate) : st_compat st1 st2 -> st_compat st2 st1.
+    Proof.
+      unfold st_compat; intros [h1 h2]; split.
+      - intros x; specialize (h1 x); intros; symmetry; eauto. 
+      - apply pdisjC; eauto.
+    Qed.
+
+    Lemma non_interference_hi2 (c1 c2 : cmd) (st1 st2 st1' st2' : pstate) (t1 t2 : terminal) :
+      typing_cmd c1 Hi -> typing_cmd c2 Hi -> st_compat st1 st2 ->
+      c1 / st1 || t1 / st1' -> c2 / st2 || t2 / st2' -> t1 = t2 /\ st_compat st1' st2'.
+    Proof.
+      intros htng1 htng2 hcomp ev1 ev2.
+      pose proof (non_interference_hi htng2 hcomp ev2) as [hc1 hc2].      
+      pose proof (non_interference_hi htng1 (st_compat_refl hc2) ev1) as [hc3 hc4].
+      subst; split; eauto.
+      apply st_compat_refl; eauto.
+    Qed.
+
+    Lemma non_interference_big (ty : type) (c : cmd) (st1 st2 st1' st2' : pstate) (t1 t2 : terminal) :
+      typing_cmd c ty -> st_compat st1 st2 ->
+      c / st1 || t1 / st1' -> c / st2 || t2 / st2' -> t1 = t2 /\ st_compat st1' st2'.
+    Proof.
+      intros htng hcomp ev1 ev2.
+      revert hcomp ev2; generalize st2 st2' t2; clear st2 st2' t2; induction ev1;
+      intros st2 st2' t2 hcomp ev2; unfold st_compat in *; des.
+      - inversion ev2; split; [eauto | split; subst; eauto].
+      - inversion htng; subst.
+        inversion ev2; subst.
+        + pose proof (IHev1 H1 _ _ _ (conj hcomp hcomp0) H6) as H; clear IHev1; rename H into IHev1.
+          destruct IHev1 as [hteq ?]; split; eauto.
+          inversion hteq; subst; eauto.
+        + pose proof (IHev1 H1 _ _ _ (conj hcomp hcomp0) H2) as H; clear IHev1; rename H into IHev1.
+          destruct IHev1 as [H ?]; inversion H.
+      - inversion htng; subst.
+        inversion ev2; subst.
+        + pose proof (IHev1_1 H1 _ _ _ (conj hcomp hcomp0) H6) as [H ?]; inversion H.
+        + pose proof (IHev1_1 H1 _ _ _ (conj hcomp hcomp0) H2) as [_ hcomp'].
+          apply (IHev1_2 H3 _ _ _ hcomp' H7).
+      - inversion htng; subst.
+        rename H3 into htngb, H5 into htng1, H6 into htng2.
+        inversion ev2; subst.
+        + destruct ty0.
+          * assert (join ty Hi = Hi) as Hr by (destruct ty; eauto); rewrite Hr in *; clear Hr.
+            eapply (non_interference_hi2 htng1 htng1 (conj hcomp hcomp0) ev1 H7).
+          * destruct ty; [eapply (non_interference_hi2 htng1 htng1 (conj hcomp hcomp0) ev1 H7)|].
+            apply (IHev1 htng1 _ _ _ (conj hcomp hcomp0)); eauto.
+        + destruct ty0.
+          * assert (join ty Hi = Hi) as Hr by (destruct ty; eauto); rewrite Hr in *; clear Hr.
+            eapply (non_interference_hi2 htng1 htng2 (conj hcomp hcomp0) ev1 H7).
+          * destruct ty; [eapply (non_interference_hi2 htng1 htng2 (conj hcomp hcomp0) ev1 H7)|].
+            pose proof (low_eq_eq_bexp hcomp htngb); congruence.
+      - inversion htng; subst.
+        rename H3 into htngb, H5 into htng1, H6 into htng2.
+        inversion ev2; subst.
+        + destruct ty0.
+          * assert (join ty Hi = Hi) as Hr by (destruct ty; eauto); rewrite Hr in *; clear Hr.
+            eapply (non_interference_hi2 htng2 htng1 (conj hcomp hcomp0) ev1 H7).
+          * destruct ty; [eapply (non_interference_hi2 htng2 htng1 (conj hcomp hcomp0) ev1 H7)|].
+            pose proof (low_eq_eq_bexp hcomp htngb); congruence.
+        + destruct ty0.
+          * assert (join ty Hi = Hi) as Hr by (destruct ty; eauto); rewrite Hr in *; clear Hr.
+            eapply (non_interference_hi2 htng2 htng2 (conj hcomp hcomp0) ev1 H7).
+          * destruct ty; [eapply (non_interference_hi2 htng2 htng2 (conj hcomp hcomp0) ev1 H7)|].
+            apply (IHev1 htng2 _ _ _ (conj hcomp hcomp0)); eauto.
+      - inversion ev2; subst.
+        inversion H4; subst.
+        + assert (typing_cmd (Cif b (c;; Cwhile b c) SKIP) ty).
+          { inversion htng; subst; repeat (econstructor; eauto).
+            destruct ty, ty0; eauto. }
+          apply (IHev1 H _ _ _ (conj hcomp hcomp0) H4).
+        + inversion H7; subst.
+          inversion ev1; subst; try (inversion H9; subst; tauto).
+          destruct ty; inversion htng; subst.
+          * cutrewrite (join Hi ty = Hi) in H3; [|eauto].
+            pose proof (st_compat_refl (conj hcomp hcomp0)).
+            assert (typing_cmd (c ;; Cwhile b c) Hi) by (econstructor; eauto).
+            pose proof (non_interference_hi H0 H H9).
+            destruct H2 as [? H']; split; [eauto | apply (st_compat_refl H')].
+          * destruct ty.
+            { assert (typing_cmd (Cwhile b c) Hi) by (econstructor; eauto).
+              assert (typing_cmd (c;; Cwhile b c) Hi) by (econstructor; eauto).
+              pose proof (non_interference_hi H0 (st_compat_refl (conj hcomp hcomp0)) H9).
+              destruct H2 as [? H']; split; [eauto | apply (st_compat_refl H')]. }
+            pose proof (low_eq_eq_bexp hcomp H1); congruence.
+      - 
 End NonInter; 
