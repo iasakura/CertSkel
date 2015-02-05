@@ -332,8 +332,9 @@ Module PLang.
   Qed.
 End PLang.
 
+Import PLang.
+
 Module BigStep.
-  Import PLang.
   Reserved Notation " c '/' s '||' c' '/' s'" (at level 40, s at level 39, c' at level 39).
   Inductive eval : cmd -> pstate -> option (nat * cmd) -> pstate -> Prop :=
   | eval_Skip : forall (st : pstate), SKIP / st || None / st
@@ -403,20 +404,6 @@ Module BigStep.
       cutrewrite (is_p = ph_upd_ph ph (edenot e1 s0) (edenot e2 s0)); 
         [ eauto | apply proof_irrelevance ].
   Qed.
-  (*
-  Corollary red1_eval' (c1 c2 : cmd) (st1 st2 st3 : pstate) : 
-    c1 / st1 ==>s c2 / st2 -> c2 / st2 || None / st3 -> c1 / st1 || None / st3.
-  Proof.
-    move=> H H'.
-    remember (c1, st1) as s1.
-    assert (c1 = fst s1) as h by (rewrite Heqs1; tauto); rewrite h in *; clear h.
-    assert (st1 = snd s1) as h by (rewrite Heqs1; tauto); rewrite h in *; clear h.
-    remember (c2, st2) as s2.
-    assert (c2 = fst s2) as h by (rewrite Heqs2; tauto); rewrite h in *; clear h.
-    assert (st2 = snd s2) as h by (rewrite Heqs2; tauto); rewrite h in *; clear h.
-    eapply red1_eval; eauto.
-  Qed.
-   *)
 
   Lemma eval__mred1 (c : cmd) (st st' : pstate) : 
     c / st ==>p* Cskip / st' -> c / st || None / st'.
@@ -461,13 +448,16 @@ Module BigStep.
       unfold red_p_tup in H.
       destruct H as [c c' stp' stp'' pst pst' s s' ph ph' phF h h' eq eq' 
                      peq peq' aok wok dis to red dis' to'].
-      induction [c'' IH]red; ins; subst; try inversion eq'; subst.
-      + eapply eval_Seq2; [apply eval_Skip | apply phplus_cancel_toheap].
-      + inversion IH; subst.
-        * apply eval_Seq1. 
-          apply IHred; eauto.
+      induction [c'' IH]red; ins; subst; try inversion eq'; subst;
+      try assert (ph = ph') by (eapply phplus_cancel_toheap; eauto); subst;
+      try (econstructor; tauto).
+      + eapply eval_Seq2; [apply eval_Skip | eauto ].
+      + inversion IH; subst;
+        unfold access_ok, write_ok in *; simpl in *.
+        * apply eval_Seq1; eauto.
         * eapply eval_Seq2; eauto.
-          eapply red1_eval'; eauto.
+          eapply red1_eval; eauto.
+          apply (@redp_ster _ _ (s, h) (s', h') (s, ph) (s', ph') s s' ph ph' phF h h'); eauto.
       + apply eval_If2; eauto.
       + inversion IH.
       + inversion IH.
@@ -475,9 +465,10 @@ Module BigStep.
   Qed.
 End BigStep.
 
+Import BigStep.
 Definition kstate := (list (cmd * stack) * heap)%type.
 
-Module NonInter.
+Section NonInter.
   Inductive type := Hi | Lo.
   Definition join (t1 t2 : type) :=
       match (t1, t2) with
@@ -492,42 +483,107 @@ Module NonInter.
       end.
 
     Definition env := var -> type.
-    Inductive typing_exp : env -> exp -> type -> Prop := 
-    | ty_var : forall (g : env) (v : var) (ty : type), g v = ty -> typing_exp g (Evar v) ty
-    | ty_num : forall (g : env) (n : Z) (ty : type), typing_exp g (Enum n) ty
-    | ty_plus : forall (g : env) (e1 e2 : exp) (ty1 ty2 : type), 
-                  typing_exp g e1 ty1 -> typing_exp g e2 ty2 ->
-                  typing_exp g (Eplus e1 e2) (join ty1 ty2).
+    Variable g : env.
+    
+    Inductive typing_exp : exp -> type -> Prop := 
+    | ty_var : forall (v : var) (ty : type), g v = ty -> typing_exp (Evar v) ty
+    | ty_num : forall (n : Z) (ty : type), typing_exp (Enum n) ty
+    | ty_plus : forall (e1 e2 : exp) (ty1 ty2 : type), 
+                  typing_exp e1 ty1 -> typing_exp e2 ty2 ->
+                  typing_exp (Eplus e1 e2) (join ty1 ty2).
 
-    Inductive typing_bexp : env -> bexp -> type -> Prop := 
-    | ty_eq : forall (g : env) (e1 e2 : exp) (ty1 ty2 : type), 
-                typing_exp g e1 ty1 -> typing_exp g e2 ty2 ->
-                typing_bexp g (Beq e1 e2) (join ty1 ty2)
-    | ty_and : forall (g : env) (b1 b2 : bexp) (ty1 ty2 : type), 
-                 typing_bexp g b1 ty1 -> typing_bexp g b2 ty2 ->
-                 typing_bexp g (Band b1 b2) (join ty1 ty2)
-    | ty_not : forall (g : env) (b : bexp) (ty : type), 
-                 typing_bexp g b ty -> typing_bexp g (Bnot b) ty.
+    Inductive typing_bexp : bexp -> type -> Prop := 
+    | ty_eq : forall (e1 e2 : exp) (ty1 ty2 : type), 
+                typing_exp e1 ty1 -> typing_exp e2 ty2 ->
+                typing_bexp (Beq e1 e2) (join ty1 ty2)
+    | ty_and : forall (b1 b2 : bexp) (ty1 ty2 : type), 
+                 typing_bexp b1 ty1 -> typing_bexp b2 ty2 ->
+                 typing_bexp (Band b1 b2) (join ty1 ty2)
+    | ty_not : forall (b : bexp) (ty : type), 
+                 typing_bexp b ty -> typing_bexp (Bnot b) ty.
 
-    Inductive typing_cmd : env -> cmd -> type -> Prop :=
-    | ty_skip : forall (g : env) (pc : type), typing_cmd g Cskip pc
-    | ty_assign : forall (g : env) (v : var) (e : exp) (pc ty : type),
-                    typing_exp g e ty -> le_type (join ty pc) (g v) = true ->
-                    typing_cmd g (v ::= e) pc
-    | ty_read : forall (g : env) (v : var) (e : exp) (pc ty : type),
-                  typing_exp g e ty -> le_type (join ty pc) (g v) = true ->
-                  typing_cmd g (v ::= [e]) pc
-    | ty_write : forall (g : env) (e1 e2 : exp) (pc : type),
-                   typing_cmd g ([e1] ::= e2) pc
-    | ty_seq : forall (g : env) (c1 c2 : cmd) (pc : type),
-                 typing_cmd g c1 pc -> typing_cmd g c2 pc ->
-                 typing_cmd g (c1 ;; c2) pc
-    | ty_if : forall (g : env) (b : bexp) (c1 c2 : cmd) (pc ty : type),
-                typing_bexp g b ty ->
-                typing_cmd g c1 (join pc ty) -> typing_cmd g c2 (join pc ty) ->
-                typing_cmd g (Cif b c1 c2) pc
-    | ty_while : forall (g : env) (b : bexp) (c : cmd) (pc ty : type),
-                   typing_bexp g b ty ->
-                   typing_cmd g c (join pc ty) -> typing_cmd g (Cwhile b c) pc
-    | ty_barrier : forall (g : env) (j : nat), typing_cmd g (Cbarrier j) Lo.
-End NonInter.
+    Inductive typing_cmd : cmd -> type -> Prop :=
+    | ty_skip : forall (pc : type), typing_cmd Cskip pc
+    | ty_assign : forall (v : var) (e : exp) (pc ty : type),
+                    typing_exp e ty -> le_type (join ty pc) (g v) = true ->
+                    typing_cmd (v ::= e) pc
+    | ty_read : forall (v : var) (e : exp) (pc ty : type),
+                  typing_exp e ty -> le_type (join ty pc) (g v) = true ->
+                  typing_cmd (v ::= [e]) pc
+    | ty_write : forall (e1 e2 : exp) (pc : type),
+                   typing_cmd ([e1] ::= e2) pc
+    | ty_seq : forall (c1 c2 : cmd) (pc : type),
+                 typing_cmd c1 pc -> typing_cmd c2 pc ->
+                 typing_cmd (c1 ;; c2) pc
+    | ty_if : forall (b : bexp) (c1 c2 : cmd) (pc ty : type),
+                typing_bexp b ty ->
+                typing_cmd c1 (join pc ty) -> typing_cmd c2 (join pc ty) ->
+                typing_cmd (Cif b c1 c2) pc
+    | ty_while : forall (b : bexp) (c : cmd) (pc ty : type),
+                   typing_bexp b ty ->
+                   typing_cmd c (join pc ty) -> typing_cmd (Cwhile b c) pc
+    | ty_barrier : forall (j : nat), typing_cmd (Cbarrier j) Lo.
+
+    Definition low_eq (s1 s2 : stack) := forall x, g x = Lo -> s1 x = s2 x.
+    
+    Lemma hi_low_eq (x : var) (v1 v2 : Z) (s1 s2 : stack):
+      low_eq s1 s2 -> g x = Hi -> low_eq (upd s1 x v1) (upd s2 x v2).
+    Proof.
+      unfold upd; intros heq hhi y; destruct (Z.eq_dec y x); subst.
+      - intros h; rewrite hhi in h; inversion h.
+      - intros h; apply heq in h; eauto.
+    Qed.
+
+    Lemma low_eq_eq_exp (e : exp) (s1 s2 : stack) :
+      low_eq s1 s2 -> typing_exp e Lo -> edenot e s1 = edenot e s2.
+    Proof.
+      intros heq hty; induction e; simpl; eauto.
+      - inversion hty; specialize (heq x); eauto.
+      - inversion hty.
+        destruct ty1, ty2; unfold join in H1; simpl in H1; inversion H1.
+        apply IHe1 in H2; apply IHe2 in H3; rewrite H2, H3; eauto.
+    Qed.
+
+    Lemma low_eq_eq_bexp (be : bexp) (s1 s2 : stack) :
+      low_eq s1 s2 -> typing_bexp be Lo -> bdenot be s1 = bdenot be s2.
+    Proof.
+      intros heq hty; induction be; simpl; eauto.
+      - inversion hty.
+        destruct ty1, ty2; inversion H1.
+        cutrewrite (edenot e1 s1 = edenot e1 s2); [ | eapply low_eq_eq_exp; eauto].
+        cutrewrite (edenot e2 s1 = edenot e2 s2); [ | eapply low_eq_eq_exp; eauto].
+        eauto.
+      - inversion hty.
+        destruct ty1, ty2; inversion H1.
+        apply IHbe1 in H2; apply IHbe2 in H3; rewrite H2, H3; eauto.
+      - inversion hty.
+        rewrite (IHbe H0); eauto.
+    Qed.
+
+    Lemma pheap_disj_eq (h1 h2 : pheap) (v v1 v2 : Z) (q1 q2 : Qc) :
+      pdisj h1 h2 -> this h1 v = Some (q1, v1) -> this h2 v = Some (q2, v2) -> v1 = v2.
+    Proof.
+      intros hdis h1v h2v.
+      specialize (hdis v); rewrite h1v, h2v in hdis; des; eauto.
+    Qed.
+
+    Lemma pheap_disj_disj (h1 h2 : pheap) (v1 v2 v1' v2' : Z) :
+      pdisj h1 h2 -> this h1 v1 = Some (full_p, v1') -> this h2 v2 = Some (full_p, v2') ->
+      pdisj (ph_upd2 h1 v1 v1') (ph_upd2 h2 v2 v2').
+    Proof.
+      intros hdis h1v h2v.
+      apply (pdisj_upd (ph_upd2 h2 v2 v2') v1' h1v).
+      apply pdisjC.
+      unfold ph_upd2; simpl.
+      apply (pdisj_upd h1 v2' h2v); eauto.
+    Qed.
+
+    Definition st_compat (st1 st2 : pstate) :=
+      low_eq (fst st1) (fst st2) /\ pdisj (snd st1) (snd st2).
+
+    Definition terminal := option (nat * cmd).
+
+    Lemma non_interference_big (c : cmd) (st1 st2 st1' st2' : pstate) (t1 t2 : terminal) :
+      c / st1 || t1 / st1' -> c / st2 || t2 / st2' -> t1 = t2 /\ st_compat st1' st2'.
+
+End NonInter; 
