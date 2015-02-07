@@ -19,7 +19,7 @@ Unset Strict Implicit.
 
 Require Import PHeap.
 
-Section VVCSL.
+Section SeqCSL.
   Inductive assn : Set := 
     Aemp
   | Apure (b: bexp)
@@ -87,7 +87,11 @@ Section VVCSL.
   Variable env : bspec.
   Variable j_in_env : (j < List.length env)%nat.
   Definition get := nth (Aemp, Aemp) env j.
-
+  
+  Definition env_wellformed := forall (st : pstate),
+    sat st (Aistar (map (fun p => fst p) env)) = sat st (Aistar (map (fun p => snd p) env)).
+  Variable env_wf : env_wellformed.
+  
   Fixpoint safe_s (n : nat) (c : cmd) (s : stack) (ph : pheap) (q : assn) :=
     match n with
       | O => True
@@ -113,6 +117,8 @@ Section VVCSL.
                 safe_s n c' s (phplus_pheap H) q))
     end.
   
-  Definition env_wf (st : pstate) :=
-    sat st (Aistar (map (fun p => fst p) env)) = sat st (Aistar (map (fun p => snd p) env)).
+  Definition CSL (p : assn) (c : cmd) (q : assn) := 
+    (exists g, typing_cmd g c Lo) /\ wf_cmd c /\ 
+    forall n, (forall s ph, sat (s, ph) p -> safe_s n c s ph q).
+
   
