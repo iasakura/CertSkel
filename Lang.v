@@ -332,7 +332,7 @@ Module PLang.
   Qed.
 End PLang.
 
-Import PLang.
+Export PLang.
 
 Module BigStep.
   Reserved Notation " c '/' s '||' c' '/' s'" (at level 40, s at level 39, c' at level 39).
@@ -465,7 +465,7 @@ Module BigStep.
   Qed.
 End BigStep.
 
-Import BigStep.
+Export BigStep.
 Definition kstate := (list (cmd * stack) * heap)%type.
 
 Section NonInter.

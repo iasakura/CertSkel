@@ -315,3 +315,12 @@ Proof.
   destruct (ph1 x) as [[? ?] |], (ph2 x) as [[? ?] |];
   des; eauto; try congruence.
 Qed.
+
+Lemma pdisj_is_pheap (h1 h2 : pheap) :
+  pdisj h1 h2 -> is_pheap (phplus h1 h2).
+Proof.
+  intros dis12 x; specialize (dis12 x); specialize (is_p h1 x); specialize (is_p h2 x).
+  unfold phplus; destruct (this h1 x) as [[q1 v1] | ], (this h2 x) as [[q2 v2] | ]; des; eauto.
+Qed.
+
+Definition phplus_pheap (h1 h2 : pheap) (H : pdisj h1 h2) : pheap := Pheap (pdisj_is_pheap H).
