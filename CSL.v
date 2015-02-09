@@ -120,5 +120,4 @@ Section SeqCSL.
   Definition CSL (p : assn) (c : cmd) (q : assn) := 
     (exists g, typing_cmd g c Lo) /\ wf_cmd c /\ 
     forall n, (forall s ph, sat (s, ph) p -> safe_s n c s ph q).
-
   

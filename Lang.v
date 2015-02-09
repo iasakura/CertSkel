@@ -2,21 +2,20 @@ Require Import Logic.Eqdep.
 Require Import Bool.
 Require Import Arith.
 Require Import ZArith.
-Require Import String.
 Require Import QArith.
 Require Import Qcanon.
 Require Import Coq.Relations.Relations.
-
+Require Import Vector.
+Require Import List.
 Require ClassicalFacts.
 Require Export FunctionalExtensionality.
 Require Export ProofIrrelevance.
 
 Require Export Coq.ZArith.BinInt.
-Require Export String.
 
 Add LoadPath "../../src/cslsound".
 
-Require Export Vbase Varith Vlistbase Vlist Basic.
+Require Import Vbase Varith Vlistbase Vlist Basic.
 
 Set Implicit Arguments.
 Unset Strict Implicit.
@@ -466,8 +465,30 @@ Module BigStep.
 End BigStep.
 
 Export BigStep.
-Definition kstate := (list (cmd * stack) * heap)%type.
 
+Section ParSem.
+  Parameter (ngroup : nat).
+  Definition klist := Vector.t (cmd * stack) ngroup.
+  Definition kstate := (klist * heap)%type.
+  Definition kidx := Fin.t ngroup.
+
+  Inductive red_k : kstate -> kstate -> Prop :=
+  | redk_Seq : 
+      forall (ks : kstate) (ss : klist) (c c' : cmd) (st st' : state) 
+             (s s' : stack) (h h' : heap) (i : kidx),
+        ks = (ss, h) -> Vector.nth ss i = (c, s) ->
+        c / st ==>s c' / st' ->
+        st = (s, h) -> st' = (s', h') ->
+        red_k ks (Vector.replace ss i (c, s), h')
+  | redk_Barrier :
+      forall (ks ks' : kstate) (ss ss' : klist) (h : heap) (j : nat),
+        ks = (ss, h) -> ks' = (ss', h) ->
+        (forall (i : kidx),
+         exists c s c', Vector.nth ss  i = (c, s) /\ wait c = Some (j, c') /\
+                        Vector.nth ss' i = (c', s)) ->
+        red_k ks ks'.
+End ParSem.
+  
 Section NonInter.
   Inductive type := Hi | Lo.
   Definition join (t1 t2 : type) :=
@@ -771,4 +792,3 @@ Section NonInter.
     destruct H as [H' ?]; inversion H'.
   Qed. 
 End NonInter.
-
