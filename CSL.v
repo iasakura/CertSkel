@@ -5,6 +5,8 @@ Require Import ZArith.
 Require Import QArith.
 Require Import Qcanon.
 Require Import Coq.Relations.Relations.
+Require Import Vector.
+Require Import List.
 Add LoadPath "../../src/cslsound".
 Require Import Lang.
 
@@ -81,15 +83,25 @@ Section SeqCSL.
       simpl; auto using padd_left_comm.
   Qed.
 
-  Definition bspec := list (assn * assn).
+  Variable ngroup : nat.
+  Definition barrier_spec := (Vector.t assn ngroup * Vector.t assn ngroup)%type.
 
-  Variable j : nat.
-  Variable env : bspec.
-  Variable j_in_env : (j < List.length env)%nat.
-  Definition get := nth (Aemp, Aemp) env j.
+  Variable j : Fin.t ngroup.
+  Variable bspec : barrier_spec.
+  Variable env : var -> type.
+  Definition pre_j  := Vector.nth (fst bspec) j.
+  Definition post_j := Vector.nth (snd bspec) j.
+
+  Definition low_assn (P : assn) : Prop := 
+    forall (x : var) (v : Z) (st : pstate), 
+      env x = Hi -> (sat st P <-> sat (upd (fst st) x v, snd st) P).
+
+  Definition b_pre  := Vector.fold_right (fun h t => Astar h t) (fst bspec) Aemp.
+  Definition b_post := Vector.fold_right (fun h t => Astar h t) (snd bspec) Aemp.
   
-  Definition env_wellformed := forall (st : pstate),
-    sat st (Aistar (map (fun p => fst p) env)) = sat st (Aistar (map (fun p => snd p) env)).
+  Definition env_wellformed := 
+    low_assn b_pre /\ low_assn b_post /\
+    forall (st : pstate), sat st b_pre <-> sat st b_post.
   Variable env_wf : env_wellformed.
   
   Fixpoint safe_s (n : nat) (c : cmd) (s : stack) (ph : pheap) (q : assn) :=
@@ -112,12 +124,15 @@ Section SeqCSL.
           
         (forall j c', wait c = Some (j, c') ->
            exists (phP ph' : pheap), 
-             pdisj phP ph' /\ phplus phP ph' = ph /\ sat (s, ph') (fst get) /\
-             (forall (phQ : pheap) (H : pdisj phQ ph'), sat (s, phQ) (snd get) ->
+             pdisj phP ph' /\ phplus phP ph' = ph /\ sat (s, ph') pre_j /\
+             (forall (phQ : pheap) (H : pdisj phQ ph'), sat (s, phQ) post_j ->
                 safe_s n c' s (phplus_pheap H) q))
     end.
   
   Definition CSL (p : assn) (c : cmd) (q : assn) := 
     (exists g, typing_cmd g c Lo) /\ wf_cmd c /\ 
     forall n, (forall s ph, sat (s, ph) p -> safe_s n c s ph q).
-  
+End SeqCSL.
+
+Section LSsafe.
+End LSsafe.

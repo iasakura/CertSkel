@@ -487,6 +487,7 @@ Section ParSem.
          exists c s c', Vector.nth ss  i = (c, s) /\ wait c = Some (j, c') /\
                         Vector.nth ss' i = (c', s)) ->
         red_k ks ks'.
+  Notation "ks ==>k ks'" := (red_k ks ks') (at level 40).
 End ParSem.
   
 Section NonInter.
