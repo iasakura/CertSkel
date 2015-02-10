@@ -21,7 +21,7 @@ Unset Strict Implicit.
 
 Require Import PHeap.
 
-Section SeqCSL.
+Section Assertion.
   Inductive assn : Set := 
     Aemp
   | Apure (b: bexp)
@@ -82,28 +82,127 @@ Section SeqCSL.
       simpl; eauto.
       simpl; auto using padd_left_comm.
   Qed.
+End Assertion.
 
+Section Barrier.
   Variable ngroup : nat.
-  Definition barrier_spec := (Vector.t assn ngroup * Vector.t assn ngroup)%type.
-
-  Variable j : Fin.t ngroup.
+  Definition barrier_spec := nat -> (Vector.t assn ngroup * Vector.t assn ngroup)%type.
   Variable bspec : barrier_spec.
   Variable env : var -> type.
-  Definition pre_j  := Vector.nth (fst bspec) j.
-  Definition post_j := Vector.nth (snd bspec) j.
+  Definition pre_j  (j : nat) (tid : Fin.t ngroup) := Vector.nth (fst (bspec j)) tid.
+  Definition post_j (j : nat) (tid : Fin.t ngroup) := Vector.nth (snd (bspec j)) tid.
 
   Definition low_assn (P : assn) : Prop := 
-    forall (x : var) (v : Z) (st : pstate), 
-      env x = Hi -> (sat st P <-> sat (upd (fst st) x v, snd st) P).
+    forall (x : var) (v : Z) (st st' : pstate) , 
+      low_eq env (fst st) (fst st') -> (sat st P <-> sat st' P).
 
-  Definition b_pre  := Vector.fold_right (fun h t => Astar h t) (fst bspec) Aemp.
-  Definition b_post := Vector.fold_right (fun h t => Astar h t) (snd bspec) Aemp.
-  
+  (* fv(bspec) \cup V_hi = \empty *)
+  Definition bwf := forall (j : nat) (tid : Fin.t ngroup), 
+      low_assn (Vector.nth (fst (bspec j)) tid) /\
+      low_assn (Vector.nth (snd (bspec j)) tid).
+
+
+  Import VectorNotations.
+
+  Lemma emp_is_heap : is_pheap emp_h. unfold is_pheap, emp_h; eauto. Qed.
+  Definition emp_ph : pheap := Pheap emp_is_heap.
+  Inductive disj_eq : forall (n : nat), Vector.t pheap n -> pheap -> Prop :=
+  | eq_nil  : disj_eq [] emp_ph
+  | eq_cons : forall (n : nat) (hs : Vector.t pheap n) (ph : pheap) (h : pheap) (hdis : pdisj h ph),
+                disj_eq hs ph -> disj_eq (h :: hs) (Pheap (pdisj_is_pheap hdis)).
+
+  Fixpoint Aistar_v (n : nat) (assns : Vector.t assn n) :=
+    match assns with
+      | [] => Aemp
+      | a :: assns => Astar a (Aistar_v assns)
+    end.
+
+  Definition jth_pre (j : nat) := Aistar_v (fst (bspec j)).
+  Definition jth_post (j : nat) := Aistar_v (snd (bspec j)).
   Definition env_wellformed := 
-    low_assn b_pre /\ low_assn b_post /\
-    forall (st : pstate), sat st b_pre <-> sat st b_post.
+    bwf /\ forall (j : nat) (st : pstate), sat st (jth_pre j) <-> sat st (jth_post j).
   Variable env_wf : env_wellformed.
-  
+
+  Lemma emp_is_emp (h : pheap) :
+    (forall v : Z, this h v = None) -> h = emp_ph.
+  Proof.
+    destruct h as [h ?]; unfold emp_ph; intros hsat.
+    assert (h = emp_h) by (extensionality x; specialize (hsat x); simpl in *; eauto).
+    pose proof (emp_is_heap).
+    cutrewrite (emp_is_heap = H0); [ | apply proof_irrelevance].
+    destruct H.
+    cutrewrite (is_p = H0); [ | apply proof_irrelevance].
+    eauto.
+  Qed.
+
+  Lemma aistar_disj (n : nat) (assns : Vector.t assn n) (s : stack) (h : pheap) :
+    sat (s, h) (Aistar_v assns) ->
+    exists (hs : Vector.t pheap n), disj_eq hs h /\ 
+      (Vector.Forall2 (fun x y => sat (s, x) y) hs assns).
+  Proof.
+    induction[h] assns; intros h' hsat.
+    - exists []; split; simpl in hsat.
+      apply emp_is_emp in hsat; rewrite hsat; constructor.
+      constructor.
+    - simpl in hsat; destruct hsat as [h1 [h2 [H1 [H2 [hdis hplus]]]]].
+      apply (IHassns h2) in H2; destruct H2 as [hs1 [heq1 hsat]].
+      exists (h1 :: hs1); split.
+      + remember (Pheap (pdisj_is_pheap hdis)) as ph2.
+        assert (h' = ph2).
+        { destruct h' as [h' ph']; simpl in hplus; rewrite Heqph2.
+          destruct hplus.
+          cutrewrite (ph' = pdisj_is_pheap (h1:=h1) (h2:=h2) hdis);[eauto | apply proof_irrelevance]. }
+        rewrite H, Heqph2; econstructor; eauto.
+      + constructor; eauto.
+  Qed.
+
+  Fixpoint low_eq_l (s : stack) (ng : nat) (sts : Vector.t stack ng) :=
+    match sts with
+      | [] => True
+      | x :: xs => low_eq env s x /\ low_eq_l x xs
+    end.
+  Fixpoint low_eq_l2 (ng : nat) (sts : Vector.t stack ng) :=
+    match sts with
+      | [] => True
+      | x :: xs => low_eq_l x xs /\ low_eq_l2 xs
+    end.
+
+  Lemma aistar_eq (n : nat) (s : stack) (assns : Vector.t assn n) (hs : Vector.t pheap n) 
+        (h : pheap) :
+    disj_eq hs h -> Vector.Forall2 (fun x y => sat (s, x) y) hs assns -> 
+    sat (s, h) (Aistar_v assns).
+  Proof.
+    intros heq hsat.
+    induction heq.
+    - assert (assns = []) by (apply (case0 (fun (v : t assn 0) => v = [])); eauto).
+      rewrite H; simpl.
+      intros x; unfold emp_h; simpl; eauto.
+    - inversion hsat; subst.
+      apply inj_pair2 in H1; apply inj_pair2 in H2.
+      rewrite H1 in H4.
+      apply (IHheq _) in H4.
+      simpl.
+      repeat eexists; eauto.
+  Qed.
+
+  Lemma sync_barrier (s : stack) (hs : Vector.t pheap ngroup) (j : nat) (h : pheap)
+        (heq : disj_eq hs h)
+        (hp : Vector.Forall2 (fun x y => sat (s, x) y) hs (fst (bspec j))) :
+    exists (hs' : Vector.t pheap ngroup),
+      disj_eq hs' h /\ Vector.Forall2 (fun x y => sat (s, x) y) hs' (snd (bspec j)).
+  Proof.
+    unfold env_wellformed, bwf in *; destruct env_wf as [_ H]; clear env_wf.
+    unfold jth_pre, jth_post in *; specialize (H j);
+    destruct (bspec j) as [pres posts]; simpl in *.
+    eapply (aistar_eq heq) in hp.
+    apply H in hp.
+    apply aistar_disj in hp.
+    des; repeat eexists; eauto.
+  Qed.
+
+End Barrier.
+
+Section SeqCSL.
   Fixpoint safe_s (n : nat) (c : cmd) (s : stack) (ph : pheap) (q : assn) :=
     match n with
       | O => True
@@ -132,7 +231,5 @@ Section SeqCSL.
   Definition CSL (p : assn) (c : cmd) (q : assn) := 
     (exists g, typing_cmd g c Lo) /\ wf_cmd c /\ 
     forall n, (forall s ph, sat (s, ph) p -> safe_s n c s ph q).
-End SeqCSL.
 
-Section LSsafe.
-End LSsafe.
+End SeqCSL.
