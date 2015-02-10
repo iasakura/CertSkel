@@ -93,14 +93,12 @@ Section Barrier.
   Definition post_j (j : nat) (tid : Fin.t ngroup) := Vector.nth (snd (bspec j)) tid.
 
   Definition low_assn (P : assn) : Prop := 
-    forall (x : var) (v : Z) (st st' : pstate) , 
-      low_eq env (fst st) (fst st') -> (sat st P <-> sat st' P).
+    forall (st st' : pstate), low_eq env (fst st) (fst st') -> (sat st P <-> sat st' P).
 
   (* fv(bspec) \cup V_hi = \empty *)
-  Definition bwf := forall (j : nat) (tid : Fin.t ngroup), 
+  Definition bwf := forall (j : nat) (tid : Fin.t ngroup),
       low_assn (Vector.nth (fst (bspec j)) tid) /\
       low_assn (Vector.nth (snd (bspec j)) tid).
-
 
   Import VectorNotations.
 
@@ -159,7 +157,7 @@ Section Barrier.
   Fixpoint low_eq_l (s : stack) (ng : nat) (sts : Vector.t stack ng) :=
     match sts with
       | [] => True
-      | x :: xs => low_eq env s x /\ low_eq_l x xs
+      | x :: xs => low_eq env s x /\ low_eq_l s xs
     end.
   Fixpoint low_eq_l2 (ng : nat) (sts : Vector.t stack ng) :=
     match sts with
@@ -200,6 +198,88 @@ Section Barrier.
     des; repeat eexists; eauto.
   Qed.
 
+  Definition get_ss (n : nat) (sts : Vector.t pstate n) : Vector.t stack n := 
+    Vector.map (fun st => fst st) sts.
+  Definition get_hs (n : nat) (sts : Vector.t pstate n) : Vector.t pheap n := 
+    Vector.map (fun st => snd st) sts.
+
+  Lemma map_map (T U V : Type) (n : nat) (v : Vector.t T n) (f : T -> U) (g : U -> V) :
+    (Vector.map g (Vector.map f v)) = Vector.map (fun x => g (f x)) v.
+  Proof.
+    induction v; simpl; eauto.
+    rewrite IHv; eauto.
+  Qed.
+
+  Lemma inv0 (T : Type) (v : Vector.t T 0) : v = [].
+  Proof.
+    apply (case0 (fun v : Vector.t T 0 => v = [])); eauto.
+  Qed.
+  Lemma invS : (forall (T : Type) (n : nat) (v : Vector.t T (S n)), exists x y, v = x :: y).
+    intros T n0 v0; 
+    apply (caseS (fun n (v : Vector.t T (S n)) => exists x y, v = x :: y)).
+    intros x n1 y; repeat eexists; eauto.
+  Qed.
+
+  Lemma loweq_sat (j : nat) (s : stack) (sts : Vector.t pstate ngroup)
+        (low_eq : low_eq_l2 (s :: get_ss sts)) (ps : Vector.t assn ngroup) :
+    Vector.Forall2 (fun st p => sat st p) sts (fst (bspec j)) <->
+    Vector.Forall2 (fun st p => sat (s, snd st) p) sts (fst (bspec j)).
+  Proof.
+    unfold env_wellformed, bwf in *; destruct env_wf as [bwf _]; clear env_wf.
+    unfold jth_pre, jth_post in *; specialize (bwf j);
+    destruct (bspec j) as [pres posts]; simpl in *.
+    assert (forall tid : Fin.t ngroup, low_assn pres[@tid]) as bwf'
+      by (intros tid; destruct (bwf tid); eauto).
+    clear bspec bwf.
+    induction sts.
+    - pose proof (inv0 pres); pose proof (inv0 posts); subst; split; constructor.
+    - pose proof (invS pres) as [pr [prs hpr]]; subst.
+      split; intros Hsat; inversion Hsat; subst; apply inj_pair2 in H1; apply inj_pair2 in H4; 
+      subst; constructor.
+      + destruct low_eq as [leq _]; simpl in leq; destruct leq as [leq _].
+        specialize (bwf' Fin.F1); simpl in bwf'; unfold low_assn in bwf'.
+        pose proof (bwf' (s, snd h) h) as bw'; apply bw'; eauto.
+      + apply IHsts; eauto.
+        * simpl in low_eq; split; try tauto.
+        * intros tid; pose proof (bwf' (Fin.FS tid)); simpl in *; eauto.
+      + destruct low_eq as [leq _]; simpl in leq; destruct leq as [leq _].
+        specialize (bwf' Fin.F1); simpl in bwf'; unfold low_assn in bwf'.
+        pose proof (bwf' (s, snd h) h) as bw'; apply bw'; eauto.
+      + apply IHsts; eauto.
+        * simpl in low_eq; split; try tauto.
+        * intros tid; pose proof (bwf' (Fin.FS tid)); simpl in *; eauto.
+  Qed.
+        
+  Lemma sync_barrier' (sts : Vector.t pstate ngroup) (j : nat) (h : pheap)
+        (heq : disj_eq (get_hs sts) h) (ss_leq : low_eq_l2 (get_ss sts))
+        (hp : Vector.Forall2 (fun st y => sat st y) sts (fst (bspec j))) :
+    exists (sts' : Vector.t pstate ngroup),
+      disj_eq (get_hs sts') h /\ 
+      get_ss sts' = get_ss sts /\
+      Vector.Forall2 (fun st y => sat st y) sts' (snd (bspec j)).
+  Proof.
+    unfold env_wellformed, bwf in *; destruct env_wf as [_ H]; clear env_wf.
+    unfold jth_pre, jth_post in *; specialize (H j);
+    destruct (bspec j) as [pres posts]; simpl in *.
+    remember (get_hs sts) as phs; remember (get_ss sts) as ss.
+    generalize dependent ngroup. clear bspec ngroup.
+    destruct sts; intros phs phs_eq heq ss ss_eq ss_leq pres posts hsat bwf; simpl in *; subst.
+    - exists [].
+      simpl; repeat split; eauto.
+      cutrewrite (posts = []); [subst; constructor | 
+                                apply (case0 (fun (v : Vector.t assn 0) => v = [])); eauto].
+    - pose proof (invS pres) as [pr [pres' Hpr]].
+      pose proof (invS posts) as [ps [posts' Hps]].
+      subst; simpl.
+      remember (Vector.map (fun st => (fst h0, snd st)) sts) as sts'.
+      assert (disj_eq (get_hs (h0 :: sts')) h) as H1.
+      { simpl; cutrewrite (get_hs sts' = get_hs sts); [eauto |].
+        unfold get_hs; subst; simpl.
+        rewrite map_map; simpl; eauto. }
+      assert (Vector.Forall2 (fun st p => sat (fst h0, snd st) p) (h0 :: sts') (pr :: pres')).
+      { inversion hsat; subst; constructor; eauto.
+        destruct h0; eauto.
+        apply inj_pair2 in H2; apply inj_pair2 in H5; subst.
 End Barrier.
 
 Section SeqCSL.
