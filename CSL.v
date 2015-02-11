@@ -363,6 +363,30 @@ Section Barrier.
     - apply pdisjC; eapply disjeq_disj1; eauto.
     - apply IHdiseq. intros Hcontra; subst; tauto. 
   Qed.
+
+  Lemma loweq_l_leq (n : nat) (ss : Vector.t stack n) (s : stack) (leq : low_eq_l s ss) (i : Fin.t n) :
+    low_eq env s ss[@i].
+  Proof.
+    induction ss as [| sh ss]; [inversion i|].
+    destruct (finvS i) as [? | [i' ?]]; subst; simpl in *; try tauto.
+    apply IHss; tauto.
+  Qed.
+
+  Lemma low_eq_symm (s1 s2 : stack) : low_eq env s1 s2 -> low_eq env s2 s1.
+  Proof.
+    unfold low_eq; intros H x Hl; specialize (H x Hl); congruence.
+  Qed.
+
+  Lemma loweq_l2_leq (n : nat) (ss : Vector.t stack n) (leq : low_eq_l2 ss) (i j : Fin.t n) :
+    low_eq env (ss[@i]) (ss[@j]).
+  Proof.
+    clear env_wf.
+    induction ss as [| s ss]; [inversion i |].
+    destruct (finvS i) as [? | [i' ?]], (finvS j) as [? | [j' ?]]; subst; try congruence; simpl in *.
+    - apply loweq_l_leq; tauto.
+    - apply low_eq_symm; apply loweq_l_leq; tauto.
+    - apply IHss; tauto.
+  Qed.
 End Barrier.
 
 Section SeqCSL.
