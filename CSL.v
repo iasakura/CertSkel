@@ -169,11 +169,11 @@ Section Barrier.
     Vector.map (fun st => fst st) sts.
   Definition get_hs (n : nat) (sts : Vector.t pstate n) : Vector.t pheap n := 
     Vector.map (fun st => snd st) sts.
-  Lemma inv0 (T : Type) (v : Vector.t T 0) : v = [].
+  Lemma vinv0 (T : Type) (v : Vector.t T 0) : v = [].
   Proof.
     apply (case0 (fun v : Vector.t T 0 => v = [])); eauto.
   Qed.
-  Lemma invS : (forall (T : Type) (n : nat) (v : Vector.t T (S n)), exists x y, v = x :: y).
+  Lemma vinvS : (forall (T : Type) (n : nat) (v : Vector.t T (S n)), exists x y, v = x :: y).
     intros T n0 v0; 
     apply (caseS (fun n (v : Vector.t T (S n)) => exists x y, v = x :: y)).
     intros x n1 y; repeat eexists; eauto.
@@ -189,7 +189,7 @@ Section Barrier.
     - assert (assns = []) by (apply (case0 (fun (v : t assn 0) => v = [])); eauto).
       simpl in heq; inversion heq.
       rewrite H; simpl; intros; simpl; unfold emp_h; eauto.
-    - destruct (invS assns) as [a [assns' ha]]; subst.
+    - destruct (vinvS assns) as [a [assns' ha]]; subst.
       inversion hsat; subst. apply inj_pair2 in H1; apply inj_pair2 in H4; subst.
       destruct h; simpl in heq.
       inversion heq; subst; simpl in *; apply inj_pair2 in H2; subst.
@@ -226,8 +226,8 @@ Section Barrier.
   Proof.
     clear env_wf bspec.
     induction sts.
-    - pose proof (inv0 ps); subst; split; constructor.
-    - pose proof (invS ps) as [pr [prs hpr]]; subst.
+    - pose proof (vinv0 ps); subst; split; constructor.
+    - pose proof (vinvS ps) as [pr [prs hpr]]; subst.
       split; intros Hsat; inversion Hsat; subst; apply inj_pair2 in H1; apply inj_pair2 in H4; 
       subst; constructor.
       + destruct low_eq as [leq _]; simpl in leq; destruct leq as [leq _].
@@ -249,8 +249,8 @@ Section Barrier.
     Vector.Forall2 P (Vector.map f v) u <-> Vector.Forall2 (fun (x : T) y => P (f x) y) v u.
   Proof.
     induction v.
-    - pose proof (inv0 u); subst; split; intros; constructor.
-    - pose proof (invS u) as [x [u' hu]]; subst; split; intros; simpl;
+    - pose proof (vinv0 u); subst; split; intros; constructor.
+    - pose proof (vinvS u) as [x [u' hu]]; subst; split; intros; simpl;
       inversion H; subst; apply inj_pair2 in H2; apply inj_pair2 in H5; subst; constructor;
       eauto; apply IHv; eauto.
   Qed.
@@ -259,28 +259,28 @@ Section Barrier.
         (v2 : Vector.t V n) (v3 : Vector.t W n) :
     Vector.map f (Vector.map2 g v2 v3) = Vector.map2 (fun x y => f (g x y)) v2 v3.
     induction v2.
-    - rewrite (inv0 v3) in *; simpl; eauto.
-    - destruct (invS v3) as [? [? ?]]; subst; simpl; rewrite IHv2; eauto.
+    - rewrite (vinv0 v3) in *; simpl; eauto.
+    - destruct (vinvS v3) as [? [? ?]]; subst; simpl; rewrite IHv2; eauto.
   Qed.
   
   Lemma map2_map (n : nat) (T U V : Type) (v1 : Vector.t (T * U) n) (v2 : Vector.t V n) (t : T) :
     Vector.map2 (fun x y => (t, snd (fst x, y))) v1 v2 = Vector.map (pair t) v2.
   Proof.
     induction v1.
-    - rewrite (inv0 v2); constructor.
-    - destruct (invS v2) as [h' [v2' ?]]; subst.
+    - rewrite (vinv0 v2); constructor.
+    - destruct (vinvS v2) as [h' [v2' ?]]; subst.
       simpl. rewrite IHv1; eauto.
   Qed.
 
   Lemma map2_fst (T U V : Type) (n : nat) (v : Vector.t (T * V) n) (u : Vector.t U n):
     Vector.map2 (fun x y => fst (fst x, y)) v u = Vector.map (fun x => fst x) v.
-    induction v; [rewrite (inv0 u) | destruct (invS u) as [? [? ?]]; subst; simpl; rewrite IHv];
+    induction v; [rewrite (vinv0 u) | destruct (vinvS u) as [? [? ?]]; subst; simpl; rewrite IHv];
     simpl; try congruence. 
   Qed.
 
   Lemma map2_snd (T U V : Type) (n : nat) (v : Vector.t (T * V) n) (u : Vector.t U n):
     Vector.map2 (fun x y => snd (fst x, y)) v u = u.
-    induction v; [rewrite (inv0 u) | destruct (invS u) as [? [? ?]]; subst; simpl; rewrite IHv];
+    induction v; [rewrite (vinv0 u) | destruct (vinvS u) as [? [? ?]]; subst; simpl; rewrite IHv];
     simpl; try congruence. 
   Qed.
 
@@ -302,8 +302,8 @@ Section Barrier.
       simpl; repeat split; eauto.
       cutrewrite (posts = []); [subst; constructor | 
                                 apply (case0 (fun (v : Vector.t assn 0) => v = [])); eauto].
-    - pose proof (invS pres) as [pr [pres' Hpr]].
-      pose proof (invS posts) as [ps [posts' Hps]].
+    - pose proof (vinvS pres) as [pr [pres' Hpr]].
+      pose proof (vinvS posts) as [ps [posts' Hps]].
       subst; simpl.
       destruct bwf0 as [bwf1 bwf2]; inversion bwf1; subst; inversion bwf2; subst.
       apply inj_pair2 in H1; apply inj_pair2 in H4; subst.
@@ -334,7 +334,35 @@ Section Barrier.
       rewrite Heqstq; unfold get_hs; rewrite map_map2, map2_snd; eauto.
       rewrite Heqstq; unfold get_ss. rewrite map_map2, map2_fst; simpl; eauto.
   Qed.     
-      
+  
+  Lemma finvS (n : nat) (i : Fin.t (S n)) : (i = Fin.F1 \/ exists i', i = Fin.FS i').
+  Proof.
+    apply (Fin.caseS (fun n (i : Fin.t (S n)) =>  i = Fin.F1 \/ (exists i' : Fin.t n, i = Fin.FS i'))).
+    - intros n0; tauto.
+    - intros n0 p; right; eexists; tauto.
+  Qed.
+  
+  Lemma disjeq_disj1 (n : nat) (h h' : pheap) (hs : Vector.t pheap n)
+        (diseq : disj_eq hs h) (i : Fin.t n) :
+    pdisj h' h -> pdisj h' hs[@i].
+  Proof.
+    intros hdisj; induction diseq; [inversion i|].
+    assert (pdisj h' h /\ pdisj h' ph) by (apply pdisj_padd; eauto).
+    destruct (finvS i) as [? | [i' ?]]; subst; simpl in *; try tauto.
+    apply IHdiseq; tauto.
+  Qed.
+
+  Lemma disjeq_disj (n : nat) (h : pheap) (hs : Vector.t pheap n) (diseq : disj_eq hs h) 
+        (i j : Fin.t n) :
+    i <> j -> pdisj (Vector.nth hs i) (Vector.nth hs j).
+  Proof.
+    induction diseq; [inversion i |].
+    intros hneq; destruct (finvS i) as [? | [i' ?]], (finvS j) as [? | [j' ?]]; subst; 
+    try congruence; simpl.
+    - eapply disjeq_disj1; eauto.
+    - apply pdisjC; eapply disjeq_disj1; eauto.
+    - apply IHdiseq. intros Hcontra; subst; tauto. 
+  Qed.
 End Barrier.
 
 Section SeqCSL.
