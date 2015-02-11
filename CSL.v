@@ -255,6 +255,35 @@ Section Barrier.
       eauto; apply IHv; eauto.
   Qed.
 
+  Lemma map_map2 (T U V W : Type) (n : nat) (f : T -> U) (g : V -> W -> T) 
+        (v2 : Vector.t V n) (v3 : Vector.t W n) :
+    Vector.map f (Vector.map2 g v2 v3) = Vector.map2 (fun x y => f (g x y)) v2 v3.
+    induction v2.
+    - rewrite (inv0 v3) in *; simpl; eauto.
+    - destruct (invS v3) as [? [? ?]]; subst; simpl; rewrite IHv2; eauto.
+  Qed.
+  
+  Lemma map2_map (n : nat) (T U V : Type) (v1 : Vector.t (T * U) n) (v2 : Vector.t V n) (t : T) :
+    Vector.map2 (fun x y => (t, snd (fst x, y))) v1 v2 = Vector.map (pair t) v2.
+  Proof.
+    induction v1.
+    - rewrite (inv0 v2); constructor.
+    - destruct (invS v2) as [h' [v2' ?]]; subst.
+      simpl. rewrite IHv1; eauto.
+  Qed.
+
+  Lemma map2_fst (T U V : Type) (n : nat) (v : Vector.t (T * V) n) (u : Vector.t U n):
+    Vector.map2 (fun x y => fst (fst x, y)) v u = Vector.map (fun x => fst x) v.
+    induction v; [rewrite (inv0 u) | destruct (invS u) as [? [? ?]]; subst; simpl; rewrite IHv];
+    simpl; try congruence. 
+  Qed.
+
+  Lemma map2_snd (T U V : Type) (n : nat) (v : Vector.t (T * V) n) (u : Vector.t U n):
+    Vector.map2 (fun x y => snd (fst x, y)) v u = u.
+    induction v; [rewrite (inv0 u) | destruct (invS u) as [? [? ?]]; subst; simpl; rewrite IHv];
+    simpl; try congruence. 
+  Qed.
+
   Lemma sync_barrier' (sts : Vector.t pstate ngroup) (j : nat) (h : pheap)
         (heq : disj_eq (get_hs sts) h) (ss_leq : low_eq_l2 (get_ss sts))
         (hp : Vector.Forall2 (fun st y => sat st y) sts (fst (bspec j))) :
@@ -278,26 +307,33 @@ Section Barrier.
       subst; simpl.
       destruct bwf0 as [bwf1 bwf2]; inversion bwf1; subst; inversion bwf2; subst.
       apply inj_pair2 in H1; apply inj_pair2 in H4; subst.
-      remember (Vector.map (fun st => (fst h0, snd st)) sts) as sts'.
-      assert (disj_eq (get_hs (h0 :: sts')) h) as H1.
-      { simpl; cutrewrite (get_hs sts' = get_hs sts); [eauto |].
-        unfold get_hs; subst; simpl.
-        rewrite map_map; simpl; eauto. }
-      assert (Vector.Forall2 (fun st p => sat st p) (h0 :: sts') (pr :: pres')).
-      { inversion hsat; subst. apply inj_pair2 in H4; apply inj_pair2 in H9; subst.
-        pose proof (@loweq_sat n (fst h0) sts ss_leq pres' H3). 
-        constructor; eauto.
-        subst; apply H; eauto. }
-      assert (h0 :: sts' = Vector.map (fun st : stack * pheap => (fst h0, snd st)) (h0 :: sts)) by
-      (destruct h0; simpl; eauto; rewrite Heqsts'; eauto).
-      rewrite H0 in H; clear H0.
-      apply ->forall2_map in H. (*rewrite map_map in H.*)
-      cutrewrite (snd h0 :: get_hs sts = get_hs (h0 :: sts)) in heq; [| simpl; eauto].
-      destruct (sync_barrier bwf1 bwf2 heq bwf' H) as [hs_post [heq_post hpost]].
-      apply forall2_map in hpost.
-      destruct (invS hs_post) as [hp [hs_post' hp']]; subst.
-      inversion hpost; subst. apply inj_pair2 in H7; apply inj_pair2 in H10; subst.
-      pose proof (loweq_sat ss_leq H6).
+      rename H2 into hpr, H5 into hps, H6 into hposts, H3 into hpres.
+      inversion hsat; subst.
+      apply inj_pair2 in H1; apply inj_pair2 in H4; subst.
+      rename H3 into hsathd, H5 into hsattl.
+      remember (Vector.map (fun st => (fst h0, snd st)) (h0 :: sts)) as sts'.
+      assert (Vector.Forall2 (fun st pr=> sat st pr) sts' (pr :: pres')).
+      { rewrite Heqsts'; simpl; constructor; [destruct h0; eauto | ].
+        subst; apply -> loweq_sat; eauto. }
+      rewrite Heqsts' in H; apply ->forall2_map in H; simpl in H.
+      eapply sync_barrier in H; eauto.
+      destruct H as [hs' [heqq hsatq]].
+      apply forall2_map in hsatq.
+      remember (Vector.map2 (fun st h => (fst st, h)) (h0 :: sts) hs') as stq.
+      assert (Vector.Forall2 (fun st ps => sat st ps) stq (ps :: posts')).
+      { rewrite Heqstq; apply <-(loweq_sat (n := S n) (s := fst h0)); eauto.
+        - rewrite map_map2.
+          cutrewrite (Vector.map2 (fun x y => (fst h0, snd (fst x, y))) (h0 :: sts) hs' =
+                      Vector.map (pair (fst h0)) hs'); [eauto | ].
+          rewrite map2_map; eauto.
+        - unfold get_ss; rewrite map_map2.
+        rewrite map2_fst.
+        simpl in ss_leq.
+        simpl; repeat split; try tauto. }
+      exists stq; repeat split; eauto.
+      rewrite Heqstq; unfold get_hs; rewrite map_map2, map2_snd; eauto.
+      rewrite Heqstq; unfold get_ss. rewrite map_map2, map2_fst; simpl; eauto.
+  Qed.     
       
 End Barrier.
 
