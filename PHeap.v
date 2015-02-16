@@ -194,7 +194,7 @@ Proof.
     intros h123 h23 x;
     repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end).
   destruct (h1 x) as [[? ?] |], (h2 x) as [[? ?] |], (h3 x) as [[? ?] |],
-                                                               ph1 as [? ?], ph2 as [? ?], ph3 as [? ?], h123 as [? [? ?]], h23 as [? [? ?]]; eauto.
+              ph1 as [? ?], ph2 as [? ?], ph3 as [? ?], h123 as [? [? ?]], h23 as [? [? ?]]; eauto.
   repeat split; eauto using plus_gt_0.
   - congruence.
   - cutrewrite (q + (q0 + q1) = (q + q1) + q0) in H7; [apply (@le1_weak _ q0); eauto | ring ].
