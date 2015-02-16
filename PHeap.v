@@ -223,7 +223,7 @@ Proof.
     intros h12; split; [intros H; split; intros x | intros [H1 H2] x];
     repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end);
     destruct (h1 x) as [[? ?] |], (h2 x) as [[? ?] |], (h3 x) as [[? ?] |],
-                                                                 ph1 as [? ?], ph2 as [? ?], ph3 as [? ?], h12 as [? [? ?]];
+                ph1 as [? ?], ph2 as [? ?], ph3 as [? ?], h12 as [? [? ?]];
     des; eauto;
     repeat split; try congruence; eauto; 
     try rewrite (Qcplus_assoc _ _ _); try rewrite (Qcplus_comm _ _); 
