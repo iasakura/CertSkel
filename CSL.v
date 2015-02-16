@@ -89,8 +89,6 @@ Section Barrier.
   Definition barrier_spec := nat -> (Vector.t assn ngroup * Vector.t assn ngroup)%type.
   Variable bspec : barrier_spec.
   Variable env : var -> type.
-  Definition pre_j  (j : nat) (tid : Fin.t ngroup) := Vector.nth (fst (bspec j)) tid.
-  Definition post_j (j : nat) (tid : Fin.t ngroup) := Vector.nth (snd (bspec j)) tid.
 
   Definition low_assn (P : assn) : Prop := 
     forall (st st' : pstate), low_eq env (fst st) (fst st') -> (sat st P <-> sat st' P).
@@ -114,7 +112,7 @@ Section Barrier.
       | [] => Aemp
       | a :: assns => Astar a (Aistar_v assns)
     end.
-
+  Definition v := 1.
   Definition jth_pre (j : nat) := Aistar_v (fst (bspec j)).
   Definition jth_post (j : nat) := Aistar_v (snd (bspec j)).
   Definition env_wellformed := 
@@ -390,7 +388,15 @@ Section Barrier.
 End Barrier.
 
 Section SeqCSL.
-  Fixpoint safe_s (n : nat) (c : cmd) (s : stack) (ph : pheap) (q : assn) :=
+  Variable ngroup : nat.
+  Variable bspec : barrier_spec ngroup.
+  Variable env : var -> type.
+  Hypothesis env_wf : env_wellformed bspec env.
+  Variable tid : Fin.t ngroup.
+  Definition pre_j (j : nat) := Vector.nth (fst (bspec j)) tid.
+  Definition post_j (j : nat) := Vector.nth (snd (bspec j)) tid.
+
+  Fixpoint safe_t (n : nat) (c : cmd) (s : stack) (ph : pheap) (q : assn) :=
     match n with
       | O => True
       | S n => 
@@ -399,24 +405,25 @@ Section SeqCSL.
         (forall (hf : pheap) (h : heap), 
            (pdisj ph hf) -> ptoheap (phplus ph hf) h -> ~aborts c (s, h)) /\
 
-        Lang.PLang.access_ok c s ph /\ write_ok c s ph /\
+        access_ok c s ph /\ write_ok c s ph /\
 
         (forall (hF : pheap) (h : heap) (c' : cmd) (ss' : state),
            (pdisj ph hF) -> (ptoheap (phplus ph hF) h ->
            (c / (s, h) ==>s c' / ss') ->
            exists h' (ph' : pheap),
              snd ss' = h' /\ pdisj ph' hF /\ ptoheap (phplus ph' hF) h' /\
-             safe_s n c' (fst ss') ph' q)) /\
+             safe_t n c' (fst ss') ph' q)) /\
           
         (forall j c', wait c = Some (j, c') ->
            exists (phP ph' : pheap), 
-             pdisj phP ph' /\ phplus phP ph' = ph /\ sat (s, ph') pre_j /\
-             (forall (phQ : pheap) (H : pdisj phQ ph'), sat (s, phQ) post_j ->
-                safe_s n c' s (phplus_pheap H) q))
+             pdisj phP ph' /\ phplus phP ph' = ph /\ sat (s, ph') (pre_j j) /\
+             (forall (phQ : pheap) (H : pdisj phQ ph'), sat (s, phQ) (post_j j) ->
+                safe_t n c' s (phplus_pheap H) q))
     end.
+
+  
   
   Definition CSL (p : assn) (c : cmd) (q : assn) := 
     (exists g, typing_cmd g c Lo) /\ wf_cmd c /\ 
-    forall n, (forall s ph, sat (s, ph) p -> safe_s n c s ph q).
-
+    forall n, (forall s ph, sat (s, ph) p -> safe_t n c s ph q).
 End SeqCSL.
