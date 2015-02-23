@@ -467,7 +467,7 @@ End BigStep.
 Export BigStep.
 
 Section ParSem.
-  Parameter (ngroup : nat).
+  Variable ngroup : nat.
   Definition klist := Vector.t (cmd * stack) ngroup.
   Definition kstate := (klist * heap)%type.
   Definition kidx := Fin.t ngroup.
@@ -479,7 +479,7 @@ Section ParSem.
         ks = (ss, h) -> Vector.nth ss i = (c, s) ->
         c / st ==>s c' / st' ->
         st = (s, h) -> st' = (s', h') ->
-        red_k ks (Vector.replace ss i (c, s), h')
+        red_k ks (Vector.replace ss i (c', s'), h')
   | redk_Barrier :
       forall (ks ks' : kstate) (ss ss' : klist) (h : heap) (j : nat),
         ks = (ss, h) -> ks' = (ss', h) ->
@@ -487,8 +487,10 @@ Section ParSem.
          exists c s c', Vector.nth ss  i = (c, s) /\ wait c = Some (j, c') /\
                         Vector.nth ss' i = (c', s)) ->
         red_k ks ks'.
-  Notation "ks ==>k ks'" := (red_k ks ks') (at level 40).
 End ParSem.
+Notation "ks '==>k' ks'" := (red_k ks ks') (at level 40).
+Definition multi_red_k (ngroup : nat) (k1 k2 : kstate ngroup) := clos_refl_trans_1n _ (@red_k ngroup) k1 k2.
+Notation "ks '==>k*' ks'" := (multi_red_k ks ks') (at level 40).
   
 Section NonInter.
   Inductive type := Hi | Lo.

@@ -324,3 +324,24 @@ Proof.
 Qed.
 
 Definition phplus_pheap (h1 h2 : pheap) (H : pdisj h1 h2) : pheap := Pheap (pdisj_is_pheap H).
+
+Definition htop' (h : heap) : pheap' :=
+  fun (x : Z) => 
+    match h x with
+      | None => None
+      | Some v => Some (full_p, v)
+    end.
+
+Lemma htop_is_pheap (h : heap) : is_pheap (htop' h).
+Proof.
+  intros x; unfold is_pheap, htop', full_p; destruct (h x); repeat split; eauto.
+  unfold Qcle; unfold Qle; simpl; omega.
+Qed.
+
+Definition htop (h : heap) : pheap :=
+  Pheap (htop_is_pheap h).
+
+Lemma ptoheap_htop (h : heap) : ptoheap (htop h) h.
+Proof.
+  intros x; unfold htop,htop'; simpl; destruct (h x); eauto.
+Qed.

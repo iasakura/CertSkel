@@ -392,11 +392,10 @@ Section SeqCSL.
   Variable bspec : barrier_spec ngroup.
   Variable env : var -> type.
   Hypothesis env_wf : env_wellformed bspec env.
-  Variable tid : Fin.t ngroup.
-  Definition pre_j (j : nat) := Vector.nth (fst (bspec j)) tid.
-  Definition post_j (j : nat) := Vector.nth (snd (bspec j)) tid.
+  Definition pre_j tid (j : nat) := Vector.nth (fst (bspec j)) tid.
+  Definition post_j tid (j : nat) := Vector.nth (snd (bspec j)) tid.
 
-  Fixpoint safe_t (n : nat) (c : cmd) (s : stack) (ph : pheap) (q : assn) :=
+  Fixpoint safe_nt (tid : Fin.t ngroup) (n : nat) (c : cmd) (s : stack) (ph : pheap) (q : assn) :=
     match n with
       | O => True
       | S n => 
@@ -412,18 +411,172 @@ Section SeqCSL.
            (c / (s, h) ==>s c' / ss') ->
            exists h' (ph' : pheap),
              snd ss' = h' /\ pdisj ph' hF /\ ptoheap (phplus ph' hF) h' /\
-             safe_t n c' (fst ss') ph' q)) /\
+             safe_nt tid n c' (fst ss') ph' q)) /\
           
         (forall j c', wait c = Some (j, c') ->
            exists (phP ph' : pheap), 
-             pdisj phP ph' /\ phplus phP ph' = ph /\ sat (s, ph') (pre_j j) /\
-             (forall (phQ : pheap) (H : pdisj phQ ph'), sat (s, phQ) (post_j j) ->
-                safe_t n c' s (phplus_pheap H) q))
+             pdisj phP ph' /\ phplus phP ph' = ph /\ sat (s, ph') (pre_j tid j) /\
+             (forall (phQ : pheap) (H : pdisj phQ ph'), sat (s, phQ) (post_j tid j) ->
+                safe_nt tid n c' s (phplus_pheap H) q))
     end.
-
+  Definition safe_t (tid : Fin.t ngroup) (c : cmd) (s : stack) (ph : pheap) (q : assn) := 
+    forall (n : nat), safe_nt tid n c s ph q.
   
-  
-  Definition CSL (p : assn) (c : cmd) (q : assn) := 
+  Definition CSL (tid : Fin.t ngroup) (p : assn) (c : cmd) (q : assn) := 
     (exists g, typing_cmd g c Lo) /\ wf_cmd c /\ 
-    forall n, (forall s ph, sat (s, ph) p -> safe_t n c s ph q).
-End SeqCSL.
+    forall s ph, sat (s, ph) p -> safe_t tid c s ph q.
+
+  Definition safe_aux (tid : Fin.t ngroup) (c : cmd) (s : stack) (ph : pheap) :=
+    exists (q : assn), forall n, safe_nt tid n c s ph q.
+
+  Definition Vt := Vector.t.
+  Import Vector.VectorNotations.
+  Inductive Forall3 (A B C : Type) (P : A -> B -> C -> Prop) : 
+    forall n : nat, Vt A n -> Vt B n -> Vt C n -> Prop :=
+  | Forall3_nil : Forall3 P (Vector.nil _) (Vector.nil _) (Vector.nil _)
+  | Forall3_cons : forall (m : nat) (x1 : A) (x2 : B) (x3 : C) 
+      (v1 : Vt _ m) (v2 : Vt _ m) (v3 : Vt _ m),
+      P x1 x2 x3 -> Forall3 P v1 v2 v3 -> Forall3 P (x1 :: v1) (x2 :: v2) (x3 :: v3).
+  
+  Definition get_ss_k (ks : kstate ngroup) := Vector.map (fun x => snd x) (fst ks).
+  Definition get_cs_k (ks : kstate ngroup) := Vector.map (fun x => fst x) (fst ks).
+
+  Lemma map2_snd' (T U : Type) (n : nat) (v : Vt T n) (u : Vt U n) :
+    Vector.map2 (fun x y => snd (x, y)) v u = u.
+  Proof.
+    induction v.
+    - rewrite (vinv0 u); eauto.
+    - destruct (vinvS u) as [x [t ?]]; subst; simpl; rewrite IHv; eauto.
+  Qed.
+
+  Lemma map2_fst' (T U : Type) (n : nat) (v : Vt T n) (u : Vt U n) :
+    Vector.map2 (fun x y => fst (x, y)) v u = v.
+  Proof.
+    induction v.
+    - rewrite (vinv0 u); eauto.
+    - destruct (vinvS u) as [x [t ?]]; subst; simpl; rewrite IHv; eauto.
+  Qed.
+
+  Lemma safe_inv' (tid : Fin.t ngroup) (c c' : cmd) (ps ps' : pstate) : 
+    (safe_aux tid c (fst ps) (snd ps)) -> (c / ps ==>p* c' / ps') ->
+    (safe_aux tid c' (fst ps') (snd ps')).
+  Proof.
+    intros hsafe hred.
+    apply clos_rt1n_rt, clos_rt_rtn1 in hred.
+    remember (c, ps) as cps;
+      assert (c = fst cps) as Heq by (subst; eauto); rewrite Heq in hsafe; clear Heq;
+      assert (ps = snd cps) as Heq by (subst; eauto); rewrite Heq in hsafe; clear Heq.
+    remember (c', ps') as cps';
+      assert (c' = fst cps') as Heq by (subst; eauto); rewrite Heq; clear Heq;
+      assert (ps' = snd cps') as Heq by (subst; eauto); rewrite Heq; clear Heq.
+    clear Heqcps Heqcps' c ps c' ps'; induction hred as [|cps' cps'' hred]; eauto.
+    destruct IHhred as [q IH]; exists q; intros n.
+    destruct cps as [c ps], cps' as [c' ps'], cps'' as [c'' ps'']; simpl in *.
+    destruct (IH (S n)) as [_ [_ [_ [_ [IH' _]]]]].
+    unfold red_p_tup in hred; simpl in *.
+    destruct hred as [c' c'' st' st'' ps' ps'' s' s'' ph' ph'' phF h' h'' ? ? ? ? _ _ 
+                     hdis1 hptoh1 hred hdis2 hptoh2]; subst; simpl in *.
+    destruct (IH' phF h' c'' (s'', h'') hdis1 hptoh1 hred) as 
+        [? [ph''2 [? [? [? ?]]]]]; subst; simpl in *.
+    assert (phplus ph''2 phF = phplus ph'' phF) as Heq1 by (eapply ptoD; eauto).
+    assert (ph''2 = ph'') by (eapply padd_cancel2; eauto); subst; eauto.
+  Qed.
+
+  Lemma safe_inv (tid : Fin.t ngroup) (c c' : cmd) (s s' : stack) (ph ph' : pheap) :
+    (safe_aux tid c s ph) -> (c / (s, ph) ==>p* c' / (s', ph')) ->
+    (safe_aux tid c' s' ph').
+  Proof.
+    remember (s, ph) as ps;
+      assert (s = fst ps) as Heq by (subst; eauto); rewrite Heq; clear Heq;
+      assert (ph = snd ps) as Heq by (subst; eauto); rewrite Heq; clear Heq.
+    remember (s', ph') as ps';
+      assert (s' = fst ps') as Heq by (subst; eauto); rewrite Heq; clear Heq;
+      assert (ph' = snd ps') as Heq by (subst; eauto); rewrite Heq; clear Heq.    
+    apply safe_inv'.
+  Qed.
+
+  Lemma pheap_eq (ph1 ph2 : pheap') (is_p1 : is_pheap ph1) (is_p2 : is_pheap ph2) :
+    ph1 = ph2 -> Pheap is_p1 = Pheap is_p2.
+  Proof.
+    destruct 1.
+    cutrewrite (is_p1 = is_p2); [eauto | apply proof_irrelevance ].
+  Qed.
+
+  Lemma disj_tid (n : nat) (hs : Vt pheap n) (h : pheap) (i : Fin.t n):
+    disj_eq hs h -> exists h', disj_eq (Vector.replace hs i emp_ph) h' /\ 
+                               pdisj hs[@i] h' /\ phplus hs[@i] h' = h.
+  Proof.
+    clear env_wf env bspec ngroup.
+    move: h; generalize dependent n. 
+    induction n; intros hs i h hdis; [inversion i | ].
+    destruct (vinvS hs) as [h0 [hs' ?]]; subst.
+    destruct (finvS i) as [? | [i' ?]]; subst; simpl in *.
+    - inversion hdis; subst.
+      eexists; repeat split; eauto.
+      inversion H2; subst. 
+      assert (this ph = phplus emp_ph ph) by (extensionality x; unfold phplus; simpl; eauto).
+      assert (pdisj emp_ph ph) by (apply pdisj_empty1).
+      remember (phplus_pheap H1).
+      assert (ph = p).
+      { rewrite Heqp.
+        destruct ph; subst.
+        assert (this = phplus_pheap (h1:=emp_ph) (h2:={| this := this; is_p := is_p |}) H1).
+        simpl. extensionality x; eauto.
+        destruct (phplus_pheap (h1:=emp_ph) (h2:={| this := this; is_p := is_p |}) H1).
+        simpl in H4; destruct H4. 
+        assert (is_p = is_p0) by apply proof_irrelevance.
+        congruence. }
+      rewrite H4, Heqp; constructor; eauto.
+    - inversion hdis; subst.
+      destruct (IHn hs i' ph H3) as [h' [hdeq' [hdis' hplus']]].
+      
+
+  Definition nth (n : nat) (A : Type) (v : Vt A n):= Vector.nth v.
+  Lemma step_inv (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2)) (ph1 ph2 : heap) 
+        (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) :
+    disj_eq hs1 (htop (snd ks1)) ->
+    ss1 = get_ss_k ks1 -> low_eq_l2 env ss1 ->
+    (forall tid : Fin.t ngroup, (get_cs_k ks1)[@tid] = c) ->
+    (forall tid : Fin.t ngroup, safe_aux tid c (Vector.nth ss1 tid) (Vector.nth hs1 tid)) ->
+    exists (pss' : Vector.t pstate ngroup) (pss2 : Vector.t pstate ngroup) (c' : cmd) 
+           (cs : Vector.t cmd ngroup) (h' : pheap), 
+      disj_eq (get_hs pss') h' /\  low_eq_l2 env (get_ss pss') /\
+      disj_eq (get_hs pss2) (htop (snd ks2)) /\ 
+      (forall tid : Fin.t ngroup, 
+         cs[@tid] = (get_cs_k ks2)[@tid] /\
+         (get_ss pss2)[@tid] = (get_ss_k ks2)[@tid] /\
+         safe_aux tid c' (fst pss'[@tid]) (snd pss'[@tid]) /\
+         c' / (pss'[@tid]) ==>p* cs[@tid] / pss2[@tid]).
+  Proof.
+    intros hdis1 heq hloweq1 hc hsafe.
+    apply clos_rt1n_rt, clos_rt_rtn1 in red_k.
+    induction red_k as [| ks' ks2].
+    - remember (Vector.map2 (fun s h => (s, h)) ss1 hs1) as pss'.
+      exists pss', pss', c, (Vector.const c ngroup), (htop (snd ks1)).
+      subst; repeat split; eauto.
+      + cutrewrite (get_hs (Vector.map2 (fun (s : stack) h => (s, h)) (get_ss_k ks1) hs1) = hs1); 
+          [eauto | ].
+        unfold get_hs; rewrite map_map2, map2_snd'; eauto.
+      + unfold get_ss; rewrite map_map2, map2_fst'; eauto.
+      + unfold get_hs; rewrite map_map2, map2_snd'; eauto.
+      + rewrite const_nth; pose proof (hc tid); eauto.
+      + unfold get_ss_k, get_ss; rewrite map_map2, map2_fst'; eauto.
+      + assert ((Vector.map2 (fun (s : stack) h => (s, h)) (get_ss_k ks1) hs1)[@tid] = 
+                ((get_ss_k ks1)[@tid], hs1[@tid])); erewrite nth_map2; eauto.
+      + rewrite const_nth; econstructor.
+    - generalize dependent ks'. intros ks' H; case H.
+      intros ? ss c1 c2 st1 st2 s1 s2 h1 h2 tid ? sstid red' ? ? red_k IHred_k; subst.
+      destruct IHred_k as [pss' [pss2 [c' [cs [h' [H1 [H2 [H3 H4]]]]]]]]; simpl in *.
+      destruct (H4 tid) as [Hi1 [Hi2 [Hi3 Hi4]]].
+      assert (cs[@tid] = c1) as Hceq.
+      { unfold get_cs_k in Hi1; simpl in Hi1. rewrite Hi1.
+        rewrite (Vector.nth_map _ _ tid tid); eauto; rewrite sstid; eauto. }
+      assert (fst pss2[@tid] = s1) as Hseq.
+      { unfold get_ss_k, get_ss in Hi2; simpl in Hi2; 
+        rewrite !(Vector.nth_map _ _ tid tid), sstid in Hi2; eauto; simpl in Hi2.}
+      rewrite <-Hceq,<-Hseq in red'.
+      pose proof (safe_inv' Hi3 Hi4) as hsafei.
+
+      remember (replace cs tid c2) as cs'.
+      remember (replace pss2 tid (s2 ?)) as pss2'.
+End BDF.
