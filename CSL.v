@@ -502,42 +502,102 @@ Section SeqCSL.
     cutrewrite (is_p1 = is_p2); [eauto | apply proof_irrelevance ].
   Qed.
 
+  Lemma disj_eq_fun (n : nat) (hs : Vt pheap n) (h h' : pheap) : 
+    disj_eq hs h -> disj_eq hs h' -> h = h'.
+  Proof.
+    clear env_wf env bspec ngroup.
+    move: n h h' hs; induction n; intros h h' hs hdis hdis'.
+    - rewrite (vinv0 hs) in *; inversion hdis; inversion hdis'; subst; eauto.
+    - destruct (vinvS hs) as [h0 [hs' ?]]; subst; inversion hdis; inversion hdis'; 
+      clear hdis hdis'; subst.
+      repeat (match goal with [ H : existT _ _ _ = existT _ _ _ |- _] => 
+                              apply inj_pair2 in H; subst end).
+      apply pheap_eq; rewrite (IHn ph0 ph hs' H8 H3); eauto.
+  Qed.
+
+  Lemma disj_exclude (n : nat) (hs : Vt pheap n) (h h' : pheap) (i : Fin.t n) :
+    disj_eq hs h -> disj_eq (replace hs i emp_ph) h' -> pdisj hs[@i] h' /\ this h = phplus hs[@i] h'.
+  Proof.
+    clear env_wf env bspec ngroup; move: hs h h' i; induction n; 
+    intros hs h h' i heq heq'; [inversion i|].
+    destruct (vinvS hs) as [h0 [hs0 ?]]; subst.
+    inversion heq; inversion heq';  
+    repeat (match goal with [ H : existT _ _ _ = existT _ _ _ |- _] => 
+                            apply inj_pair2 in H; subst end); subst; simpl in *; subst.
+    destruct (finvS i) as [? | [i' ?]]; subst; simpl in *;
+    inversion H5; clear H5; subst; apply inj_pair2 in H1; subst.
+    - cutrewrite (phplus emp_ph ph0 = ph0); [ | extensionality x; unfold phplus; simpl; eauto].
+      rewrite (disj_eq_fun H6 H3); eauto.
+    - pose proof (IHn _ _ _ _ H3 H6) as IH.
+      rewrite phplus_comm; eauto; split; destruct IH; subst.
+      + apply pdisj_padd_expand; eauto.
+        rewrite <-H0; eauto.
+      + rewrite (phplus_comm (pdisjC hdis0)); rewrite padd_left_comm; eauto.
+        rewrite <-H0; eauto.
+        rewrite (phplus_comm hdis0); apply pdisj_padd_expand; eauto.
+        rewrite <-H0; eauto.
+  Qed.
+
+  Lemma disj_weak (n : nat) (hs :  Vt pheap n) (h h' h'': pheap) (i : Fin.t n) :
+    disj_eq hs h -> pdisj h'' h -> disj_eq (replace hs i emp_ph) h' -> pdisj h'' h'.
+    clear env_wf env bspec ngroup.
+    move: h h' h''; generalize dependent n.
+    induction n; intros hs i h h' h'' heq hdis heq'; [inversion i |].
+    destruct (vinvS hs) as [h0 [hs0 ?]]; subst.
+    destruct (finvS i) as [? | [i' ?]]; subst; simpl in *.
+    - inversion heq; clear heq; subst. apply inj_pair2 in H2; subst; simpl in *.
+      apply pdisj_padd in hdis; eauto.
+      inversion heq'; clear heq'; subst. apply inj_pair2 in H2; subst; simpl in *.
+      cutrewrite ((phplus emp_h ph0) = ph); [tauto | ].
+      extensionality x; unfold phplus; simpl; rewrite (disj_eq_fun H4 H3); eauto.
+    - inversion heq; inversion heq'; clear heq heq';
+      repeat (match goal with [ H : existT _ _ _ = existT _ _ _ |- _] => 
+                              apply inj_pair2 in H; subst end); subst; simpl in *.
+      pose proof (disj_exclude H3 H8) as [hdall heq]; rewrite heq in *.
+      rewrite padd_left_comm in hdis; eauto.
+      cutrewrite (phplus h0 ph0 = this (Pheap (pdisj_is_pheap hdis1))) in hdis; [ | simpl; eauto].
+      apply pdisj_padd in hdis; simpl in *; try tauto.
+      apply pdisjC, pdisj_padd_expand; eauto; split; eauto.
+      rewrite phplus_comm; eauto.
+  Qed.
+
+  Lemma disj_exclude_exists (n : nat) (hs : Vt pheap n) (h : pheap) (i : Fin.t n) :
+    disj_eq hs h -> exists h', disj_eq (Vector.replace hs i emp_ph) h'.
+  Proof.
+    clear env_wf env bspec ngroup; move: hs h i; induction n; 
+    intros hs h i heq; [inversion i|].
+    destruct (vinvS hs) as [h0 [hs0 ?]]; subst.
+    inversion heq; 
+      repeat (match goal with [ H : existT _ _ _ = existT _ _ _ |- _] => 
+                              apply inj_pair2 in H; subst end); subst; simpl in *; subst.
+    destruct (finvS i) as [? | [i' ?]]; subst; simpl in *.
+    - assert (pdisj emp_ph ph) as hph by (unfold pdisj, emp_ph; intros x; simpl; eauto).
+      exists (Pheap (pdisj_is_pheap hph)).
+      apply (eq_cons hph H3).
+    - destruct (IHn _ _ i' H3) as [ph' H].
+      destruct (disj_exclude H3 H).
+      assert (pdisj h0 ph') by apply (disj_weak H3 hdis H ).
+      exists (Pheap (pdisj_is_pheap H2)).
+      apply (eq_cons H2 H).
+  Qed.
+
   Lemma disj_tid (n : nat) (hs : Vt pheap n) (h : pheap) (i : Fin.t n):
     disj_eq hs h -> exists h', disj_eq (Vector.replace hs i emp_ph) h' /\ 
                                pdisj hs[@i] h' /\ phplus hs[@i] h' = h.
   Proof.
-    clear env_wf env bspec ngroup.
-    move: h; generalize dependent n. 
-    induction n; intros hs i h hdis; [inversion i | ].
-    destruct (vinvS hs) as [h0 [hs' ?]]; subst.
-    destruct (finvS i) as [? | [i' ?]]; subst; simpl in *.
-    - inversion hdis; subst.
-      eexists; repeat split; eauto.
-      inversion H2; subst. 
-      assert (this ph = phplus emp_ph ph) by (extensionality x; unfold phplus; simpl; eauto).
-      assert (pdisj emp_ph ph) by (apply pdisj_empty1).
-      remember (phplus_pheap H1).
-      assert (ph = p).
-      { rewrite Heqp.
-        destruct ph; subst.
-        assert (this = phplus_pheap (h1:=emp_ph) (h2:={| this := this; is_p := is_p |}) H1).
-        simpl. extensionality x; eauto.
-        destruct (phplus_pheap (h1:=emp_ph) (h2:={| this := this; is_p := is_p |}) H1).
-        simpl in H4; destruct H4. 
-        assert (is_p = is_p0) by apply proof_irrelevance.
-        congruence. }
-      rewrite H4, Heqp; constructor; eauto.
-    - inversion hdis; subst.
-      destruct (IHn hs i' ph H3) as [h' [hdeq' [hdis' hplus']]].
-      
-
+    intros hdeq.
+    destruct (disj_exclude_exists i hdeq) as [h' ?].
+    exists h'; split; eauto.
+    split; destruct (disj_exclude hdeq H); eauto; try congruence.
+  Qed.
+          
   Definition nth (n : nat) (A : Type) (v : Vt A n):= Vector.nth v.
   Lemma step_inv (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2)) (ph1 ph2 : heap) 
         (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) :
     disj_eq hs1 (htop (snd ks1)) ->
     ss1 = get_ss_k ks1 -> low_eq_l2 env ss1 ->
     (forall tid : Fin.t ngroup, (get_cs_k ks1)[@tid] = c) ->
-    (forall tid : Fin.t ngroup, safe_aux tid c (Vector.nth ss1 tid) (Vector.nth hs1 tid)) ->
+    (forall tid : Fin.t ngroup, safe_aux tid c (ss1[@tid]) (hs1[@tid])) ->
     exists (pss' : Vector.t pstate ngroup) (pss2 : Vector.t pstate ngroup) (c' : cmd) 
            (cs : Vector.t cmd ngroup) (h' : pheap), 
       disj_eq (get_hs pss') h' /\  low_eq_l2 env (get_ss pss') /\
@@ -550,17 +610,19 @@ Section SeqCSL.
   Proof.
     intros hdis1 heq hloweq1 hc hsafe.
     apply clos_rt1n_rt, clos_rt_rtn1 in red_k.
-    induction red_k as [| ks' ks2].
+    induction red_k as [| ks' ks2]. 
+    Hint Unfold low_eq_l2 get_hs get_ss.
+    Hint Rewrite map_map2 map2_fst' map2_snd'.
     - remember (Vector.map2 (fun s h => (s, h)) ss1 hs1) as pss'.
       exists pss', pss', c, (Vector.const c ngroup), (htop (snd ks1)).
-      subst; repeat split; eauto.
-      + cutrewrite (get_hs (Vector.map2 (fun (s : stack) h => (s, h)) (get_ss_k ks1) hs1) = hs1); 
+      subst; repeat split; autounfold; autorewrite with core; eauto.
+(*      + cutrewrite (get_hs (Vector.map2 (fun (s : stack) h => (s, h)) (get_ss_k ks1) hs1) = hs1); 
           [eauto | ].
         unfold get_hs; rewrite map_map2, map2_snd'; eauto.
-      + unfold get_ss; rewrite map_map2, map2_fst'; eauto.
-      + unfold get_hs; rewrite map_map2, map2_snd'; eauto.
+      + autorewrite with core. unfold get_ss; rewrite map_map2, map2_fst'; eauto.
+      + unfold get_hs; rewrite map_map2, map2_snd'; eauto. *)
       + rewrite const_nth; pose proof (hc tid); eauto.
-      + unfold get_ss_k, get_ss; rewrite map_map2, map2_fst'; eauto.
+(*      + unfold get_ss_k, get_ss; rewrite map_map2, map2_fst'; eauto.*)
       + assert ((Vector.map2 (fun (s : stack) h => (s, h)) (get_ss_k ks1) hs1)[@tid] = 
                 ((get_ss_k ks1)[@tid], hs1[@tid])); erewrite nth_map2; eauto.
       + rewrite const_nth; econstructor.
@@ -573,10 +635,9 @@ Section SeqCSL.
         rewrite (Vector.nth_map _ _ tid tid); eauto; rewrite sstid; eauto. }
       assert (fst pss2[@tid] = s1) as Hseq.
       { unfold get_ss_k, get_ss in Hi2; simpl in Hi2; 
-        rewrite !(Vector.nth_map _ _ tid tid), sstid in Hi2; eauto; simpl in Hi2.}
+        rewrite !(Vector.nth_map _ _ tid tid), sstid in Hi2; eauto; simpl in Hi2. }
       rewrite <-Hceq,<-Hseq in red'.
       pose proof (safe_inv' Hi3 Hi4) as hsafei.
-
       remember (replace cs tid c2) as cs'.
       remember (replace pss2 tid (s2 ?)) as pss2'.
 End BDF.
