@@ -590,7 +590,20 @@ Section SeqCSL.
     exists h'; split; eauto.
     split; destruct (disj_exclude hdeq H); eauto; try congruence.
   Qed.
-          
+
+  Lemma safe_red_p (c1 c2 : cmd) (st1 st2 : state) (pst1 : pstate) (hF : pheap) (tid : Fin.t ngroup):
+    c1 / st1 ==>s c2 / st2 -> safe_aux tid c1 (fst pst1) (snd pst1) ->
+    pdisj (snd pst1) hF -> ptoheap (phplus (snd pst1) hF) (snd st1) ->
+    exists pst2, 
+      c1 / pst1 ==>p c2 / pst2 /\
+      pdisj (snd pst2) hF /\
+      ptoheap (phplus (snd pst2) hF) (snd st2).
+  Proof.
+    intros red_s hsafe; destruct hsafe as [? hsafe]; 
+    destruct (hsafe 1%nat) as [_ [ha [haok [hwok _]]]].
+    eexists; repeat split; [eapply (@redp_ster c1 c2 st1 st2 pst1 _)  | | ];
+    try (destruct st1, st2, pst1; tauto).
+
   Definition nth (n : nat) (A : Type) (v : Vt A n):= Vector.nth v.
   Lemma step_inv (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2)) (ph1 ph2 : heap) 
         (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) :

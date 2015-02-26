@@ -351,6 +351,53 @@ Module PLang.
       rewrite (padd_upd_cancel hdis1 hdis2 htoh1 H htoh2).
       apply pdisjC; apply <-pdisj_upd; eauto.
   Qed.
+
+  Lemma red_s_safe' (c1 c2 : cmd) (st1 st2 : state) (pst1 : pstate) (hF : pheap) :
+    c1 / st1 ==>s c2 / st2 -> 
+    (fst pst1 = fst st1) ->
+    pdisj (snd pst1) hF -> ptoheap (phplus (snd pst1) hF) (snd st1) ->
+    access_ok c1 (fst pst1) (snd pst1) ->
+    write_ok c1 (fst pst1) (snd pst1) ->
+    exists (ph2 : pheap),
+      pdisj ph2 hF /\ ptoheap (phplus ph2 hF) (snd st2).
+  Proof.
+    intros red1; move: pst1 hF; induction red1; intros pst1 hF hst hdis1 hto1 haok hwok;
+    try (exists (snd pst1); subst; simpl; try destruct ss; split; tauto).
+    - eapply IHred1; eauto.
+    - subst; rewrite hst in *; unfold access_ok, write_ok in *; simpl in *.
+      destruct hwok as [v' Hv'].
+      exists (Pheap (ph_upd_ph (snd pst1) (edenot e1 s) (edenot e2 s))); simpl; split.
+      + apply<- pdisj_upd; eauto.
+      + assert (this hF (edenot e1 s) = None).
+        { destruct hF as [hF isphF]; 
+          pose proof (hdis1 (edenot e1 s)); pose proof (isphF (edenot e1 s)); simpl in *.
+          rewrite Hv' in H. destruct (hF (edenot e1 s)); eauto.
+          destruct p. destruct H0 as [H1 _], H as [_ [_ H2]].
+          apply frac_contra1 in H2; eauto; tauto. } 
+        intros x; unfold phplus, ph_upd, upd. 
+        specialize (hto1 x); destruct (Z.eq_dec (edenot e1 s) x).
+        * rewrite e, H in *; repeat split; unfold upd; destruct (Z.eq_dec x x); tauto.
+        * unfold phplus,upd in *; destruct (this (snd pst1) x) as [[? ?]|], (this hF x) as [[? ?]|];
+          destruct (Z.eq_dec x (edenot e1 s)); 
+          repeat split; try tauto; try congruence.
+  Qed.
+
+  Lemma red_s_safe (c1 c2 : cmd) (st1 st2 : state) (pst1 : pstate) (hF : pheap) :
+    c1 / st1 ==>s c2 / st2 -> 
+    (fst pst1 = fst st1) ->
+    pdisj (snd pst1) hF -> ptoheap (phplus (snd pst1) hF) (snd st1) ->
+    access_ok c1 (fst pst1) (snd pst1) ->
+    write_ok c1 (fst pst1) (snd pst1) ->
+    exists (pst2 : pstate),
+      c1 / pst1 ==>p c2 / pst2 /\ pdisj (snd pst2) hF /\ ptoheap (phplus (snd pst2) hF) (snd st2).
+  Proof.
+    intros red1 heq1 hdis1 hto1 aok wok. 
+    destruct (red_s_safe' red1 heq1 hdis1 hto1 aok wok) as [ph2 [H1 H2]].
+    exists (fst st2, ph2); split; eauto.
+    apply (@redp_ster c1 c2 st1 st2 pst1 (fst st2, ph2) (fst st1) (fst st2) (snd pst1) ph2 hF 
+                      (snd st1) (snd st2));
+      try (destruct st1, st2, pst1; simpl in *; eauto; congruence).
+  Qed.
 End PLang.
 
 Export PLang.
