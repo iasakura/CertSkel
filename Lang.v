@@ -329,6 +329,28 @@ Module PLang.
       destruct ph1' as [ph1' h1], ph2' as [ph2' h2]; simpl in *; subst.
       assert (h1 = h2) by apply proof_irrelevance; congruence.
   Qed.
+
+  Lemma red_p_frame (c1 c2 : cmd) (pst1 pst2 : pstate) (hF : pheap) :
+    c1 / pst1 ==>p c2 / pst2 ->
+    pdisj hF (snd pst1) -> pdisj hF (snd pst2).
+  Proof.
+    intros hred; move: hF; case hred.
+    clear c1 c2 pst1 pst2 hred; 
+    intros c1 c2 st1 st2 pst1 pst2 s1 s2 ph1 ph2 phF h1 h2 hst1 hst2 hpst1 hpst2 haok hwok 
+           hdis1 htoh1 hred_s hdis2 htoh2 hF hdisF.
+    induction hred_s; subst;
+    try (inversion hst2; subst; rewrite<- (phplus_cancel_toheap hdis1 hdis2 htoh1 htoh2); tauto);
+    unfold access_ok, write_ok in *; simpl in *.
+    - apply IHhred_s; eauto.
+    - inversion EQ1; inversion EQ2; subst;
+      rewrite<- (phplus_cancel_toheap hdis1 hdis2 htoh1 htoh2); tauto.
+    - inversion EQ1; inversion EQ2; subst;
+      rewrite<- (phplus_cancel_toheap hdis1 hdis2 htoh1 htoh2); tauto.
+    - inversion EQ1; inversion EQ2; clear EQ1 EQ2; subst.
+      destruct hwok as [v' H].
+      rewrite (padd_upd_cancel hdis1 hdis2 htoh1 H htoh2).
+      apply pdisjC; apply <-pdisj_upd; eauto.
+  Qed.
 End PLang.
 
 Export PLang.

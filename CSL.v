@@ -638,6 +638,8 @@ Section SeqCSL.
         rewrite !(Vector.nth_map _ _ tid tid), sstid in Hi2; eauto; simpl in Hi2. }
       rewrite <-Hceq,<-Hseq in red'.
       pose proof (safe_inv' Hi3 Hi4) as hsafei.
+      destruct (disj_tid tid H3) as [h_ni [eqni [h_ntid hnip]]].
+      
       remember (replace cs tid c2) as cs'.
       remember (replace pss2 tid (s2 ?)) as pss2'.
 End BDF.
