@@ -389,7 +389,10 @@ Module PLang.
     access_ok c1 (fst pst1) (snd pst1) ->
     write_ok c1 (fst pst1) (snd pst1) ->
     exists (pst2 : pstate),
-      c1 / pst1 ==>p c2 / pst2 /\ pdisj (snd pst2) hF /\ ptoheap (phplus (snd pst2) hF) (snd st2).
+      c1 / pst1 ==>p c2 / pst2 /\ 
+      fst pst2 = fst st2 /\
+      pdisj (snd pst2) hF /\ 
+      ptoheap (phplus (snd pst2) hF) (snd st2).
   Proof.
     intros red1 heq1 hdis1 hto1 aok wok. 
     destruct (red_s_safe' red1 heq1 hdis1 hto1 aok wok) as [ph2 [H1 H2]].

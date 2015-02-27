@@ -345,3 +345,22 @@ Lemma ptoheap_htop (h : heap) : ptoheap (htop h) h.
 Proof.
   intros x; unfold htop,htop'; simpl; destruct (h x); eauto.
 Qed.
+
+Lemma pheap_eq (ph1 ph2 : pheap') (is_p1 : is_pheap ph1) (is_p2 : is_pheap ph2) :
+  ph1 = ph2 -> Pheap is_p1 = Pheap is_p2.
+Proof.
+  destruct 1.
+  cutrewrite (is_p1 = is_p2); [eauto | apply proof_irrelevance ].
+Qed.
+
+Lemma ptoheap_eq (ph : pheap) (h : heap) : ptoheap ph h -> ph = htop h.
+Proof.
+  intros ptoheap.
+  unfold htop, htop' in *; destruct ph as [ph iph]; apply pheap_eq; extensionality x.
+  specialize (ptoheap x); simpl in *; specialize (iph x).
+  simpl in *; destruct (ph x) as [[? ?]|], (h x) as [? |];
+  repeat match goal with [H : _ /\ _ |- _ ] => destruct H end;
+  try tauto; try congruence.
+Qed.
+
+
