@@ -415,7 +415,7 @@ Section SeqCSL.
           
         (forall j c', wait c = Some (j, c') ->
            exists (phP ph' : pheap), 
-             pdisj phP ph' /\ phplus phP ph' = ph /\ sat (s, ph') (pre_j tid j) /\
+             pdisj phP ph' /\ phplus phP ph' = ph /\ sat (s, phP) (pre_j tid j) /\
              (forall (phQ : pheap) (H : pdisj phQ ph'), sat (s, phQ) (post_j tid j) ->
                 safe_nt tid n c' s (phplus_pheap H) q))
     end.
@@ -722,9 +722,10 @@ Section SeqCSL.
         pose proof (safe_inv' Hi3 Hi4) as hsafei.
         destruct (disj_tid tid H3) as [h_ni [eqni [h_ntid hnip]]].
         assert ((get_hs pss2)[@tid] = snd pss2[@tid]) as H'
-                                                        by (unfold get_hs; erewrite Vector.nth_map; eauto);
+          by (unfold get_hs; erewrite Vector.nth_map; eauto);
           rewrite H' in h_ntid, hnip; clear H'.
-        assert (ptoheap (phplus (snd pss2[@tid]) h_ni) h1) as hto by (rewrite hnip; apply ptoheap_htop).
+        assert (ptoheap (phplus (snd pss2[@tid]) h_ni) h1) as hto 
+          by (rewrite hnip; apply ptoheap_htop).
         destruct (safe_red_p red' eq_refl hsafei h_ntid hto) as [pst2 [seq [tred [tdisj tto]]]].
         destruct (disj_upd eqni tdisj) as [hq [hdeq_q  heq_q]].
         exists pss', (replace pss2 tid pst2), c', (replace cs tid c2), h'.
@@ -748,6 +749,33 @@ Section SeqCSL.
         + destruct (H4 tid0) as [_ [_ [_ Ht]]]; eauto.
           rewrite !replace_nth; destruct (fin_eq_dec tid tid0); subst; eauto.
           eapply red_p_step; eauto. }
+      { clear ks' ks2 H.
+        intros ? ? ss' ss2 h j ? ? Hbrr Hmulred IH; subst; simpl in *.
+        destruct IH as [pss' [pss2 [c' [cs [h' [hdeq' [hseq' [hdeq2 H]]]]]]]].
+        assert (forall tid : Fin.t ngroup, safe_aux tid c' (fst pss'[@tid]) (snd pss'[@tid])) 
+          as hsafe' by (intros tid; destruct (H tid) as [? [? [? ?]]]; tauto).
+        assert (forall tid : Fin.t ngroup, safe_aux tid cs[@tid] (fst pss2[@tid]) (snd pss2[@tid])) 
+          as hsafe2.
+        { intros; specialize (hsafe' tid); destruct (H tid) as [? [? [? ?]]], pss'[@tid], pss2[@tid];
+          simpl in *; apply (safe_inv hsafe'); eauto. }
+        assert (forall tid : Fin.t ngroup, ss'[@tid] = (cs[@tid], fst pss2[@tid])) as heqss'.
+        { intros tid; destruct (H tid) as [H1 [H2 [_ _]]]; unfold get_ss, get_ss_k, get_cs_k in *;
+          simpl in *.
+          erewrite !(Vector.nth_map) in H1; erewrite !(Vector.nth_map) in H2; eauto;
+          destruct ss'[@tid]; f_equal; eauto. }
+        assert (forall tid : Fin.t ngroup, wait cs[@tid] = Some (j, fst ss2[@tid])) as cswait.
+        { intros tid; destruct (Hbrr tid) as [cp [s [cq' [H1 [H2 H3]]]]]. specialize (heqss' tid).
+          rewrite heqss' in H1; destruct ss2[@tid]; inversion H1; inversion H2; inversion H3; 
+          subst; eauto. }
+        assert (forall tid, exists phP phF : pheap, 
+                  pdisj phP phF /\ phplus phP phF = snd pss2[@tid] /\ 
+                  sat (fst pss2[@tid], phP) (pre_j tid j)) as hpre.
+        { intros tid; specialize (hsafe2 tid); destruct hsafe2 as [q hsafe2];
+          specialize (hsafe2 1%nat); destruct hsafe2 as [_ [_ [_ [_ [_ hsafe2]]]]];
+          specialize (hsafe2 j (fst ss2[@tid]) (cswait tid));
+          destruct hsafe2 as [phP [phF [? [? [? _]]]]]; eexists; eauto. }
+        
+        
       remember (replace cs tid c2) as cs'.
       remember (replace pss2 tid (s2 ?)) as pss2'.
 End BDF.
