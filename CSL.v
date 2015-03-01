@@ -82,6 +82,40 @@ Section Assertion.
       simpl; eauto.
       simpl; auto using padd_left_comm.
   Qed.
+
+  Definition precise p :=
+    forall (h1 h2 h1' h2' : pheap) s,
+      sat (s, h1) p -> sat (s, h1') p ->
+      pdisj h1 h2 -> pdisj  h1' h2' ->
+      phplus h1 h2 = phplus h1' h2' ->
+      h1 = h1'.
+
+  Lemma precise_emp : precise Aemp.
+  Proof.
+    red; intros h1 h2 h1' h2' s hsat hsat' hdis hdis' heq;
+    destruct h1 as [h1 ?], h1' as [h1' ?]; apply pheap_eq; extensionality x; simpl in *;
+    rewrite hsat, hsat'; eauto.
+  Qed.
+
+  Lemma precise_star (p q : assn) : precise p -> precise q -> precise (Astar p q).
+  Proof.
+    intros pp pq h1 h2 h1' h2' s hsat hsat' hdis hdis' heq;
+    simpl in *; des; rewrite <-hsat2, <-hsat'2 in *.
+    destruct h1 as [h1 ?], h1' as [h1' ?]; simpl; simpl in hsat2, hsat'2; apply pheap_eq.
+    apply pdisj_padd_expand in hdis; apply pdisj_padd_expand in hdis'; eauto.
+    rewrite !padd_assoc in heq; try tauto. 
+    rewrite <-hsat2, <-hsat'2 in *; f_equal; destruct hdis, hdis'.
+    - rewrite (pp h4 (Pheap (pdisj_is_pheap H0)) h0 (Pheap (pdisj_is_pheap H2)) s); eauto.
+    - rewrite padd_left_comm in heq at 1; try tauto.
+      rewrite (@padd_left_comm h0 h3 h2') in heq; try tauto.
+      pose proof (pdisjE2 H H0); eauto. pose proof (pdisjE2 H1 H2); eauto.
+      rewrite (pq h5 (Pheap (pdisj_is_pheap H3)) h3 (Pheap (pdisj_is_pheap H4)) s); simpl in *; eauto;       apply pdisj_padd_comm; eauto.
+  Qed.
+
+  Lemma precise_istar : forall (l : list assn), (forall x, In x l -> precise x) -> precise (Aistar l).
+  Proof.
+    induction l; ins; auto using precise_emp, precise_star.
+  Qed.
 End Assertion.
 
 Section Barrier.
@@ -117,6 +151,7 @@ Section Barrier.
   Definition jth_post (j : nat) := Aistar_v (snd (bspec j)).
   Definition env_wellformed := 
     bwf /\ forall (j : nat) (st : pstate), sat st (jth_pre j) <-> sat st (jth_post j).
+  Defini
   Variable env_wf : env_wellformed.
 
   Lemma emp_is_emp (h : pheap) :
