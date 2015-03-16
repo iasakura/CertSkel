@@ -151,7 +151,6 @@ Section Barrier.
   Definition jth_post (j : nat) := Aistar_v (snd (bspec j)).
   Definition env_wellformed := 
     bwf /\ forall (j : nat) (st : pstate), sat st (jth_pre j) <-> sat st (jth_post j).
-  Defini
   Variable env_wf : env_wellformed.
 
   Lemma emp_is_emp (h : pheap) :
@@ -504,7 +503,8 @@ Section SeqCSL.
     remember (c', ps') as cps';
       assert (c' = fst cps') as Heq by (subst; eauto); rewrite Heq; clear Heq;
       assert (ps' = snd cps') as Heq by (subst; eauto); rewrite Heq; clear Heq.
-    clear Heqcps Heqcps' c ps c' ps'; induction hred as [|cps' cps'' hred]; eauto.
+    clear Heqcps Heqcps' c ps c' ps'. 
+    induction hred as [|cps' cps'' hred]; eauto.
     destruct IHhred as [q IH]; exists q; intros n.
     destruct cps as [c ps], cps' as [c' ps'], cps'' as [c'' ps'']; simpl in *.
     destruct (IH (S n)) as [_ [_ [_ [_ [IH' _]]]]].
@@ -708,6 +708,80 @@ Section SeqCSL.
     eapply rt_trans; eauto.
   Qed.
 
+  Lemma vec_ex (T : Type) (n : nat) (P : Fin.t n -> T -> Prop) : 
+    (forall i : Fin.t n, exists x : T, P i x) -> 
+    exists v : Vector.t T n, forall i : Fin.t n, P i v[@i].
+  Proof.
+    induction n as [|n']; [exists []; inversion 0 | intros H].
+    destruct n' as [|n'']; [destruct (H Fin.F1) as [x Hx]; exists [x] | ].
+    - intros i; destruct (finvS i) as [|[i' H']]; [subst; eauto|inversion i'].
+    - set (P' := (fun (i : Fin.t (S n'')) x => P (Fin.FS i) x)).
+      assert (forall i : Fin.t (S n''), exists x : T, P' i x) as Hex.
+      { intros i; subst; apply (H (Fin.FS i)). }
+      destruct (IHn' P' Hex) as [v IHP'].
+      destruct (H Fin.F1) as [x1 H1].
+      exists (x1 :: v); intros i; destruct (finvS i) as [|[i' ?]]; subst; unfold P' in *; eauto.
+  Qed.
+
+  Lemma disj_eq_sub (n : nat) (hs hs1 hs2 : Vector.t pheap n) (h : pheap): 
+    disj_eq hs h -> (forall i : Fin.t n, pdisj hs1[@i] hs2[@i] /\ phplus hs1[@i] hs2[@i] = hs[@i]) ->
+      exists (h1 h2 : pheap), 
+        disj_eq hs1 h1 /\ disj_eq hs2 h2 /\ pdisj h1 h2 /\ phplus h1 h2 = h.
+  Proof.
+    move: h; induction n; intros h hdis heq.
+    - generalize (vinv0 hs), (vinv0 hs1), (vinv0 hs2); intros; subst; repeat eexists; 
+      (repeat split); try constructor.
+      inversion hdis; subst; unfold emp_ph; simpl; extensionality x; eauto.
+    - destruct (vinvS hs) as [ph [hs' ?]], (vinvS hs1) as [ph1 [hs1' ?]], 
+               (vinvS hs2) as [ph2 [hs2' ?]]; subst. inversion hdis; apply inj_pair2 in H2; subst.
+      clear hdis.
+      assert (forall i : Fin.t n, pdisj hs1'[@i] hs2'[@i] /\ phplus hs1'[@i] hs2'[@i] = hs'[@i]) 
+        as H by (intros i; pose proof (heq (Fin.FS i)) as H; simpl in H; tauto).
+      destruct (IHn _ _ _ _ H3 H) as [h1 [h2 IH]].
+      assert (pdisj h1 ph1 /\ pdisj h2 ph2) as [dis1 dis2].
+      { destruct IH as [? [? [H1 H2]]]; rewrite <-H2 in hdis0.
+        destruct (heq Fin.F1) as [dis12 pp12]; simpl in *.
+        assert (phplus_pheap dis12 = ph) by (destruct ph; apply pheap_eq; simpl in *; eauto).
+        rewrite <-H5 in hdis0.
+        apply pdisj_padd in hdis0; eauto.
+        destruct hdis0 as [dis1 dis2]; apply pdisjC in dis1; apply pdisjC in dis2.
+        simpl in *; apply pdisj_padd in dis1; apply pdisj_padd in dis2; tauto. }
+      assert (pdisj h1 (phplus_pheap (pdisjC dis2))). 
+      { simpl. rewrite (phplus_comm (pdisjC dis2)); apply pdisj_padd_expand; try tauto.
+        destruct (heq Fin.F1) as [dis12 pp12]; simpl in dis12, pp12.
+        destruct IH as [_ [_ [? ?]]].
+        cutrewrite (ph0 = phplus_pheap H0) in hdis0;[|destruct ph0; eauto; apply pheap_eq; eauto].
+        rewrite <-pp12 in hdis0.
+        apply pdisjC in hdis0; apply pdisjE2 in hdis0; tauto. }
+      assert (pdisj (phplus_pheap (h1:=ph1) (h2:=h1) (pdisjC (h1:=h1) (h2:=ph1) dis1))
+                    (phplus_pheap (h1:=ph2) (h2:=h2) (pdisjC (h1:=h2) (h2:=ph2) dis2))).
+      { apply (pdisj_padd_expand _ (pdisjC dis1)); split; auto.
+        simpl; rewrite (padd_left_comm H0 (pdisjC dis2)).
+        destruct IH as [? [? [hdis12 hpp12]]].
+        cutrewrite (phplus h1 h2 = phplus_pheap hdis12); [| simpl; eauto].
+        assert (pdisj ph1 (phplus ph2 (phplus_pheap (h1:=h1) (h2:=h2) hdis12)) /\
+                pdisj ph2 (phplus_pheap (h1:=h1) (h2:=h2) hdis12)); [ | tauto].
+        apply pdisj_padd_expand; [generalize (heq (Fin.F1)); tauto |].
+        simpl; rewrite hpp12. 
+        destruct (heq (Fin.F1)) as [? Heq]; simpl in *; rewrite Heq; eauto using pdisjC. }
+      exists (phplus_pheap (pdisjC dis1)), (phplus_pheap (pdisjC dis2)); 
+      repeat split; try econstructor; try tauto.
+      + cutrewrite (this (phplus_pheap (h1:=ph1) (h2:=h1) (pdisjC (h1:=h1) (h2:=ph1) dis1)) =
+                    phplus ph1 h1); [|eauto].
+        rewrite padd_assoc; [simpl| apply (pdisj_padd_expand _ (pdisjC dis1))| ]; try tauto.
+        destruct IH as [? [? [dis12 pp12]]].
+        rewrite (phplus_comm (pdisjC dis2)). 
+        rewrite<-padd_assoc; [| rewrite (@phplus_comm h2 ph2); try tauto| apply ( dis2)].
+        cutrewrite (phplus h1 h2 = phplus_pheap dis12); [|eauto]. 
+        assert (pdisj ph2 (phplus_pheap (h1:=h1) (h2:=h2) dis12)).
+        { destruct (heq (Fin.F1)) as [? ?]; simpl in *; rewrite <-H6 in hdis0.
+          apply pdisjC,pdisjE2,pdisjC in hdis0; try eauto; rewrite pp12; eauto. }
+        rewrite (@phplus_comm _ ph2), <-padd_assoc; eauto.
+        * simpl; rewrite pp12; destruct (heq (Fin.F1)) as [? ?]; simpl in *; congruence.
+        * apply pdisj_padd_expand; destruct (heq Fin.F1); simpl in *; try tauto.
+          rewrite H7, pp12; tauto.
+  Qed.
+  
   Definition nth (n : nat) (A : Type) (v : Vt A n):= Vector.nth v.
   Lemma step_inv (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2)) (ph1 ph2 : heap) 
         (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) :
@@ -809,7 +883,17 @@ Section SeqCSL.
           specialize (hsafe2 1%nat); destruct hsafe2 as [_ [_ [_ [_ [_ hsafe2]]]]];
           specialize (hsafe2 j (fst ss2[@tid]) (cswait tid));
           destruct hsafe2 as [phP [phF [? [? [? _]]]]]; eexists; eauto. }
-        
+        assert (exists (phPs phFs : t pheap ngroup), forall tid : Fin.t ngroup,
+                  pdisj phPs[@tid] phFs[@tid] /\
+                  phplus phPs[@tid] phFs[@tid] = snd pss2[@tid] /\
+                  sat (fst pss2[@tid], phPs[@tid]) (pre_j tid j)) as [phPs [phFs Hpre]].
+        { destruct (@vec_ex pheap ngroup (fun tid phP => exists (phF : pheap), pdisj phP phF /\
+           phplus phP phF = snd pss2[@tid] /\
+           sat (fst pss2[@tid], phP) (pre_j tid j)) hpre) as [phPs Hp].
+          destruct (@vec_ex pheap ngroup (fun tid phF => pdisj phPs[@tid] phF /\
+            phplus phPs[@tid] phF = snd pss2[@tid] /\
+            sat (fst pss2[@tid], phPs[@tid]) (pre_j tid j)) Hp) as [phFs Hp'].
+          eexists; eauto. }
         
       remember (replace cs tid c2) as cs'.
       remember (replace pss2 tid (s2 ?)) as pss2'.

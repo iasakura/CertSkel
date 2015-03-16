@@ -48,21 +48,19 @@ Qed.
 Section Forall_ex_ex_v.
   Variable T : Type.
   Variable n : nat.
-  Hypothesis n_gt_0 : n > 0.
   Variable P : Fin.t n -> T -> Prop.
 
   Goal (forall i : Fin.t n, exists x : T, P i x) -> 
-  (exists v : Vector.t T n, forall i : Fin.t n, P i v[@i]).
+    exists v : Vector.t T n, forall i : Fin.t n, P i v[@i].
   Proof.
-    induction n as [|n']; [omega| intros H].
+    induction n as [|n']; [exists []; inversion 0 | intros H].
     destruct n' as [|n'']; [destruct (H Fin.F1) as [x Hx]; exists [x] | ].
     - intros i; destruct (finvS i) as [|[i' H']]; [subst; eauto|inversion i'].
-    - remember (fun (i : Fin.t (S n'')) x => P (Fin.FS i) x) as P'.
+    - set (P' := (fun (i : Fin.t (S n'')) x => P (Fin.FS i) x)).
       assert (forall i : Fin.t (S n''), exists x : T, P' i x) as Hex.
       { intros i; subst; apply (H (Fin.FS i)). }
-      assert (S n'' > 0) as Hsg by omega.
-      destruct (IHn' Hsg P' Hex) as [v IHP'].
+      destruct (IHn' P' Hex) as [v IHP'].
       destruct (H Fin.F1) as [x1 H1].
-      exists (x1 :: v); intros i; destruct (finvS i) as [|[i' ?]]; subst; eauto.
+      exists (x1 :: v); intros i; destruct (finvS i) as [|[i' ?]]; subst; unfold P' in *; eauto.
   Qed.
 End Forall_ex_ex_v.
