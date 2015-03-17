@@ -894,6 +894,12 @@ Section SeqCSL.
             phplus phPs[@tid] phF = snd pss2[@tid] /\
             sat (fst pss2[@tid], phPs[@tid]) (pre_j tid j)) Hp) as [phFs Hp'].
           eexists; eauto. }
+        assert (forall tid : Fin.t ngroup, 
+                  pdisj phPs[@tid] phFs[@tid] /\ phplus phPs[@tid] phFs[@tid] = (get_hs pss2)[@tid]) 
+        as H'.
+        { intros tid; specialize (Hpre tid); split; try tauto.
+          unfold get_hs; erewrite Vector.nth_map; eauto; des; tauto. }
+        destruct (disj_eq_sub hdeq2 H') as [hP [hF [HhP [HhF [hdispf hppf]]]]].
         
       remember (replace cs tid c2) as cs'.
       remember (replace pss2 tid (s2 ?)) as pss2'.
