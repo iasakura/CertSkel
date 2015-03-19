@@ -20,6 +20,7 @@ Set Implicit Arguments.
 Unset Strict Implicit.
 
 Require Import PHeap.
+Import VectorNotations.
 
 Lemma finvS (n : nat) (i : Fin.t (S n)) : (i = Fin.F1 \/ exists i', i = Fin.FS i').
 Proof.
@@ -27,6 +28,33 @@ Proof.
   - intros n0; tauto.
   - intros n0 p; right; eexists; tauto.
 Qed.
+
+Section Vector.
+  Variable T : Type.
+  Variable n : nat.
+
+  Lemma vec_exvec (P : Fin.t n -> T -> Prop) : 
+    (forall i : Fin.t n, exists x : T, P i x) -> 
+    exists v : Vector.t T n, forall i : Fin.t n, P i v[@i].
+  Proof.
+    induction n as [|n']; [exists []; inversion 0 | intros H].
+    destruct n' as [|n'']; [destruct (H Fin.F1) as [x Hx]; exists [x] | ].
+    - intros i; destruct (finvS i) as [|[i' H']]; [subst; eauto|inversion i'].
+    - set (P' := (fun (i : Fin.t (S n'')) x => P (Fin.FS i) x)).
+      assert (forall i : Fin.t (S n''), exists x : T, P' i x) as Hex.
+      { intros i; subst; apply (H (Fin.FS i)). }
+      destruct (IHn' P' Hex) as [v IHP'].
+      destruct (H Fin.F1) as [x1 H1].
+      exists (x1 :: v); intros i; destruct (finvS i) as [|[i' ?]]; subst; unfold P' in *; eauto.
+  Qed.
+  Variable t : T.
+  Lemma vec_eq_ex (f : Fin.t n -> T) :
+    (forall i j : Fin.t n, f i = f j) -> (exists c, forall i : Fin.t n, f i = c).
+  Proof.
+    induction n; intros H; [exists t; intros i; inversion i | ].
+    exists (f Fin.F1); intros i; destruct (finvS i) as [| [i' ?]]; subst; eauto.
+  Qed.
+End Vector.
 
 Section Assertion.
   Inductive assn : Set := 
@@ -37,7 +65,9 @@ Section Assertion.
   | Astar (p1: assn) (p2: assn)
   | Apointsto (p : Qc) (e1 e2: exp)
   | Aex (pp: nat -> assn).
-
+  
+  Local Open Scope list_scope.
+  Import ListNotations.
   Fixpoint Aistar ps := 
   match ps with
     | nil => Aemp
@@ -126,7 +156,6 @@ Section Assertion.
 End Assertion.
 
 Section Barrier.
-  Import VectorNotations.
   Variable ngroup : nat.
   Definition barrier_spec := nat -> (Vector.t assn ngroup * Vector.t assn ngroup)%type.
   Variable bspec : barrier_spec.
@@ -747,20 +776,7 @@ Section SeqCSL.
     eapply rt_trans; eauto.
   Qed.
 
-  Lemma vec_ex (T : Type) (n : nat) (P : Fin.t n -> T -> Prop) : 
-    (forall i : Fin.t n, exists x : T, P i x) -> 
-    exists v : Vector.t T n, forall i : Fin.t n, P i v[@i].
-  Proof.
-    induction n as [|n']; [exists []; inversion 0 | intros H].
-    destruct n' as [|n'']; [destruct (H Fin.F1) as [x Hx]; exists [x] | ].
-    - intros i; destruct (finvS i) as [|[i' H']]; [subst; eauto|inversion i'].
-    - set (P' := (fun (i : Fin.t (S n'')) x => P (Fin.FS i) x)).
-      assert (forall i : Fin.t (S n''), exists x : T, P' i x) as Hex.
-      { intros i; subst; apply (H (Fin.FS i)). }
-      destruct (IHn' P' Hex) as [v IHP'].
-      destruct (H Fin.F1) as [x1 H1].
-      exists (x1 :: v); intros i; destruct (finvS i) as [|[i' ?]]; subst; unfold P' in *; eauto.
-  Qed.
+
 
   Lemma disj_eq_sub (n : nat) (hs hs1 hs2 : Vector.t pheap n) (h : pheap): 
     disj_eq hs h -> (forall i : Fin.t n, pdisj hs1[@i] hs2[@i] /\ phplus hs1[@i] hs2[@i] = hs[@i]) ->
@@ -819,18 +835,7 @@ Section SeqCSL.
         * simpl; rewrite pp12; destruct (heq (Fin.F1)) as [? ?]; simpl in *; congruence.
         * apply pdisj_padd_expand; destruct (heq Fin.F1); simpl in *; try tauto.
           rewrite H7, pp12; tauto.
-  Qed.
-
-  Lemma disj_eq_pdisj (n : nat) (hs1 hs2 : Vector.t pheap n) (h1 h2 : pheap) :
-    disj_eq hs1 h1 -> disj_eq hs2 h2 -> pdisj h1 h2 ->
-    (forall i : Fin.t n, pdisj hs1[@i] hs2[@i]).
-  Proof.
-    generalize dependent n; induction n; intros hs1 hs2 hdis1 hdis2 hpdis i; [inversion i| ].
-    destruct (vinvS hs1) as [ht1 [hs1' ?]], (vinvS hs2) as [h2' [hs2' ?]],
-             (finvS i) as [|[i' ?]]; subst; simpl;
-    inversion hdis1; clear hdis1; subst; apply inj_pair2 in H2; subst; rename H3 into hdis1;
-    inversion hdis2; clear hdis2; subst; apply inj_pair2 in H2; subst; rename H3 into hdis2.
-    
+  Qed.    
     
   Definition nth (n : nat) (A : Type) (v : Vt A n):= Vector.nth v.
   Lemma step_inv (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2)) (ph1 ph2 : heap) 
@@ -859,13 +864,7 @@ Section SeqCSL.
     - remember (Vector.map2 (fun s h => (s, h)) ss1 hs1) as pss'.
       exists pss', pss', c, (Vector.const c ngroup), (htop (snd ks1)).
       subst; repeat split; autounfold; autorewrite with core; eauto.
-(*      + cutrewrite (get_hs (Vector.map2 (fun (s : stack) h => (s, h)) (get_ss_k ks1) hs1) = hs1); 
-          [eauto | ].
-        unfold get_hs; rewrite map_map2, map2_snd'; eauto.
-      + autorewrite with core. unfold get_ss; rewrite map_map2, map2_fst'; eauto.
-      + unfold get_hs; rewrite map_map2, map2_snd'; eauto. *)
       + rewrite const_nth; pose proof (hc tid); eauto.
-(*      + unfold get_ss_k, get_ss; rewrite map_map2, map2_fst'; eauto.*)
       + assert ((Vector.map2 (fun (s : stack) h => (s, h)) (get_ss_k ks1) hs1)[@tid] = 
                 ((get_ss_k ks1)[@tid], hs1[@tid])); erewrite nth_map2; eauto.
       + rewrite const_nth; econstructor.
@@ -939,10 +938,10 @@ Section SeqCSL.
                   pdisj phPs[@tid] phFs[@tid] /\
                   phplus phPs[@tid] phFs[@tid] = snd pss2[@tid] /\
                   sat (fst pss2[@tid], phPs[@tid]) (pre_j tid j)) as [phPs [phFs Hpre]].
-        { destruct (@vec_ex pheap ngroup (fun tid phP => exists (phF : pheap), pdisj phP phF /\
+        { destruct (@vec_exvec pheap ngroup (fun tid phP => exists (phF : pheap), pdisj phP phF /\
            phplus phP phF = snd pss2[@tid] /\
            sat (fst pss2[@tid], phP) (pre_j tid j)) hpre) as [phPs Hp].
-          destruct (@vec_ex pheap ngroup (fun tid phF => pdisj phPs[@tid] phF /\
+          destruct (@vec_exvec pheap ngroup (fun tid phF => pdisj phPs[@tid] phF /\
             phplus phPs[@tid] phF = snd pss2[@tid] /\
             sat (fst pss2[@tid], phPs[@tid]) (pre_j tid j)) Hp) as [phFs Hp'].
           eexists; eauto. }
@@ -952,31 +951,39 @@ Section SeqCSL.
         { intros tid; specialize (Hpre tid); split; try tauto.
           unfold get_hs; erewrite Vector.nth_map; eauto; des; tauto. }
         destruct (disj_eq_sub hdeq2 H') as [hP [hF [HhP [HhF [hdispf hppf]]]]].
+        destruct hty' as [ty hty'].
         set (psspre := Vector.map2 (fun x y => (fst x, y)) pss2 phPs).
-        assert (exists phQs : Vector.t pheap ngroup, disj_eq phQs hP /\ 
-                  forall tid : Fin.t ngroup, pdisj phQs[@tid] phFs[@tid] /\ 
-                                             sat (fst pss2[@tid], phQs[@tid]) (post_j tid j)) as hq.
+        assert (forall tid1 tid2 : Fin.t ngroup, tid1 <> tid2 -> st_compat env pss'[@tid1] pss'[@tid2]) as pss'compat.
+        { unfold st_compat; split; eauto;
+          rewrite <-(Vector.nth_map _ _ tid1 tid1); eauto;
+          rewrite <-(Vector.nth_map _ _ tid2 tid2); eauto.
+          - apply loweq_l2_leq; eauto.
+          - eapply disjeq_disj; eauto. }
+        assert (low_eq_l2 env (get_ss pss2)).
+        { apply leq_low_eq_l2; intros tid1 tid2 hneq.
+          unfold get_ss, psspre; erewrite !Vector.nth_map; eauto.
+          cut (j = j /\ fst ss2[@tid1] = fst ss2[@tid2] /\ st_compat env pss2[@tid1] pss2[@tid2]); 
+            unfold st_compat; try tauto.
+          destruct (H tid1) as [_ [_ [_ hred1]]], (H tid2) as [_ [_ [_ hred2]]].
+          eapply (fun x => non_interference_p2 hty' x hred1 hred2 (cswait tid1) (cswait tid2)).
+          apply pss'compat; eauto. }
+        assert (exists phQs : Vector.t pheap ngroup, 
+                  disj_eq phQs hP /\ 
+                  forall tid : Fin.t ngroup, 
+                    pdisj phQs[@tid] phFs[@tid] /\ 
+                    sat (fst pss2[@tid], phQs[@tid]) (post_j tid j)) as hq.
         { assert (disj_eq (get_hs psspre) (hP)) as disj1 by
           (cutrewrite (get_hs psspre = phPs); [eauto|
              (apply Vector.eq_nth_iff; intros i1 i2 ?; subst; unfold get_hs, psspre;
               erewrite Vector.nth_map; eauto; erewrite Vector.nth_map2; simpl; eauto)]).
-          assert (low_eq_l2 env (get_ss psspre)).
-          { apply leq_low_eq_l2; intros tid1 tid2 hneq.
-            unfold get_ss, psspre; erewrite !Vector.nth_map; eauto; 
-            erewrite !Vector.nth_map2; eauto; simpl.
-            cut (j = j /\ fst ss2[@tid1] = fst ss2[@tid2] /\ st_compat env pss2[@tid1] pss2[@tid2]); 
-              unfold st_compat; try tauto.
-            destruct (H tid1) as [_ [_ [_ hred1]]], (H tid2) as [_ [_ [_ hred2]]].
-            destruct hty' as [ty hty'].
-            eapply (fun x => non_interference_p2 hty' x hred1 hred2 (cswait tid1) (cswait tid2)). 
-            unfold st_compat; split; eauto;
-            rewrite <-(Vector.nth_map _ _ tid1 tid1); eauto;
-            rewrite <-(Vector.nth_map _ _ tid2 tid2); eauto.
-            - apply loweq_l2_leq; eauto.
-            - eapply disjeq_disj; eauto. }
           assert (forall tid : Fin.t ngroup, sat psspre[@tid] (fst (bspec j))[@tid]).
           { intros tid; destruct (Hpre tid) as [? [? ?]].
             unfold psspre; erewrite Vector.nth_map2; eauto. } 
+          assert (get_ss psspre = get_ss pss2).
+          { apply Vector.eq_nth_iff; intros tid1 tid2 ?; subst.
+            unfold get_ss, psspre; erewrite !Vector.nth_map; eauto; erewrite Vector.nth_map2; 
+            simpl; eauto. }
+          rewrite <-H2 in H0; clear H2.
           destruct (sync_barrier' env_wf disj1 H0 H1) as [psspos [dis2 [heq hsat']]].
           exists (Vector.map (fun st => snd st) psspos); repeat split; eauto.
           - apply (disj_eq_each_disj dis2 HhF); eauto.
@@ -989,8 +996,25 @@ Section SeqCSL.
               [|(specialize (H2 tid); erewrite !Vector.nth_map in H2; eauto)].
             cutrewrite (psspos[@tid] = (fst psspos[@tid], snd psspos[@tid])) in hsat';
               [eauto |(destruct (psspos[@tid])); eauto]. }
+        assert (forall tid1 tid2 : Fin.t ngroup, fst ss2[@tid1] = fst ss2[@tid2]).
+        { intros tid1 tid2; 
+          destruct (H tid1) as [_ [_ [_ hred1]]], (H tid2) as [_ [_ [_ hred2]]].
+          destruct (fin_eq_dec tid1 tid2); subst; eauto.
+          cut (j = j /\ fst ss2[@tid1] = fst ss2[@tid2] /\ st_compat env pss2[@tid1] pss2[@tid2]);
+          [tauto | 
+           eapply (non_interference_p2 hty' (pss'compat tid1 tid2 n) 
+                         hred1 hred2 (cswait tid1) (cswait tid2)) ]. }
+        destruct (vec_eq_ex Cskip H1) as [c'' Hc].
         destruct hq as [phQs [hdisq hid]].
-        
+        set (pssq := Vector.map2 (fun x y => (fst x, y)) pss2 phQs).
+        exists pssq, pssq, c'', (Vector.const c'' ngroup), (htop h).
+        assert (get_hs pssq = get_hs
       remember (replace cs tid c2) as cs'.
       remember (replace pss2 tid (s2 ?)) as pss2'.
 End BDF.
+
+
+
+
+
+
