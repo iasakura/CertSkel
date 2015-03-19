@@ -866,4 +866,33 @@ Section NonInter.
     eapply non_interference_big; eauto.
     destruct H as [H' ?]; inversion H'.
   Qed. 
+
+  Lemma weaken_type (ty ty' : type) (c : cmd) : le_type ty' ty -> typing_cmd c ty -> typing_cmd c ty'.
+  Proof.
+    intros le htyp; revert ty' le; induction htyp; intros ty' hle; try (constructor; eauto).
+    - econstructor; eauto. 
+      destruct ty, pc, ty', (g v); eauto.
+    - econstructor; eauto.
+      destruct ty, pc, ty', (g v); eauto.
+    - econstructor; eauto; [apply IHhtyp1 | apply IHhtyp2]; destruct ty, ty', pc; eauto.
+    - econstructor; eauto; apply IHhtyp; destruct ty, ty', pc; eauto.
+    - destruct ty'; inversion hle; constructor.
+  Qed.
+
+  Hint Resolve weaken_type.
+  Lemma preservation_big (ty  : type) (c c' : cmd) (st st' : pstate) (j : nat) (t : terminal) :
+    typing_cmd c ty -> c / st || t / st' -> t = Some (j, c') -> exists ty', typing_cmd c' ty'.
+  Proof.
+    intros htyp heval; generalize dependent ty; revert j c'; induction heval; intros j' c'' ty htyp; 
+    inversion 1; subst; try tauto; inversion htyp; subst.
+    - pose proof (IHheval j' c1' ty H2 eq_refl) as [ty' ?];
+      exists Lo; econstructor; eauto.
+    - eapply IHheval2; eauto.
+    - eapply IHheval; destruct ty0, ty; eauto.
+    - eapply IHheval; destruct ty0, ty; eauto.
+    - assert (typing_cmd (Cif b (c;; Cwhile b c) SKIP) (join ty ty0)).
+      repeat econstructor; eauto; destruct ty, ty0; eauto.
+      apply (IHheval j' c'' (join ty ty0) H eq_refl).
+    - exists Lo; constructor.
+  Qed.
 End NonInter.
