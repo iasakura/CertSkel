@@ -716,6 +716,72 @@ Section SeqCSL.
       apply pdisjE2, pdisjC in hdis; simpl in hdis; eauto; apply pdisjE2 in hdis; eauto.
   Qed.
 
+  Lemma pp_pdisj1 (h1 h2 h3 h4 : pheap) (dis12 : pdisj h1 h2) (dis34 : pdisj h3 h4) :
+    pdisj (phplus_pheap dis12) (phplus_pheap dis34) ->
+    pdisj h1 h3.
+  Proof.
+    clear bspec env env_wf.
+    unfold phplus_pheap.
+    cutrewrite (this {| this := phplus h3 h4;
+                   is_p := pdisj_is_pheap (h1:=h3) (h2:=h4) dis34 |} =
+                phplus h3 h4); [|simpl; eauto]; intros H.
+    apply pdisjE1, pdisjC in H; simpl in H; eauto; apply pdisjE1 in H; eauto.
+  Qed.
+
+  Lemma pp_pdisj2 (h1 h2 h3 h4 : pheap) (dis12 : pdisj h1 h2) (dis34 : pdisj h3 h4) :
+    pdisj (phplus_pheap dis12) (phplus_pheap dis34) ->
+    pdisj h2 h4.
+  Proof.
+    clear bspec env env_wf.
+    unfold phplus_pheap.
+    cutrewrite (this {| this := phplus h3 h4;
+                   is_p := pdisj_is_pheap (h1:=h3) (h2:=h4) dis34 |} =
+                phplus h3 h4); [|simpl; eauto]; intros H.
+    apply pdisjE2, pdisjC in H; simpl in H; eauto; apply pdisjE2 in H; eauto.
+  Qed.
+    
+  Lemma disj_eq_sum (n : nat) (hs1 hs2 hs' : Vector.t pheap n) (h1 h2 h' : pheap) :
+    disj_eq hs1 h1 -> disj_eq hs2 h2 -> pdisj h1 h2 ->
+    (forall i, this hs'[@i] = phplus hs1[@i] hs2[@i]) ->
+    disj_eq hs' h' -> this h' = phplus h1 h2.
+  Proof.
+    revert hs1 hs2 hs' h1 h2 h'; induction n;
+    intros hs1 hs2 hs' h1 h2 h' hdeq1 hdeq2 hdis heq hdeq'.
+    - rewrite (vinv0 hs1), (vinv0 hs2), (vinv0 hs') in *.
+      inversion hdeq1; inversion hdeq2; inversion hdeq'; subst.
+      unfold emp_ph; simpl; extensionality x; simpl; eauto.
+    - destruct (vinvS hs1) as [ht1 [hs1' ?]], (vinvS hs2) as [ht2 [hs2' ?]], (vinvS hs') as [ht' [hs'' ?]] in *; subst.
+      inversion hdeq1; clear hdeq1; apply inj_pair2 in H2; subst; rename H3 into hdeq1.
+      inversion hdeq2; clear hdeq2; apply inj_pair2 in H2; subst; rename H3 into hdeq2.
+      inversion hdeq'; clear hdeq'; apply inj_pair2 in H2; subst; rename H3 into hdeq'.
+      pose proof (pp_pdisj1 hdis) as dh12; pose proof (pp_pdisj2 hdis) as dph12.
+      assert (forall i : Fin.t n, this hs''[@i] = phplus hs1'[@i] hs2'[@i]) by
+        (intros i; specialize (heq (Fin.FS i)); eauto).
+      pose proof (IHn _ _ _ _ _ _ hdeq1 hdeq2 dph12 H hdeq').
+      pose proof (heq Fin.F1).
+      cutrewrite (this {| this := phplus ht1 ph;
+                          is_p := pdisj_is_pheap hdis0 |} = phplus ht1 ph); 
+        [|simpl; eauto].
+      Hint Resolve pdisjC pdisj_padd_comm.
+      rename H1 into H7.
+      pose proof (pp_pdisj1 hdis) as H1; simpl in H1.
+      pose proof (pp_pdisj2 hdis) as H2; simpl in H2.
+      pose proof (pdisjE1 hdis hdis1) as H3; simpl in H3.
+      pose proof (pdisjE2 hdis hdis1) as H4; simpl in H4.
+      pose proof (pdisjE1 (pdisjC hdis) hdis0) as H5; simpl in H5.
+      pose proof (pdisjE2 (pdisjC hdis) hdis0) as H6; simpl in H6.
+      assert (pdisj ht1 (phplus ph (phplus ht2 ph0))).
+      { cutrewrite (phplus ht2 ph0 = this {| this := phplus ht2 ph0;
+                                          is_p := pdisj_is_pheap hdis1 |}); [|simpl; eauto].
+        apply pdisj_padd_expand; eauto. }
+      rewrite padd_assoc; eauto.
+      simpl. rewrite padd_left_comm; eauto.
+      cutrewrite (phplus ph ph0 = this {| this := phplus ph ph0;
+                                          is_p := pdisj_is_pheap dph12 |}); [|simpl; eauto].
+      rewrite <-padd_assoc; simpl; f_equal; eauto.
+      rewrite <-padd_left_comm; eauto.
+  Qed.
+
   Lemma safe_red_p (c1 c2 : cmd) (st1 st2 : state) (pst1 : pstate) (hF : pheap) (tid : Fin.t ngroup):
     c1 / st1 ==>s c2 / st2 -> 
     fst st1 = fst pst1 ->
@@ -838,6 +904,7 @@ Section SeqCSL.
   Qed.    
     
   Definition nth (n : nat) (A : Type) (v : Vt A n):= Vector.nth v.
+
   Lemma step_inv (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2)) (ph1 ph2 : heap) 
         (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) :
     (exists ty : type, typing_cmd env c ty) ->
@@ -1012,9 +1079,3 @@ Section SeqCSL.
       remember (replace cs tid c2) as cs'.
       remember (replace pss2 tid (s2 ?)) as pss2'.
 End BDF.
-
-
-
-
-
-
