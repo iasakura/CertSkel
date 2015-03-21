@@ -1170,7 +1170,7 @@ Section SeqCSL.
       let c2 := (get_cs_k ks)[@tid2] in
       (exists j1 c1', wait c1 = Some (j1, c1') /\ c2 = Cskip) \/ 
       (exists j2 c2', c1 = Cskip                /\ wait c2 = Some (j2, c2')) \/ 
-      diverge (wait (get_cs_k ks)[@tid1]) (wait (get_cs_k ks)[@tid2]).
+      diverge (wait c1) (wait c2).
 
   Theorem barrier_divergence_freedom  (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2))
           (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) :
@@ -1187,9 +1187,9 @@ Section SeqCSL.
     pose proof (hid tid2) as [hcs2 [hss2 [hsafe2 hred2]]].
     rewrite <-hcs1, <-hcs2 in hdiv.
     destruct (fin_eq_dec tid1 tid2) as [? | hneq]; subst.
-    - destruct (wait cs[@tid2]) as [[? ?]|]; simpl in hdiv;
-      destruct hdiv as [ [? [? [hw1 hw2]]] | [[? [? [hw2 hw1]]] | ?]]; try congruence;
-      rewrite hw2 in hw1; simpl in hw1; inversion hw1.
+    - simpl in hdiv; destruct hdiv as [ [? [? [hw1 hw2]]] | [[? [? [hw2 hw1]]] | hdiv]];
+      (rewrite hw2 in hw1; simpl in hw1; inversion hw1) ||
+      (destruct (wait cs[@tid2]) as [[? ?]|]; eauto).
     - assert (st_compat env pss'[@tid1] pss'[@tid2]) as hcompat.
       { unfold st_compat; split.
         - pose proof (loweq_l2_leq hleq1 tid1 tid2) as hleq; unfold get_ss in hleq;
