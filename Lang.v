@@ -825,8 +825,7 @@ Section NonInter.
     - inversion ev2; subst; repeat split; eauto.
   Qed.
 
-  Theorem non_interference_p1 (ty : type) (c : cmd) (st1 st2 st1' st2' : pstate) 
-          (t1 t2 : terminal) :
+  Theorem non_interference_p1 (ty : type) (c : cmd) (st1 st2 st1' st2' : pstate) :
     typing_cmd c ty -> st_compat st1 st2 ->
     c / st1 ==>p* Cskip / st1' -> c / st2 ==>p* Cskip / st2' -> st_compat st1' st2'.
   Proof.
@@ -854,7 +853,7 @@ Section NonInter.
   Qed. 
 
   Theorem non_interference_p3 (ty : type) (c c1 c1' : cmd) (st1 st2 st1' st2' : pstate) 
-          (j1 j2 : nat) :
+          (j1 : nat) :
     typing_cmd c ty -> st_compat st1 st2 ->
     c / st1 ==>p* c1 / st1' -> c / st2 ==>p* Cskip / st2' -> 
     ~ wait c1 = Some (j1, c1').

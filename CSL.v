@@ -937,7 +937,7 @@ Section SeqCSL.
     
   Definition nth (n : nat) (A : Type) (v : Vt A n):= Vector.nth v.
 
-  Lemma step_inv (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2)) (ph1 ph2 : heap) 
+  Lemma step_inv (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2))
         (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) :
     (exists ty : type, typing_cmd env c ty) ->
     disj_eq hs1 (htop (snd ks1)) ->
@@ -1156,5 +1156,54 @@ Section SeqCSL.
             [|apply pheap_eq; f_equal; congruence].
           rewrite <-(Hc tid); apply hres.
         - rewrite const_nth; constructor. }
+  Qed.
+  
+  Definition diverge (c1 c2 : option (nat * cmd)) :=
+    match c1, c2 with
+      | Some (j1, c1'), Some (j2, c2') => j1 <> j2
+      | _, _ => False
+    end.
+
+  Definition bdiv (ks : kstate ngroup) :=
+    exists tid1 tid2 : Fin.t ngroup, 
+      let c1 := (get_cs_k ks)[@tid1] in
+      let c2 := (get_cs_k ks)[@tid2] in
+      (exists j1 c1', wait c1 = Some (j1, c1') /\ c2 = Cskip) \/ 
+      (exists j2 c2', c1 = Cskip                /\ wait c2 = Some (j2, c2')) \/ 
+      diverge (wait (get_cs_k ks)[@tid1]) (wait (get_cs_k ks)[@tid2]).
+
+  Theorem barrier_divergence_freedom  (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2))
+          (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) :
+    (exists ty : type, typing_cmd env c ty) ->
+    disj_eq hs1 (htop (snd ks1)) ->
+    ss1 = get_ss_k ks1 -> low_eq_l2 env ss1 ->
+    (forall tid : Fin.t ngroup, (get_cs_k ks1)[@tid] = c) -> 
+    (forall tid : Fin.t ngroup, safe_aux tid c (ss1[@tid]) (hs1[@tid])) ->
+    ~(bdiv ks2).
+  Proof.
+    intros; eapply step_inv in red_k; eauto.
+    destruct red_k as [pss' [pss2 [c' [cs [h' [hdis1 [hleq1 [hdis2 [hty hid]]]]]]]]].
+    intros [tid1 [tid2 hdiv]]; pose proof (hid tid1) as [hcs1 [hss1 [hsafe1 hred1]]]; 
+    pose proof (hid tid2) as [hcs2 [hss2 [hsafe2 hred2]]].
+    rewrite <-hcs1, <-hcs2 in hdiv.
+    destruct (fin_eq_dec tid1 tid2) as [? | hneq]; subst.
+    - destruct (wait cs[@tid2]) as [[? ?]|]; simpl in hdiv;
+      destruct hdiv as [ [? [? [hw1 hw2]]] | [[? [? [hw2 hw1]]] | ?]]; try congruence;
+      rewrite hw2 in hw1; simpl in hw1; inversion hw1.
+    - assert (st_compat env pss'[@tid1] pss'[@tid2]) as hcompat.
+      { unfold st_compat; split.
+        - pose proof (loweq_l2_leq hleq1 tid1 tid2) as hleq; unfold get_ss in hleq;
+          erewrite !Vector.nth_map in hleq; eauto.
+        - pose proof (disjeq_disj hdis1 hneq) as hpdisj; unfold get_hs in hpdisj;
+          erewrite !Vector.nth_map in hpdisj; eauto. }
+      destruct hty as [ty hty'].
+      destruct hdiv as [ [? [? [hw1 hw2]]] | [[? [? [hw2 hw1]]] | hdiv]];
+        [rewrite hw2 in hred2 | rewrite hw2 in hred1 | ].
+      + destruct (non_interference_p3 hty' hcompat hred1 hred2 hw1).
+      + destruct (non_interference_p3 hty' (st_compat_refl hcompat) hred2 hred1 hw1).
+      + remember (wait cs[@tid1]) as wc1; remember (wait cs[@tid2]) as wc2.
+        destruct wc1 as [[? ?]|], wc2 as [[? ?]|]; try (simpl in hdiv; eauto).
+        (destruct (non_interference_p2 hty' hcompat hred1 hred2 (eq_sym Heqwc1) (eq_sym Heqwc2)) 
+          as [? [? ?]]; congruence).
   Qed.
 End SeqCSL.
