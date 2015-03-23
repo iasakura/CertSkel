@@ -80,3 +80,62 @@ Section Vector.
     intros x n1 y; repeat eexists; eauto.
   Qed.
 End Vector.
+
+Section FusionLemmas.
+  Variable T U V W : Type.
+  Variable n : nat.
+
+  Lemma map_map (v : Vector.t T n) (f : T -> U) (g : U -> V) :
+    (Vector.map g (Vector.map f v)) = Vector.map (fun x => g (f x)) v.
+  Proof.
+    induction v; simpl; eauto.
+    rewrite IHv; eauto.
+  Qed.
+
+
+
+  Lemma map_map2 (f : T -> U) (g : V -> W -> T) 
+        (v2 : Vector.t V n) (v3 : Vector.t W n) :
+    Vector.map f (Vector.map2 g v2 v3) = Vector.map2 (fun x y => f (g x y)) v2 v3.
+    induction v2.
+    - rewrite (vinv0 v3) in *; simpl; eauto.
+    - destruct (vinvS v3) as [? [? ?]]; subst; simpl; rewrite IHv2; eauto.
+  Qed.
+  
+  Lemma map2_map (v1 : Vector.t (T * U) n) (v2 : Vector.t V n) (t : T) :
+    Vector.map2 (fun x y => (t, snd (fst x, y))) v1 v2 = Vector.map (pair t) v2.
+  Proof.
+    induction v1.
+    - rewrite (vinv0 v2); constructor.
+    - destruct (vinvS v2) as [h' [v2' ?]]; subst.
+      simpl. rewrite IHv1; eauto.
+  Qed.
+
+  Lemma map2_fst (v : Vector.t (T * V) n) (u : Vector.t U n):
+    Vector.map2 (fun x y => fst (fst x, y)) v u = Vector.map (fun x => fst x) v.
+    induction v; [rewrite (vinv0 u) | destruct (vinvS u) as [? [? ?]]; subst; simpl; rewrite IHv];
+    simpl; try congruence. 
+  Qed.
+
+  Lemma map2_snd (v : Vector.t (T * V) n) (u : Vector.t U n):
+    Vector.map2 (fun x y => snd (fst x, y)) v u = u.
+    induction v; [rewrite (vinv0 u) | destruct (vinvS u) as [? [? ?]]; subst; simpl; rewrite IHv];
+    simpl; try congruence. 
+  Qed.
+
+  Lemma map2_snd' (v : Vector.t T n) (u : Vector.t U n) :
+    Vector.map2 (fun x y => snd (x, y)) v u = u.
+  Proof.
+    induction v.
+    - rewrite (vinv0 u); eauto.
+    - destruct (vinvS u) as [x [t ?]]; subst; simpl; rewrite IHv; eauto.
+  Qed.
+
+  Lemma map2_fst' (v : Vector.t T n) (u : Vector.t U n) :
+    Vector.map2 (fun x y => fst (x, y)) v u = v.
+  Proof.
+    induction v.
+    - rewrite (vinv0 u); eauto.
+    - destruct (vinvS u) as [x [t ?]]; subst; simpl; rewrite IHv; eauto.
+  Qed.
+End FusionLemmas.

@@ -120,34 +120,12 @@ Section Assertion.
   Proof.
     induction l; ins; auto using precise_emp, precise_star.
   Qed.
-End Assertion.
-
-Section Barrier.
-  Variable ngroup : nat.
-  Definition barrier_spec := nat -> (Vector.t assn ngroup * Vector.t assn ngroup)%type.
-  Variable bspec : barrier_spec.
-  Variable env : var -> type.
-  Definition low_assn (P : assn) : Prop := 
-    forall (st st' : pstate), low_eq env (fst st) (fst st') -> (sat st P <-> sat st' P).
-
-  (* fv(bspec) \cup V_hi = \empty *)
-  Definition bwf := forall (j : nat),
-      (forall tid : Fin.t ngroup, low_assn (fst (bspec j))[@tid]) /\
-      (forall tid : Fin.t ngroup, low_assn (snd (bspec j))[@tid]). 
-
-
+  Import VectorNotations.
   Fixpoint Aistar_v (n : nat) (assns : Vector.t assn n) :=
     match assns with
       | [] => Aemp
-      | a :: assns => Astar a (Aistar_v assns)
+      | (a :: assns) => Astar a (Aistar_v assns)
     end.
-  Definition v := 1.
-  Definition jth_pre (j : nat) := Aistar_v (fst (bspec j)).
-  Definition jth_post (j : nat) := Aistar_v (snd (bspec j)).
-  Definition env_wellformed := 
-    bwf /\ forall (j : nat) (st : pstate), sat st (jth_pre j) <-> sat st (jth_post j).
-  Variable env_wf : env_wellformed.
-
 
   Lemma aistar_disj (n : nat) (assns : Vector.t assn n) (s : stack) (h : pheap) :
     sat (s, h) (Aistar_v assns) ->
@@ -166,17 +144,80 @@ Section Barrier.
         rewrite H; econstructor; eauto.
       + intros tid; destruct (finvS tid) as [|[tid' ?]]; subst; simpl; eauto.
   Qed.
+End Assertion.
 
-  Fixpoint low_eq_l (s : stack) (ng : nat) (sts : Vector.t stack ng) :=
+Section Low_eq.
+  Variable env : Lang.env.
+
+  Fixpoint low_eq_l (n : nat) (s : stack) (sts : Vector.t stack n) :=
     match sts with
       | [] => True
       | x :: xs => low_eq env s x /\ low_eq_l s xs
     end.
+
   Fixpoint low_eq_l2 (ng : nat) (sts : Vector.t stack ng) :=
     match sts with
       | [] => True
       | x :: xs => low_eq_l x xs /\ low_eq_l2 xs
     end.
+  Lemma loweq_l_leq (n : nat) (ss : Vector.t stack n) (s : stack) (leq : low_eq_l s ss) (i : Fin.t n) :
+    low_eq env s ss[@i].
+  Proof.
+    induction ss as [| sh ss]; [inversion i|].
+    destruct (finvS i) as [? | [i' ?]]; subst; simpl in *; try tauto.
+    apply IHss; tauto.
+  Qed.
+
+  Lemma low_eq_sym (s1 s2 : stack) : low_eq env s1 s2 -> low_eq env s2 s1.
+  Proof.
+    unfold low_eq; intros H x Hl; specialize (H x Hl); congruence.
+  Qed.
+
+  Lemma loweq_l2_leq (n : nat) (ss : Vector.t stack n) (leq : low_eq_l2 ss) (i j : Fin.t n) :
+    low_eq env (ss[@i]) (ss[@j]).
+  Proof.
+    induction ss as [| s ss]; [inversion i |].
+    destruct (finvS i) as [? | [i' ?]], (finvS j) as [? | [j' ?]]; subst; try congruence; simpl in *.
+    - apply loweq_l_leq; tauto.
+    - apply low_eq_sym; apply loweq_l_leq; tauto.
+    - apply IHss; tauto.
+  Qed.
+
+  Lemma leq_low_eq_l (n : nat) (s : stack) (ss : Vector.t stack n) : 
+    (forall i : Fin.t n, low_eq env s ss[@i]) -> low_eq_l s ss.
+  Proof.
+    induction ss as [| s' ss]; intros H; simpl; eauto.
+    split; [apply (H Fin.F1) | apply IHss; intros i; apply (H (Fin.FS i))].
+  Qed.
+
+  Lemma leq_low_eq_l2 (n : nat) (ss : Vector.t stack n) : (forall i j : Fin.t n, i <> j -> low_eq env ss[@i] ss[@j]) -> low_eq_l2 ss.
+  Proof.
+    intros H; induction ss as [| s ss]; simpl; eauto.
+    split; [apply leq_low_eq_l; intros j; apply (H (Fin.F1) (Fin.FS j)) | ].
+    intros H'; inversion H'.
+    apply IHss; intros i j ineqj. eapply (H (Fin.FS i) (Fin.FS j)); inversion 1.
+    apply inj_pair2 in H2; congruence.
+  Qed.
+End Low_eq.
+
+Section Barrier.
+  Variable ngroup : nat.
+  Definition barrier_spec := nat -> (Vector.t assn ngroup * Vector.t assn ngroup)%type.
+  Variable bspec : barrier_spec.
+  Variable env : var -> type.
+  Definition low_assn (P : assn) : Prop := 
+    forall (st st' : pstate), low_eq env (fst st) (fst st') -> (sat st P <-> sat st' P).
+
+  (* fv(bspec) \cup V_hi = \empty *)
+  Definition bwf := forall (j : nat),
+    (forall tid : Fin.t ngroup, low_assn (fst (bspec j))[@tid]) /\
+    (forall tid : Fin.t ngroup, low_assn (snd (bspec j))[@tid]). 
+
+  Definition jth_pre (j : nat) := Aistar_v (fst (bspec j)).
+  Definition jth_post (j : nat) := Aistar_v (snd (bspec j)).
+  Definition env_wellformed := 
+    bwf /\ forall (j : nat) (st : pstate), sat st (jth_pre j) <-> sat st (jth_post j).
+  Hypothesis env_wf : env_wellformed.
 
   Definition get_ss (n : nat) (sts : Vector.t pstate n) : Vector.t stack n := 
     Vector.map (fun st => fst st) sts.
@@ -216,15 +257,8 @@ Section Barrier.
     des; repeat eexists; eauto.
   Qed.
 
-  Lemma map_map (T U V : Type) (n : nat) (v : Vector.t T n) (f : T -> U) (g : U -> V) :
-    (Vector.map g (Vector.map f v)) = Vector.map (fun x => g (f x)) v.
-  Proof.
-    induction v; simpl; eauto.
-    rewrite IHv; eauto.
-  Qed.
-
   Lemma loweq_sat (n : nat) (s : stack) (sts : Vector.t pstate n)
-        (low_eq : low_eq_l2 (s :: get_ss sts)) (ps : Vector.t assn n) 
+        (low_eq : low_eq_l2 env (s :: get_ss sts)) (ps : Vector.t assn n) 
         (bf : forall tid : Fin.t n, low_assn ps[@tid]) :
     (forall tid : Fin.t n, sat sts[@tid] ps[@tid]) <->
     (forall tid : Fin.t n, sat (Vector.map (fun st => (s, snd st)) sts)[@tid] ps[@tid]).
@@ -242,7 +276,7 @@ Section Barrier.
         pose proof (bf (s, snd h) h) as bw'; apply bw'; eauto.
         specialize (Hsat Fin.F1); simpl in Hsat; apply bw'; tauto.
        + apply IHsts; eauto.
-        * simpl in low_eq; split; try tauto.
+        * simpl in low_eq; split; tauto.
         * intros tid; specialize (bf (Fin.FS tid)); simpl in bf; eauto. 
         * intros tid; specialize (Hsat (Fin.FS tid)); eauto.
       + destruct low_eq as [leq _]; simpl in leq; destruct leq as [leq _].
@@ -254,48 +288,8 @@ Section Barrier.
         * intros tid; apply (Hsat (Fin.FS tid)).
   Qed.
 
-  Lemma forall2_map (T U V : Type) (n : nat) (v : Vector.t T n) (u : Vector.t V n)
-        (f : T -> U) (P : U -> V -> Prop) :
-    Vector.Forall2 P (Vector.map f v) u <-> Vector.Forall2 (fun (x : T) y => P (f x) y) v u.
-  Proof.
-    induction v.
-    - pose proof (vinv0 u); subst; split; intros; constructor.
-    - pose proof (vinvS u) as [x [u' hu]]; subst; split; intros; simpl;
-      inversion H; subst; apply inj_pair2 in H2; apply inj_pair2 in H5; subst; constructor;
-      eauto; apply IHv; eauto.
-  Qed.
-
-  Lemma map_map2 (T U V W : Type) (n : nat) (f : T -> U) (g : V -> W -> T) 
-        (v2 : Vector.t V n) (v3 : Vector.t W n) :
-    Vector.map f (Vector.map2 g v2 v3) = Vector.map2 (fun x y => f (g x y)) v2 v3.
-    induction v2.
-    - rewrite (vinv0 v3) in *; simpl; eauto.
-    - destruct (vinvS v3) as [? [? ?]]; subst; simpl; rewrite IHv2; eauto.
-  Qed.
-  
-  Lemma map2_map (n : nat) (T U V : Type) (v1 : Vector.t (T * U) n) (v2 : Vector.t V n) (t : T) :
-    Vector.map2 (fun x y => (t, snd (fst x, y))) v1 v2 = Vector.map (pair t) v2.
-  Proof.
-    induction v1.
-    - rewrite (vinv0 v2); constructor.
-    - destruct (vinvS v2) as [h' [v2' ?]]; subst.
-      simpl. rewrite IHv1; eauto.
-  Qed.
-
-  Lemma map2_fst (T U V : Type) (n : nat) (v : Vector.t (T * V) n) (u : Vector.t U n):
-    Vector.map2 (fun x y => fst (fst x, y)) v u = Vector.map (fun x => fst x) v.
-    induction v; [rewrite (vinv0 u) | destruct (vinvS u) as [? [? ?]]; subst; simpl; rewrite IHv];
-    simpl; try congruence. 
-  Qed.
-
-  Lemma map2_snd (T U V : Type) (n : nat) (v : Vector.t (T * V) n) (u : Vector.t U n):
-    Vector.map2 (fun x y => snd (fst x, y)) v u = u.
-    induction v; [rewrite (vinv0 u) | destruct (vinvS u) as [? [? ?]]; subst; simpl; rewrite IHv];
-    simpl; try congruence. 
-  Qed.
-
   Lemma sync_barrier' (sts : Vector.t pstate ngroup) (j : nat) (h : pheap)
-        (heq : disj_eq (get_hs sts) h) (ss_leq : low_eq_l2 (get_ss sts))
+        (heq : disj_eq (get_hs sts) h) (ss_leq : low_eq_l2 env (get_ss sts))
         (hp : forall tid : Fin.t ngroup, sat sts[@tid] (fst (bspec j))[@tid]) :
     exists (sts' : Vector.t pstate ngroup),
       disj_eq (get_hs sts') h /\ 
@@ -345,52 +339,10 @@ Section Barrier.
       exists stq; repeat split; eauto; unfold stq.
       unfold get_hs; rewrite map_map2, map2_snd; eauto.
       unfold get_ss; rewrite map_map2, map2_fst; simpl; eauto.
-  Qed.     
-  
-
-  Lemma loweq_l_leq (n : nat) (ss : Vector.t stack n) (s : stack) (leq : low_eq_l s ss) (i : Fin.t n) :
-    low_eq env s ss[@i].
-  Proof.
-    induction ss as [| sh ss]; [inversion i|].
-    destruct (finvS i) as [? | [i' ?]]; subst; simpl in *; try tauto.
-    apply IHss; tauto.
-  Qed.
-
-  Lemma low_eq_symm (s1 s2 : stack) : low_eq env s1 s2 -> low_eq env s2 s1.
-  Proof.
-    unfold low_eq; intros H x Hl; specialize (H x Hl); congruence.
-  Qed.
-
-  Lemma loweq_l2_leq (n : nat) (ss : Vector.t stack n) (leq : low_eq_l2 ss) (i j : Fin.t n) :
-    low_eq env (ss[@i]) (ss[@j]).
-  Proof.
-    clear env_wf.
-    induction ss as [| s ss]; [inversion i |].
-    destruct (finvS i) as [? | [i' ?]], (finvS j) as [? | [j' ?]]; subst; try congruence; simpl in *.
-    - apply loweq_l_leq; tauto.
-    - apply low_eq_symm; apply loweq_l_leq; tauto.
-    - apply IHss; tauto.
-  Qed.
-
-  Lemma leq_low_eq_l (n : nat) (s : stack) (ss : Vector.t stack n) : 
-    (forall i : Fin.t n, low_eq env s ss[@i]) -> low_eq_l s ss.
-  Proof.
-    induction ss as [| s' ss]; intros H; simpl; eauto.
-    split; [apply (H Fin.F1) | apply IHss; intros i; apply (H (Fin.FS i))].
-  Qed.
-
-  Lemma leq_low_eq_l2 (n : nat) (ss : Vector.t stack n) : (forall i j : Fin.t n, i <> j -> low_eq env ss[@i] ss[@j]) -> low_eq_l2 ss.
-  Proof.
-    intros H.
-    induction ss as [| s ss]; simpl; eauto.
-    split; [apply leq_low_eq_l; intros j; apply (H (Fin.F1) (Fin.FS j)) | ].
-    intros H'; inversion H'.
-    apply IHss; intros i j ineqj. eapply (H (Fin.FS i) (Fin.FS j)); inversion 1.
-    apply inj_pair2 in H2; congruence.
   Qed.
 End Barrier.
 
-Section SeqCSL.
+Section BarrierDivergenceFreedom.
   Variable ngroup : nat.
   Variable bspec : barrier_spec ngroup.
   Variable env : var -> type.
@@ -441,22 +393,6 @@ Section SeqCSL.
   Definition get_ss_k (ks : kstate ngroup) := Vector.map (fun x => snd x) (fst ks).
   Definition get_cs_k (ks : kstate ngroup) := Vector.map (fun x => fst x) (fst ks).
 
-  Lemma map2_snd' (T U : Type) (n : nat) (v : Vt T n) (u : Vt U n) :
-    Vector.map2 (fun x y => snd (x, y)) v u = u.
-  Proof.
-    induction v.
-    - rewrite (vinv0 u); eauto.
-    - destruct (vinvS u) as [x [t ?]]; subst; simpl; rewrite IHv; eauto.
-  Qed.
-
-  Lemma map2_fst' (T U : Type) (n : nat) (v : Vt T n) (u : Vt U n) :
-    Vector.map2 (fun x y => fst (x, y)) v u = v.
-  Proof.
-    induction v.
-    - rewrite (vinv0 u); eauto.
-    - destruct (vinvS u) as [x [t ?]]; subst; simpl; rewrite IHv; eauto.
-  Qed.
-
   Lemma safe_inv' (tid : Fin.t ngroup) (c c' : cmd) (ps ps' : pstate) : 
     (safe_aux tid c (fst ps) (snd ps)) -> (c / ps ==>p* c' / ps') ->
     (safe_aux tid c' (fst ps') (snd ps')).
@@ -495,8 +431,6 @@ Section SeqCSL.
       assert (ph' = snd ps') as Heq by (subst; eauto); rewrite Heq; clear Heq.    
     apply safe_inv'.
   Qed.
-
-
 
   Lemma safe_red_p (c1 c2 : cmd) (st1 st2 : state) (pst1 : pstate) (hF : pheap) (tid : Fin.t ngroup):
     c1 / st1 ==>s c2 / st2 -> 
@@ -541,10 +475,7 @@ Section SeqCSL.
     apply clos_rt1n_rt in H1. apply clos_rt1n_rt in H2. apply clos_rt_rt1n.
     eapply rt_trans; eauto.
   Qed.
-
     
-  Definition nth (n : nat) (A : Type) (v : Vt A n):= Vector.nth v.
-
   Lemma step_inv (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2))
         (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) :
     (exists ty : type, typing_cmd env c ty) ->
@@ -814,4 +745,4 @@ Section SeqCSL.
         (destruct (non_interference_p2 hty' hcompat hred1 hred2 (eq_sym Heqwc1) (eq_sym Heqwc2)) 
           as [? [? ?]]; congruence).
   Qed.
-End SeqCSL.
+End BarrierDivergenceFreedom.
