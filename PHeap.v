@@ -364,6 +364,24 @@ Proof.
   try tauto; try congruence.
 Qed.
 
+Lemma pheap_disj_eq (h1 h2 : pheap) (v v1 v2 : Z) (q1 q2 : Qc) :
+  pdisj h1 h2 -> this h1 v = Some (q1, v1) -> this h2 v = Some (q2, v2) -> v1 = v2.
+Proof.
+  intros hdis h1v h2v.
+  specialize (hdis v); rewrite h1v, h2v in hdis; des; eauto.
+Qed.
+
+Lemma pheap_disj_disj (h1 h2 : pheap) (v1 v2 v1' v2' v1'' v2'' : Z) :
+  pdisj h1 h2 -> this h1 v1 = Some (full_p, v1') -> this h2 v2 = Some (full_p, v2') ->
+  pdisj (ph_upd2 h1 v1 v1'') (ph_upd2 h2 v2 v2'').
+Proof.
+  intros hdis h1v h2v.
+  apply (pdisj_upd (ph_upd2 h2 v2 v2'') v1'' h1v).
+  apply pdisjC.
+  unfold ph_upd2; simpl.
+  apply (pdisj_upd h1 v2'' h2v); eauto.
+Qed.
+
 Import VectorNotations.
 
 Lemma emp_is_heap : is_pheap emp_h. unfold is_pheap, emp_h; eauto. Qed.

@@ -21,7 +21,7 @@ Set Implicit Arguments.
 Unset Strict Implicit.
 
 Require Import PHeap.
-
+(* Definition of Language *)
 Definition var := Z.
 Definition stack := var -> Z.
 Definition state := (stack * heap)%type.
@@ -53,6 +53,7 @@ Notation "'[' a ']' '::=' e" := (Cwrite a e) (at level 60).
 Notation "c1 ;; c2" := (Cseq c1 c2) (at level 80, right associativity).
 Notation "'BARRIER' ( j )" := (Cbarrier j).
 
+(* wait c = Some (j, c') <-> c is wait barrier at j and continuation after barrier is c' *)
 Fixpoint wait (c : cmd) : option (nat * cmd) :=
   match c with
     | SKIP | _ ::= _ | _ ::= [_] | [_] ::= _ | Cif _ _ _ | Cwhile _ _ => None
@@ -656,24 +657,6 @@ Section NonInter.
       rewrite (IHbe H0); eauto.
   Qed.
 
-  Lemma pheap_disj_eq (h1 h2 : pheap) (v v1 v2 : Z) (q1 q2 : Qc) :
-    pdisj h1 h2 -> this h1 v = Some (q1, v1) -> this h2 v = Some (q2, v2) -> v1 = v2.
-  Proof.
-    intros hdis h1v h2v.
-    specialize (hdis v); rewrite h1v, h2v in hdis; des; eauto.
-  Qed.
-
-  Lemma pheap_disj_disj (h1 h2 : pheap) (v1 v2 v1' v2' v1'' v2'' : Z) :
-    pdisj h1 h2 -> this h1 v1 = Some (full_p, v1') -> this h2 v2 = Some (full_p, v2') ->
-    pdisj (ph_upd2 h1 v1 v1'') (ph_upd2 h2 v2 v2'').
-  Proof.
-    intros hdis h1v h2v.
-    apply (pdisj_upd (ph_upd2 h2 v2 v2'') v1'' h1v).
-    apply pdisjC.
-    unfold ph_upd2; simpl.
-    apply (pdisj_upd h1 v2'' h2v); eauto.
-  Qed.
-
   Definition st_compat (st1 st2 : pstate) :=
     low_eq (fst st1) (fst st2) /\ pdisj (snd st1) (snd st2).
 
@@ -720,7 +703,7 @@ Section NonInter.
     - inversion htng1.
   Qed.
 
-  Lemma st_compat_refl (st1 st2 : pstate) : st_compat st1 st2 -> st_compat st2 st1.
+  Lemma st_compat_sym (st1 st2 : pstate) : st_compat st1 st2 -> st_compat st2 st1.
   Proof.
     unfold st_compat; intros [h1 h2]; split.
     - intros x; specialize (h1 x); intros; symmetry; eauto. 
@@ -733,9 +716,9 @@ Section NonInter.
   Proof.
     intros htng1 htng2 hcomp ev1 ev2.
     pose proof (non_interference_hi htng2 hcomp ev2) as [hc1 hc2].      
-    pose proof (non_interference_hi htng1 (st_compat_refl hc2) ev1) as [hc3 hc4].
+    pose proof (non_interference_hi htng1 (st_compat_sym hc2) ev1) as [hc3 hc4].
     subst; split; eauto.
-    apply st_compat_refl; eauto.
+    apply st_compat_sym; eauto.
   Qed.
 
   Lemma non_interference_big (ty : type) (c : cmd) (st1 st2 st1' st2' : pstate) (t1 t2 : terminal) :
@@ -794,15 +777,15 @@ Section NonInter.
         inversion ev1; subst; try (inversion H9; subst; tauto).
         destruct ty; inversion htng; subst.
         * cutrewrite (join Hi ty = Hi) in H3; [|eauto].
-          pose proof (st_compat_refl (conj hcomp hcomp0)).
+          pose proof (st_compat_sym (conj hcomp hcomp0)).
           assert (typing_cmd (c ;; Cwhile b c) Hi) by (econstructor; eauto).
           pose proof (non_interference_hi H0 H H9).
-          destruct H2 as [? H']; split; [eauto | apply (st_compat_refl H')].
+          destruct H2 as [? H']; split; [eauto | apply (st_compat_sym H')].
         * destruct ty.
           { assert (typing_cmd (Cwhile b c) Hi) by (econstructor; eauto).
             assert (typing_cmd (c;; Cwhile b c) Hi) by (econstructor; eauto).
-            pose proof (non_interference_hi H0 (st_compat_refl (conj hcomp hcomp0)) H9).
-            destruct H2 as [? H']; split; [eauto | apply (st_compat_refl H')]. }
+            pose proof (non_interference_hi H0 (st_compat_sym (conj hcomp hcomp0)) H9).
+            destruct H2 as [? H']; split; [eauto | apply (st_compat_sym H')]. }
           pose proof (low_eq_eq_bexp hcomp H1); congruence.
     - inversion ev2; subst; simpl in *; repeat split; eauto.
       destruct ty; inversion htng; subst.

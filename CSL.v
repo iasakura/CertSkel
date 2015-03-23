@@ -808,7 +808,7 @@ Section SeqCSL.
       destruct hdiv as [ [? [? [hw1 hw2]]] | [[? [? [hw2 hw1]]] | hdiv]];
         [rewrite hw2 in hred2 | rewrite hw2 in hred1 | ].
       + destruct (non_interference_p3 hty' hcompat hred1 hred2 hw1).
-      + destruct (non_interference_p3 hty' (st_compat_refl hcompat) hred2 hred1 hw1).
+      + destruct (non_interference_p3 hty' (st_compat_sym hcompat) hred2 hred1 hw1).
       + remember (wait cs[@tid1]) as wc1; remember (wait cs[@tid2]) as wc2.
         destruct wc1 as [[? ?]|], wc2 as [[? ?]|]; try (simpl in hdiv; eauto).
         (destruct (non_interference_p2 hty' hcompat hred1 hred2 (eq_sym Heqwc1) (eq_sym Heqwc2)) 
