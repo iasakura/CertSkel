@@ -1,7 +1,7 @@
-Require Import Logic.Eqdep.
+(*Require Import Logic.Eqdep.
 Require Import Bool.
 Require Import Arith.
-Require Import ZArith.
+Require Import ZArith.*)
 Require Import QArith.
 Require Import Qcanon.
 Require Import Coq.Relations.Relations.
@@ -9,12 +9,6 @@ Require Import MyVector.
 Require Import List.
 Add LoadPath "../../src/cslsound".
 Require Import Lang.
-
-Require ClassicalFacts.
-Require Export FunctionalExtensionality.
-Require Export ProofIrrelevance.
-
-Require Export Coq.ZArith.BinInt.
 
 Set Implicit Arguments.
 Unset Strict Implicit.
@@ -144,6 +138,9 @@ Section Assertion.
         rewrite H; econstructor; eauto.
       + intros tid; destruct (finvS tid) as [|[tid' ?]]; subst; simpl; eauto.
   Qed.
+
+  Definition indeP (R : stack -> stack -> Prop) (P : assn) :=
+    forall (s1 s2 : stack) (h : pheap), R s1 s2 -> (sat (s1, h) P <-> sat (s2, h) P).
 End Assertion.
 
 Section Low_eq.
@@ -205,8 +202,7 @@ Section Barrier.
   Definition barrier_spec := nat -> (Vector.t assn ngroup * Vector.t assn ngroup)%type.
   Variable bspec : barrier_spec.
   Variable env : var -> type.
-  Definition low_assn (P : assn) : Prop := 
-    forall (st st' : pstate), low_eq env (fst st) (fst st') -> (sat st P <-> sat st' P).
+  Definition low_assn (P : assn) := indeP (fun s1 s2 => low_eq env s1 s2) P.
 
   (* fv(bspec) \cup V_hi = \empty *)
   Definition bwf := forall (j : nat),
@@ -273,15 +269,15 @@ Section Barrier.
       + destruct low_eq as [leq _]; simpl in leq; destruct leq as [leq _].
         specialize (bf Fin.F1); simpl in bf.
 (*        inversion bf; subst. apply inj_pair2 in H1; subst.*)
-        pose proof (bf (s, snd h) h) as bw'; apply bw'; eauto.
-        specialize (Hsat Fin.F1); simpl in Hsat; apply bw'; tauto.
+        pose proof (bf s (fst h) (snd h) leq) as bw'; apply bw'; eauto.
+        specialize (Hsat Fin.F1); simpl in Hsat. destruct h as [? ?]; eauto.
        + apply IHsts; eauto.
         * simpl in low_eq; split; tauto.
         * intros tid; specialize (bf (Fin.FS tid)); simpl in bf; eauto. 
         * intros tid; specialize (Hsat (Fin.FS tid)); eauto.
       + destruct low_eq as [leq _]; simpl in leq; destruct leq as [leq _].
         specialize (Hsat Fin.F1); specialize (bf Fin.F1); simpl in *.
-        apply (bf (s, snd h) h); eauto.
+        destruct h as [s' h]; apply (bf s s' h); eauto.
       + apply IHsts; eauto.
         * simpl in low_eq; split; try tauto.
         * intros tid; apply (bf (Fin.FS tid)).
@@ -380,10 +376,6 @@ Section BarrierDivergenceFreedom.
   Definition safe_t (tid : Fin.t ngroup) (c : cmd) (s : stack) (ph : pheap) (q : assn) := 
     forall (n : nat), safe_nt tid n c s ph q.
   
-  Definition CSL (tid : Fin.t ngroup) (p : assn) (c : cmd) (q : assn) := 
-    (exists g, typing_cmd g c Lo) /\ wf_cmd c /\ 
-    forall s ph, sat (s, ph) p -> safe_t tid c s ph q.
-
   Definition safe_aux (tid : Fin.t ngroup) (c : cmd) (s : stack) (ph : pheap) :=
     exists (q : assn), forall n, safe_nt tid n c s ph q.
 

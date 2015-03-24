@@ -299,7 +299,6 @@ Proof.
   rewrite (@phplus_comm h2 h1), (@phplus_comm h3 h1) in H; eauto.
   eapply padd_cancel; eauto.
 Qed.
-
 Definition ptoheap (ph : pheap') (h : heap) : Prop :=
   forall (x : Z), match ph x with
                     | None => h x = None
@@ -701,3 +700,8 @@ Proof.
       * apply pdisj_padd_expand; destruct (heq Fin.F1); simpl in *; try tauto.
         rewrite H7, pp12; tauto.
 Qed.    
+
+Lemma phplus_eq (h1 h2 : pheap) (disj : pdisj h1 h2) :
+  this (phplus_pheap disj) = phplus h1 h2. 
+  simpl; eauto.
+Qed.
