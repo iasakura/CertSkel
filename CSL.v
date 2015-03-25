@@ -21,14 +21,14 @@ Section SeqCSL.
   Section Vnotation.
     Section For_Vector_Notation.
       Import VectorNotations.
-    Hypothesis brr_lowassn : forall (i : nat),
-                               (forall tid : Fin.t ntrd, low_assn (fst (bspec i))[@tid]) /\
-                               (forall tid : Fin.t ntrd, low_assn (fst (bspec i))[@tid]).
-    Hypothesis brr_wf : forall (i : nat) (st : pstate),
-                          sat st (Aistar_v (fst (bspec i))) <-> sat st (Aistar_v (snd (bspec i))).
-    Hypothesis bc_precise :
-      forall i (tid : Fin.t ntrd), precise (fst (bspec i))[@tid] /\
-                                   precise (snd (bspec i))[@tid].
+      Hypothesis brr_lowassn : forall (i : nat),
+                                 (forall tid : Fin.t ntrd, low_assn (fst (bspec i))[@tid]) /\
+                                 (forall tid : Fin.t ntrd, low_assn (fst (bspec i))[@tid]).
+      Hypothesis brr_wf : forall (i : nat) (st : pstate),
+                            sat st (Aistar_v (fst (bspec i))) <-> sat st (Aistar_v (snd (bspec i))).
+      Hypothesis bc_precise :
+        forall i (tid : Fin.t ntrd), precise (fst (bspec i))[@tid] /\
+                                     precise (snd (bspec i))[@tid].
     End For_Vector_Notation.
   End Vnotation.
   Variable tid : Fin.t ntrd.
@@ -187,13 +187,12 @@ Section SeqCSL.
     - apply access_ok_mono; tauto.
     - apply write_ok_mono; tauto.
     - intros hF h c' ss' hdis heq hred.
-      assert (phplus (phplus ph phR) hF = phplus ph (phplus phR hF)).
-      { apply padd_assoc; eauto.
-        apply pdisj_padd_expand in hdis; tauto.
-        apply pdisjC in hdis; apply pdisjE2 in hdis; eauto. }
-      destruct hsafe as [_ [_ [_ [_ [hsafe _]]]]].
       assert (pdisj ph (phplus phR hF)) as hdis'.
       { apply pdisj_padd_expand in hdis; eauto; tauto. }
+      assert (phplus (phplus ph phR) hF = phplus ph (phplus phR hF)).
+      { apply padd_assoc; eauto.
+        apply pdisjC in hdis; apply pdisjE2 in hdis; eauto. }
+      destruct hsafe as [_ [_ [_ [_ [hsafe _]]]]].
       apply pdisjC in hdis; apply pdisjE2 in hdis; apply pdisjC in hdis.
       rewrite H, <- (phplus_eq hdis) in heq.
       rewrite <-(phplus_eq hdis) in hdis'.
@@ -236,4 +235,50 @@ Section SeqCSL.
     apply safe_frame; eauto.
   Qed.
 
+  (* what happen !?*)
+  Local Open Scope nat_scope.
+  Lemma safe_mon :
+    forall n C s h Q (OK: safe_nt n C s h Q) m (LEQ: m <= n),
+      safe_nt m C s h Q.
+  Proof.
+    unfold safe_nt.
+    induction [C s n h OK] m; ins.
+    destruct n; clarify; simpls; des; repeat split; ins.
+    exploit OK3; eauto; ins; des; eauto 10.
+    exploit OK4; eauto; ins; des; eauto 10.
+  Qed.
+
+  Lemma safe_seq : forall (n : nat) (C C2 : cmd) (s : stack) (ph : pheap) (Q R : assn),
+    safe_nt n C s ph Q ->
+    (forall m s' ph', m <= n -> sat (s', ph') Q -> safe_nt m C2 s' ph' R)%nat ->
+    safe_nt n (C ;; C2) s ph R.
+  Proof.
+    induction n; intros C C2 s ph Q R hsafe H; simpl; eauto; unfold safe_nt in *.
+    repeat split; [congruence| | | | | ].
+    - intros hf h hdis heq Haborts; inversion Haborts; subst; simpl in *.
+      destruct hsafe as [_ [Ha _]]. eapply Ha in A; eauto.
+    - destruct hsafe as [_ [_ [Hok _]]]; eauto.
+    - destruct hsafe as [_ [_ [_ [Hok _]]]]; eauto.
+    - intros hF h c' ss hdis heq hred; inversion hred; subst.
+      + repeat eexists; simpl; eauto; apply H; eauto; simpl in hsafe.
+        destruct hsafe as [hsafe _]; apply (hsafe eq_refl).
+      + simpl in hsafe. destruct hsafe as [_ [_ [_ [_ [hsafe _]]]]].
+        destruct (hsafe _ _ _ _ hdis heq R0) as [h' [ph' Hs]].
+        exists h', ph'; repeat split; try tauto.
+        apply (IHn c1' C2 _ _ Q R); eauto; tauto.
+    - destruct hsafe as [_ [_ [_ [_ [_ hsafe]]]]].
+      intros j c' Heqw; inversion Heqw; destruct (wait C) as [[j' C']|]; inversion H1; subst.
+      destruct (hsafe j C' eq_refl) as [phP [ph' Hs]].
+      exists phP, ph'; repeat split; try tauto.
+      intros phQ H0 Hsat.
+      destruct Hs as [_ [_ [_ hsafen]]]. specialize (hsafen phQ H0 Hsat).
+      apply (IHn _ _ _ _ Q _); eauto.
+  Qed.
+
+  Lemma rule_seq (C1 C2 : cmd) (P Q R : assn) :
+    CSL P C1 Q -> CSL Q C2 R -> CSL P (C1 ;; C2) R.
+  Proof.
+    unfold CSL, safe_nt. intuition; simpl.
+    apply (safe_seq (Q := Q)); unfold safe_nt; eauto.
+  Qed.
 End SeqCSL.
