@@ -13,9 +13,9 @@ Section Fin.
     - intros n0 p; right; eexists; tauto.
   Qed.
 
-Lemma fin_eq_dec : forall (n : nat) (i j : Fin.t n), {i = j} + {i <> j}.
-Proof.
-  refine (
+  Lemma fin_eq_dec : forall (n : nat) (i j : Fin.t n), {i = j} + {i <> j}.
+  Proof.
+    refine (
       fun n =>
         match n with
           | O => fun (i _ : Fin.t 0) => match (Fin.case0 (fun _ => False) i) with end
@@ -26,8 +26,8 @@ Proof.
                       (fun n f =>  right _ _)
                       (fun n f g (b : {f = g} + {f <> g}) => if b then left _ _ else right _ _)
         end); subst; try inversion 1; eauto.
-  apply inj_pair2 in H1; congruence.
-Qed.
+    apply inj_pair2 in H1; congruence.
+  Qed.
 End Fin.
 
 Section Vector.
@@ -91,8 +91,6 @@ Section FusionLemmas.
     induction v; simpl; eauto.
     rewrite IHv; eauto.
   Qed.
-
-
 
   Lemma map_map2 (f : T -> U) (g : V -> W -> T) 
         (v2 : Vector.t V n) (v3 : Vector.t W n) :

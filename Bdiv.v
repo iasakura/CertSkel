@@ -1,7 +1,3 @@
-(*Require Import Logic.Eqdep.
-Require Import Bool.
-Require Import Arith.
-Require Import ZArith.*)
 Require Import QArith.
 Require Import Qcanon.
 Require Import Coq.Relations.Relations.
