@@ -325,3 +325,25 @@ Section SeqCSL.
   Proof.
     unfold CSL, safe_nt; ins; intuition; eapply safe_while; unfold CSL; eauto.
   Qed.
+
+  Section For_Vector_Notation.
+    Import VectorNotations.
+    Lemma rule_barrier : forall j, CSL (fst (bspec j))[@tid] (Cbarrier j) (snd (bspec j))[@tid].
+    Proof.
+      unfold CSL, safe_nt; intros j s ph Hsat n.
+      destruct n; simpl; [eauto|]; repeat split.
+      - inversion 1.
+      - intros. inversion 1.
+      - intros; inversion H1.
+      - intros j' c' H; inversion H; subst.
+        exists ph, emp_ph; repeat split; eauto.
+        + simpl; apply pdisj_empty2.
+        + rewrite phplus_comm; eauto using pdisj_empty2.
+        + intros phQ H0 hsatq.
+          apply safe_skip; simpl.
+          cutrewrite (phplus_pheap H0 = phQ); 
+            [eauto | 
+             destruct phQ; apply pheap_eq; rewrite phplus_comm; eauto using pdisj_empty2  ].
+    Qed.
+  End For_Vector_Notation.
+    
