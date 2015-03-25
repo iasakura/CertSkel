@@ -281,4 +281,19 @@ Section SeqCSL.
     unfold CSL, safe_nt. intuition; simpl.
     apply (safe_seq (Q := Q)); unfold safe_nt; eauto.
   Qed.
+  
+  Lemma rule_if (C1 C2 : cmd) (B : bexp) (P Q : assn) :
+    CSL (Aconj P (Apure B)) C1 Q ->
+    CSL (Aconj P (Apure (Bnot B))) C2 Q ->
+    CSL P (Cif B C1 C2) Q.
+  Proof.
+    unfold CSL, safe_nt; intuition; destruct n; [simpl; eauto|]; ins; intuition; des.
+    - inversion H2.
+    - inversion H4.
+    - unfold access_ok; simpl; eauto.
+    - unfold write_ok; simpl; eauto.
+    - inversion H4; subst; repeat eexists; eauto; simpl.
+      apply H0; split; eauto; simpl in *; eauto; rewrite B0; eauto.
+    - inversion H2.
+  Qed.
 End SeqCSL.
