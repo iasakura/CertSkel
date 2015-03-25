@@ -37,6 +37,14 @@ Section SeqCSL.
   Definition CSL (p : assn) (c : cmd) (q : assn) := 
     forall s ph, sat (s, ph) p -> forall (n : nat), safe_nt n c s ph q.
 
+  Lemma safe_skip : forall n s h Q, sat (s,h) Q -> safe_nt n Cskip s h Q.
+  Proof.
+    intros; destruct n; simpl; eauto; repeat split; eauto.
+    intros. intros Hc; inversion Hc.
+    intros ? ? ? ? ? ? Hc; inversion Hc.
+    intros ? ? Hc; inversion Hc.
+  Qed.
+
   Lemma rule_skip (Q : assn) : CSL Q Cskip Q.
   Proof.
     unfold CSL; intros st ph H n; induction n; simpl; eauto; repeat split; simpl; eauto.
@@ -296,4 +304,24 @@ Section SeqCSL.
       apply H0; split; eauto; simpl in *; eauto; rewrite B0; eauto.
     - inversion H2.
   Qed.
-End SeqCSL.
+
+  Lemma safe_while :
+    forall P B C (OK: CSL (Aconj P (Apure B)) C P) s h (SAT_P: sat (s, h) P) n,
+      safe_nt n (Cwhile B C) s h (Aconj P (Apure (Bnot B))).
+  Proof.
+    unfold safe_nt.
+    intros; revert s h SAT_P; generalize (lenn n); generalize n at -2 as m.
+    induction[] n [m]; ins; intuition; desf; [by inv H2|].
+    inv H2; repeat eexists; eauto; simpl.
+    destruct m; ins; intuition; desf; [by inv H5|].
+    inv H5; repeat eexists; eauto; simpls.
+    - eapply safe_seq; [eapply OK| ]; simpls. unfold safe_nt; eauto using len_trans.
+    - apply safe_skip; simpl; rewrite B0; split; eauto.
+  Qed.
+
+  Lemma rule_while P B C :
+    CSL (Aconj P (Apure B)) C P ->
+    CSL P (Cwhile B C) (Aconj P (Apure (Bnot B))).  
+  Proof.
+    unfold CSL, safe_nt; ins; intuition; eapply safe_while; unfold CSL; eauto.
+  Qed.
