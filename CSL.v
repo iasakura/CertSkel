@@ -424,11 +424,11 @@ Section SeqCSL.
     forall s v, edenot Exp s = edenot Exp (upd s x v).
 
   Lemma htop_eq (h : heap) (ph : pheap) :
-    htop h = ph -> forall x, h x = match this ph x with | Some (_, x) => Some x | None => None end.
+    ph = htop h -> forall x, h x = match this ph x with | Some (_, x) => Some x | None => None end.
   Proof.
     intros heq x.
     destruct ph as [ph ?]; unfold htop in heq; inversion heq; simpl in *.
-    rewrite <-H0; unfold htop'; destruct (h x); eauto.
+    rewrite H0; unfold htop'; destruct (h x); eauto.
   Qed.
 
   Theorem rule_read (x : var) (E1 E2 : exp) (p : Qc) :
@@ -442,7 +442,7 @@ Section SeqCSL.
       specialize (hsat (edenot E1 s)); simpl in *.
       destruct (Z.eq_dec (edenot E1 s) (edenot E1 s)) as [_ | ?]; [| try congruence].
       rewrite <-(phplus_eq hdis) in heq; apply ptoheap_eq in heq.
-      pose proof (htop_eq (eq_sym heq)) as heq'; specialize (heq' (edenot E1 s)).
+      pose proof (htop_eq heq) as heq'; specialize (heq' (edenot E1 s)).
       simpl in *; unfold phplus in *; rewrite hsat in heq'. 
       destruct (this hF (edenot E1 s)) as [[? ?] | ]; congruence.
     - unfold access_ok; simpl in *; specialize (hsat (edenot E1 s)).
@@ -459,8 +459,66 @@ Section SeqCSL.
       rewrite <-hinde2.
       unfold upd; destruct (Z.eq_dec x x); try congruence.
       rewrite <-(phplus_eq hdis) in heq; apply ptoheap_eq in heq.
-      pose proof (htop_eq (eq_sym heq)); simpl in *.
+      pose proof (htop_eq heq); simpl in *.
       unfold phplus in H; specialize (H (edenot E1 s0)). rewrite hsat in H.
       match goal with [ H : context [Z.eq_dec ?x ?y] |- _ ] => destruct (Z.eq_dec x y) end; 
         try congruence; destruct (this hF (edenot E1 s0)) as [[? ?]|]; congruence.
-  Qed.xs
+  Qed.
+
+  Lemma ph_upd_phplus (ph1 ph2 : pheap) (x : Z) (v w : Z):
+    pdisj ph1 ph2 -> this ph1 x = Some (full_p, w) -> 
+    phplus (ph_upd ph1 x v) ph2 = ph_upd (phplus ph1 ph2) x v.
+  Proof.
+    intros hdis heq.
+    destruct ph1 as [ph1 isp1], ph2 as [ph2 isp2]; simpl in *.
+    unfold phplus, ph_upd; extensionality y.
+    specialize (isp1 y); specialize (isp2 y); specialize (hdis y).
+    destruct (Z.eq_dec x y) as [eqxy | neqxy]; subst;
+    destruct (ph1 y) as [[? ?]|], (ph2 y) as [[? ?]|]; eauto; try congruence.
+    inversion heq; subst; 
+    destruct hdis as [? [? Hc]]. apply frac_contra1 in Hc; tauto.
+  Qed.
+
+  Lemma ph_upd_ptoheap (ph : pheap) (h : heap) (x : Z) (v : Z) :
+    ptoheap ph h -> ptoheap (ph_upd ph x v) (upd h x (Some v)).
+  Proof.        
+    intros heq y.
+    unfold ptoheap, ph_upd, upd in *; specialize (heq y).
+    destruct (Z.eq_dec x y) as [eqxy | neqxy]; subst.
+    destruct (Z.eq_dec y y) as [_ | ?]; try congruence; tauto.
+    destruct (this ph y) as [[? ?]|].
+    destruct (Z.eq_dec y x); try congruence; tauto.
+    destruct (Z.eq_dec y x); try congruence; tauto.
+  Qed.
+
+  Theorem rule_write (E0 E1 E2 : exp) :
+    CSL (Apointsto full_p E1 E0) ([E1] ::= E2) (Apointsto full_p E1 E2).
+  Proof.
+    unfold CSL, safe_nt; intros s ph hsat n.
+    pose proof (hsat (edenot E1 s)) as hsat'; simpl in *.
+    destruct (Z.eq_dec (edenot E1 s) (edenot E1 s)) as [_|?]; try congruence.
+    destruct n; [simpl; eauto| simpl; repeat split; try congruence].
+    - intros hF h hdis heq hc; inversion hc; subst; simpl in *.
+      rewrite <-(phplus_eq hdis) in heq; apply ptoheap_eq in heq; pose proof (htop_eq heq) as heq'.
+      specialize (heq' (edenot E1 s)); simpl in *.
+      unfold phplus in *. destruct ph as [ph ?]; simpl in *; rewrite hsat' in heq'.
+      destruct (this hF (edenot E1 s)) as [[? ?]| ]; try congruence.
+    - simpl in hsat'. unfold access_ok; simpl.
+      eexists; eauto.
+    - simpl in hsat'. unfold write_ok; simpl.
+      eexists; eauto.
+    - intros hF h c' ss' hdis heq hred; inversion hred; clear hred; subst; simpl in *.
+      inversion EQ1; clear EQ1; subst.
+      eexists; exists (ph_upd2 ph (edenot E1 s0) (edenot E2 s0)); repeat split; eauto.
+      + unfold ph_upd2; simpl; apply (pdisj_upd _ _ hsat'); eauto.
+      + unfold ph_upd2; simpl.
+        erewrite ph_upd_phplus; eauto.
+        cutrewrite (phplus ph hF = phplus_pheap hdis); [|simpl; eauto].
+        apply ph_upd_ptoheap; eauto.
+      + apply safe_skip; simpl; intros x.
+        unfold ph_upd.
+        destruct (Z.eq_dec (edenot E1 s0) x); subst; eauto.
+        * destruct (Z.eq_dec (edenot E1 s0) (edenot E1 s0)); congruence.
+        * rewrite hsat; eauto.
+          destruct (Z.eq_dec x (edenot E1 s0)); congruence.
+  Qed.
