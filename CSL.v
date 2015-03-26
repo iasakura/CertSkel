@@ -346,4 +346,76 @@ Section SeqCSL.
              destruct phQ; apply pheap_eq; rewrite phplus_comm; eauto using pdisj_empty2  ].
     Qed.
   End For_Vector_Notation.
-    
+
+  (* from CSLsound.v *)
+  Fixpoint subE x e e0 := 
+    match e0 with 
+      | Evar y => (if Z.eq_dec x y then e else Evar y)
+      | Enum n => Enum n
+      | Eplus e1 e2 => Eplus (subE x e e1) (subE x e e2)
+    end.
+  (* b[x/e]*)
+  Fixpoint subB x e b :=
+    match b with
+      | Beq e1 e2 => Beq (subE x e e1) (subE x e e2)
+      | Band b1 b2 => Band (subB x e b1) (subB x e b2)
+      | Bnot b => Bnot (subB x e b)
+    end.
+
+  Fixpoint subA x e p := 
+    match p with
+      | Aemp => Aemp
+      | Apure B => Apure (subB x e B)
+      | Apointsto q e1 e2 => Apointsto q (subE x e e1) (subE x e e2)
+      | Astar P Q => Astar (subA x e P) (subA x e Q)
+      | Aconj P Q => Aconj (subA x e P) (subA x e Q)
+      | Adisj P Q => Adisj (subA x e P) (subA x e Q)
+      | Aex PP => Aex (fun n => subA x e (PP n))
+    end.
+
+  Lemma subE_assign : forall (x : var) (e e' : exp) (s : stack),
+    edenot (subE x e e') s = edenot e' (upd s x (edenot e s)).
+  Proof.
+    intros; induction e'; simpl; eauto; unfold upd; 
+    repeat match goal with [ |- context[if Z.eq_dec ?x ?y then _ else _]] => destruct (Z.eq_dec x y) end; try congruence; eauto; f_equal; eauto.
+  Qed.
+
+  Lemma subB_assign : forall (x : var) (e : exp) (b : bexp) (s : stack),
+    bdenot (subB x e b) s = bdenot b (upd s x (edenot e s)).
+  Proof.
+    intros; induction b; simpl;
+    repeat match goal with [ |- context[if Z.eq_dec ?x ?y then _ else _]] => 
+                           destruct (Z.eq_dec x y) end; 
+    repeat rewrite subE_assign in *; congruence.
+  Qed.
+
+  Lemma subA_assign : forall (x : var) (e : exp) (P : assn) (s : stack) (ph : pheap),
+    sat (s, ph) (subA x e P)  = sat (upd s x (edenot e s), ph) P.
+  Proof.
+    induction P; intros; simpl; eauto; unfold upd; 
+    repeat match goal with [ |- context[if Z.eq_dec ?x ?y then _ else _]] => 
+                           destruct (Z.eq_dec x y) end; simpl;
+    repeat rewrite subB_assign in *; repeat rewrite subE_assign in *; unfold upd in *;
+    try congruence.
+    - rewrite IHP1, IHP2; eauto.
+    - rewrite IHP1, IHP2; eauto.
+    - repeat (f_equal; apply functional_extensionality; intros).
+      rewrite IHP1, IHP2; eauto.
+    - f_equal; apply functional_extensionality; intros.
+      rewrite H; eauto.
+  Qed.
+
+  Theorem rule_assign x Exp Q : CSL (subA x Exp Q) (Cassign x Exp) Q.
+  Proof.
+    unfold CSL, safe_nt; intros s ph hsat n; destruct n; 
+    [simpl; eauto | 
+     repeat split; try congruence].
+    - intros; try inversion 1.
+    - intros hF h c' ss' hdis heq hred; inversion hred; subst; repeat eexists; 
+      match goal with [ H : (_, _) = (_, _) |- _ ] => inversion H end; 
+      subst; simpl in *; eauto using safe_skip.
+      apply safe_skip.
+      rewrite <-subA_assign; eauto.
+    - intros j c' H; inversion H.
+  Qed.
+
