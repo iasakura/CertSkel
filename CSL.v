@@ -2,6 +2,7 @@ Require Import QArith.
 Require Import Qcanon.
 Require Import MyVector.
 Require Import List.
+Require Import ZArith.
 Add LoadPath "../../src/cslsound".
 Require Import Lang.
 
@@ -405,7 +406,7 @@ Section SeqCSL.
       rewrite H; eauto.
   Qed.
 
-  Theorem rule_assign x Exp Q : CSL (subA x Exp Q) (Cassign x Exp) Q.
+  Theorem rule_assign x Exp Q : CSL (subA x Exp Q) (x ::=  Exp) Q.
   Proof.
     unfold CSL, safe_nt; intros s ph hsat n; destruct n; 
     [simpl; eauto | 
@@ -419,3 +420,47 @@ Section SeqCSL.
     - intros j c' H; inversion H.
   Qed.
 
+  Definition indeE (Exp : exp) (x : var) :=
+    forall s v, edenot Exp s = edenot Exp (upd s x v).
+
+  Lemma htop_eq (h : heap) (ph : pheap) :
+    htop h = ph -> forall x, h x = match this ph x with | Some (_, x) => Some x | None => None end.
+  Proof.
+    intros heq x.
+    destruct ph as [ph ?]; unfold htop in heq; inversion heq; simpl in *.
+    rewrite <-H0; unfold htop'; destruct (h x); eauto.
+  Qed.
+
+  Theorem rule_read (x : var) (E1 E2 : exp) (p : Qc) :
+    indeE E1 x -> indeE E2 x -> 
+    CSL (Apointsto p E1 E2) (x ::= [ E1 ]) 
+        (Aconj (Apointsto p E1 E2) (Apure (Beq (Evar x) E2))).
+  Proof.
+    unfold indeE, CSL, safe_nt; intros hinde1 hinde2 s h hsat; destruct n; 
+    [simpl; eauto | simpl; repeat split; try congruence].
+    - intros hF h' hdis heq hc; inversion hc; subst; simpl in *.
+      specialize (hsat (edenot E1 s)); simpl in *.
+      destruct (Z.eq_dec (edenot E1 s) (edenot E1 s)) as [_ | ?]; [| try congruence].
+      rewrite <-(phplus_eq hdis) in heq; apply ptoheap_eq in heq.
+      pose proof (htop_eq (eq_sym heq)) as heq'; specialize (heq' (edenot E1 s)).
+      simpl in *; unfold phplus in *; rewrite hsat in heq'. 
+      destruct (this hF (edenot E1 s)) as [[? ?] | ]; congruence.
+    - unfold access_ok; simpl in *; specialize (hsat (edenot E1 s)).
+      destruct (Z.eq_dec (edenot E1 s) (edenot E1 s)) as [_ | ?]; [eexists; eauto | congruence].
+    - intros hF h0 c' ss' hdis heq hred; inversion hred; clear hred; subst.
+      inversion EQ1; clear EQ1; subst; simpl in *.
+      repeat eexists; eauto. 
+      apply safe_skip; simpl. split; [intros x0|];
+      repeat match goal with [ |- context [Z.eq_dec ?x ?y] ] => destruct (Z.eq_dec x y) end;
+      (try specialize (hsat x0)); subst; repeat rewrite <-hinde1 in hsat;
+      repeat match goal with [ H : context [Z.eq_dec ?x ?y] |- _ ] => destruct (Z.eq_dec x y) end;
+      try congruence.
+      contradict n0.
+      rewrite <-hinde2.
+      unfold upd; destruct (Z.eq_dec x x); try congruence.
+      rewrite <-(phplus_eq hdis) in heq; apply ptoheap_eq in heq.
+      pose proof (htop_eq (eq_sym heq)); simpl in *.
+      unfold phplus in H; specialize (H (edenot E1 s0)). rewrite hsat in H.
+      match goal with [ H : context [Z.eq_dec ?x ?y] |- _ ] => destruct (Z.eq_dec x y) end; 
+        try congruence; destruct (this hF (edenot E1 s0)) as [[? ?]|]; congruence.
+  Qed.xs
