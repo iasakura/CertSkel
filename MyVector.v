@@ -136,4 +136,14 @@ Section FusionLemmas.
     - rewrite (vinv0 u); eauto.
     - destruct (vinvS u) as [x [t ?]]; subst; simpl; rewrite IHv; eauto.
   Qed.
+
+  Lemma vector_eq2_ex (vs : Vector.t T n) (x : T):
+    (forall i j : Fin.t n, i <> j -> vs[@i] = vs[@j]) ->
+    (exists b : T, forall i : Fin.t n, vs[@i] = b).
+  Proof.
+    destruct n; intros H; [exists x; intros i; inversion i | exists vs[@Fin.F1]; intros i].
+    destruct (finvS i) as [| [i' ?]]; subst; eauto.
+    apply H; intros Hc.
+    inversion Hc.
+  Qed.
 End FusionLemmas.

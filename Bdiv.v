@@ -699,6 +699,89 @@ Section BarrierDivergenceFreedom.
       (exists j2 c2', c1 = Cskip                /\ wait c2 = Some (j2, c2')) \/ 
       diverge (wait c1) (wait c2).
 
+  Lemma when_stop (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2))
+        (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) :
+    (exists ty : type, typing_cmd env c ty) ->
+    disj_eq hs1 (htop (snd ks1)) ->
+    ss1 = get_ss_k ks1 -> low_eq_l2 env ss1 ->
+    (forall tid : Fin.t ngroup, (get_cs_k ks1)[@tid] = c) -> 
+    (forall tid : Fin.t ngroup, safe_aux tid c (ss1[@tid]) (hs1[@tid])) ->
+    (forall tid : Fin.t ngroup, (get_cs_k ks2)[@tid] = Cskip) ->
+    low_eq_l2 env (get_ss_k ks2).
+  Proof.
+    intros ? ? ? ? ? ? Hskip; eapply step_inv in red_k; eauto.
+    destruct red_k as [pss' [pss2 [c' [cs [h' [hdis1 [lleq [hdis2 [hty Htid]]]]]]]]].
+    assert (forall tid, cs[@tid] = SKIP) as Hskip' by
+        (intros tid; destruct (Htid tid) as [Heq _]; specialize (Hskip tid); congruence).
+    assert (forall tid1 tid2 : Fin.t ngroup, 
+              tid1 <> tid2 -> st_compat env pss2[@tid1] pss2[@tid2]) as Hcomp.
+    { intros tid1 tid2 hneq; destruct (Htid tid1) as [_ [_ [_ Hred1]]], 
+                                      (Htid tid2) as [_ [_ [_ Hred2]]].
+      rewrite Hskip' in Hred1, Hred2.
+      destruct hty as [ty hty].
+      assert (st_compat env pss'[@tid1] pss'[@tid2]) as hcomp1.
+      { unfold st_compat; split. 
+        - rewrite <-(Vector.nth_map _ _ tid1 tid1), 
+                  <-(Vector.nth_map _ _ tid2 tid2); eauto; apply loweq_l2_leq.
+          unfold get_ss in lleq; eauto.
+        - rewrite <-(Vector.nth_map _ _ tid1 tid1), 
+                  <-(Vector.nth_map _ _ tid2 tid2); eauto; eapply disjeq_disj; eauto. }
+      eapply (non_interference_p1 hty hcomp1 Hred1 Hred2). }
+    assert (forall tid1 tid2 : Fin.t ngroup, 
+              tid1 <> tid2 -> low_eq env (fst pss2[@tid1]) (fst pss2[@tid2])) as hleq by
+        (intros tid1 tid2; specialize (Hcomp tid1 tid2); unfold st_compat in Hcomp; tauto).
+    apply leq_low_eq_l2; intros tid1 tid2 hneq; specialize (hleq tid1 tid2 hneq).
+    destruct (Htid tid1) as [_ [heq1 _]], (Htid tid2) as [_ [heq2 _]];
+      rewrite <-heq1, <-heq2; unfold get_ss; erewrite !Vector.nth_map; eauto.
+  Qed.
+
+  Lemma when_barrier (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2))
+        (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) 
+        (ws : Vector.t (nat * cmd) ngroup):
+    (exists ty : type, typing_cmd env c ty) ->
+    disj_eq hs1 (htop (snd ks1)) ->
+    ss1 = get_ss_k ks1 -> low_eq_l2 env ss1 ->
+    (forall tid : Fin.t ngroup, (get_cs_k ks1)[@tid] = c) -> 
+    (forall tid : Fin.t ngroup, safe_aux tid c (ss1[@tid]) (hs1[@tid])) ->
+    (forall tid : Fin.t ngroup, wait ((get_cs_k ks2)[@tid]) = Some ws[@tid]) ->
+    low_eq_l2 env (get_ss_k ks2) /\ exists b, (forall tid, fst ws[@tid] = b).
+  Proof.
+    intros ? ? ? ? ? ? Hbrr; eapply step_inv in red_k; eauto.
+    destruct red_k as [pss' [pss2 [c' [cs [h' [hdis1 [lleq [hdis2 [hty Htid]]]]]]]]].
+    assert (forall tid, wait cs[@tid] = Some ws[@tid]) as Hskip' by
+        (intros tid; destruct (Htid tid) as [Heq _]; specialize (Hbrr tid); congruence).
+    assert (forall tid1 tid2 : Fin.t ngroup, 
+              tid1 <> tid2 -> ws[@tid1] = ws[@tid2] /\
+                              st_compat env pss2[@tid1] pss2[@tid2]) as Hcomp.
+    { intros tid1 tid2 hneq; destruct (Htid tid1) as [_ [_ [_ Hred1]]], 
+                                      (Htid tid2) as [_ [_ [_ Hred2]]].
+      destruct hty as [ty hty].
+      assert (st_compat env pss'[@tid1] pss'[@tid2]) as hcomp1.
+      { unfold st_compat; split. 
+        - rewrite <-(Vector.nth_map _ _ tid1 tid1), 
+                  <-(Vector.nth_map _ _ tid2 tid2); eauto; apply loweq_l2_leq.
+          unfold get_ss in lleq; eauto.
+        - rewrite <-(Vector.nth_map _ _ tid1 tid1), 
+                  <-(Vector.nth_map _ _ tid2 tid2); eauto; eapply disjeq_disj; eauto. }
+      pose proof (Hskip' tid1); pose proof (Hskip' tid2).
+      destruct ws[@tid1] as [j1 c1], ws[@tid2] as [j2 c2].
+      destruct (non_interference_p2 hty hcomp1 Hred1 Hred2 H5 H6) as [? [? ?]];
+      split; eauto; congruence. }
+    assert (forall tid1 tid2 : Fin.t ngroup, 
+              tid1 <> tid2 -> low_eq env (fst pss2[@tid1]) (fst pss2[@tid2])) as hleq by
+        (intros tid1 tid2; specialize (Hcomp tid1 tid2); unfold st_compat in Hcomp; tauto).
+    split.
+    - apply leq_low_eq_l2; intros tid1 tid2 hneq; specialize (hleq tid1 tid2 hneq).
+      destruct (Htid tid1) as [_ [heq1 _]], (Htid tid2) as [_ [heq2 _]];
+        rewrite <-heq1, <-heq2; unfold get_ss; erewrite !Vector.nth_map; eauto.
+    - assert (exists b : nat, forall tid : Fin.t ngroup, (Vector.map (fst (B:=cmd)) ws) [@tid] = b)
+        as [b H'].
+      { apply (vector_eq2_ex 0%nat); intros i j neq.
+        destruct  (Hcomp i j neq) as [? ?]; 
+          rewrite (Vector.nth_map _ _ i i), (Vector.nth_map _ _ j j); congruence. }
+      exists b. intros tid; specialize (H' tid); erewrite Vector.nth_map in H'; eauto.
+  Qed.
+  
   Theorem barrier_divergence_freedom  (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2))
           (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) :
     (exists ty : type, typing_cmd env c ty) ->

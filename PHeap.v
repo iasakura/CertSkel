@@ -705,3 +705,33 @@ Lemma phplus_eq (h1 h2 : pheap) (disj : pdisj h1 h2) :
   this (phplus_pheap disj) = phplus h1 h2. 
   simpl; eauto.
 Qed.
+
+Lemma disjeq_phplus (n : nat) (hs : Vector.t pheap n) (h h' : pheap) (i : Fin.t n) :
+  disj_eq hs h -> pdisj h h' ->
+  exists h'' : pheap, pdisj hs[@i] h'' /\ pdisj h'' h' /\ 
+              phplus hs[@i] h'' = h /\ pdisj hs[@i] (phplus h'' h').
+Proof.
+  intros hdeq hdis.
+  destruct (disj_tid i hdeq) as [h'' [H [hdis' hplus]]].
+  exists h''; repeat split; eauto.
+  - rewrite <-hplus in hdis; apply pdisjC, pdisjE2, pdisjC in hdis; eauto.
+  - apply pdisj_padd_expand; eauto.
+    rewrite hplus; eauto.
+Qed.
+
+Lemma ptoheap_phplus (ph : pheap) (h h' : heap) :
+  pdisj ph (htop h) -> ptoheap (phplus ph (htop h)) h' -> 
+  exists h'' : heap, ptoheap ph h''.
+Proof.
+  intros hdis heq.
+  set (h'' := fun x : Z => match this ph x with
+                             | Some (_, x) => Some x
+                             | None => None
+                           end).
+  exists h''; intros x; specialize (hdis x); specialize (heq x); 
+  unfold h'', phplus, htop, htop' in *; simpl in *; clear h''.
+  destruct ph as [ph isph]; simpl in *; specialize (isph x);
+    destruct (ph x) as [[? ?] | ], (h x); destruct heq, hdis as [? [? ?]], isph; try congruence.
+  - cut False; [try tauto | eapply (@frac_contra2 q); eauto ].
+  - split; congruence.
+Qed.
