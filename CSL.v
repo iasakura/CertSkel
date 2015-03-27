@@ -668,7 +668,19 @@ Section ParCSL.
     intros H; unfold htop.
     apply heap_pheap_eq in H; destruct H; eauto.
   Qed.
+
+  Lemma naborts_red_s (c1 c2 : cmd) (s1 s2 : stack) (h1 h2 : heap) :
+    hdisj h hF -> hdisj h' hF ->
+    ~abort (ks1, h) ->
+    (ks1, hplus h hF) ==>k (ks2, hplus h' hF) ->
+    (ks1, h) ==>k (ks2, h').
+  Proof.
+    intros hdis hdis' naborts hred.
+    remember (ks1, hplus h hF) as kss1.
+    remember (ks2, hplus h' hF) as kss2.
+    destruct hred.
     
+      
   Lemma safe_par (n : nat) (ks : klist ntrd) (h : heap) (Q : assn) 
         (hs : Vector.t pheap ntrd) (Qs : Vector.t assn ntrd) :
     let cs := Vector.map (fun cs => fst cs) ks in
@@ -732,7 +744,8 @@ Section ParCSL.
       cutrewrite (ks' = fst kss'); [| rewrite Heqkss'; eauto ].
       cutrewrite (h' = snd kss'); [| rewrite Heqkss'; eauto ]. clear Heqkss'.
       remember (hplus h hF) as hhF. remember (ks, hhF) as kss.
-      destruct hred1.
+      pose proof hred1 as hred2.
+      destruct hred2.
       + rewrite H in Heqkss. rewrite HeqhhF in Heqkss. rewrite H2, H3 in H1.
         inversion Heqkss. rewrite H5, H6 in *.
         destruct (hsafei i) as [_ [_ [_ [_ [hsafe _]]]]].
@@ -775,4 +788,24 @@ Section ParCSL.
           cutrewrite (htop' hF = htop hF); eauto.
           rewrite padd_assoc; eauto.
           apply hdisj_pdisj. rewrite <-heq''0; eauto; apply pdisj_padd_expand; eauto.
-        * eapply IHn; eauto.
+        * set (hs' := replace hs i ph').
+          apply (IHn _ _ hs'); eauto.
+          { unfold hs'.
+            apply ptoheap_eq in heq''0; rewrite <-heq''0.
+            apply (disj_tid i) in hdis. destruct hdis as [h'1 [hdis1 [pdis1 heqh]]].
+            assert (h'1 = h'') as heq'' by (apply (@padd_cancel hs[@i]); eauto; congruence); 
+            rewrite heq'' in *; clear heq''.
+            destruct (disj_upd hdis1 disjph'h'') as [? [Hcon heqh']].
+            cutrewrite (phplus_pheap disjph'h'' = x); [|destruct x; apply pheap_eq]; eauto. }
+
+          { intros tid; unfold hs'.
+            erewrite !Vector.nth_map; eauto; simpl.
+            rewrite !replace_nth.
+            destruct (fin_eq_dec i tid) as [eq | neq]; [rewrite <-eq in *; clear eq|]; simpl; eauto.
+            cutrewrite (fst ks[@tid] = cs[@tid]); [|unfold cs; erewrite Vector.nth_map; eauto].
+            cutrewrite (snd ks[@tid] = ss[@tid]); [|unfold ss; erewrite Vector.nth_map; eauto].
+            apply (safe_mon (hsafei tid)). 
+            eauto. }
+          { destruct h_for_bdiv as [ks1 [hs1 [ss1 [cini [ty [red1 [? [? [? [? [? ?]]]]]]]]]]].
+            exists ks1, hs1, ss1, cini, ty; repeat split; eauto; simpl.
+            
