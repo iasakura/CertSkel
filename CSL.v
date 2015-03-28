@@ -991,6 +991,7 @@ Section ParCSL.
 
   Definition CSLp (P : assn) (c : cmd) (Q : assn) :=
     forall (ks : klist ntrd) (h : heap) (leqks : low_eq_l2 E (Vector.map (fun s => snd s) ks)),
+      (forall tid : Fin.t ntrd, fst ks[@tid] = c) ->
       sat_k h leqks P ->
       forall n, safe_nk n ks h Q.
 
@@ -1003,13 +1004,24 @@ Section ParCSL.
     CSLp P c Q.
   Proof.
     unfold CSL, CSLp, sat_k in *.
-    intros PPs QsQ HlowP HlowQ Hty Hsafe ks h leqks sat n.
+    intros PPs QsQ HlowP HlowQ Hty Hsafei ks h leqks Heqc Hsat n.
     destruct (low_eq_repr leqks) as [s Hlows].
-    apply PPs in sat.
-    destruct (aistar_disj sat) as [prehs [Hdisj Hsati]].
-    assert (forall tid, Bdiv.sat ((Vector.map (fun s => snd s) ks)[@tid], prehs[@tid]) Ps[@tid]).
+    apply PPs in Hsat.
+    destruct (aistar_disj Hsat) as [prehs [Hdisj Hsati]].
+    assert (forall tid, Bdiv.sat ((Vector.map (fun s => snd s) ks)[@tid], prehs[@tid]) Ps[@tid]) as
+        Hsat'.
     { intros tid; apply ((HlowP tid) (Vector.map [eta snd (B:=stack)] ks)[@tid] s _ (Hlows tid));
       eauto. }
     apply (safe_par (hs := prehs) (Qs := Qs)); eauto.
-    intros tid; erewrite !Vector.nth_map; eauto.
-    
+    - intros tid; specialize (Hsafei tid); specialize (Hsat' tid); erewrite !Vector.nth_map in *; 
+      eauto.
+      rewrite Heqc; apply Hsafei.
+      erewrite Vector.nth_map in Hsat'; eauto.
+    - exists (ks, h), prehs, (Vector.map [eta snd (B:=stack)] ks), c, ty; repeat split; eauto.
+      + apply rt1n_refl. 
+      + unfold get_cs_k; simpl; intros tid; erewrite Vector.nth_map; eauto.
+      + intros tid; unfold safe_aux; exists Qs[@tid]; intros n'.
+        erewrite Vector.nth_map; eauto; apply Hsafei.
+        specialize (Hsat' tid); erewrite Vector.nth_map in Hsat'; eauto.
+  Qed.
+End ParCSL.
