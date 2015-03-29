@@ -735,3 +735,80 @@ Proof.
   - cut False; [try tauto | eapply (@frac_contra2 q); eauto ].
   - split; congruence.
 Qed.
+
+Definition hdisj (h1 h2 : heap) := forall x, h1 x = None \/ h2 x = None.
+
+(* h1 + h2 *)
+Definition hplus (h1 h2 : heap) : heap := 
+  (fun x => match h1 x with None => h2 x | Some y => Some y end).
+
+Lemma ptoheap_plus (ph : pheap) (h : heap) (hF : heap) :
+  ptoheap ph h -> hdisj h hF -> ptoheap (phplus ph (htop hF)) (hplus h hF).
+Proof.
+  intros heq hdis x.
+  specialize (heq x); specialize (hdis x).
+  unfold phplus, htop, htop', hplus; simpl in *.
+  destruct ph as [ph isp]; simpl in *; specialize (isp x);
+  destruct (ph x) as [[? ?]|], (h x), (hF x); try congruence; destruct hdis, heq; 
+  split; try congruence.
+Qed.
+
+Lemma hdisj_pdisj (h1 h2 : heap) : hdisj h1 h2 <-> pdisj (htop h1) (htop h2).
+Proof.
+  unfold hdisj, pdisj, htop, htop'; simpl; 
+  split; intros H x; specialize (H x); destruct (h1 x), (h2 x); destruct H; try congruence; eauto.
+  destruct H0; unfold full_p in *.
+  unfold Qcle, Qle in H1; simpl in H1; omega.
+Qed.
+
+Lemma hplus_phplus (h1 h2 : heap) : hdisj h1 h2 -> htop' (hplus h1 h2) = phplus (htop h1) (htop h2).
+Proof.
+  intros hdis; extensionality x; specialize (hdis x); 
+  unfold htop', hplus, phplus, htop, htop'; simpl.
+  destruct (h1 x), (h2 x), hdis; congruence.
+Qed.
+
+Lemma heap_pheap_eq (h1 h2 : heap) : h1 = h2 <-> htop' h1 = htop' h2.
+Proof.
+  unfold htop; split; intros H; [|]; extensionality x.
+  - subst; eauto.
+  - inversion H; subst.
+    assert (htop' h1 x = htop' h2 x) as Heq by (rewrite H1; eauto).
+    unfold htop' in *; destruct (h1 x), (h2 x); congruence.
+Qed.
+
+Lemma htop'_eq (h1 h2 : heap) : htop' h1 = htop' h2 -> htop h1 = htop h2.
+Proof.
+  intros H; unfold htop.
+  apply heap_pheap_eq in H; destruct H; eauto.
+Qed.
+
+Lemma hplus_cancel_l (h1 h2 hF h : heap) :
+  hdisj h1 hF -> hdisj h2 hF -> h = hplus h1 hF -> h = hplus h2 hF -> h1 = h2.
+Proof.
+  intros Hdis1 Hdis2 Heq1 Heq2; extensionality x.
+  assert (hplus h1 hF x = hplus h2 hF x) by congruence.
+  unfold hplus in *; specialize (Hdis1 x); specialize (Hdis2 x);
+  destruct (h1 x), (h2 x), (hF x); destruct Hdis1, Hdis2; try congruence.
+Qed.
+
+Lemma hplus_map (h1 h2 : heap) (x : Z) (v : Z) :
+  hdisj h1 h2 -> hplus h1 h2 x = Some v -> 
+  (h1 x = Some v /\ h2 x = None) \/ (h1 x = None /\ h2 x = Some v).
+Proof.
+  intros Hdis heq; specialize (Hdis x); unfold hplus in *; destruct (h1 x), (h2 x), Hdis;
+  try tauto; congruence.
+Qed.
+
+Lemma hplus_upd (h1 h2 hF : heap) (x : Z) (v : Z) :
+  hdisj h1 hF -> hdisj h2 hF -> upd (hplus h1 hF) x (Some v) = hplus h2 hF ->
+  upd h1 x (Some v) = h2 \/ (exists v', hF x = Some v').
+Proof.
+  intros Hdis1 Hdis2 Heq.
+  remember (hF x) as hFx; destruct hFx; [right; eexists; eauto|].
+  left; extensionality x'; specialize (Hdis1 x'); specialize (Hdis2 x');
+  assert (upd (hplus h1 hF) x (Some v) x' = hplus h2 hF x') by (rewrite Heq; eauto); clear Heq;
+  unfold upd, hplus in *; destruct Hdis1, Hdis2, (Z.eq_dec x' x), (h1 x'), (h2 x'); 
+  try congruence.
+Qed.
+

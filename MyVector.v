@@ -146,4 +146,16 @@ Section FusionLemmas.
     apply H; intros Hc.
     inversion Hc.
   Qed.
+
+  Lemma map_ext (vs : Vector.t T n) (f g : T -> U) :
+    (forall x, f x = g x) -> Vector.map f vs = Vector.map g vs.
+  Proof.
+    intros H; induction n; [rewrite (vinv0 vs); simpl; eauto|].
+    destruct (vinvS vs) as [x [vs' ?]]; subst; simpl; f_equal; [apply H | apply IHn0].
+  Qed.
+
+  Lemma map_id (vs : Vector.t T n) : Vector.map (fun x => x) vs = vs.
+    induction n; [rewrite (vinv0 vs); simpl; eauto|].
+    destruct (vinvS vs) as [x [vs' ?]]; subst; simpl; rewrite IHn0; eauto.
+  Qed.
 End FusionLemmas.

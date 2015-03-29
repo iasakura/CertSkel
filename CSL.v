@@ -547,6 +547,7 @@ Section SeqCSL.
     unfold CSL; ins; intuition; eapply safe_conseq; eauto; vauto.
   Qed.
 End SeqCSL.
+
 Section ParCSL.
   Import VectorNotations.
 
@@ -600,16 +601,6 @@ Section ParCSL.
       | existT x P => sat (x, htop h) Q
     end.
 
-  Definition abort_k (ks : kstate ntrd) :=
-    exists tid : Fin.t ntrd, 
-      let (c, s) := (fst ks)[@tid] in aborts c (s, snd ks).
-  
-  Definition hdisj (h1 h2 : heap) := forall x, h1 x = None \/ h2 x = None.
-
-  (* h1 + h2 *)
-  Definition hplus (h1 h2 : heap) : heap := 
-    (fun x => match h1 x with None => h2 x | Some y => Some y end).
-
   Fixpoint safe_nk (n : nat) (ks : klist ntrd) (h : heap) (Q : assn) :=
     match n with
       | 0 => True
@@ -626,145 +617,6 @@ Section ParCSL.
            exists h'' : heap, hdisj h'' hF /\ h' = hplus h'' hF /\ 
                               safe_nk n ks' h'' Q)
     end.
-  
-  Lemma ptoheap_plus (ph : pheap) (h : heap) (hF : heap) :
-    ptoheap ph h -> hdisj h hF -> ptoheap (phplus ph (htop hF)) (hplus h hF).
-  Proof.
-    intros heq hdis x.
-    specialize (heq x); specialize (hdis x).
-    unfold phplus, htop, htop', hplus; simpl in *.
-    destruct ph as [ph isp]; simpl in *; specialize (isp x);
-      destruct (ph x) as [[? ?]|], (h x), (hF x); try congruence; destruct hdis, heq; 
-      split; try congruence.
-  Qed.
-
-  Lemma hdisj_pdisj (h1 h2 : heap) : hdisj h1 h2 <-> pdisj (htop h1) (htop h2).
-  Proof.
-    unfold hdisj, pdisj, htop, htop'; simpl; 
-    split; intros H x; specialize (H x); destruct (h1 x), (h2 x); destruct H; try congruence; eauto.
-    destruct H0; unfold full_p in *.
-    unfold Qcle, Qle in H1; simpl in H1; omega.
-  Qed.
-
-  Lemma hplus_phplus (h1 h2 : heap) : hdisj h1 h2 -> htop' (hplus h1 h2) = phplus (htop h1) (htop h2).
-  Proof.
-    intros hdis; extensionality x; specialize (hdis x); 
-    unfold htop', hplus, phplus, htop, htop'; simpl.
-    destruct (h1 x), (h2 x), hdis; congruence.
-  Qed.
-
-
-  Lemma heap_pheap_eq (h1 h2 : heap) : h1 = h2 <-> htop' h1 = htop' h2.
-  Proof.
-    unfold htop; split; intros H; [|]; extensionality x.
-    - subst; eauto.
-    - inversion H; subst.
-      assert (htop' h1 x = htop' h2 x) as Heq by (rewrite H1; eauto).
-      unfold htop' in *; destruct (h1 x), (h2 x); congruence.
-  Qed.
-
-  Lemma htop'_eq (h1 h2 : heap) : htop' h1 = htop' h2 -> htop h1 = htop h2.
-  Proof.
-    intros H; unfold htop.
-    apply heap_pheap_eq in H; destruct H; eauto.
-  Qed.
-
-  Lemma hplus_cancel_l (h1 h2 hF h : heap) :
-    hdisj h1 hF -> hdisj h2 hF -> h = hplus h1 hF -> h = hplus h2 hF -> h1 = h2.
-  Proof.
-    intros Hdis1 Hdis2 Heq1 Heq2; extensionality x.
-    assert (hplus h1 hF x = hplus h2 hF x) by congruence.
-    unfold hplus in *; specialize (Hdis1 x); specialize (Hdis2 x);
-    destruct (h1 x), (h2 x), (hF x); destruct Hdis1, Hdis2; try congruence.
-  Qed.
-
-  Lemma hplus_map (h1 h2 : heap) (x : Z) (v : Z) :
-    hdisj h1 h2 -> hplus h1 h2 x = Some v -> 
-    (h1 x = Some v /\ h2 x = None) \/ (h1 x = None /\ h2 x = Some v).
-  Proof.
-    intros Hdis heq; specialize (Hdis x); unfold hplus in *; destruct (h1 x), (h2 x), Hdis;
-    try tauto; congruence.
-  Qed.
-
-  Lemma hplus_upd (h1 h2 hF : heap) (x : Z) (v : Z) :
-    hdisj h1 hF -> hdisj h2 hF -> upd (hplus h1 hF) x (Some v) = hplus h2 hF ->
-    upd h1 x (Some v) = h2 \/ (exists v', hF x = Some v').
-  Proof.
-    intros Hdis1 Hdis2 Heq.
-    remember (hF x) as hFx; destruct hFx; [right; eexists; eauto|].
-    left; extensionality x'; specialize (Hdis1 x'); specialize (Hdis2 x');
-    assert (upd (hplus h1 hF) x (Some v) x' = hplus h2 hF x') by (rewrite Heq; eauto); clear Heq;
-    unfold upd, hplus in *; destruct Hdis1, Hdis2, (Z.eq_dec x' x), (h1 x'), (h2 x'); 
-    try congruence.
-  Qed.
-
-  Lemma naborts_red_s (c1 c2 : cmd) (s1 s2 : stack) (h1 h2 hF : heap) :
-    hdisj h1 hF -> hdisj h2 hF ->
-    ~aborts c1 (s1, h1) ->
-    c1 / (s1, hplus h1 hF) ==>s c2 / (s2, hplus h2 hF) ->
-    c1 / (s1, h1) ==>s c2 / (s2, h2).
-  Proof.
-    intros hdis1 hdis2 naborts hred.
-    remember (s1, hplus h1 hF) as st1.
-    remember (s2, hplus h2 hF) as st2.
-    induction hred; try constructor; eauto;
-    try (destruct ss as [s h]; inversion Heqst1; inversion Heqst2;
-         assert (h1 = h2) by (apply (hplus_cancel_l hdis1 hdis2 H1); eauto);
-         repeat subst; constructor; eauto).
-    - apply IHhred; eauto.
-      intros H; apply naborts; constructor; eauto.
-    - econstructor; eauto.
-      destruct ss, ss'. 
-      repeat match goal with | [ H : (_, _) = (_, _) |- _ ] => inversion H; clear H end; subst.
-      rewrite <-H4, H6.
-      cutrewrite (h1 = h2); [eauto | apply (hplus_cancel_l (h := h) hdis1 hdis2); eauto].
-    - apply (@red_Read _ _ _ _ s1 h1 v); eauto;
-      destruct ss as [s1' h1F], ss' as [s2' h2F];
-      repeat match goal with  | [ H : (_, _) = (_, _) |- _ ] => inversion H; clear H end; subst.
-      + rewrite H7 in RD.
-        destruct (hplus_map hdis1 RD) as [[? ?]| [? ?]]; [congruence|].
-        contradict naborts; constructor; subst; eauto.
-      + cut (h2 = h1 /\ s2 = upd s1 x v); [intros [? ?]; rewrite <-H4; subst; eauto|].
-        split; [eapply (hplus_cancel_l hdis2); eauto | congruence].
-    - apply (@red_Write _ _ _ _ s1 h1); eauto.
-      destruct ss as [sx hx], ss' as [sx' hx'].
-      repeat match goal with | [ H : (_, _) = (_, _) |- _ ] => inversion H; clear H end; subst.
-      cut (s2 = s1 /\ h2 = upd h1 (edenot e1 s1) (Some (edenot e2 s1))); 
-        [intros [? ?]; subst; eauto|].
-      split; [congruence|].
-      rewrite <-H6; rewrite H7 in H5.
-      destruct (hplus_upd hdis1 hdis2 H5) as [? | [hFx ?]]; eauto.
-      contradict naborts; constructor; simpl; destruct (hdis1 (edenot e1 s1)); congruence.
-  Qed.
-
-  Lemma naborts_red_k (ks1 ks2 : klist ntrd) (h1 h2 hF : heap) :
-    hdisj h1 hF -> hdisj h2 hF ->
-    ~abort_k (ks1, h1) ->
-    (ks1, hplus h1 hF) ==>k (ks2, hplus h2 hF) ->
-    (ks1, h1) ==>k (ks2, h2).
-  Proof.
-    intros Hdis1 Hdis2 Hnaborts Hred.
-    remember (ks1, hplus h1 hF) as kss1; remember (ks2, hplus h2 hF) as kss2; 
-    destruct Hred.
-    - assert (~aborts c (s, h1)) as Hnab.
-      { intros Hc; contradict Hnaborts; exists i; simpl.
-        destruct ks; inversion Heqkss1; inversion H; repeat subst; destruct ss[@i]; inversion H0;
-        subst; eauto. }
-      rewrite H2, H3 in H1.
-      cutrewrite (h = hplus h1 hF) in H1; [|inversion Heqkss1; congruence].
-      cutrewrite (h' = hplus h2 hF) in H1; [|inversion Heqkss2; congruence].
-      apply naborts_red_s in H1; eauto.
-      inversion Heqkss2.
-      cutrewrite (ks1 = ss); [|destruct ks; inversion Heqkss1; inversion H; congruence].
-      apply (redk_Seq eq_refl H0 H1 eq_refl eq_refl).
-    - cutrewrite (ks1 = ss); [|destruct ks; inversion Heqkss1; inversion H; congruence].
-      cutrewrite (ks2 = ss'); [|destruct ks'; inversion Heqkss2; inversion H0; congruence].
-      assert (hplus h2 hF = hplus h1 hF) as H12eq.
-      { destruct ks, ks'; inversion Heqkss1; inversion Heqkss2; inversion H; inversion H0;
-        congruence. }
-      cutrewrite (h1 = h2); [| eapply (hplus_cancel_l (h := hplus h1 hF) Hdis1 Hdis2); congruence].
-      apply (redk_Barrier eq_refl eq_refl H1).
-  Qed.
 
   Lemma red_k_step (ks1 ks2 ks3 : kstate ntrd) :
     ks1 ==>k* ks2 -> ks2 ==>k ks3 -> ks1 ==>k* ks3.
@@ -773,19 +625,6 @@ Section ParCSL.
     apply Operators_Properties.clos_rt_rt1n_iff in H.
     apply (rt_trans _ _ _ ks2); eauto.
     apply rt_step; eauto.
-  Qed.
-
-  Lemma map_ext (n : nat) (T U : Type) (vs : Vector.t T n) (f g : T -> U) :
-    (forall x, f x = g x) -> Vector.map f vs = Vector.map g vs.
-  Proof.
-    intros H; induction n; [rewrite (vinv0 vs); simpl; eauto|].
-    destruct (vinvS vs) as [x [vs' ?]]; subst; simpl; f_equal; [apply H | apply IHn].
-  Qed.
-
-  Lemma map_id (n : nat) (T : Type) (vs : Vector.t T n) :
-    Vector.map id vs = vs.
-    induction n; [rewrite (vinv0 vs); simpl; eauto|].
-    destruct (vinvS vs) as [x [vs' ?]]; subst; simpl; rewrite IHn; eauto.
   Qed.
 
   Lemma safe_par (n : nat) (ks : klist ntrd) (h : heap) (Q : assn) 
@@ -962,7 +801,7 @@ Section ParCSL.
           assert (sat (s, phP) (Aistar_v (fst (bspec j)))) as Hsat.
           { apply (aistar_eq (hs := Vector.map (fun h => (s, h)) phPs)).
             - unfold get_hs. rewrite MyVector.map_map.
-              rewrite (map_ext (f := fun x => snd (s, x)) (g := id) phPs), map_id; eauto.
+              rewrite (MyVector.map_ext (f := fun x => snd (s, x)) (g := id) phPs), MyVector.map_id; eauto.
             - intros tid; erewrite Vector.nth_map; eauto. }
           apply brr_wf, aistar_disj in Hsat. destruct Hsat as [phQs [HeqQ Hsatiq]].
           assert (forall tid, pdisj phQs[@tid] phFs[@tid]) as HdisQF.
@@ -995,8 +834,8 @@ Section ParCSL.
       sat_k h leqks P ->
       forall n, safe_nk n ks h Q.
 
-  Theorem rule_par (Ps : Vector.t assn ntrd) (Qs : Vector.t assn ntrd) (P : assn) (c : cmd) (Q : assn) 
-          (ty : type):
+  Theorem rule_par (Ps : Vector.t assn ntrd) (Qs : Vector.t assn ntrd) 
+          (P : assn) (c : cmd) (Q : assn) (ty : type):
     (P |= Aistar_v Ps) -> (Aistar_v Qs |= Q) ->
     (forall tid, low_assn E Ps[@tid]) -> (forall tid, low_assn E Qs[@tid]) ->
     typing_cmd E c ty ->

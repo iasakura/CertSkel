@@ -174,6 +174,45 @@ Fixpoint barriers c :=
     | Cbarrier j => j :: nil
   end.
 
+Lemma naborts_red_s (c1 c2 : cmd) (s1 s2 : stack) (h1 h2 hF : heap) :
+  hdisj h1 hF -> hdisj h2 hF ->
+  ~aborts c1 (s1, h1) ->
+  c1 / (s1, hplus h1 hF) ==>s c2 / (s2, hplus h2 hF) ->
+  c1 / (s1, h1) ==>s c2 / (s2, h2).
+Proof.
+  intros hdis1 hdis2 naborts hred.
+  remember (s1, hplus h1 hF) as st1.
+  remember (s2, hplus h2 hF) as st2.
+  induction hred; try constructor; eauto;
+  try (destruct ss as [s h]; inversion Heqst1; inversion Heqst2;
+       assert (h1 = h2) by (apply (hplus_cancel_l hdis1 hdis2 H1); eauto);
+       repeat subst; constructor; eauto).
+  - apply IHhred; eauto.
+    intros H; apply naborts; constructor; eauto.
+  - econstructor; eauto.
+    destruct ss, ss'. 
+    repeat match goal with | [ H : (_, _) = (_, _) |- _ ] => inversion H; clear H end; subst.
+    rewrite <-H4, H6.
+    cutrewrite (h1 = h2); [eauto | apply (hplus_cancel_l (h := h) hdis1 hdis2); eauto].
+  - apply (@red_Read _ _ _ _ s1 h1 v); eauto;
+    destruct ss as [s1' h1F], ss' as [s2' h2F];
+    repeat match goal with  | [ H : (_, _) = (_, _) |- _ ] => inversion H; clear H end; subst.
+    + rewrite H7 in RD.
+      destruct (hplus_map hdis1 RD) as [[? ?]| [? ?]]; [congruence|].
+      contradict naborts; constructor; subst; eauto.
+    + cut (h2 = h1 /\ s2 = upd s1 x v); [intros [? ?]; rewrite <-H4; subst; eauto|].
+      split; [eapply (hplus_cancel_l hdis2); eauto | congruence].
+  - apply (@red_Write _ _ _ _ s1 h1); eauto.
+    destruct ss as [sx hx], ss' as [sx' hx'].
+    repeat match goal with | [ H : (_, _) = (_, _) |- _ ] => inversion H; clear H end; subst.
+    cut (s2 = s1 /\ h2 = upd h1 (edenot e1 s1) (Some (edenot e2 s1))); 
+      [intros [? ?]; subst; eauto|].
+    split; [congruence|].
+    rewrite <-H6; rewrite H7 in H5.
+    destruct (hplus_upd hdis1 hdis2 H5) as [? | [hFx ?]]; eauto.
+    contradict naborts; constructor; simpl; destruct (hdis1 (edenot e1 s1)); congruence.
+Qed.
+
 Definition wf_cmd c := disjoint_list (barriers c).
 
 Module PLang.
@@ -540,10 +579,10 @@ End BigStep.
 Export BigStep.
 
 Section ParSem.
-  Variable ngroup : nat.
-  Definition klist := Vector.t (cmd * stack) ngroup.
+  Variable ntrd : nat.
+  Definition klist := Vector.t (cmd * stack) ntrd.
   Definition kstate := (klist * heap)%type.
-  Definition kidx := Fin.t ngroup.
+  Definition kidx := Fin.t ntrd.
 
   Inductive red_k : kstate -> kstate -> Prop :=
   | redk_Seq : 
@@ -560,10 +599,48 @@ Section ParSem.
          exists c s c', Vector.nth ss  i = (c, s) /\ wait c = Some (j, c') /\
                         Vector.nth ss' i = (c', s)) ->
         red_k ks ks'.
+  Import VectorNotations.
+  Definition abort_k (ks : kstate) :=
+    exists tid : Fin.t ntrd, 
+      let (c, s) := (fst ks)[@tid] in aborts c (s, snd ks).
 End ParSem.
+
 Notation "ks '==>k' ks'" := (red_k ks ks') (at level 40).
-Definition multi_red_k (ngroup : nat) (k1 k2 : kstate ngroup) := clos_refl_trans_1n _ (@red_k ngroup) k1 k2.
+Definition multi_red_k (ntrd : nat) (k1 k2 : kstate ntrd) := clos_refl_trans_1n _ (@red_k ntrd) k1 k2.
 Notation "ks '==>k*' ks'" := (multi_red_k ks ks') (at level 40).
+
+Section ParNAborts.
+  Variable ntrd : nat.
+  Import VectorNotations.
+  Lemma naborts_red_k (ks1 ks2 : klist ntrd) (h1 h2 hF : heap) :
+    hdisj h1 hF -> hdisj h2 hF ->
+    ~abort_k (ks1, h1) ->
+    (ks1, hplus h1 hF) ==>k (ks2, hplus h2 hF) ->
+    (ks1, h1) ==>k (ks2, h2).
+  Proof.
+    intros Hdis1 Hdis2 Hnaborts Hred.
+    remember (ks1, hplus h1 hF) as kss1; remember (ks2, hplus h2 hF) as kss2; 
+    destruct Hred.
+    - assert (~aborts c (s, h1)) as Hnab.
+      { intros Hc; contradict Hnaborts; exists i; simpl.
+        destruct ks; inversion Heqkss1; inversion H; repeat subst; destruct ss[@i]; inversion H0;
+        subst; eauto. }
+      rewrite H2, H3 in H1.
+      cutrewrite (h = hplus h1 hF) in H1; [|inversion Heqkss1; congruence].
+      cutrewrite (h' = hplus h2 hF) in H1; [|inversion Heqkss2; congruence].
+      apply naborts_red_s in H1; eauto.
+      inversion Heqkss2.
+      cutrewrite (ks1 = ss); [|destruct ks; inversion Heqkss1; inversion H; congruence].
+      apply (redk_Seq eq_refl H0 H1 eq_refl eq_refl).
+    - cutrewrite (ks1 = ss); [|destruct ks; inversion Heqkss1; inversion H; congruence].
+      cutrewrite (ks2 = ss'); [|destruct ks'; inversion Heqkss2; inversion H0; congruence].
+      assert (hplus h2 hF = hplus h1 hF) as H12eq.
+      { destruct ks, ks'; inversion Heqkss1; inversion Heqkss2; inversion H; inversion H0;
+        congruence. }
+      cutrewrite (h1 = h2); [| eapply (hplus_cancel_l (h := hplus h1 hF) Hdis1 Hdis2); congruence].
+      apply (redk_Barrier eq_refl eq_refl H1).
+  Qed.
+End ParNAborts.
   
 Section NonInter.
   Inductive type := Hi | Lo.
