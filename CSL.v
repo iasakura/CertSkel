@@ -350,38 +350,9 @@ Section SeqCSL.
     Qed.
   End For_Vector_Notation.
 
-  (* from CSLsound.v *)
-  Fixpoint subE x e e0 := 
-    match e0 with 
-      | Evar y => (if Z.eq_dec x y then e else Evar y)
-      | Enum n => Enum n
-      | Eplus e1 e2 => Eplus (subE x e e1) (subE x e e2)
-    end.
-  (* b[x/e]*)
-  Fixpoint subB x e b :=
-    match b with
-      | Beq e1 e2 => Beq (subE x e e1) (subE x e e2)
-      | Band b1 b2 => Band (subB x e b1) (subB x e b2)
-      | Bnot b => Bnot (subB x e b)
-    end.
 
   Notation subA x e P := (fun (s : stack) (h : pheap) => P (upd s x (edenot e s)) h).
 
-  Lemma subE_assign : forall (x : var) (e e' : exp) (s : stack),
-    edenot (subE x e e') s = edenot e' (upd s x (edenot e s)).
-  Proof.
-    intros; induction e'; simpl; eauto; unfold upd; 
-    repeat match goal with [ |- context[if Z.eq_dec ?x ?y then _ else _]] => destruct (Z.eq_dec x y) end; try congruence; eauto; f_equal; eauto.
-  Qed.
-
-  Lemma subB_assign : forall (x : var) (e : exp) (b : bexp) (s : stack),
-    bdenot (subB x e b) s = bdenot b (upd s x (edenot e s)).
-  Proof.
-    intros; induction b; simpl;
-    repeat match goal with [ |- context[if Z.eq_dec ?x ?y then _ else _]] => 
-                           destruct (Z.eq_dec x y) end; 
-    repeat rewrite subE_assign in *; congruence.
-  Qed.
 (*
   Lemma subA_assign : forall (x : var) (e : exp) (P : assn) (s : stack) (ph : pheap),
     sat (s, ph) (subA x e P)  = sat (upd s x (edenot e s), ph) P.
@@ -818,10 +789,13 @@ Section ParCSL.
             intros x; right; eauto.
             extensionality x; unfold hplus; destruct (h x); eauto. }
   Qed.
+  Definition nat_of_fin (i : Fin.t ntrd) : nat := projT1 (Fin.to_nat i).
+  Definition Z_of_fin (i : Fin.t ntrd) : Z := Z.of_nat (nat_of_fin i).
 
   Definition CSLp (P : assn) (c : cmd) (Q : assn) :=
     forall (ks : klist ntrd) (h : heap) (leqks : low_eq_l2 E (Vector.map (fun s => snd s) ks)),
       (forall tid : Fin.t ntrd, fst ks[@tid] = c) ->
+      (forall tid : Fin.t ntrd, (snd ks[@tid]) 0%Z = Z_of_fin tid) ->
       sat_k h leqks P ->
       forall n, safe_nk n ks h Q.
 
@@ -830,11 +804,15 @@ Section ParCSL.
     (P |= Aistar_v Ps) -> (Aistar_v Qs |= Q) ->
     (forall tid, low_assn E Ps[@tid]) -> (forall tid, low_assn E Qs[@tid]) ->
     typing_cmd E c ty ->
-    (forall tid : Fin.t ntrd, CSL bspec tid Ps[@tid] c Qs[@tid]) ->
+    (forall tid : Fin.t ntrd, 
+       CSL bspec tid 
+           (Aconj Ps[@tid] (fun s _ => s 0%Z = Z.of_nat (projT1 (Fin.to_nat tid)))) 
+           c 
+           Qs[@tid]) ->
     CSLp P c Q.
   Proof.
     unfold CSL, CSLp, sat_k in *.
-    intros PPs QsQ HlowP HlowQ Hty Hsafei ks h leqks Heqc Hsat n.
+    intros PPs QsQ HlowP HlowQ Hty Hsafei ks h leqks Heqc Htid Hsat n.
     destruct (low_eq_repr leqks) as [s Hlows].
     apply PPs in Hsat.
     destruct (aistar_disj Hsat) as [prehs [Hdisj Hsati]].

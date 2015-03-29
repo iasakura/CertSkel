@@ -29,6 +29,7 @@ Notation Adisj P1 P2 := (fun (s : stack) (ph : pheap) => P1 s ph \/ P2 s ph).
 Notation Apure b := (fun (s : stack) (ph : pheap) => bdenot b s = true).
 Notation Apointsto p e1 e2 := (fun (s : stack) (ph : pheap) =>
   forall x, this ph x = if Z.eq_dec x (edenot e1 s) then Some (p, edenot e2 s) else None).
+Notation Aex P := (fun (s : stack) (h : pheap) => exists v, P v s h).
 (*  Fixpoint sat (ss : pstate) (p : assn) : Prop := 
   match p with
     | Aemp => (forall x, this (snd ss) x = None) 

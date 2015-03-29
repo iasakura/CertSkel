@@ -29,10 +29,12 @@ Definition state := (stack * heap)%type.
 Inductive exp := 
 | Evar (x : var)
 | Enum (n : Z)
-| Eplus (e1: exp) (e2: exp).
+| Eplus (e1: exp) (e2: exp)
+| Ediv2 (e : exp).
 
 Inductive bexp :=
 | Beq (e1: exp) (e2: exp)
+| Blt (e1 : exp) (e2 : exp)
 | Band (b1: bexp) (b2: bexp)
 | Bnot (b: bexp).
 
@@ -70,6 +72,7 @@ Fixpoint edenot e s :=
     | Evar v => s v
     | Enum n => n
     | Eplus e1 e2 => (edenot e1 s + edenot e2 s)%Z
+    | Ediv2 e1 => Z.div2 (edenot e1 s)
   end.
 
 Fixpoint bdenot b s : bool := 
@@ -77,6 +80,7 @@ Fixpoint bdenot b s : bool :=
     | Beq e1 e2 => if Z.eq_dec (edenot e1 s) (edenot e2 s) then true else false
     | Band b1 b2 => bdenot b1 s && bdenot b2 s
     | Bnot b => negb (bdenot b s)
+    | Blt e1 e2 => if Z_lt_dec (edenot e1 s) (edenot e2 s) then true else false
   end.
 
 Reserved Notation "c '/' st  '==>s'  c' '/' st' " (at level 40, st at level 39, c' at level 39).
@@ -664,7 +668,9 @@ Section NonInter.
   | ty_num : forall (n : Z) (ty : type), typing_exp (Enum n) ty
   | ty_plus : forall (e1 e2 : exp) (ty1 ty2 : type), 
                 typing_exp e1 ty1 -> typing_exp e2 ty2 ->
-                typing_exp (Eplus e1 e2) (join ty1 ty2).
+                typing_exp (Eplus e1 e2) (join ty1 ty2)
+  | ty_div2 : forall (e : exp) (ty : type),
+                typing_exp e ty -> typing_exp (Ediv2 e) ty.
 
   Inductive typing_bexp : bexp -> type -> Prop := 
   | ty_eq : forall (e1 e2 : exp) (ty1 ty2 : type), 
@@ -674,7 +680,10 @@ Section NonInter.
                typing_bexp b1 ty1 -> typing_bexp b2 ty2 ->
                typing_bexp (Band b1 b2) (join ty1 ty2)
   | ty_not : forall (b : bexp) (ty : type), 
-               typing_bexp b ty -> typing_bexp (Bnot b) ty.
+               typing_bexp b ty -> typing_bexp (Bnot b) ty
+  | ty_lt : forall (e1 e2 : exp) (ty1 ty2 : type), 
+              typing_exp e1 ty1 -> typing_exp e2 ty2 ->
+              typing_bexp (Blt e1 e2) (join ty1 ty2).
 
   Inductive typing_cmd : cmd -> type -> Prop :=
   | ty_skip : forall (pc : type), typing_cmd Cskip pc
@@ -716,6 +725,7 @@ Section NonInter.
     - inversion hty.
       destruct ty1, ty2; unfold join in H1; simpl in H1; inversion H1.
       apply IHe1 in H2; apply IHe2 in H3; rewrite H2, H3; eauto.
+    - inversion hty; rewrite IHe; eauto. 
   Qed.
 
   Lemma low_eq_eq_bexp (be : bexp) (s1 s2 : stack) :
@@ -729,7 +739,10 @@ Section NonInter.
       eauto.
     - inversion hty.
       destruct ty1, ty2; inversion H1.
-      apply IHbe1 in H2; apply IHbe2 in H3; rewrite H2, H3; eauto.
+      cutrewrite (edenot e1 s1 = edenot e1 s2); [ | eapply low_eq_eq_exp; eauto].
+      cutrewrite (edenot e2 s1 = edenot e2 s2); [ | eapply low_eq_eq_exp; eauto].
+      eauto.
+    - inversion hty; destruct ty1, ty2; inversion H1; rewrite IHbe1, IHbe2; eauto.
     - inversion hty.
       rewrite (IHbe H0); eauto.
   Qed.
@@ -955,3 +968,40 @@ Section NonInter.
     - exists Lo; constructor.
   Qed.
 End NonInter.
+
+Section Substitution.
+  (* from CSLsound.v *)
+  Fixpoint subE x e e0 := 
+    match e0 with 
+      | Evar y => (if Z.eq_dec x y then e else Evar y)
+      | Enum n => Enum n
+      | Eplus e1 e2 => Eplus (subE x e e1) (subE x e e2)
+      | Ediv2 e1 => Ediv2 (subE x e e1)
+    end.
+  (* b[x/e]*)
+  Fixpoint subB x e b :=
+    match b with
+      | Beq e1 e2 => Beq (subE x e e1) (subE x e e2)
+      | Band b1 b2 => Band (subB x e b1) (subB x e b2)
+      | Bnot b => Bnot (subB x e b)
+      | Blt e1 e2 => Blt (subE x e e1) (subE x e e2)
+    end.
+
+  Lemma subE_assign : forall (x : var) (e e' : exp) (s : stack),
+    edenot (subE x e e') s = edenot e' (upd s x (edenot e s)).
+  Proof.
+    intros; induction e'; simpl; eauto; unfold upd; 
+    repeat match goal with [ |- context[if Z.eq_dec ?x ?y then _ else _]] => destruct (Z.eq_dec x y) end; try congruence; eauto; f_equal; eauto.
+  Qed.
+
+  Lemma subB_assign : forall (x : var) (e : exp) (b : bexp) (s : stack),
+    bdenot (subB x e b) s = bdenot b (upd s x (edenot e s)).
+  Proof.
+    intros; induction b; simpl;
+    repeat match goal with [ |- context[if Z.eq_dec ?x ?y then _ else _]] => 
+                           destruct (Z.eq_dec x y) end;
+    repeat match goal with [ |- context[if Z_lt_dec ?x ?y then _ else _]] => 
+                           destruct (Z_lt_dec x y) end;
+    repeat rewrite subE_assign in *; congruence.
+  Qed.
+End Substitution.
