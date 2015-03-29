@@ -12,26 +12,24 @@ Unset Strict Implicit.
 Require Import PHeap.
 Import VectorNotations.
 
-
-Section Assertion.
-  Inductive assn : Set := 
+(*  Inductive assn : Set := 
     Aemp
   | Apure (b: bexp)
   | Aconj (p1: assn) (p2: assn)
   | Adisj (p1: assn) (p2: assn)
   | Astar (p1: assn) (p2: assn)
   | Apointsto (p : Qc) (e1 e2: exp)
-  | Aex (pp: nat -> assn).
-  
-  Local Open Scope list_scope.
-  Import ListNotations.
-  Fixpoint Aistar ps := 
-  match ps with
-    | nil => Aemp
-    | p :: ps => Astar p (Aistar ps)
-  end.
-
-  Fixpoint sat (ss : pstate) (p : assn) : Prop := 
+  | Aex (pp: nat -> assn).*)
+Definition assn := stack -> pheap -> Prop.
+Notation Aemp := (fun (s : stack) (ph : pheap) => forall x, this ph x = None).
+Notation Astar P1 P2 := (fun (s : stack) (ph : pheap) => 
+  exists (ph1 ph2 : pheap), P1 s ph1 /\ P2 s ph2 /\ pdisj ph1 ph2 /\ phplus ph1 ph2 = ph).
+Notation Aconj P1 P2 := (fun (s : stack) (ph : pheap) => P1 s ph /\ P2 s ph).
+Notation Adisj P1 P2 := (fun (s : stack) (ph : pheap) => P1 s ph \/ P2 s ph).
+Notation Apure b := (fun (s : stack) (ph : pheap) => bdenot b s = true).
+Notation Apointsto p e1 e2 := (fun (s : stack) (ph : pheap) =>
+  forall x, this ph x = if Z.eq_dec x (edenot e1 s) then Some (p, edenot e2 s) else None).
+(*  Fixpoint sat (ss : pstate) (p : assn) : Prop := 
   match p with
     | Aemp => (forall x, this (snd ss) x = None) 
     | Apure b => bdenot b (fst ss)
@@ -42,9 +40,11 @@ Section Assertion.
     | Apointsto q e1 e2 => forall x, this (snd ss) x = 
         (if Z.eq_dec x (edenot e1 (fst ss)) then Some (q, edenot e2 (fst ss)) else None)
     | Aex pp => exists v, sat ss (pp v)
-  end.
-  
-  Lemma sat_istar_map_expand :
+  end.*)
+Notation sat ss P := (P (fst ss) (snd ss)).
+(*  Definition sat (ss : pstate) (P : assn) : Prop := P (fst ss) (snd ss).*)
+
+(*  Lemma sat_istar_map_expand :
     forall (r : Z) (l : list Z) (ss : pstate) (f : Z -> assn) (IN: In r l)
            (DL: disjoint_list l),
       sat ss (Aistar (map f l))
@@ -75,69 +75,70 @@ Section Assertion.
       cutrewrite (phplus h1 h3 = (Pheap (pdisj_is_pheap H13))); [ eauto | by done].
       simpl; eauto.
       simpl; auto using padd_left_comm.
-  Qed.
+  Qed.*)
 
-  Definition precise p :=
-    forall (h1 h2 h1' h2' : pheap) s,
-      sat (s, h1) p -> sat (s, h1') p ->
-      pdisj h1 h2 -> pdisj  h1' h2' ->
-      phplus h1 h2 = phplus h1' h2' ->
-      h1 = h1'.
+Definition precise (p : assn) :=
+  forall (h1 h2 h1' h2' : pheap) s,
+    sat (s, h1) p -> sat (s, h1') p ->
+    pdisj h1 h2 -> pdisj  h1' h2' ->
+    phplus h1 h2 = phplus h1' h2' ->
+    h1 = h1'.
 
-  Lemma precise_emp : precise Aemp.
-  Proof.
-    red; intros h1 h2 h1' h2' s hsat hsat' hdis hdis' heq;
-    destruct h1 as [h1 ?], h1' as [h1' ?]; apply pheap_eq; extensionality x; simpl in *;
-    rewrite hsat, hsat'; eauto.
-  Qed.
+Lemma precise_emp : precise Aemp.
+Proof.
+  red; intros h1 h2 h1' h2' s hsat hsat' hdis hdis' heq;
+  destruct h1 as [h1 ?], h1' as [h1' ?]; apply pheap_eq; extensionality x; simpl in *;
+  rewrite hsat, hsat'; eauto.
+Qed.
 
-  Lemma precise_star (p q : assn) : precise p -> precise q -> precise (Astar p q).
-  Proof.
-    intros pp pq h1 h2 h1' h2' s hsat hsat' hdis hdis' heq;
-    simpl in *; des; rewrite <-hsat2, <-hsat'2 in *.
-    destruct h1 as [h1 ?], h1' as [h1' ?]; simpl; simpl in hsat2, hsat'2; apply pheap_eq.
-    apply pdisj_padd_expand in hdis; apply pdisj_padd_expand in hdis'; eauto.
-    rewrite !padd_assoc in heq; try tauto. 
-    rewrite <-hsat2, <-hsat'2 in *; f_equal; destruct hdis, hdis'.
-    - rewrite (pp h4 (Pheap (pdisj_is_pheap H0)) h0 (Pheap (pdisj_is_pheap H2)) s); eauto.
-    - rewrite padd_left_comm in heq at 1; try tauto.
-      rewrite (@padd_left_comm h0 h3 h2') in heq; try tauto.
-      pose proof (pdisjE2 H H0); eauto. pose proof (pdisjE2 H1 H2); eauto.
-      rewrite (pq h5 (Pheap (pdisj_is_pheap H3)) h3 (Pheap (pdisj_is_pheap H4)) s); simpl in *; eauto;       apply pdisj_padd_comm; eauto.
-  Qed.
-
+Lemma precise_star (p q : assn) : precise p -> precise q -> precise (Astar p q).
+Proof.
+  intros pp pq h1 h2 h1' h2' s hsat hsat' hdis hdis' heq; simpl in *.
+  destruct hsat as [ph1 [ph1' [satp1 [satq1 [Hdis1 Heq1]]]]], 
+                   hsat' as [ph2 [ph2' [satp2 [satq2 [Hdis2 Heq2]]]]].
+  destruct h1 as [h1 ?], h1' as [h1' ?]; apply pheap_eq; simpl in *; rewrite <-Heq1, <-Heq2 in *.
+  apply pdisj_padd_expand in hdis; apply pdisj_padd_expand in hdis'; eauto.
+  rewrite !padd_assoc in heq; try tauto. 
+  f_equal; destruct hdis as [hdis1 hdis2], hdis' as [hdis1' hdis2'].
+  - rewrite (pp ph1 (phplus_pheap hdis2) ph2 (phplus_pheap hdis2') s); eauto.
+  - rewrite padd_left_comm in heq at 1; try tauto.
+    rewrite (@padd_left_comm ph2 ph2' h2') in heq; try tauto.
+    pose proof (pdisjE2 hdis1 hdis2) as dis12; pose proof (pdisjE2 hdis1' hdis2') as dis12'.
+    rewrite (pq ph1' (phplus_pheap dis12) ph2' (phplus_pheap dis12') s); simpl in *; eauto; 
+    apply pdisj_padd_comm; eauto.
+Qed.
+(*
   Lemma precise_istar : forall (l : list assn), (forall x, In x l -> precise x) -> precise (Aistar l).
   Proof.
     induction l; ins; auto using precise_emp, precise_star.
-  Qed.
-  Import VectorNotations.
-  Fixpoint Aistar_v (n : nat) (assns : Vector.t assn n) :=
-    match assns with
-      | [] => Aemp
-      | (a :: assns) => Astar a (Aistar_v assns)
-    end.
+  Qed.*)
+Import VectorNotations.
+Fixpoint Aistar_v (n : nat) (assns : Vector.t assn n) :=
+  match assns with
+    | [] => Aemp
+    | (a :: assns) => Astar a (Aistar_v assns)
+  end.
 
-  Lemma aistar_disj (n : nat) (assns : Vector.t assn n) (s : stack) (h : pheap) :
-    sat (s, h) (Aistar_v assns) ->
-    exists (hs : Vector.t pheap n), disj_eq hs h /\ 
-      (forall tid : Fin.t n, sat (s, hs[@tid]) assns[@tid]).
-  Proof.
-    induction[h] assns; intros h' hsat.
-    - exists []; split; simpl in hsat.
-      + apply emp_is_emp in hsat; rewrite hsat; constructor.
-      + inversion 0.
-    - simpl in hsat; destruct hsat as [h1 [h2 [H1 [H2 [hdis hplus]]]]].
-      apply (IHassns h2) in H2; destruct H2 as [hs1 [heq1 hsat]].
-      exists (h1 :: hs1); split.
-      + assert (h' = Pheap (pdisj_is_pheap hdis)).
-        { destruct h' as [h' ph']; apply pheap_eq; simpl in hplus; congruence. }
-        rewrite H; econstructor; eauto.
-      + intros tid; destruct (finvS tid) as [|[tid' ?]]; subst; simpl; eauto.
-  Qed.
+Lemma aistar_disj (n : nat) (assns : Vector.t assn n) (s : stack) (h : pheap) :
+  sat (s, h) (Aistar_v assns) ->
+  exists (hs : Vector.t pheap n), disj_eq hs h /\ 
+                                  (forall tid : Fin.t n, sat (s, hs[@tid]) assns[@tid]).
+Proof.
+  revert h; induction assns; intros h' hsat.
+  - exists []; split; simpl in hsat.
+           + apply emp_is_emp in hsat; rewrite hsat; constructor.
+           + inversion 0.
+           - simpl in hsat; destruct hsat as [h1 [h2 [H1 [H2 [hdis hplus]]]]].
+             apply (IHassns h2) in H2; destruct H2 as [hs1 [heq1 hsat]].
+             exists (h1 :: hs1); split.
+             + assert (h' = Pheap (pdisj_is_pheap hdis)).
+               { destruct h' as [h' ph']; apply pheap_eq; simpl in hplus; congruence. }
+               rewrite H; econstructor; eauto.
+             + intros tid; destruct (finvS tid) as [|[tid' ?]]; subst; simpl; eauto.
+Qed.
 
-  Definition indeP (R : stack -> stack -> Prop) (P : assn) :=
-    forall (s1 s2 : stack) (h : pheap), R s1 s2 -> (sat (s1, h) P <-> sat (s2, h) P).
-End Assertion.
+Definition indeP (R : stack -> stack -> Prop) (P : assn) :=
+  forall (s1 s2 : stack) (h : pheap), R s1 s2 -> (sat (s1, h) P <-> sat (s2, h) P).
 
 Section Low_eq.
   Variable env : Lang.env.
@@ -222,7 +223,7 @@ Section Barrier.
     sat (s, h) (Aistar_v assns).
   Proof.
     intros heq hsat.
-    induction [h heq assns hsat]hs; intros h' heq assns hsat.
+    revert h heq assns hsat; induction hs; intros h' heq assns hsat.
     - assert (assns = []) by (apply (case0 (fun (v : t assn 0) => v = [])); eauto).
       simpl in heq; inversion heq.
       rewrite H; simpl; intros; simpl; unfold emp_h; eauto.

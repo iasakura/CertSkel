@@ -12,7 +12,7 @@ Unset Strict Implicit.
 Require Import PHeap.
 Require Import Bdiv.
 
-Notation "P '|=' Q" := (forall x, sat x P -> sat x Q) (at level 100).
+Notation "P '|=' Q" := (forall s h, P s h -> Q s h) (at level 100).
 
 Section SeqCSL.
   Variable ntrd : nat.
@@ -40,7 +40,7 @@ Section SeqCSL.
   Definition CSL (p : assn) (c : cmd) (q : assn) := 
     forall s ph, sat (s, ph) p -> forall (n : nat), safe_nt n c s ph q.
 
-  Lemma safe_skip : forall n s h Q, sat (s,h) Q -> safe_nt n Cskip s h Q.
+  Lemma safe_skip : forall n s h (Q : assn), sat (s,h) Q -> safe_nt n Cskip s h Q.
   Proof.
     intros; destruct n; simpl; eauto; repeat split; eauto.
     intros. intros Hc; inversion Hc.
@@ -241,7 +241,7 @@ Section SeqCSL.
     CSL P C Q -> inde R (writes_var C) ->
     CSL (Astar P R) C (Astar Q R).
   Proof.
-    unfold CSL; intuition. ins. desf. 
+    unfold CSL; intuition. ins. des. 
     cutrewrite (ph = phplus_pheap H3); [|destruct ph; apply pheap_eq; eauto].
     apply safe_frame; eauto.
   Qed.
@@ -365,16 +365,7 @@ Section SeqCSL.
       | Bnot b => Bnot (subB x e b)
     end.
 
-  Fixpoint subA x e p := 
-    match p with
-      | Aemp => Aemp
-      | Apure B => Apure (subB x e B)
-      | Apointsto q e1 e2 => Apointsto q (subE x e e1) (subE x e e2)
-      | Astar P Q => Astar (subA x e P) (subA x e Q)
-      | Aconj P Q => Aconj (subA x e P) (subA x e Q)
-      | Adisj P Q => Adisj (subA x e P) (subA x e Q)
-      | Aex PP => Aex (fun n => subA x e (PP n))
-    end.
+  Notation subA x e P := (fun (s : stack) (h : pheap) => P (upd s x (edenot e s)) h).
 
   Lemma subE_assign : forall (x : var) (e e' : exp) (s : stack),
     edenot (subE x e e') s = edenot e' (upd s x (edenot e s)).
@@ -391,10 +382,11 @@ Section SeqCSL.
                            destruct (Z.eq_dec x y) end; 
     repeat rewrite subE_assign in *; congruence.
   Qed.
-
+(*
   Lemma subA_assign : forall (x : var) (e : exp) (P : assn) (s : stack) (ph : pheap),
     sat (s, ph) (subA x e P)  = sat (upd s x (edenot e s), ph) P.
   Proof.
+    intros; eauto.
     induction P; intros; simpl; eauto; unfold upd; 
     repeat match goal with [ |- context[if Z.eq_dec ?x ?y then _ else _]] => 
                            destruct (Z.eq_dec x y) end; simpl;
@@ -407,7 +399,7 @@ Section SeqCSL.
     - f_equal; apply functional_extensionality; intros.
       rewrite H; eauto.
   Qed.
-
+*)
   Theorem rule_assign x Exp Q : CSL (subA x Exp Q) (x ::=  Exp) Q.
   Proof.
     unfold CSL, safe_nt; intros s ph hsat n; destruct n; 
@@ -417,8 +409,7 @@ Section SeqCSL.
     - intros hF h c' ss' hdis heq hred; inversion hred; subst; repeat eexists; 
       match goal with [ H : (_, _) = (_, _) |- _ ] => inversion H end; 
       subst; simpl in *; eauto using safe_skip.
-      apply safe_skip.
-      rewrite <-subA_assign; eauto.
+      apply safe_skip; eauto.
     - intros j c' H; inversion H.
   Qed.
 
@@ -526,7 +517,7 @@ Section SeqCSL.
   Qed.
 
   Lemma safe_conseq:
-    forall n C s h Q (OK: safe_nt n C s h Q) Q' (IMP: Q |= Q'),
+    forall n C s h (Q : assn) (OK: safe_nt n C s h Q) (Q' : assn) (IMP: Q |= Q'),
       safe_nt n C s h Q'.
   Proof.
     unfold safe_nt; induction n; ins; intuition.
@@ -534,7 +525,7 @@ Section SeqCSL.
     exploit H5; eauto; ins; desf; repeat eexists; eauto.
   Qed.
 
-  Theorem rule_conseq P C Q P' Q':
+  Theorem rule_conseq (P : assn) C (Q P' Q' : assn) :
     CSL P C Q -> (P' |= P) -> (Q |= Q') -> CSL P' C Q'.
   Proof.
     unfold CSL; intuition; eauto using safe_conseq.
@@ -596,7 +587,7 @@ Section ParCSL.
       | S n => fun ss heq => low_eq_repr1 heq
     end.
   
-  Definition sat_k (ss : Vector.t stack ntrd) (h : heap) (H : low_eq_l2 E ss) Q :=
+  Definition sat_k (ss : Vector.t stack ntrd) (h : heap) (H : low_eq_l2 E ss) (Q : assn) :=
     match low_eq_repr H with
       | existT x P => sat (x, htop h) Q
     end.
@@ -802,7 +793,7 @@ Section ParCSL.
           { apply (aistar_eq (hs := Vector.map (fun h => (s, h)) phPs)).
             - unfold get_hs. rewrite MyVector.map_map.
               rewrite (MyVector.map_ext (f := fun x => snd (s, x)) (g := id) phPs), MyVector.map_id; eauto.
-            - intros tid; erewrite Vector.nth_map; eauto. }
+            - intros tid; erewrite Vector.nth_map; eauto; apply Hsati. }
           apply brr_wf, aistar_disj in Hsat. destruct Hsat as [phQs [HeqQ Hsatiq]].
           assert (forall tid, pdisj phQs[@tid] phFs[@tid]) as HdisQF.
           { apply (disj_eq_each_disj HeqQ HeqF); eauto. }
