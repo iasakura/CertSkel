@@ -44,7 +44,6 @@ Section Fold.
                       (is_array e n' f)
     end.
 
-
   Bind Scope assn_scope with assn.
   Notation "P '//\\' Q" := (fun s h => P s h /\ Q s h) (at level 80, right associativity) : assn_scope.
   Notation "x '===' y" := 
@@ -231,29 +230,82 @@ Section Fold.
                  | Fin.FS _ m => fun _ => m
                end i' : Fin.t m).
         assert (init (fun i : Fin.t m => (p :: ps')[@f (Fin.FS i)]) = 
-                init (fun i : Fin.t m => (replace ps' i' p)[@i])).
-        apply eq_nth_iff; intros ? i ?; subst; rewrite !init_spec, replace_nth.
-        destruct (fin_eq_dec i' i); subst.
-        apply (IHm _ _ _ _ _ g' _ _ _ Hsat2).
+                init (fun i : Fin.t m => (replace ps' i' p)[@f' i]))as Heq.
+        { apply eq_nth_iff; intros ? i ?; subst; rewrite !init_spec, replace_nth.
+          unfold f'.
+          destruct (finvS (f (Fin.FS i))) as [Heq | [fi Heq]]; subst; rewrite Heq; simpl.
+          + destruct (fin_eq_dec i' i'); congruence.
+          + destruct (fin_eq_dec i' fi); try congruence.
+            rewrite <-e in Heq.
+            pose proof (Hgf (Fin.FS i)) as Hc1;  pose proof (Hgf (Fin.F1)) as Hc2.
+            rewrite Heq in Hc1; rewrite H1 in Hc2; rewrite Hc1 in Hc2; inversion Hc2. }
+        assert (exists j', g Fin.F1 = Fin.FS j') as [j' Hg1].
+        { destruct (finvS (g Fin.F1)) as [Heqg | [j' Heqg']]; [|exists j'; eauto]. 
+          specialize (Hfg Fin.F1); rewrite Heqg in Hfg; rewrite H1 in Hfg; inversion Hfg. }
+        set (g' := fun i : Fin.t m =>
+               match
+                 g (Fin.FS i) in (Fin.t k)
+                 return (Fin.t (Peano.pred k) -> Fin.t (Peano.pred k))
+               with
+                 | Fin.F1 n0 => fun i => i
+                 | Fin.FS n0 m0 => fun _ : Fin.t (Peano.pred (S n0)) => m0
+               end j').
+        assert (forall i : Fin.t m, f' (g' i) = i).
+        { intros i; unfold f', g'.
+          destruct (finvS (g (Fin.FS i))) as [Heq' | [gi Heq']]; rewrite Heq'.
+          rewrite <-Hg1, Hfg.
+          specialize (Hfg (Fin.FS i)); rewrite Heq', H1 in Hfg; inversion Hfg; apply inj_pair2 in H2;
+          congruence.
+          rewrite <-Heq'; rewrite Hfg; eauto. }
+        assert (forall i : Fin.t m, g' (f' i) = i).
+        { intros i; unfold f', g'.
+          destruct (finvS (f (Fin.FS i))) as [Heq' | [fi Heq']]; rewrite Heq'.
+          rewrite <-H1, Hgf.
+          specialize (Hgf (Fin.FS i)); rewrite Heq', Hg1 in Hgf; inversion Hgf; apply inj_pair2 in H3;
+          congruence.
+          rewrite <-Heq'; rewrite Hgf; eauto. }
+        eapply (IHm _ _ _ _ f' g' H H2 Heq Hsat2).
+    Qed.
+    Hypothesis ntrd_gt_0 : (0 < ntrd)%nat.
 
-      destruct Hps as (h1 & h2 & Hsat1 & Hsat2 & Hdis12 & Heq12).
-      assert (forall i : Fin.t m, exists fSi : Fin.t m,
-                f (Fin.FS i) = Fin.FS fSi).
-      { intros i; destruct (finvS (f (Fin.FS i))) as [H |]; eauto.
-        destruct (Hbi (Fin.FS i)) as [_ Hgf], (Hbi (Fin.F1)) as [_ Hgf1].
-        rewrite H in Hgf; rewrite H1 in Hgf1. 
-        rewrite Hgf in Hgf1; inversion Hgf1. }
-      apply vec_exvec in H as [fSi Hfi].
-      assert (forall i : Fin.t m, exists gSi : Fin.t m,
-                g (Fin.FS i) = Fin.FS gSi).
-      { intros i; destruct (finvS (g (Fin.FS i))) as [H |]; eauto.
-        destruct (Hbi Fin.F1) as [_ Hgf1]; rewrite H1 in Hgf1.
-        destruct (Hbi (Fin.FS i)) as [Hfg _], (Hbi (Fin.F1)) as [Hfg1 _].
-        rewrite H in Hfg; rewrite Hgf1 in Hfg1. 
-        rewrite Hfg in Hfg1; inversion Hfg1. }
-      apply vec_exvec in H as [gSi Hgi].
-      
+    Lemma plusn1 (m : nat) : (m + 1 = S m)%nat.
+    Proof. omega. Qed.
 
+    Definition vec_n1 (T : Type) (m : nat) (vs : Vector.t T (m + 1)) : Vector.t T (S m) :=
+      match plusn1 m in eq _ n return Vector.t T n with
+        | eq_refl => vs
+      end.
+
+    Definition rotate1 (T : Type) (n : nat) (v : Vector.t T n) : Vector.t T n :=
+      match n return Vector.t T n -> Vector.t T n with
+        | 0 => fun _ => Vector.nil T
+        | S n => fun v => vec_n1 (Vector.append (Vector.tl v) [Vector.hd v])
+      end v.
+
+    Require Import Coq.Program.Equality.
+
+    Lemma rotate1_0th (T : Type) (m : nat) (v : Vector.t T (S m)) :
+      Vector.last (rotate1 v) =  v[@Fin.F1].
+    Proof.
+      induction m; simpl; destruct (vinvS v) as [x [v' ?]]; subst;
+      simpl.
+      - unfold vec_n1. set (eq := plusn1 0). 
+        dependent destruction eq. rewrite <- x.
+        rewrite (vinv0 v'); simpl; eauto.
+      - dependent destruction v'; simpl.
+        unfold vec_n1. 
+        case (plusn1 (S m)).
+        remember (plusn1 (S m)).
+        dependent destruction e.
+
+        
+
+    Lemma rotate1_nth : rotate1 (snd (bspec 0)) = (fst (bspec 0)).
+    Proof.
+      simpl. unfold bspec, bpre, bpost, Z_of_fin, nat_of_fin. clear ntrd_gt_0. induction ntrd; [simpl; auto |].
+      apply eq_nth_iff; intros ? i ?; subst; 
+      destruct (finvS i) as [? | [i' ?]]; subst.
+      rewrite init_spec.
     Lemma barrier_wf (i : nat) (st : pstate) :
        Aistar_v (fst (bspec i)) (fst st) (snd st) <-> Aistar_v (snd (bspec i)) (fst st) (snd st).
     Proof.
