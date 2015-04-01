@@ -210,7 +210,7 @@ Section Barrier.
   Definition jth_pre (j : nat) := Aistar_v (fst (bspec j)).
   Definition jth_post (j : nat) := Aistar_v (snd (bspec j)).
   Definition env_wellformed := 
-    bwf /\ forall (j : nat) (st : pstate), sat st (jth_pre j) <-> sat st (jth_post j).
+    bwf /\ forall (j : nat) (st : pstate), sat st (jth_pre j) -> sat st (jth_post j).
   Hypothesis env_wf : env_wellformed.
 
   Definition get_ss (n : nat) (sts : Vector.t pstate n) : Vector.t stack n := 
@@ -240,7 +240,7 @@ Section Barrier.
   Lemma sync_barrier (n : nat) (s : stack) (hs : Vector.t pstate n) (h : pheap)
         (prs pss : Vector.t assn n) (bf1 : forall tid : Fin.t n, low_assn prs[@tid])
         (bf2 : forall tid : Fin.t n, low_assn pss[@tid]) (heq : disj_eq (get_hs hs) h)
-        (eq : forall st, sat st (Aistar_v prs) <-> sat st (Aistar_v pss))
+        (eq : forall st, sat st (Aistar_v prs) -> sat st (Aistar_v pss))
         (hp : forall tid : Fin.t n, sat (s, snd hs[@tid]) prs[@tid]) :
     exists (hs' : Vector.t pheap n),
       disj_eq hs' h /\ forall tid : Fin.t n, sat (s, hs'[@tid]) pss[@tid].

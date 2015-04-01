@@ -28,7 +28,7 @@ Section SeqCSL.
                                  (forall tid : Fin.t ntrd, low_assn (fst (bspec i))[@tid]) /\
                                  (forall tid : Fin.t ntrd, low_assn (fst (bspec i))[@tid]).
       Hypothesis brr_wf : forall (i : nat) (st : pstate),
-                            sat st (Aistar_v (fst (bspec i))) <-> sat st (Aistar_v (snd (bspec i))).
+                            sat st (Aistar_v (fst (bspec i))) -> sat st (Aistar_v (snd (bspec i))).
       Hypothesis bc_precise :
         forall i (tid : Fin.t ntrd), precise (fst (bspec i))[@tid] /\
                                      precise (snd (bspec i))[@tid].
@@ -520,7 +520,7 @@ Section ParCSL.
                              (forall tid : Fin.t ntrd, low_assn E (fst (bspec i))[@tid]) /\
                              (forall tid : Fin.t ntrd, low_assn E (snd (bspec i))[@tid]).
   Hypothesis brr_wf : forall (i : nat) (st : pstate),
-                        sat st (Aistar_v (fst (bspec i))) <-> sat st (Aistar_v (snd (bspec i))).
+                        sat st (Aistar_v (fst (bspec i))) -> sat st (Aistar_v (snd (bspec i))).
   Hypothesis bc_precise :
     forall i (tid : Fin.t ntrd), precise (fst (bspec i))[@tid] /\
                                  precise (snd (bspec i))[@tid].

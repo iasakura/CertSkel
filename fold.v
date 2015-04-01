@@ -17,13 +17,12 @@ Close Scope Qc_scope.
 Close Scope Q_scope.
 
 Section Fold.
-  Notation tid := (0%Z : var).
-  Notation x := (1%Z : var).
-  Notation y := (2%Z : var).
-  Notation r := (3%Z : var).
-  Notation arr := (4%Z : var).
+  Notation TID := (0%Z : var).
+  Notation X := (1%Z : var).
+  Notation Y := (2%Z : var).
+  Notation R := (3%Z : var).
+  Notation ARR := (4%Z : var).
 
-  Variable n : Z.
   Variable ntrd : nat.
 
   Bind Scope exp_scope with exp.
@@ -61,29 +60,29 @@ Section Fold.
   Section Rotate.
     Notation ntrdZ := (Z_of_nat ntrd).
     Definition rotate := 
-      x ::= [arr + tid] ;;
+      X ::= [ARR + TID] ;;
       Cbarrier 0 ;;
-      Cif (r == ntrdZ) (
-        y ::= 0%Z
+      Cif (R == ntrdZ) (
+        Y ::= 0%Z
       ) (
-        y ::= tid + 1%Z
+        Y ::= TID + 1%Z
       ) ;;
-      [arr + y] ::= x.
-    Definition Pre := is_array arr (ntrd + 1) (fun i => Z.of_nat i).
-    Definition Post := is_array arr (ntrd + 1) (fun i : nat => (Z.of_nat i - 1) mod ntrdZ)%Z.
-    Definition Pre_i := (arr + tid -->p (1%Qc, tid))%assn.
-    Definition Post_i := (arr + ((tid + 1) mod ntrdZ)%Z -->p (1%Qc, tid))%assn.
+      [ARR + Y] ::= X.
+    Definition Pre := is_array ARR (ntrd + 1) (fun i => Z.of_nat i).
+    Definition Post := is_array ARR (ntrd + 1) (fun i : nat => (Z.of_nat i - 1) mod ntrdZ)%Z.
+    Definition Pre_i := (ARR + TID -->p (1%Qc, TID))%assn.
+    Definition Post_i := (ARR + ((TID + 1) mod ntrdZ)%Z -->p (1%Qc, TID))%assn.
     
     Definition E (var : var) := 
-      if Z.eq_dec var tid then Hi
-      else if Z.eq_dec var x then Hi
-      else if Z.eq_dec var y then Hi
+      if Z.eq_dec var TID then Hi
+      else if Z.eq_dec var X then Hi
+      else if Z.eq_dec var Y then Hi
       else Lo.
 
     Definition bpre (tid : Fin.t ntrd) := 
-      (arr + (Z_of_fin tid) -->p (1%Qc, Z_of_fin tid))%assn.
+      (ARR + (Z_of_fin tid) -->p (1%Qc, Z_of_fin tid))%assn.
     Definition bpost (tid : Fin.t ntrd) := 
-      (arr + (((Z_of_fin tid) + 1) mod ntrdZ)%Z -->p (1%Qc, Z_of_fin tid))%assn.
+      (ARR + (((Z_of_fin tid) + 1) mod ntrdZ)%Z -->p (1%Qc, Z_of_fin tid))%assn.
 
     Lemma pre_lassn (tid : Fin.t ntrd) : low_assn E (bpre tid).
     Proof.
@@ -266,7 +265,6 @@ Section Fold.
           rewrite <-Heq'; rewrite Hgf; eauto. }
         eapply (IHm _ _ _ _ f' g' H H2 Heq Hsat2).
     Qed.
-    Hypothesis ntrd_gt_0 : (0 < ntrd)%nat.
 
     Lemma plusn1 (m : nat) : (m + 1 = S m)%nat.
     Proof. omega. Qed.
@@ -283,36 +281,133 @@ Section Fold.
       end v.
 
     Require Import Coq.Program.Equality.
-
-    Lemma rotate1_0th (T : Type) (m : nat) (v : Vector.t T (S m)) :
-      Vector.last (rotate1 v) =  v[@Fin.F1].
+    Import VectorNotations.
+    Lemma rotate1_0th (T : Type) (m : nat) (v : Vector.t T m) (x : T) :
+      Vector.last (rotate1 (x :: v)) =  x.
     Proof.
-      induction m; simpl; destruct (vinvS v) as [x [v' ?]]; subst;
-      simpl.
-      - unfold vec_n1. set (eq := plusn1 0). 
-        dependent destruction eq. rewrite <- x.
-        rewrite (vinv0 v'); simpl; eauto.
-      - dependent destruction v'; simpl.
-        unfold vec_n1. 
-        case (plusn1 (S m)).
-        remember (plusn1 (S m)).
-        dependent destruction e.
+      unfold rotate1, vec_n1. remember (plusn1 m) as ef; clear Heqef.
+      revert v x. induction m; simpl; dependent destruction v; simpl; intros x.
+      - simpl in ef. rewrite (UIP_refl _ _ ef); eauto.
+      - simpl in ef. injection ef. intros ef'. generalize (IHm ef' v x). simpl.
+        intros Heq; rewrite <- Heq at 2.
+        generalize (Vector.append v [x]).
+        generalize ef.
+        generalize ef'.
+        cutrewrite (m + 1 = S m)%nat; [|omega].
+        intros.
+        rewrite (UIP_refl _ _ ef0), (UIP_refl _ _ ef'0); simpl.
+        eauto.
+    Qed.
 
-        
+    Fixpoint last_idx (n : nat) : Fin.t (S n) :=
+      match n with
+        | 0 => Fin.F1
+        | S m => Fin.FS (last_idx m)
+      end.
 
-    Lemma rotate1_nth : rotate1 (snd (bspec 0)) = (fst (bspec 0)).
+    Lemma disj_eq_app (m k : nat) (h1 h2 : pheap) (hs1 : Vector.t pheap m) (hs2 : Vector.t pheap k) 
+          (dis12 : pdisj h1 h2) :
+      disj_eq hs1 h1 -> disj_eq hs2 h2 -> disj_eq (Vector.append hs1 hs2) (phplus_pheap dis12).
     Proof.
-      simpl. unfold bspec, bpre, bpost, Z_of_fin, nat_of_fin. clear ntrd_gt_0. induction ntrd; [simpl; auto |].
-      apply eq_nth_iff; intros ? i ?; subst; 
-      destruct (finvS i) as [? | [i' ?]]; subst.
-      rewrite init_spec.
+      generalize dependent h1; induction m;
+      [intros h1 dis12 Heq1; rewrite (vinv0 hs1) in *; inversion Heq1; subst; intros | ].
+      - simpl; cutrewrite (phplus_pheap dis12 = h2); eauto.
+        destruct h2; apply pheap_eq; simpl; extensionality x; unfold phplus; simpl; eauto.
+      - intros h1 dis12; destruct (vinvS hs1) as [ph1 [hs1' ?]]; subst; simpl.
+        intros Heq1 Heq2; inversion Heq1.
+        apply inj_pair2 in H2; subst; simpl.
+        assert (pdisj ph h2) as Hdisp2.
+        { pose proof (pdisjC dis12) as dis12'; simpl in dis12'; apply pdisjE2, pdisjC in dis12'; eauto. }
+        assert (pdisj ph1 (phplus_pheap Hdisp2)) as Hdis1p2 by (apply pdisj_padd_expand; eauto).
+        cutrewrite (phplus_pheap dis12 = phplus_pheap Hdis1p2); [|apply pheap_eq; simpl; apply padd_assoc; eauto].
+        constructor; eauto. 
+    Qed.
+      
+    Lemma singleton_disjeq (h : pheap) : disj_eq [h] h.
+    Proof.
+      assert (pdisj h emp_ph) by (simpl; apply pdisj_empty2).
+      assert (h = phplus_pheap H).
+      { destruct h as [h' ?]; apply pheap_eq; rewrite phplus_comm; simpl; eauto. }
+      rewrite H0 at 2; repeat constructor.
+    Qed.
+
+    Lemma rotate_disjeq (m : nat) (hs : Vector.t pheap m) (h : pheap) :
+      disj_eq hs h -> disj_eq (rotate1 hs) h.
+    Proof.
+      intros H.
+      destruct m; [rewrite (vinv0 hs) in *; inversion H; subst; simpl; eauto|].
+      destruct (vinvS hs) as [ph [hs' ?]]; subst; simpl.
+      inversion H; subst.
+      apply inj_pair2 in H3; subst.
+      unfold vec_n1; destruct (plusn1 m).
+      assert (pdisj ph0 ph) as Hdis0 by (apply pdisjC; eauto).
+      assert ({| this := phplus ph ph0; is_p := pdisj_is_pheap hdis |} =
+              phplus_pheap Hdis0 ) as Heq by  (apply pheap_eq; apply phplus_comm; eauto); 
+        rewrite Heq.
+      apply disj_eq_app; eauto.
+      apply singleton_disjeq.
+    Qed.
+
+    Definition fin_to_nat (n : nat) (i : Fin.t n) := proj1_sig (Fin.to_nat i).
+
+    Lemma fin_nat_inv (n : nat) (i : Fin.t n) :
+      let (ni, _) := Fin.to_nat i in
+      Fin.of_nat ni n = inleft i.
+    Proof.
+      induction n; [inversion i| destruct (finvS i) as [|[i' ?]]; subst].
+      - simpl; eauto.
+      - simpl.
+        specialize (IHn i').
+        remember (Fin.to_nat i') as i''; destruct i'' as [ni H]; simpl.
+        remember (Fin.of_nat ni n) as ni'; destruct ni' as [i''' | (c & Hc)];
+        inversion IHn; eauto.
+    Qed.
+
+    Lemma fin_mn (n m : nat) (i : Fin.t (m + n)) :
+      (exists i' : Fin.t m, fin_to_nat i' = fin_to_nat i) \/
+      (exists i' : Fin.t n, fin_to_nat i' + m = fin_to_nat i)%nat.
+    Proof.
+      remember (Fin.of_nat (fin_to_nat i) m).
+      destruct s.
+      - unfold fin_to_nat in Heqs.
+        left; exists t.
+        induction m; [inversion t|].
+        simpl in i.
+        destruct (finvS i) as [|[i' ?]], (finvS t) as [|[t' ?]]; subst; eauto. 
+        + inversion Heqs.
+        + simpl in Heqs; destruct (Fin.to_nat i'); simpl.
+          inversion Heqs.
+          destruct (Fin.of_nat x m); inversion H0.
+        + simpl in Heqs.
+          remember (Fin.to_nat i') as ni'. destruct ni' as [ni' P]; simpl in Heqs.
+          specialize (IHm i' t'); rewrite <-Heqni' in IHm; simpl in IHm.
+          destruct (Fin.of_nat ni' m); inversion Heqs.
+          apply inj_pair2 in H0; subst.
+          specialize (IHm eq_refl).
+          unfold fin_to_nat in *; simpl.
+          destruct (Fin.to_nat i'), (Fin.to_nat t); simpl in *; congruence.
+      - right.
+        assert (m <= fin_to_nat i).
+        { destruct e as [? H]; rewrite H. apply len_addr. }
+        destruct e as [m' Heq].
+        assert (m' < n)%nat.
+        { unfold fin_to_nat in Heq.
+          destruct (Fin.to_nat i) as [ni Hni].
+
     Lemma barrier_wf (i : nat) (st : pstate) :
-       Aistar_v (fst (bspec i)) (fst st) (snd st) <-> Aistar_v (snd (bspec i)) (fst st) (snd st).
+       Aistar_v (fst (bspec i)) (fst st) (snd st) -> Aistar_v (snd (bspec i)) (fst st) (snd st).
     Proof.
       destruct i; simpl; [|apply default_wf].
-      unfold bpre, bpost, Z_of_fin, nat_of_fin. induction ntrd.
-      - split; simpl; intros H x; apply H.
-      - 
+      unfold bpre, bpost, Z_of_fin, nat_of_fin; destruct ntrd as [|n']; [simpl; intros; eauto |].
+      intros H. destruct (aistar_disj H) as [hsP [Hdis Hsati]].
+      apply (aistar_eq (hs := Vector.map (fun h => (fst st, h)) (rotate1 hsP))).
+      unfold get_hs; rewrite MyVector.map_map, (@MyVector.map_ext _ _ _ _ _ (fun x => x));
+      [| simpl; eauto]; rewrite (MyVector.map_id).
+      - apply rotate_disjeq; eauto.
+      - intros tid; rewrite init_spec; intros x. destruct st as [s h]; simpl.
+        unfold vec_n1. destruct (plusn1 n'); simpl.
+        erewrite Vector.nth_map; eauto; simpl.
+        
   Section FoldDef.
     Definition fold :=
       r ::= n ;;
