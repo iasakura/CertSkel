@@ -6,7 +6,7 @@ Set Implicit Arguments.
 Unset Strict Implicit.
 
 Section Fin.
-  Lemma finvS (n : nat) (i : Fin.t (S n)) : (i = Fin.F1 \/ exists i', i = Fin.FS i').
+  Lemma finvS (n : nat) (i : Fin.t (S n)) : (i = Fin.F1) + {i'| i = Fin.FS i'}.
   Proof.
     pattern n, i; apply (Fin.caseS).
     - intros n0; tauto.
