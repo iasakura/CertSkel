@@ -362,6 +362,19 @@ Section Fold.
         remember (Fin.of_nat ni n) as ni'; destruct ni' as [i''' | (c & Hc)];
         inversion IHn; eauto.
     Qed.
+    
+    Lemma fin_of_nat_lt_inv1 (n m : nat) (H : (n < m)%coq_nat) :
+      proj1_sig (Fin.to_nat (Fin.of_nat_lt H)) = n.
+    Proof.
+      revert m H; induction n; simpl; intros m H.
+      destruct m; simpl; inversion H; eauto.
+      destruct m; simpl; eauto; [inversion H|].
+      remember (Fin.to_nat (Fin.of_nat_lt (lt_S_n n m H))).
+      destruct s; simpl.
+      specialize (IHn m (lt_S_n _ _ H)).
+      destruct (Fin.to_nat (Fin.of_nat_lt (lt_S_n n m H))).
+      simpl in IHn; inversion Heqs; congruence.
+    Qed.
 
     Lemma fin_mn (n m : nat) (i : Fin.t (m + n)) :
       (exists i' : Fin.t m, fin_to_nat i' = fin_to_nat i) \/
@@ -392,8 +405,20 @@ Section Fold.
         destruct e as [m' Heq].
         assert (m' < n)%nat.
         { unfold fin_to_nat in Heq.
+          clear Heqs.
           destruct (Fin.to_nat i) as [ni Hni].
-
+          simpl in Heq.
+          rewrite Heq in Hni.
+          apply plus_lt_reg_l in Hni.
+          apply ltn_correct; eauto. }
+        remember (Fin.of_nat_lt (ltn_complete H0)) as x.
+        exists x.
+        rewrite Heqx. 
+        unfold fin_to_nat at 1.
+        rewrite fin_of_nat_lt_inv1.
+        rewrite Heq, addnC; eauto.
+    Qed.
+        
     Lemma barrier_wf (i : nat) (st : pstate) :
        Aistar_v (fst (bspec i)) (fst st) (snd st) -> Aistar_v (snd (bspec i)) (fst st) (snd st).
     Proof.
@@ -407,6 +432,7 @@ Section Fold.
       - intros tid; rewrite init_spec; intros x. destruct st as [s h]; simpl.
         unfold vec_n1. destruct (plusn1 n'); simpl.
         erewrite Vector.nth_map; eauto; simpl.
+        destruct (fin_mn tid) as [[tid' Htid] | [tid' Htid]].
         
   Section FoldDef.
     Definition fold :=
