@@ -661,7 +661,7 @@ Section Fold.
       rewrite <-Heqt1, <-Heqt2; rewrite (proof_irrelevance _ l l0); eauto.
     Qed.
 
-    Lemma fin_rev_inj (i j : Fin.t ntrd) : fin_rev i = fin_rev j -> i = j.
+    Lemma fin_rev_inj (n : nat) (i j : Fin.t n) : fin_rev i = fin_rev j -> i = j.
     Proof.
       intros H; apply fin_eq_of_nat; apply (f_equal Fin.to_nat) in H.
       unfold fin_rev in H.
@@ -674,7 +674,7 @@ Section Fold.
     Lemma pre_sat' : (Aistar_v (init (fun i => Pre_i (fin_rev i)))) |= Aistar_v (init Pre_i).
     Proof.
       intros s h. 
-      destruct (inject_biject fin_rev_inj) as (g & Hfg & Hgf).
+      destruct (inject_biject (@fin_rev_inj ntrd)) as (g & Hfg & Hgf).
       apply (biject_wf Hgf Hfg).
       apply eq_nth_iff; intros j i ?; subst; rewrite !init_spec; congruence.
     Qed.
@@ -712,24 +712,84 @@ Section Fold.
         rewrite (addnC (S x) 1); simpl; omega.
     Qed.
 
-    Lemma post_sat' : Aistar_v (init Post_i) |= (Aistar_v (init (fun i => Post_i (fin_rev i)))).
+    Definition frotate1 (n : nat) (i : Fin.t n) : Fin.t n.
+      refine (let (ni, H) := Fin.to_nat i in 
+              @Fin.of_nat_lt (match ni with 0 => n - 1 | S n => n end) n _).
+      abstract (destruct ni; omega).
+    Defined.
+
+    Lemma frotate1_inj (n : nat) (i j : Fin.t n) : frotate1 i = frotate1 j -> i = j.
+    Proof.
+      unfold frotate1; intros Heq; 
+      apply (f_equal (@fin_to_nat _)) in Heq; apply fin_eq_of_nat.
+      destruct (Fin.to_nat i) as [ni Hi], (Fin.to_nat j) as [nj Hj].
+      unfold fin_to_nat in Heq; rewrite !fin_of_nat_lt_inv1 in Heq; destruct ni, nj; subst; f_equal;
+      try apply proof_irrelevance; try omega.
+    Qed.
+
+    Lemma post_sat' : Aistar_v (init Post_i) |= (Aistar_v (init (fun i => Post_i (frotate1 i)))).
     Proof.
       intros s h.
-      destruct (inject_biject fin_rev_inj) as (g & Hfg & Hgf).
+      destruct (inject_biject (@frotate1_inj ntrd)) as (g & Hfg & Hgf).
       apply (biject_wf Hfg Hgf).
       apply eq_nth_iff; intros j i ?; subst; rewrite !init_spec; congruence.
     Qed.
 
+    Lemma post_sat'' : Aistar_v (init Post_i) |= 
+                         Aistar_v (init (fun i => Post_i (frotate1 (fin_rev i)))).
+    Proof.
+      intros s h; destruct (inject_biject (@fin_rev_inj ntrd)) as (g & Hfg & Hgf).
+      intros H; apply post_sat' in H; revert H.
+      apply (biject_wf Hfg Hgf).
+      apply eq_nth_iff; intros ? i ?; subst; rewrite !init_spec; eauto.
+    Qed.
+
+    Lemma Aistar_v_is_array (n : nat) (f g : nat -> Z) (e : exp) :
+      (forall x, (x < n)%coq_nat -> f x = g x) -> (is_array e n f |= is_array e n g).
+    Proof.
+      induction n; intros H; [simpl; firstorder|].
+      simpl; intros s h (ph1 & ph2 & Hpt & Hr & ? & ?).
+      exists ph1, ph2; repeat split; eauto.
+      intros x; specialize (Hpt x); rewrite <-H; eauto. 
+    Qed.
+
+
     Lemma post_sat : (Aistar_v (init Post_i) |= Post).
     Proof.
-      intros s h H; apply post_sat' in H.
-      unfold Post,Post_i,Z_of_fin,nat_of_fin in *; revert s h H. induction ntrd; [simpl in *; eauto|].
+      intros s h H; apply post_sat'' in H; clear ntrd_gt_0.
+      unfold Post,Post_i,Z_of_fin,nat_of_fin in *; revert s h H; induction ntrd; [simpl in *; eauto|].
       intros s h H; simpl in *.
       destruct H as (ph1 & ph2 & Hpt & ? & ? & ?); exists ph1, ph2; repeat split; eauto.
-      - assert (Z.of_nat n = (Z.of_nat (proj1_sig (Fin.to_nat (@fin_rev (S n) Fin.F1))) + 1)
-                               mod ' Pos.of_succ_nat n)%Z.
-        unfold fin_rev; simpl.
-        rewrite fin_of_nat_lt_inv1.
+      - assert (Z.of_nat n = (Z.of_nat (proj1_sig (Fin.to_nat (frotate1 (fin_rev (@Fin.F1 n))))) +1) 
+                               mod ' Pos.of_succ_nat n)%Z as Heq1.
+        { unfold fin_rev, frotate1; simpl.
+          remember (@Fin.to_nat (S n)
+                      (@Fin.of_nat_lt (n - 0) (S n)
+                      (@fin_rev_subproof (S n) (@Fin.F1 n) 0 (lt_0_Sn n)))) as Hni;
+            destruct Hni as [ni Hni]; simpl;
+            rewrite !fin_of_nat_lt_inv1 in *; simpl.
+          eapply (f_equal (@proj1_sig _ _)) in HeqHni; rewrite fin_of_nat_lt_inv1 in HeqHni;
+          simpl in *.
+          cutrewrite (n = ni); [|omega]; destruct ni; simpl.
+          + rewrite Z.mod_same; omega.
+          + rewrite Pos2Z.inj_succ, !Zpos_P_of_succ_nat;
+            cutrewrite (Z.of_nat ni + 1 = Z.succ (Z.of_nat ni))%Z; [|omega].
+            rewrite Z.mod_small; omega. }
+        rewrite <-Heq1 in Hpt; rewrite Zpos_P_of_succ_nat.
+        assert (Z.of_nat (proj1_sig (Fin.to_nat (frotate1 (fin_rev (@Fin.F1 n))))) =
+                ((Z.of_nat n - 1) mod Z.succ (Z.of_nat n)))%Z as Heq2.
+        { unfold fin_rev, frotate1.
+          remember (Fin.to_nat Fin.F1) as x; destruct x as [ni Hni].
+          remember (Fin.to_nat (Fin.of_nat_lt (fin_rev_subproof Fin.F1 (ni:=ni) Hni))) as x;
+            destruct x as [ni' Hni'].
+          apply (f_equal (@proj1_sig _ _)) in Heqx. apply (f_equal (@proj1_sig _ _)) in Heqx0.
+          rewrite fin_of_nat_lt_inv1 in *; simpl in *; subst; simpl.
+          destruct n; [simpl; unfold Zmod; simpl; eauto|].
+          cutrewrite (S n - 0 = S n); [ |omega].
+          rewrite Z.mod_small; rewrite Nat2Z.inj_succ; omega. }
+        rewrite Heq2 in Hpt; eauto.
+      - Set Printing Implicit.
+        
     Section FoldDef.
     Definition fold :=
       r ::= n ;;

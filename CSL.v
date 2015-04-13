@@ -12,7 +12,7 @@ Unset Strict Implicit.
 Require Import PHeap.
 Require Import Bdiv.
 
-Notation "P '|=' Q" := (forall s h, P s h -> Q s h) (at level 100).
+Notation "P '|=' Q" := (forall (s : stack) (h : pheap), P s h -> Q s h) (at level 100).
 
 Section SeqCSL.
   Variable ntrd : nat.
