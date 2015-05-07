@@ -3,7 +3,6 @@ Require Import Qcanon.
 Require Import Coq.Relations.Relations.
 Require Import MyVector.
 Require Import List.
-Add LoadPath "../../src/cslsound".
 Require Import Lang.
 
 Set Implicit Arguments.
@@ -341,6 +340,7 @@ Section BarrierDivergenceFreedom.
   Variable bspec : barrier_spec ngroup.
   Variable env : var -> type.
   Hypothesis env_wf : env_wellformed bspec env.
+  Hypothesis ngroup_gt_0 : (exists ng', ngroup = S ng')%nat.
   Hypothesis bc_precise : 
     forall i (tid : Fin.t ngroup), precise ((fst (bspec i))[@tid]) /\
                                    precise ((snd (bspec i))[@tid]).
@@ -655,12 +655,17 @@ Section BarrierDivergenceFreedom.
           get_ss pss2); [eauto|].
           unfold get_ss; apply Vector.eq_nth_iff; intros i1 i2 ?; subst.
           erewrite !Vector.nth_map; eauto; erewrite Vector.nth_map2; eauto; rewrite init_spec; eauto.
-        - (* copipe!! *)
-          autounfold; autorewrite with core; 
+        - autounfold; autorewrite with core; 
           cutrewrite (htop h = phplus_pheap hdispf); [| apply pheap_eq; eauto].
           apply (disj_eq_sum hdispf hdisq HhF).
           intros i; rewrite init_spec; eauto.
-        - (* admitted!!!! *)admit.
+        - assert (forall tid, c' / pss'[@tid] || Some (j, fst ss2[@tid]) / pss2[@tid]).
+          { intros tid; specialize (H tid); destruct H as (_ & _ & _ & H).
+            eapply eval_mred2; eauto. }
+          assert (forall tid, exists ty0, typing_cmd env (fst ss2[@tid]) ty0) as Hty.
+          { intros tid; eapply preservation_big; eauto. }
+          destruct ngroup_gt_0 as [ng' Hr]; set (tid := Fin.F1 (n := ng')); rewrite<- Hr in tid.
+          specialize (Hty tid); rewrite Hc in Hty; eauto.
         - unfold get_cs_k; erewrite Vector.nth_map; eauto; rewrite const_nth; simpl; congruence.
         - unfold get_ss, get_ss_k;
           erewrite !Vector.nth_map; eauto; erewrite Vector.nth_map2; eauto; rewrite init_spec; simpl.
@@ -686,12 +691,13 @@ Section BarrierDivergenceFreedom.
           rewrite <-(Hc tid); apply hres.
         - rewrite const_nth; constructor. }
   Qed.
-  
+
   Definition diverge (c1 c2 : option (nat * cmd)) :=
     match c1, c2 with
       | Some (j1, c1'), Some (j2, c2') => j1 <> j2
       | _, _ => False
     end.
+
 
   Definition bdiv (ks : kstate ngroup) :=
     exists tid1 tid2 : Fin.t ngroup, 

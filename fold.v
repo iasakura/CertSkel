@@ -744,7 +744,7 @@ Section Fold.
       apply eq_nth_iff; intros ? i ?; subst; rewrite !init_spec; eauto.
     Qed.
 
-    Lemma Aistar_v_is_array (n : nat) (f g : nat -> Z) (e : exp) :
+    Lemma is_array_eq (n : nat) (f g : nat -> Z) (e : exp) :
       (forall x, (x < n)%coq_nat -> f x = g x) -> (is_array e n f |= is_array e n g).
     Proof.
       induction n; intros H; [simpl; firstorder|].
@@ -753,7 +753,13 @@ Section Fold.
       intros x; specialize (Hpt x); rewrite <-H; eauto. 
     Qed.
 
-
+    Lemma Aistar_v_is_array (n : nat) (f : Fin.t n -> assn) (g : nat -> Z) (e : exp) :
+      (forall i : Fin.t n, f i |= 
+         (e + (Z.of_nat (proj1_sig (Fin.to_nat i))) -->p (1%Qc, g (proj1_sig (Fin.to_nat i)))))%assn ->
+      (Aistar_v (init f) |= is_array e n g).
+    Proof.
+      induction n; intros H; [simpl; firstorder|].
+      
     Lemma post_sat : (Aistar_v (init Post_i) |= Post).
     Proof.
       intros s h H; apply post_sat'' in H; clear ntrd_gt_0.

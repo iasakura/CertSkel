@@ -13,10 +13,6 @@ Require Export ProofIrrelevance.
 
 Require Export Coq.ZArith.BinInt.
 
-Add LoadPath "../../src/cslsound".
-
-Require Import Vbase Varith Vlistbase Vlist Basic.
-
 Set Implicit Arguments.
 Unset Strict Implicit.
 
@@ -95,8 +91,8 @@ Inductive red: cmd -> state -> cmd  -> state -> Prop :=
 | red_If2: forall (b : bexp) (c1 c2 : cmd) (ss : state)
                   (B: bdenot b (fst ss) = false),
              (Cif b c1 c2) / ss ==>s c2 / ss
-| red_Loop: forall (b : bexp) (c : cmd) (ss : state), 
-              (Cwhile b c) / ss ==>s (Cif b (Cseq c (Cwhile b c)) Cskip) / ss
+| red_Loop: forall (b : bexp) (c : cmd) (ss : state),  
+             (Cwhile b c) / ss ==>s (Cif b (Cseq c (Cwhile b c)) Cskip) / ss
 | red_Assign: forall (x : var) (e : exp) ss ss' s h
                      (EQ1: ss = (s, h))
                      (EQ2: ss' = (upd s x (edenot e s), h)),

@@ -15,8 +15,6 @@ Require Export ProofIrrelevance.
 Require Export Coq.ZArith.BinInt.
 Require Export String.
 
-Add LoadPath "../../src/cslsound".
-
 Require Export Vbase Varith Vlistbase Vlist Basic.
 
 Set Implicit Arguments.
@@ -33,7 +31,7 @@ Record pheap := Pheap { this :> pheap'; is_p : is_pheap this }.
 Definition pdisj (h1 h2 : pheap') :=
   forall (x : Z), match h1 x, h2 x with
     | None, _ | _, None => True
-    | Some (p1, v1), some (p2, v2) =>
+    | Some (p1, v1), Some (p2, v2) =>
       v1 = v2 /\ 0 < p1 + p2 /\ p1 + p2 <= 1
   end.
 
@@ -112,7 +110,7 @@ Lemma pdisj_upd : forall (h h' : pheap) (x w v : Z), this h x = Some (full_p, w)
 Proof.
   destruct h as [h iph].
   destruct h' as [h' iph'].
-  unfold pdisj, ph_upd; ins.
+  unfold pdisj, ph_upd; intros; simpl in *.
   split. 
   - intros hp x0; pose proof (hp x0); pose proof (iph x0); pose proof (iph' x0).
     destruct (Z.eq_dec x x0), (h x0) as [[? ?] | ], (h' x0) as [[? ?] | ]; eauto.
@@ -201,6 +199,9 @@ Proof.
   - cutrewrite (q + (q0 + q1) = (q + q1) + q0) in H7; [apply (@le1_weak _ q0); eauto | ring ].
 Qed.
 
+Ltac des_conj := 
+  repeat (match goal with [H : _ /\ _ |- _] => destruct H end).
+
 Lemma pdisj_padd_comm (h1 h2 h3 : pheap) : pdisj h2 (phplus h1 h3) -> pdisj h1 h3 -> 
                                            pdisj h1 (phplus h2 h3).
 Proof.
@@ -225,7 +226,7 @@ Proof.
     repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end);
     destruct (h1 x) as [[? ?] |], (h2 x) as [[? ?] |], (h3 x) as [[? ?] |],
                 ph1 as [? ?], ph2 as [? ?], ph3 as [? ?], h12 as [? [? ?]];
-    des; eauto;
+    des_conj; eauto;
     repeat split; try congruence; eauto; 
     try rewrite (Qcplus_assoc _ _ _); try rewrite (Qcplus_comm _ _); 
     eauto using plus_gt_0.
@@ -242,7 +243,7 @@ Proof.
     intros h123 h23; extensionality x;
     repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end);
     destruct (h1 x) as [[? ?] |], (h2 x) as [[? ?] |], (h3 x) as [[? ?] |];
-    des; eauto.
+    des_conj; eauto.
   cutrewrite (q + q0 + q1 = q + (q0 + q1)); [eauto | ring].
 Qed.
 
@@ -254,7 +255,7 @@ Proof.
     intros h123 h23; extensionality x;
     repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end);
     destruct (h1 x) as [[? ?] |], (h2 x) as [[? ?] |], (h3 x) as [[? ?] |];
-    des; eauto.
+    des_conj; eauto.
   - cutrewrite (q + (q0 + q1) = q0 + (q + q1)); [congruence | ring].
   - cutrewrite (q + q0 = q0 + q); [congruence | ring].
 Qed.
@@ -269,25 +270,25 @@ Proof.
     extensionality x; pose proof  (equal_f heq x) as heq'; simpl in *; clear heq;
     repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end);
     destruct (h1 x) as [[? ?] |], (h2 x) as [[? ?] |], (h3 x) as [[? ?] |];
-    des; eauto; try congruence.
+    des_conj; eauto; try congruence.
   - remember (q + q0) as q0'; remember (q + q1) as q1'.
     inversion heq'. subst.
-    assert (q + q0 - q = q + q1 - q) by (rewrite H0; eauto).
-    cutrewrite (q + q0 - q = q0) in H; [| ring].
-    cutrewrite (q + q1 - q = q1) in H; [| ring].
+    assert (q + q0 - q = q + q1 - q) by (rewrite H12; eauto).
+    cutrewrite (q + q0 - q = q0) in H2; [| ring].
+    cutrewrite (q + q1 - q = q1) in H2; [| ring].
     congruence.
   - remember (q + q0) as q'.
     inversion heq'; subst.
-    assert (q + q0 - q = q - q) by (rewrite H0; eauto).
+    assert (q + q0 - q = q - q) by (rewrite H7; eauto).
     cutrewrite (q + q0 - q = q0) in H; [| ring].
     cutrewrite (q - q = 0) in H; [| ring].
-    rewrite H in ph2.
-    inversion ph2.
+    rewrite H in H2. 
+    inversion H2.
   - inversion heq'.
-    assert (q - q = (q + q0) - q) by (rewrite H0 at 1; eauto).
-    cutrewrite (q - q = 0) in H; [| ring].
-    cutrewrite (q + q0 - q = q0) in H; [| ring].
-    rewrite <- H in ph3; inversion ph3.
+    assert (q - q = (q + q0) - q) by (rewrite H7 at 1; eauto).
+    cutrewrite (q - q = 0) in H6; [| ring].
+    cutrewrite (q + q0 - q = q0) in H6; [| ring].
+    rewrite <- H6 in H2. inversion H2.
   - subst; cutrewrite (ph2 = ph3); [eauto | apply proof_irrelevance ].
 Qed.
 
@@ -299,6 +300,7 @@ Proof.
   rewrite (@phplus_comm h2 h1), (@phplus_comm h3 h1) in H; eauto.
   eapply padd_cancel; eauto.
 Qed.
+
 Definition ptoheap (ph : pheap') (h : heap) : Prop :=
   forall (x : Z), match ph x with
                     | None => h x = None

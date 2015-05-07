@@ -3,7 +3,6 @@ Require Import Qcanon.
 Require Import MyVector.
 Require Import List.
 Require Import ZArith.
-Add LoadPath "../../src/cslsound".
 Require Import Lang.
 Require Import Relation_Operators.
 Set Implicit Arguments.
@@ -514,6 +513,7 @@ Section ParCSL.
   Import VectorNotations.
 
   Variable ntrd : nat.
+  Hypothesis ntrd_gt_0 : (exists n', ntrd = S n').
   Variable bspec : nat -> (Vector.t assn ntrd * Vector.t assn ntrd)%type.
   Variable E : env.
   Hypothesis brr_lowassn : forall (i : nat),
@@ -629,7 +629,7 @@ Section ParCSL.
     - intros cskip.
       destruct h_for_bdiv as [ks1 [hs1 [ss1 [c [? [? [? [? [? [? [? ?]]]]]]]]]]].
       assert (low_eq_l2 E (get_ss_k (ks, h))) as hleq.
-      { eapply (when_stop ew bc_precise ); eauto.
+      { eapply (when_stop ew ntrd_gt_0 bc_precise ); eauto.
         intros tid; unfold get_cs_k; simpl; erewrite Vector.nth_map; eauto. }
       cutrewrite (get_ss_k (ks, h) = Vector.map (fun s => snd s) ks)in hleq;
         [|unfold get_ss_k; eauto].
@@ -646,7 +646,7 @@ Section ParCSL.
     - intros ws Hbrr.
       cutrewrite (Vector.map (fun s => snd s) ks = get_ss_k (ks, h)); [|eauto].
       destruct h_for_bdiv as [ks1 [hs1 [ss1 [c [? [? [? [? [? [? [? ?]]]]]]]]]]].
-      eapply (when_barrier ew bc_precise); eauto.
+      eapply (when_barrier ew ntrd_gt_0 bc_precise); eauto.
       intros tid; unfold get_cs_k; erewrite Vector.nth_map; eauto.
     - intros hF h' ks' hdis' hred1.
       remember (ks', h') as kss'.
@@ -753,7 +753,7 @@ Section ParCSL.
           assert (low_eq_l2 E ss) as leq2ss.
           { destruct h_for_bdiv as [? [? [? [? [? [Hred [? [? [? [? [? ?]]]]]]]]]]].
             set (ws := init (fun i => (j, fst ss'[@i]))).
-            eapply (when_barrier (ws := ws) ew bc_precise Hred); eauto.
+            eapply (when_barrier (ws := ws) ew ntrd_gt_0  bc_precise Hred); eauto.
             intros tid; unfold cs in Hwait; unfold get_cs_k, ws. rewrite init_spec; eauto. }
           destruct (low_eq_repr leq2ss) as [s Hs].
           assert (forall tid, sat (s, phPs[@tid]) (pre_j bspec tid j)) as Hsati.
@@ -789,6 +789,7 @@ Section ParCSL.
             intros x; right; eauto.
             extensionality x; unfold hplus; destruct (h x); eauto. }
   Qed.
+
   Definition nat_of_fin (i : Fin.t ntrd) : nat := projT1 (Fin.to_nat i).
   Definition Z_of_fin (i : Fin.t ntrd) : Z := Z.of_nat (nat_of_fin i).
 
