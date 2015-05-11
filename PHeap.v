@@ -814,3 +814,12 @@ Proof.
   try congruence.
 Qed.
 
+Lemma disj_emp1 (h : pheap) : pdisj h emp_ph.
+Proof.
+  intros x; destruct (this h x) as [[? ?]|]; simpl; eauto.
+Qed.
+
+Lemma disj_emp2 (h : pheap) : pdisj emp_ph h.
+Proof.
+  intros x; destruct (this h x) as [[? ?]|]; simpl; eauto.
+Qed.

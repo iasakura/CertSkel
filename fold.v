@@ -3,7 +3,8 @@ Require Import Qcanon.
 Require Import MyVector.
 Require Import List.
 Require Import ZArith.
-Add LoadPath "../../src/cslsound".
+
+Add LoadPath "./vlib".
 Require Import Lang.
 
 Set Implicit Arguments.
@@ -752,14 +753,59 @@ Section Fold.
       exists ph1, ph2; repeat split; eauto.
       intros x; specialize (Hpt x); rewrite <-H; eauto. 
     Qed.
+    
+    Lemma Aistar_v_append (n m : nat) (assns1 : Vector.t assn n) (assns2 : Vector.t assn m) :
+      Aistar_v (Vector.append assns1 assns2) |= Astar (Aistar_v assns1) (Aistar_v assns2).
+    Proof.
+      revert m assns2; induction n; intros m assns2 s h Hsat.
+      - rewrite (vinv0 assns1) in *; simpl in *; exists emp_ph, h; intuition; apply disj_emp2.
+      - destruct (vinvS assns1) as (assn1 & assn1' & ?); subst; simpl in *.
+        destruct Hsat as (ph1 & ph1' & ? & ? & ? & ?).
+        apply IHn in H0 as (ph2 & ph2' & ? & ? & ? & ?).
+        assert (pdisj ph1 ph2).
+        { rewrite <-H5 in H1. apply pdisjE1 in H1; eauto. }
+        exists (phplus_pheap H6), ph2'; repeat split; eauto.
+        exists ph1, ph2; repeat split; eauto.
+        simpl.
+        + apply pdisj_padd_expand; eauto; split; eauto.
+          rewrite H5; eauto.
+        + simpl. rewrite padd_assoc; try rewrite H5; eauto.
+    Qed.
 
+    
+    Section VectorNotation.
+      Import VectorNotations.
+      
+      Fixpoint snoc_vec (n : nat) (T : Type) (xs : Vector.t T n) (x : T) : Vector.t T (S n) :=
+        match xs with
+          | [] => x :: []
+          | y :: ys => y :: snoc_vec ys x
+        end.
+
+      Lemma snoc_dst (n : nat) (T : Type) (vs : Vector.t T (S n)) :
+        exists (x : T) (vs' : Vector.t T n), vs = snoc_vec vs' x.
+      Proof.
+        induction n; destruct (vinvS vs) as (h & vs' & ?); subst.
+        - rewrite (vinv0 vs'); exists h, []; eauto.
+        - destruct (vinvS vs') as (h2 & vs'' & ?); subst.
+          destruct (IHn (h2 :: vs'')) as (x' & vs''' & H).
+          exists x', (h :: vs'''); simpl; congruence.
+      Qed.          
+    End VectorNotation.
+ 
     Lemma Aistar_v_is_array (n : nat) (f : Fin.t n -> assn) (g : nat -> Z) (e : exp) :
       (forall i : Fin.t n, f i |= 
-         (e + (Z.of_nat (proj1_sig (Fin.to_nat i))) -->p (1%Qc, g (proj1_sig (Fin.to_nat i)))))%assn ->
+         (e + (Z.of_nat (proj1_sig (Fin.to_nat i))) -->p 
+            (1%Qc, g (proj1_sig (Fin.to_nat i)))))%assn ->
       (Aistar_v (init f) |= is_array e n g).
     Proof.
       induction n; intros H; [simpl; firstorder|].
-      
+      simpl; intros s h (ph1 & ph2 & Hsat1 & Hsat2 & Hdis & Heq).
+      exists ph1, ph2; split.
+      - pose proof (H _ _ _ Hsat1).
+        simpl in H0.
+
+
     Lemma post_sat : (Aistar_v (init Post_i) |= Post).
     Proof.
       intros s h H; apply post_sat'' in H; clear ntrd_gt_0.
