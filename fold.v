@@ -791,20 +791,82 @@ Section Fold.
           destruct (IHn (h2 :: vs'')) as (x' & vs''' & H).
           exists x', (h :: vs'''); simpl; congruence.
       Qed.          
-    End VectorNotation.
+
+      Lemma aistar_v_snoc (n : nat) (assns : Vector.t assn n) (x : assn) :
+        Aistar_v (snoc_vec assns x) |= Astar (Aistar_v assns) x.
+      Proof.
+        induction n; intros s ph Hsat.
+        - rewrite (vinv0 assns) in *; simpl in *; exists emp_ph, ph; repeat split; eauto.
+          destruct Hsat as (ph1 & ph2 & ? & ? & ? & ?).
+          assert (ph = ph1). 
+          { destruct ph as [ph ?], ph1 as [ph1 ?]; simpl in *; apply pheap_eq; extensionality y.
+            assert (phplus ph1 ph2 y = ph y) by (rewrite H2; eauto).
+            unfold phplus in *; destruct (ph1 y) as [[? ?] |], (ph y) as [[? ? ]|]; 
+            rewrite (H0 y) in H3; inversion H3; subst; eauto. }
+          rewrite H3; eauto.
+        - destruct (vinvS assns) as (a1 & assns' & ?); subst; simpl in *.
+          destruct Hsat as (ph1 & ph2 & Hsat1 & Hsat2 & ? & ?).
+          apply IHn in Hsat2 as (ph0 & ph3 & Hsat0 & Hsat2 & ? & ?).
+          assert (pdisj ph1 ph0) by (rewrite <-H2 in H; apply pdisjE1 in H; eauto).
+          exists (phplus_pheap H3), ph3; repeat split; eauto.
+          exists ph1, ph0; repeat split; eauto.
+          simpl; apply pdisj_padd_expand; eauto; split; eauto.
+          rewrite H2; eauto.
+          simpl; rewrite padd_assoc; eauto.
+          + rewrite H2; eauto.
+          + rewrite H2; eauto.
+      Qed.
+
+      Lemma snoc_last (T : Type) (n : nat) (vs : Vector.t T n) (x : T) :
+        (snoc_vec vs x)[@(last_idx n)] = x.
+      Proof.
+        induction n; dependent destruction vs; simpl; eauto.
+      Qed.
+
+      Lemma last_n (n : nat) : proj1_sig (Fin.to_nat (last_idx n)) = n.
+      Proof.
+        induction n; simpl; eauto.
+        destruct (Fin.to_nat (last_idx n)); simpl in *; eauto.
+      Qed.
+
+      Lemma nth_L_R (n : nat) (T : Type) (vs : Vector.t T n) (v : T) (i : Fin.t n) : 
+        (snoc_vec vs v)[@Fin.L_R 1 i] = vs[@i].
+      Proof.
+        induction n; dependent destruction vs; dependent destruction i; [simpl; eauto|].
+        cutrewrite (snoc_vec (h :: vs) v = h :: snoc_vec vs v); [|eauto].
+        simpl; rewrite <-IHn; f_equal.
+      Qed.
+      
+      Lemma L_R_n (n m : nat) (i : Fin.t n) : 
+        proj1_sig (Fin.to_nat i) =  proj1_sig (Fin.to_nat (Fin.L_R m i)).
+      Proof.
+        induction m; [simpl; eauto|].
+        
+
+        
+     End VectorNotation.
  
-    Lemma Aistar_v_is_array (n : nat) (f : Fin.t n -> assn) (g : nat -> Z) (e : exp) :
-      (forall i : Fin.t n, f i |= 
+    Lemma Aistar_v_is_array (n : nat) (assns : Vector.t assn n) (g : nat -> Z) (e : exp) :
+      (forall i : Fin.t n, assns[@i] |= 
          (e + (Z.of_nat (proj1_sig (Fin.to_nat i))) -->p 
             (1%Qc, g (proj1_sig (Fin.to_nat i)))))%assn ->
-      (Aistar_v (init f) |= is_array e n g).
+      (Aistar_v assns |= is_array e n g).
     Proof.
-      induction n; intros H; [simpl; firstorder|].
-      simpl; intros s h (ph1 & ph2 & Hsat1 & Hsat2 & Hdis & Heq).
-      exists ph1, ph2; split.
-      - pose proof (H _ _ _ Hsat1).
-        simpl in H0.
-
+      induction n; [rewrite (vinv0 assns) in *; intros; eauto|].
+      destruct (snoc_dst assns) as (assn & vs & Heq); rewrite Heq in *.
+      intros H s ph Hsat.
+      apply aistar_v_snoc in Hsat as (phvs & phas & Hsat1 & Hsat2 & Hdis & Heq').
+      exists phas, phvs; repeat split; eauto.
+      - intros x.
+        specialize (H (last_idx n) s phas).
+        rewrite snoc_last in H; specialize (H Hsat2 x).
+        rewrite last_n in *; eauto.
+      - apply (IHn vs); eauto.
+        intros i s' h' Hsat x.
+        remember (proj1_sig (Fin.to_nat i)).
+        specialize (H (Fin.L_R 1 i) s' h').
+        rewrite nth_L_R in H.
+        specialize (H Hsat x).
 
     Lemma post_sat : (Aistar_v (init Post_i) |= Post).
     Proof.
