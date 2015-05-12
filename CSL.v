@@ -790,7 +790,7 @@ Section ParCSL.
             extensionality x; unfold hplus; destruct (h x); eauto. }
   Qed.
 
-  Definition nat_of_fin (i : Fin.t ntrd) : nat := projT1 (Fin.to_nat i).
+  Definition nat_of_fin (i : Fin.t ntrd) : nat := proj1_sig (Fin.to_nat i).
   Definition Z_of_fin (i : Fin.t ntrd) : Z := Z.of_nat (nat_of_fin i).
 
   Definition CSLp (P : assn) (c : cmd) (Q : assn) :=
@@ -807,7 +807,7 @@ Section ParCSL.
     typing_cmd E c ty ->
     (forall tid : Fin.t ntrd, 
        CSL bspec tid 
-           (Aconj Ps[@tid] (fun s _ => s 0%Z = Z.of_nat (projT1 (Fin.to_nat tid)))) 
+           (Aconj Ps[@tid] (fun s _ => s 0%Z = Z.of_nat (proj1_sig (Fin.to_nat tid)))) 
            c 
            Qs[@tid]) ->
     CSLp P c Q.

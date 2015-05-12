@@ -25,7 +25,6 @@ Section Fold.
   Notation ARR := (4%Z : var).
 
   Variable ntrd : nat.
-  Hypothesis ntrd_gt_0 : 0 < ntrd.
 
   Bind Scope exp_scope with exp.
   Bind Scope bexp_scope with bexp.
@@ -33,15 +32,13 @@ Section Fold.
   Infix "+" := (Eplus) : exp_scope.
   Infix "<" := (Blt) : bexp_scope.
   Infix "==" := (Beq) : bexp_scope.
-  Coercion Evar : var >-> exp.
-  Coercion Enum : Z >-> exp.
   Open Scope exp_scope.
   Open Scope bexp_scope.
 
   Fixpoint is_array (e : exp) (n : nat) (f : nat -> Z) :=
     match n with
       | 0 => Aemp
-      | S n' => Astar (Apointsto 1%Qc (e + Z.of_nat n') (f n'))
+      | S n' => Astar (Apointsto 1%Qc (e + Enum (Z.of_nat n')) (Enum (f n')))
                       (is_array e n' f)
     end.
 
@@ -62,19 +59,20 @@ Section Fold.
   Section Rotate.
     Notation ntrdZ := (Z_of_nat ntrd).
     Definition rotate := 
-      X ::= [ARR + TID] ;;
+      X ::= [Evar ARR + Evar TID] ;;
       Cbarrier 0 ;;
-      Cif (R == ntrdZ) (
-        Y ::= 0%Z
+      Cif (Evar R == Enum ntrdZ) (
+        Y ::= Enum 0%Z
       ) (
-        Y ::= TID + 1%Z
+        Y ::= Evar TID + Enum 1%Z
       ) ;;
-      [ARR + Y] ::= X.
-    Definition Pre := is_array ARR ntrd (fun i => Z.of_nat i).
-    Definition Post := is_array ARR ntrd (fun i : nat => (Z.of_nat i - 1) mod ntrdZ)%Z.
-    Definition Pre_i (i : Fin.t ntrd) := (Evar ARR + (Z_of_fin i)  -->p (1%Qc, Z_of_fin i))%assn.
+      [Evar ARR + Evar Y] ::= Evar X.
+    Definition Pre := is_array (Evar ARR) ntrd (fun i => Z.of_nat i).
+    Definition Post := is_array (Evar ARR) ntrd (fun i : nat => (Z.of_nat i - 1) mod ntrdZ)%Z.
+    Definition Pre_i (i : Fin.t ntrd) := 
+      (Evar ARR + Enum (Z_of_fin i)  -->p (1%Qc, Enum (Z_of_fin i)))%assn.
     Definition Post_i (i : Fin.t ntrd) := 
-      (Evar ARR + (((Z_of_fin i + 1) mod ntrdZ)%Z)  -->p (1%Qc, Z_of_fin i))%assn.
+      (Evar ARR + ((Enum ((Z_of_fin i + 1) mod ntrdZ))%Z)  -->p (1%Qc, Enum (Z_of_fin i)))%assn.
 
     Definition E (var : var) := 
       if Z.eq_dec var TID then Hi
@@ -83,9 +81,9 @@ Section Fold.
       else Lo.
 
     Definition bpre (tid : Fin.t ntrd) := 
-      (ARR + (Z_of_fin tid) -->p (1%Qc, Z_of_fin tid))%assn.
+      (Evar ARR + Enum (Z_of_fin tid) -->p (1%Qc, Enum (Z_of_fin tid)))%assn.
     Definition bpost (tid : Fin.t ntrd) := 
-      (ARR + (((Z_of_fin tid) + 1) mod ntrdZ)%Z -->p (1%Qc, ((Z_of_fin tid + 1) mod ntrdZ)%Z))%assn.
+      (Evar ARR + Enum ((Z_of_fin tid + 1) mod ntrdZ)%Z) -->p (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)%Z)%assn.
 
     Lemma pre_lassn (tid : Fin.t ntrd) : low_assn E (bpre tid).
     Proof.
@@ -682,7 +680,7 @@ Section Fold.
 
     Lemma pre_sat : (Pre |= Aistar_v (init Pre_i)).
     Proof.
-      intros s h H; apply pre_sat'; clear ntrd_gt_0.
+      intros s h H; apply pre_sat'.
       unfold Pre,Pre_i,Z_of_fin,nat_of_fin in *; revert s h H. induction ntrd; [simpl in *; eauto|].
       intros s h H.
       destruct H as (ph1 & ph2 & Hpt & ? & ? & ?); exists ph1, ph2; repeat split; eauto.
@@ -772,6 +770,7 @@ Section Fold.
         + simpl. rewrite padd_assoc; try rewrite H5; eauto.
     Qed.
 
+
     
     Section VectorNotation.
       Import VectorNotations.
@@ -837,19 +836,35 @@ Section Fold.
         simpl; rewrite <-IHn; f_equal.
       Qed.
       
+      Lemma L_R_Sn (n m : nat) (i : Fin.t n) :
+        proj1_sig (Fin.to_nat (Fin.L_R (S m) i)) = proj1_sig (Fin.to_nat (Fin.L_R m i)).
+      Proof.
+        simpl.
+        generalize (Fin.L_R m i); generalize (m+n)%nat.
+        clear i n m. intros m t.
+        induction m; dependent destruction t; simpl; eauto.
+        remember ((fix LS (k : nat) (p : Fin.t k) {struct p} : 
+              Fin.t (S k) :=
+                match p in (Fin.t n) return (Fin.t (S n)) with
+                | Fin.F1 k' => Fin.F1
+                | Fin.FS n0 p' => Fin.FS (LS n0 p')
+                end) m t) as t'.
+        specialize (IHm t); rewrite <-Heqt' in IHm.
+        destruct (Fin.to_nat t'), (Fin.to_nat t); simpl in *; eauto.
+      Qed.
+
       Lemma L_R_n (n m : nat) (i : Fin.t n) : 
         proj1_sig (Fin.to_nat i) =  proj1_sig (Fin.to_nat (Fin.L_R m i)).
       Proof.
         induction m; [simpl; eauto|].
-        
-
-        
-     End VectorNotation.
+        rewrite L_R_Sn, IHm; eauto.
+      Qed.
+    End VectorNotation.
  
     Lemma Aistar_v_is_array (n : nat) (assns : Vector.t assn n) (g : nat -> Z) (e : exp) :
       (forall i : Fin.t n, assns[@i] |= 
-         (e + (Z.of_nat (proj1_sig (Fin.to_nat i))) -->p 
-            (1%Qc, g (proj1_sig (Fin.to_nat i)))))%assn ->
+         (e + Enum (Z.of_nat (proj1_sig (Fin.to_nat i))) -->p 
+            (1%Qc, Enum (g (proj1_sig (Fin.to_nat i))))))%assn ->
       (Aistar_v assns |= is_array e n g).
     Proof.
       induction n; [rewrite (vinv0 assns) in *; intros; eauto|].
@@ -867,43 +882,56 @@ Section Fold.
         specialize (H (Fin.L_R 1 i) s' h').
         rewrite nth_L_R in H.
         specialize (H Hsat x).
+        rewrite <-(L_R_n 1), <-Heqy in H; eauto.
+      - rewrite phplus_comm; eauto.
+    Qed.
+
+    Hypothesis ntrd_gt_0 : (0 < ntrd)%coq_nat.
 
     Lemma post_sat : (Aistar_v (init Post_i) |= Post).
     Proof.
-      intros s h H; apply post_sat'' in H; clear ntrd_gt_0.
-      unfold Post,Post_i,Z_of_fin,nat_of_fin in *; revert s h H; induction ntrd; [simpl in *; eauto|].
-      intros s h H; simpl in *.
-      destruct H as (ph1 & ph2 & Hpt & ? & ? & ?); exists ph1, ph2; repeat split; eauto.
-      - assert (Z.of_nat n = (Z.of_nat (proj1_sig (Fin.to_nat (frotate1 (fin_rev (@Fin.F1 n))))) +1) 
-                               mod ' Pos.of_succ_nat n)%Z as Heq1.
-        { unfold fin_rev, frotate1; simpl.
-          remember (@Fin.to_nat (S n)
-                      (@Fin.of_nat_lt (n - 0) (S n)
-                      (@fin_rev_subproof (S n) (@Fin.F1 n) 0 (lt_0_Sn n)))) as Hni;
-            destruct Hni as [ni Hni]; simpl;
-            rewrite !fin_of_nat_lt_inv1 in *; simpl.
-          eapply (f_equal (@proj1_sig _ _)) in HeqHni; rewrite fin_of_nat_lt_inv1 in HeqHni;
-          simpl in *.
-          cutrewrite (n = ni); [|omega]; destruct ni; simpl.
-          + rewrite Z.mod_same; omega.
-          + rewrite Pos2Z.inj_succ, !Zpos_P_of_succ_nat;
-            cutrewrite (Z.of_nat ni + 1 = Z.succ (Z.of_nat ni))%Z; [|omega].
-            rewrite Z.mod_small; omega. }
-        rewrite <-Heq1 in Hpt; rewrite Zpos_P_of_succ_nat.
-        assert (Z.of_nat (proj1_sig (Fin.to_nat (frotate1 (fin_rev (@Fin.F1 n))))) =
-                ((Z.of_nat n - 1) mod Z.succ (Z.of_nat n)))%Z as Heq2.
-        { unfold fin_rev, frotate1.
-          remember (Fin.to_nat Fin.F1) as x; destruct x as [ni Hni].
-          remember (Fin.to_nat (Fin.of_nat_lt (fin_rev_subproof Fin.F1 (ni:=ni) Hni))) as x;
-            destruct x as [ni' Hni'].
-          apply (f_equal (@proj1_sig _ _)) in Heqx. apply (f_equal (@proj1_sig _ _)) in Heqx0.
-          rewrite fin_of_nat_lt_inv1 in *; simpl in *; subst; simpl.
-          destruct n; [simpl; unfold Zmod; simpl; eauto|].
-          cutrewrite (S n - 0 = S n); [ |omega].
-          rewrite Z.mod_small; rewrite Nat2Z.inj_succ; omega. }
-        rewrite Heq2 in Hpt; eauto.
-      - Set Printing Implicit.
-        
+      intros s h H; apply post_sat' in H; clear ntrd_gt_0; revert H.
+      apply Aistar_v_is_array; clear s h.
+      intros i s h Hsat x.
+      rewrite init_spec in Hsat; unfold Post_i,Z_of_fin,nat_of_fin,frotate1 in Hsat.
+      destruct (Fin.to_nat i) as [ni Hni]; simpl in *.
+      rewrite fin_of_nat_lt_inv1 in Hsat; destruct ni.
+      - assert ((Z.of_nat (ntrd - 1) + 1) mod ntrdZ = 0)%Z as Heq; [|rewrite Heq in Hsat; clear Heq].
+        { rewrite Nat2Z.inj_sub; [|omega].
+          simpl; cutrewrite (ntrdZ - 1 + 1 = ntrdZ)%Z; [|omega].
+          rewrite Z.mod_same; omega. }
+        assert ((-1 mod ntrdZ)%Z = Z.of_nat (ntrd - 1)) as Heq; [|simpl; rewrite Heq; clear Heq; eauto].
+        { rewrite <-Zplus_mod_same.
+          cutrewrite ((-1 + ntrdZ) = ntrdZ - 1)%Z; [|omega].
+          rewrite Zmod_small; [|omega].
+          rewrite Nat2Z.inj_sub; simpl; omega. }
+      - rewrite Zmod_small in Hsat; [|omega].
+        cutrewrite (Z.of_nat (S ni) = Z.of_nat ni + 1)%Z; [|rewrite Nat2Z.inj_succ; omega ].
+        cutrewrite (Z.of_nat ni + 1 - 1 = Z.of_nat ni)%Z; [|omega].
+        rewrite Z.mod_small; [auto|omega].
+    Qed.
+
+    Lemma typing_rotate : typing_cmd E rotate Lo.
+    Proof.
+      unfold rotate, E.
+      repeat constructor.
+      apply (ty_read (ty := Hi)); repeat constructor.
+      apply (ty_plus (ty1 := Lo) (ty2 := Hi)); repeat constructor.
+      apply (ty_if (ty := Hi)); repeat constructor; simpl.
+      apply (ty_eq (ty1 := Lo) (ty2 := Hi)); repeat constructor.
+      apply (ty_assign (ty := Hi)); repeat constructor.
+      apply (ty_assign (ty := Hi)); repeat constructor.
+      apply (ty_plus (ty1 := Hi) (ty2 := Hi)); repeat constructor; simpl.
+    Qed.
+
+    Lemma rotate_seq (tid : Fin.t ntrd) : 
+      CSL bspec tid
+          ((init Pre_i)[@tid] //\\ (fun s _ => s TID = Z.of_nat (projT1 (Fin.to_nat tid))))%assn
+          rotate (init Post_i)[@tid].
+    Proof.
+      rewrite !init_spec; unfold rotate, Pre_i, Post_i.
+      eapply rule_seq.
+      
     Section FoldDef.
     Definition fold :=
       r ::= n ;;
