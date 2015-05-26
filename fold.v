@@ -17,7 +17,7 @@ Require Import CSL.
 Close Scope Qc_scope.
 Close Scope Q_scope.
 
-Section Fold.
+Section Example.
   Notation TID := (0%Z : var).
   Notation X := (1%Z : var).
   Notation Y := (2%Z : var).
@@ -43,14 +43,16 @@ Section Fold.
     end.
 
   Bind Scope assn_scope with assn.
-  Notation "P '//\\' Q" := (fun s h => P s h /\ Q s h) (at level 80, right associativity) : assn_scope.
+  Notation "P '//\\' Q" := (fun s h => P s h /\ Q s h) (at level 80, right associativity).
+  Notation "P1 ** P2" := (Astar P1 P2) (at level 70, right associativity).
   Notation "x '===' y" := 
-    (fun s h => edenot x s = edenot y s) (at level 70, no associativity) 
-    : assn_scope.
+    (fun s h => edenot x s = edenot y s) (at level 70, no associativity).
   Notation "'existS' x .. y , p" := 
     (fun s h => ex (fun x => .. (ex (fun y => p s h)) ..))
-      (at level 200, x binder, y binder, right associativity) : assn_scope.
-  Notation "e1 '-->p' ( p ,  e2 )" := (Apointsto p e1 e2) (at level 75) : assn_scope.
+      (at level 200, x binder, y binder, right associativity).
+  Notation "e1 '-->p' ( p ,  e2 )" := (Apointsto p e1 e2) (at level 75).
+  Notation Emp := (fun s h => forall x, this h x = None).
+  Notation "!( P )" := (Emp //\\ P).
   Delimit Scope assn_scope with assn.
 
   Definition nat_of_fin (i : Fin.t ntrd) : nat := proj1_sig (Fin.to_nat i).
@@ -61,7 +63,7 @@ Section Fold.
     Definition rotate := 
       X ::= [Evar ARR + Evar TID] ;;
       Cbarrier 0 ;;
-      Cif (Evar R == Enum ntrdZ) (
+      Cif (Evar TID == Enum (ntrdZ - 1)) (
         Y ::= Enum 0%Z
       ) (
         Y ::= Evar TID + Enum 1%Z
@@ -123,6 +125,18 @@ Section Fold.
       split; intros tid; destruct i; simpl; rewrite init_spec; eauto.
     Qed.
 
+    Lemma prei_lassn : forall tid : Fin.t ntrd, low_assn E (Vector.nth (init Pre_i) tid).
+    Proof.
+      unfold low_assn, Bdiv.low_assn, indeP, E, Pre_i, low_eq; simpl; intros; rewrite init_spec.
+      cutrewrite (s1 4%Z = s2 4%Z); [split; intros; eauto|rewrite H; eauto].
+    Qed.
+
+    Lemma posti_lassn : forall tid : Fin.t ntrd, low_assn E (Vector.nth (init Post_i) tid).
+    Proof.
+      unfold low_assn, Bdiv.low_assn, indeP, E, Post_i, low_eq; simpl; intros; rewrite init_spec.
+      cutrewrite (s1 4%Z = s2 4%Z); [split; intros; eauto|rewrite H; eauto].
+    Qed.
+      
     Lemma default_wf (s : stack) (h : pheap) : 
       Aistar_v (fst default) s h <-> Aistar_v (snd default) s h.
     Proof.
@@ -918,42 +932,227 @@ Section Fold.
       apply (ty_read (ty := Hi)); repeat constructor.
       apply (ty_plus (ty1 := Lo) (ty2 := Hi)); repeat constructor.
       apply (ty_if (ty := Hi)); repeat constructor; simpl.
-      apply (ty_eq (ty1 := Lo) (ty2 := Hi)); repeat constructor.
-      apply (ty_assign (ty := Hi)); repeat constructor.
+      apply (ty_eq (ty1 := Hi) (ty2 := Lo)); repeat constructor.
+      apply (ty_assign (ty := Lo)); repeat constructor.
       apply (ty_assign (ty := Hi)); repeat constructor.
       apply (ty_plus (ty1 := Hi) (ty2 := Hi)); repeat constructor; simpl.
     Qed.
+    Hint Resolve disj_emp1 disj_emp2.
 
+    Lemma phplus_emp2 (h : pheap) : phplus h emp_ph = h.
+      destruct h; unfold emp_ph,phplus; simpl; extensionality x; simpl; destruct (this x) as [[? ?]|];auto.
+    Qed.
+
+    Lemma phplus_emp1 (h : pheap) : phplus emp_ph h = h.
+      destruct h; unfold emp_ph,phplus; simpl; extensionality x; simpl; destruct (this x) as [[? ?]|];auto.
+    Qed.
+    Hint Resolve phplus_emp1 phplus_emp2.
+
+    Lemma rotate_l1 (tid : Fin.t ntrd) :
+      ((init Pre_i)[@tid] //\\ (fun s _ => s TID = Z.of_nat (proj1_sig (Fin.to_nat tid))))%assn |=
+      ((Evar ARR + Evar TID -->p (1%Qc, Enum (Z_of_fin tid))) ** 
+       !(Evar TID === Enum (Z_of_fin tid))).
+    Proof.
+      intros s h [H0 H1].
+      rewrite init_spec in H0; unfold Pre_i in H0.
+      exists h, emp_ph; repeat split; eauto.
+      intros x; specialize (H0 x); simpl in *.
+      rewrite H1; simpl; apply H0.
+    Qed.
+
+    Hint Unfold indeE inde writes_var.
+    Lemma rotate_l2 (tid : Fin.t ntrd) :
+      CSL bspec tid 
+          ((Evar ARR + Evar TID -->p (1%Qc, Enum (Z_of_fin tid))) ** !(Evar TID === Enum (Z_of_fin tid)))
+          (X ::= [Evar ARR + Evar TID])
+          (((Evar ARR + Evar TID) -->p (1%Qc, Enum (Z_of_fin tid)) //\\
+            Apure (Beq (Evar X) (Enum (Z_of_fin tid)))) **
+           !(Evar TID === Enum (Z_of_fin tid))).
+    Proof.
+      apply rule_frame;  [apply rule_read | ]; simpl; eauto.
+      split; destruct H; subst; firstorder.
+    Qed.
+    
+    Lemma rotate_l3 (tid : Fin.t ntrd) :
+      (((Evar ARR + Evar TID) -->p (1%Qc, Enum (Z_of_fin tid)) //\\
+           Apure (Beq (Evar X) (Enum (Z_of_fin tid)))) **
+        !(Evar TID === Enum (Z_of_fin tid))) |=
+      ((Evar ARR + Enum (Z_of_fin tid)) -->p (1%Qc, Enum (Z_of_fin tid)) **
+       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid))).
+    Proof.
+      simpl; intros s h (ph1 & ph2 & H); intuition; repeat eexists; eauto.
+      intros x; specialize (H x). rewrite H4 in H; eauto.
+      destruct (Z_eq_dec (s 1%Z) (Z_of_fin tid)); try firstorder congruence.
+    Qed.
+
+    Lemma rotate_l4 (tid : Fin.t ntrd) :
+      CSL bspec tid
+      ((Evar ARR + Enum (Z_of_fin tid)) -->p (1%Qc, Enum (Z_of_fin tid)) **
+       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid)))
+      (Cbarrier 0)
+      ((Evar ARR + Enum ((Z_of_fin tid + 1) mod ntrdZ)) -->p 
+          (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)) **
+       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid))).
+    Proof.
+      apply rule_frame; eauto.
+      cutrewrite (Apointsto 1%Qc (Evar 4%Z + Enum (Z_of_fin tid)) (Enum (Z_of_fin tid)) =
+                  (fst (bspec 0))[@tid]); [|simpl; rewrite init_spec; eauto].
+      cutrewrite (Apointsto 1%Qc (Evar 4%Z + Enum ((Z_of_fin tid + 1) mod ntrdZ)) (Enum ((Z_of_fin tid + 1) mod ntrdZ)) =
+                  (snd (bspec 0))[@tid]); [|simpl; rewrite init_spec; eauto].
+      apply rule_barrier.
+      unfold inde; simpl; firstorder.
+    Qed.
+
+    Lemma rule_conseq_pre (tid : Fin.t ntrd) (P : assn) C (Q P' : assn) :
+      CSL bspec tid P C Q -> (P' |= P) -> CSL bspec tid P' C Q.
+    Proof.
+      intros.
+      eapply rule_conseq; eauto.
+    Qed.
+
+    Lemma rotate_l5 (tid : Fin.t ntrd) :
+      CSL bspec tid
+      (((Evar ARR + Enum ((Z_of_fin tid + 1) mod ntrdZ)) -->p 
+          (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)) **
+       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid))) //\\
+       (Apure (Evar TID == Enum (ntrdZ - 1))))
+      (Y ::= Enum 0)
+      (((Evar ARR + Evar Y) -->p 
+          (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)) **
+       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid) //\\
+        Evar Y === Enum ((Z_of_fin tid + 1) mod ntrdZ)))).
+    Proof.
+      eapply rule_conseq_pre; [ apply rule_assign| ].
+      intros s h [(ph1 &ph2 & H1) H2]; intuition.
+      exists ph1, ph2; repeat split; eauto.
+      intros x; specialize (H x); unfold upd; simpl in *.
+      assert ((Z_of_fin tid + 1) mod ntrdZ = 0)%Z as Heq.
+      { assert ((s 0%Z) = ntrdZ - 1)%Z by (destruct (Z.eq_dec (s 0%Z) (ntrdZ - 1)); congruence).
+        cutrewrite (Z_of_fin tid = ntrdZ - 1)%Z; [|congruence].
+        cutrewrite ((ntrdZ - 1 + 1)%Z = ntrdZ); [| omega].
+        rewrite Z_mod_same_full; eauto. }
+      rewrite Heq in *; eauto.
+      simpl in *; unfold upd.
+      destruct (Z.eq_dec 2 2); try congruence.
+      destruct (Z.eq_dec (s 0%Z) (ntrdZ - 1)); try congruence.    
+      rewrite <-H3, e0.
+      cutrewrite (ntrdZ - 1 + 1 = ntrdZ)%Z; [|omega].
+      rewrite Z_mod_same_full; eauto.
+    Qed.
+
+    Lemma rotate_l6 (tid : Fin.t ntrd) :
+      CSL bspec tid
+      (((Evar ARR + Enum ((Z_of_fin tid + 1) mod ntrdZ)) -->p 
+          (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)) **
+       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid))) //\\
+       Apure (Bnot (Evar TID == Enum (ntrdZ - 1))))
+      (Y ::= Evar TID + Enum 1%Z)
+      (((Evar ARR + Evar Y) -->p 
+          (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)) **
+       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid) //\\
+        Evar Y === Enum ((Z_of_fin tid + 1) mod ntrdZ)))).
+    Proof.
+      eapply rule_conseq_pre; [ apply rule_assign| ].
+      intros s h [(ph1 &ph2 & H1) H2]; intuition.
+      exists ph1, ph2; repeat split; eauto.
+      - intros x; specialize (H x); unfold upd; simpl in *.
+        rewrite H3.
+        assert ((Z_of_fin tid + 1) mod ntrdZ = Z_of_fin tid + 1)%Z as Heq.
+        { assert (Z_of_fin tid <> ntrdZ - 1)%Z.
+          destruct (Z.eq_dec (s 0%Z) (ntrdZ - 1)); simpl in *; congruence.
+          apply Zmod_small; split;
+          unfold Z_of_fin, nat_of_fin in *; destruct (Fin.to_nat tid); simpl in *; try omega. }
+        rewrite Heq in *; eauto.
+      - simpl in *; unfold upd.
+        rewrite H3; destruct (Z.eq_dec 2 2); try congruence.
+        destruct (Z.eq_dec (s 0%Z) (ntrdZ - 1)); simpl in *; try congruence.
+        assert ((Z_of_fin tid + 1) mod ntrdZ = Z_of_fin tid + 1)%Z as Heq.
+        { assert (Z_of_fin tid <> ntrdZ - 1)%Z.
+          destruct (Z.eq_dec (s 0%Z) (ntrdZ - 1)); simpl in *; congruence.
+          apply Zmod_small; split;
+          unfold Z_of_fin, nat_of_fin in *; destruct (Fin.to_nat tid); simpl in *; try omega. }
+        congruence.
+    Qed.
+
+    Lemma rotate_l7 (tid : Fin.t ntrd) :
+      CSL bspec tid
+      ((Evar ARR + Enum ((Z_of_fin tid + 1) mod ntrdZ)) -->p 
+          (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)) **
+       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid)))
+      (Cif (Evar TID == Enum (ntrdZ - 1)) (
+         Y ::= Enum 0%Z
+       ) (
+         Y ::= Evar TID + Enum 1%Z
+       ))
+      (((Evar ARR + Evar Y) -->p 
+          (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)) **
+       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid) //\\
+        Evar Y === Enum ((Z_of_fin tid + 1) mod ntrdZ)))).
+    Proof.
+      apply rule_if; [apply rotate_l5 | apply rotate_l6].
+    Qed.
+
+    Lemma rotate_l8 (tid : Fin.t ntrd) :
+      CSL bspec tid
+      ((Evar ARR + Evar Y) -->p 
+          (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)) **
+       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid) //\\
+         Evar Y === Enum ((Z_of_fin tid + 1) mod ntrdZ)))
+      ([Evar ARR + Evar Y] ::= Evar X)
+      ((Evar ARR + Evar Y) -->p (1%Qc, Evar X) **
+       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid) //\\
+         Evar Y === Enum ((Z_of_fin tid + 1) mod ntrdZ))).
+    Proof.
+        apply rule_frame; [apply rule_write|]; autounfold; simpl; tauto.
+    Qed.
+
+    Lemma rotate_l9 (tid : Fin.t ntrd) :
+      ((Evar ARR + Evar Y) -->p (1%Qc, Evar X) **
+       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid) //\\
+         Evar Y === Enum ((Z_of_fin tid + 1) mod ntrdZ))) |=
+      (init Post_i)[@tid].
+    Proof.
+      rewrite init_spec; unfold Post_i.
+      simpl; intros s h (ph1 & ph2 & H); intuition.
+      specialize (H0 x).
+      rewrite H3, H6 in *; eauto.
+      destruct ph1 as [ph1 Hph1], ph2 as [ph2 Hph2]; unfold is_pheap in *; simpl in *;
+      rewrite <-H4; specialize (H x); specialize (Hph1 x); specialize (Hph2 x); 
+      specialize (H1 x); unfold phplus;
+      destruct (ph1 x) as [[? ?] |], (ph2 x) as [[? ?]|]; simpl in *; eauto;
+      destruct (Z.eq_dec x (s 4%Z + (Z_of_fin tid + 1) mod ntrdZ)); inversion H0; subst; intuition.
+      apply frac_contra1 in H12; tauto.
+    Qed.      
+      
     Lemma rotate_seq (tid : Fin.t ntrd) : 
       CSL bspec tid
-          ((init Pre_i)[@tid] //\\ (fun s _ => s TID = Z.of_nat (projT1 (Fin.to_nat tid))))%assn
+          ((init Pre_i)[@tid] //\\ (fun s _ => s TID = Z.of_nat (proj1_sig (Fin.to_nat tid))))%assn
           rotate (init Post_i)[@tid].
     Proof.
-      rewrite !init_spec; unfold rotate, Pre_i, Post_i.
-      eapply rule_seq.
-      
-    Section FoldDef.
-    Definition fold :=
-      r ::= n ;;
-      Cwhile (Bnot (r < 1%Z)) (
-        Cif (tid < (Ediv2 r)) (
-          x ::= [arr + tid + Ediv2 r] ;;
-          y ::= [arr + tid] ;;
-          [arr + tid] ::= x + y
-        ) Cskip
-      ) ;;
-      Cbarrier 0;;
-      r ::= Ediv2 r.
-  End FoldDef.
-  
-  Hypothesis n_pow2 : exists e : Z, n = two_p e.
-  
+      Ltac crush_rotate := 
+        first [apply rotate_l1 | apply rotate_l2 | apply rotate_l3 | apply rotate_l4 | apply rotate_l5 | apply rotate_l6 | apply rotate_l7 |
+               apply rotate_l8 | apply rotate_l9].
+      eapply rule_conseq; try crush_rotate.
+      eapply rule_seq; [crush_rotate | ].
+      eapply rule_conseq_pre; [| crush_rotate] .
+      eapply rule_seq; [crush_rotate|].
+      eapply rule_seq; [crush_rotate|crush_rotate].
+    Qed.
 
-
-  Definition preP :=
-    (tid 
-  Definition preP_tid (i : Fin.t ntrd) := 
-    (tid === Z_of_fin i //\\
-    (arr + Z_of_fin i) -->p (1%Qc, f (nat_of_fin i)))%assn.
-
-End Fold.
+    Lemma rotate_par : CSLp ntrd E Pre rotate Post.
+    Proof.
+      eapply rule_par.
+      - destruct ntrd as [|n']; try (exists n'; auto).
+        inversion ntrd_gt_0.
+      - apply bpre_lassn.
+      - apply barrier_wf.
+      - apply presice_bc.
+      - apply pre_sat.
+      - apply post_sat.
+      - apply prei_lassn.
+      - apply posti_lassn.
+      - apply typing_rotate.
+      - apply rotate_seq.
+    Qed.
+  End Rotate.
+End Example.
