@@ -4,7 +4,6 @@ Require Import MyVector.
 Require Import List.
 Require Import ZArith.
 
-Add LoadPath "./vlib".
 Require Import Lang.
 
 Set Implicit Arguments.
@@ -282,7 +281,7 @@ Section Example.
           specialize (Hgf (Fin.FS i)); rewrite Heq', Hg1 in Hgf; inversion Hgf; apply inj_pair2 in H3;
           congruence.
           rewrite <-Heq'; rewrite Hgf; eauto. }
-        eapply (IHm _ _ _ _ f' g' H H2 Heq Hsat2).
+        apply (IHm _ _ _ _ f' g' H H2 Heq Hsat2).
     Qed.
 
     Lemma fin_dec (n : nat) (P : Fin.t n -> Prop) (P_dec : forall i : Fin.t n, {P i} + {~ P i}):
@@ -408,7 +407,6 @@ Section Example.
         | S n => fun v => vec_n1 (Vector.append (Vector.tl v) [Vector.hd v])
       end v.
 
-
     Import VectorNotations.
     Lemma rotate1_0th (T : Type) (m : nat) (v : Vector.t T m) (x : T) :
       Vector.last (rotate1 (x :: v)) =  x.
@@ -491,7 +489,7 @@ Section Example.
         inversion IHn; eauto.
     Qed.
     
-    Lemma fin_of_nat_lt_inv1 (n m : nat) (H : (n < m)%coq_nat) :
+    Lemma fin_of_nat_lt_inv1 (n m : nat) (H : (n < m)%nat) :
       proj1_sig (Fin.to_nat (Fin.of_nat_lt H)) = n.
     Proof.
       revert m H; induction n; simpl; intros m H.
@@ -529,7 +527,7 @@ Section Example.
           destruct (Fin.to_nat i'), (Fin.to_nat t); simpl in *; congruence.
       - right.
         assert (m <= fin_to_nat i).
-        { destruct e as [? H]; rewrite H. apply len_addr. }
+        { destruct e as [? H]; rewrite H; omega. }
         destruct e as [m' Heq].
         assert (m' < n)%nat.
         { unfold fin_to_nat in Heq.
@@ -538,13 +536,13 @@ Section Example.
           simpl in Heq.
           rewrite Heq in Hni.
           apply plus_lt_reg_l in Hni.
-          apply ltn_correct; eauto. }
-        remember (Fin.of_nat_lt (ltn_complete H0)) as x.
+          omega. }
+        remember (Fin.of_nat_lt H0) as x.
         exists x.
         rewrite Heqx. 
         unfold fin_to_nat at 1.
         rewrite fin_of_nat_lt_inv1.
-        rewrite Heq, addnC; eauto.
+        omega.
     Qed.
 
     Lemma append_nth1 (T : Type) (n m : nat) (i : Fin.t (n + m)) (j : Fin.t n) 
@@ -562,9 +560,9 @@ Section Example.
            simpl in Heq; inversion Heq).
       apply IHn.
       unfold fin_to_nat.
-      case_eq (Fin.to_nat i'); move=> ni Heqni Heqi.
+      case_eq (Fin.to_nat i'); intros ni Heqni Heqi.
       rewrite Heqi in Heq; simpl in Heq.
-      case_eq (Fin.to_nat j'); move=> nj Heqnj Heqj.
+      case_eq (Fin.to_nat j'); intros nj Heqnj Heqj.
       rewrite Heqj in Heq; simpl in Heq.
       unfold plus; rewrite Heqi; simpl; congruence.
     Qed.
@@ -591,10 +589,10 @@ Section Example.
     Proof.
       intros Heq; induction n as [|n'].
       - rewrite (vinv0 xs); simpl in *; eauto.
-        rewrite addn0 in Heq; rewrite (fin_to_nat_eq Heq); eauto.
+        rewrite <-plus_n_O in Heq; rewrite (fin_to_nat_eq Heq); eauto.
       - destruct (vinvS xs) as (x & xs' & ?), (finvS i) as [? | [i' ?]]; subst; simpl.
-        + rewrite addnC in Heq; unfold fin_to_nat in Heq; simpl in Heq; inversion Heq.
-        + apply IHn'; rewrite addnC in *.
+        + rewrite plus_comm in Heq; unfold fin_to_nat in Heq; simpl in Heq; inversion Heq.
+        + apply IHn'; rewrite plus_comm in *.
           unfold fin_to_nat in *; simpl in Heq.
           unfold plus in *. destruct (Fin.to_nat i'); simpl in *; inversion Heq; eauto.
     Qed.
@@ -635,7 +633,7 @@ Section Example.
           assert (' Pos.of_succ_nat ni = (Z.of_nat ni + 1) mod ' Pos.of_succ_nat n')%Z.
           { assert (' Pos.of_succ_nat n' <> 0)%Z as Hgt.
             rewrite Zpos_P_of_succ_nat; omega.
-            rewrite (iffRL (Z.mod_small_iff _ _ Hgt)); rewrite Zpos_P_of_succ_nat; omega. }
+            rewrite (proj2 (Z.mod_small_iff _ _ Hgt)); rewrite Zpos_P_of_succ_nat; omega. }
           rewrite H0; reflexivity.
         + rewrite (append_nth2 (j := tid')); eauto.
           destruct (finvS tid') as [? | [i' ?]]; subst; [|inversion i']; simpl.
@@ -726,7 +724,7 @@ Section Example.
         cutrewrite (proj1_sig (Fin.to_nat (fin_rev i)) = proj1_sig (Fin.to_nat (fin_rev (Fin.FS i))));           eauto.
         unfold fin_rev; simpl. destruct (Fin.to_nat i).
         rewrite !fin_of_nat_lt_inv1.
-        rewrite (addnC (S x) 1); simpl; omega.
+        rewrite (plus_comm (S x) 1); simpl; omega.
     Qed.
 
     Definition frotate1 (n : nat) (i : Fin.t n) : Fin.t n.
@@ -762,7 +760,7 @@ Section Example.
     Qed.
 
     Lemma is_array_eq (n : nat) (f g : nat -> Z) (e : exp) :
-      (forall x, (x < n)%coq_nat -> f x = g x) -> (is_array e n f |= is_array e n g).
+      (forall x, (x < n)%nat -> f x = g x) -> (is_array e n f |= is_array e n g).
     Proof.
       induction n; intros H; [simpl; firstorder|].
       simpl; intros s h (ph1 & ph2 & Hpt & Hr & ? & ?).
@@ -902,7 +900,7 @@ Section Example.
       - rewrite phplus_comm; eauto.
     Qed.
 
-    Hypothesis ntrd_gt_0 : (0 < ntrd)%coq_nat.
+    Hypothesis ntrd_gt_0 : (0 < ntrd)%nat.
 
     Lemma post_sat : (Aistar_v (init Post_i) |= Post).
     Proof.
@@ -917,8 +915,8 @@ Section Example.
           simpl; cutrewrite (ntrdZ - 1 + 1 = ntrdZ)%Z; [|omega].
           rewrite Z.mod_same; omega. }
         assert ((-1 mod ntrdZ)%Z = Z.of_nat (ntrd - 1)) as Heq; [|simpl; rewrite Heq; clear Heq; eauto].
-        { rewrite <-Zplus_mod_same.
-          cutrewrite ((-1 + ntrdZ) = ntrdZ - 1)%Z; [|omega].
+        { rewrite <-(Z_mod_plus _ 1 ntrdZ)%Z; [|omega].
+          cutrewrite ((-1 + 1 * ntrdZ) = ntrdZ - 1)%Z; [|omega].
           rewrite Zmod_small; [|omega].
           rewrite Nat2Z.inj_sub; simpl; omega. }
       - rewrite Zmod_small in Hsat; [|omega].
