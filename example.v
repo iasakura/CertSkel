@@ -35,13 +35,6 @@ Section Example.
   Open Scope exp_scope.
   Open Scope bexp_scope.
 
-  Fixpoint is_array (e : exp) (n : nat) (f : nat -> Z) :=
-    match n with
-      | 0 => Aemp
-      | S n' => Astar (Apointsto 1%Qc (e + Enum (Z.of_nat n')) (Enum (f n')))
-                      (is_array e n' f)
-    end.
-
   Bind Scope assn_scope with assn.
   Notation "P '//\\' Q" := (fun s h => P s h /\ Q s h) (at level 80, right associativity).
   Notation "P1 ** P2" := (Astar P1 P2) (at level 70, right associativity).
@@ -55,11 +48,19 @@ Section Example.
   Notation "!( P )" := (Emp //\\ P).
   Delimit Scope assn_scope with assn.
 
+  Fixpoint is_array (e : exp) (n : nat) (f : nat -> Z) :=
+    match n with
+      | 0 => Aemp
+      | S n' => e + Enum (Z.of_nat n') -->p (1%Qc, Enum (f n')) **
+                is_array e n' f
+    end.
+
   Definition nat_of_fin (i : Fin.t ntrd) : nat := proj1_sig (Fin.to_nat i).
   Definition Z_of_fin (i : Fin.t ntrd) : Z := Z.of_nat (nat_of_fin i).
 
   Section Rotate.
     Notation ntrdZ := (Z_of_nat ntrd).
+
     Definition rotate := 
       X ::= [Evar ARR + Evar TID] ;;
       Cbarrier 0 ;;
@@ -69,8 +70,10 @@ Section Example.
         Y ::= Evar TID + Enum 1%Z
       ) ;;
       [Evar ARR + Evar Y] ::= Evar X.
+
     Definition Pre := is_array (Evar ARR) ntrd (fun i => Z.of_nat i).
     Definition Post := is_array (Evar ARR) ntrd (fun i : nat => (Z.of_nat i - 1) mod ntrdZ)%Z.
+
     Definition Pre_i (i : Fin.t ntrd) := 
       (Evar ARR + Enum (Z_of_fin i)  -->p (1%Qc, Enum (Z_of_fin i)))%assn.
     Definition Post_i (i : Fin.t ntrd) := 
@@ -90,14 +93,14 @@ Section Example.
     Lemma pre_lassn (tid : Fin.t ntrd) : low_assn E (bpre tid).
     Proof.
       unfold low_assn, Bdiv.low_assn, indeP, bpre, low_eq, E in *; intros s1 s2 h Hleq; simpl.
-      cutrewrite (s1 4%Z = s2 4%Z); [| apply Hleq; simpl; eauto].
-      split; intros H x; eauto.
+      rewrite Hleq; simpl; eauto.
+      split; intros x H; eauto.
     Qed.
 
     Lemma post_lassn (tid : Fin.t ntrd) : low_assn E (bpost tid).
     Proof.
       unfold low_assn, Bdiv.low_assn, indeP, bpost, low_eq, E in *; intros s1 s2 h Hleq; simpl.
-      cutrewrite (s1 4%Z = s2 4%Z); [| apply Hleq; simpl; eauto].
+      rewrite Hleq; simpl; eauto.
       split; intros H x; eauto.
     Qed.
 
@@ -142,6 +145,7 @@ Section Example.
     Proof.
       cutrewrite (fst default = snd default); [tauto | unfold default; eauto].
     Qed.
+
     Import VectorNotations.
     Lemma swap_wf : 
       forall (m : nat) (s : stack) (h : pheap) (p : assn) (ps : Vector.t assn m) (i : Fin.t m),
@@ -783,8 +787,6 @@ Section Example.
           rewrite H5; eauto.
         + simpl. rewrite padd_assoc; try rewrite H5; eauto.
     Qed.
-
-
     
     Section VectorNotation.
       Import VectorNotations.
