@@ -98,7 +98,7 @@ Section SeqCSL.
     induction 1; try (left; now eauto).
     - destruct IHred as [ ? | [x [ v [Hin Heq] ]] ]; [tauto | right].
       exists x, v; split; eauto.
-      apply In_app; eauto.
+      apply in_app_iff; eauto.
     - right; exists x, (edenot e s); split; [constructor | subst]; eauto.
     - right; exists x, v; split; [constructor | subst]; eauto.
     - left; subst; eauto.
@@ -122,11 +122,11 @@ Section SeqCSL.
     c1 / st1 ==>s c2 / st2 -> forall x, In x (writes_var c2) -> In x (writes_var c1).
   Proof.
     induction 1; simpl; eauto.
-    - intros x H'; specialize (IHred x); apply In_app; apply In_app in H'; tauto.
-    - intros x H; apply In_app; tauto.
-    - intros x H; apply In_app; tauto.
-    - intros x H; apply In_app in H; destruct H.
-      + apply In_app in H; tauto.
+    - intros x H'; specialize (IHred x); apply in_app_iff. apply in_app_iff in H'; tauto.
+    - intros x H; apply in_app_iff; tauto.
+    - intros x H; apply in_app_iff; tauto.
+    - intros x H; apply in_app_iff in H; destruct H.
+      + apply in_app_iff in H; tauto.
       + inversion H.
   Qed.
 
@@ -135,7 +135,7 @@ Section SeqCSL.
   Proof.
     revert j c2; induction c1; simpl; try now inversion 1.
     intros j c2; destruct (wait c1_1) as [[? ?]|]; intros H; inversion H; inversion H2.
-    simpl; intros x H'; apply In_app in H'; apply In_app.
+    simpl; intros x H'; apply in_app_iff in H'; apply in_app_iff.
     specialize (IHc1_1 n c eq_refl x); tauto.
   Qed.
 
@@ -240,7 +240,7 @@ Section SeqCSL.
     CSL P C Q -> inde R (writes_var C) ->
     CSL (Astar P R) C (Astar Q R).
   Proof.
-    unfold CSL; intuition. ins. des. 
+    unfold CSL; intuition. simpl in *; eauto; intros. destruct H1 as (? & ? & ? & ? & ? & ?).
     cutrewrite (ph = phplus_pheap H3); [|destruct ph; apply pheap_eq; eauto].
     apply safe_frame; eauto.
   Qed.
@@ -252,10 +252,16 @@ Section SeqCSL.
       safe_nt m C s h Q.
   Proof.
     unfold safe_nt.
-    induction [C s n h OK] m; ins.
-    destruct n; clarify; simpls; des; repeat split; ins.
-    exploit OK3; eauto; ins; des; eauto 10.
-    exploit OK4; eauto; ins; des; eauto 10.
+    intros n C s h Q OK m; revert C s n h OK; induction m; simpl in *; eauto; intros.
+    destruct n; simpl in *; eauto; intuition; try omega; repeat split; simpl in *; eauto; intros.
+    - refine ((fun x y => y x) (H3 _ _ _ _ _ _ _) _); eauto; simpl in *; eauto; intros;
+      destruct x0 as (? & ? & ? & ? & ? & ?).
+      exists x, x0; repeat split; eauto.
+      assert (m <= n) by omega; eauto.
+    - refine ((fun x y => y x) (H5 _ _ _) _); eauto; simpl in *; eauto; intros;
+      destruct x0 as (? & ? & ? & ? & ? & ?).
+      repeat eexists; eauto.
+      assert (m <= n) by omega; eauto.
   Qed.
 
   Lemma safe_seq : forall (n : nat) (C C2 : cmd) (s : stack) (ph : pheap) (Q R : assn),
@@ -297,7 +303,8 @@ Section SeqCSL.
     CSL (Aconj P (Apure (Bnot B))) C2 Q ->
     CSL P (Cif B C1 C2) Q.
   Proof.
-    unfold CSL, safe_nt; intuition; destruct n; [simpl; eauto|]; ins; intuition; des.
+    unfold CSL, safe_nt; intuition; destruct n; [simpl; eauto|]; simpl in *; eauto; intros;
+    intuition.
     - inversion H2.
     - inversion H4.
     - unfold access_ok; simpl; eauto.
@@ -312,20 +319,32 @@ Section SeqCSL.
       safe_nt n (Cwhile B C) s h (Aconj P (Apure (Bnot B))).
   Proof.
     unfold safe_nt.
-    intros; revert s h SAT_P; generalize (lenn n); generalize n at -2 as m.
-    induction[] n [m]; ins; intuition; desf; [by inv H2|].
-    inv H2; repeat eexists; eauto; simpl.
+    intros; revert s h SAT_P. 
+    assert (lenn : n <= n) by omega; revert lenn; generalize n at -2 as m.
+    induction n; simpl in *; eauto; intros; intuition. (* desf; [by inv H2|]*)
+    { destruct m; inversion lenn; simpl; eauto. }
+(*    inv H2; repeat eexists; eauto; simpl.
     destruct m; ins; intuition; desf; [by inv H5|].
-    inv H5; repeat eexists; eauto; simpls.
-    - eapply safe_seq; [eapply OK| ]; simpls. unfold safe_nt; eauto using len_trans.
-    - apply safe_skip; simpl; rewrite B0; split; eauto.
+    inv H5; repeat eexists; eauto; simpls.*)
+    inversion lenn; subst; [|apply IHn; eauto].
+    simpl; repeat split; eauto; try congruence.
+    intros; intros Hc; inversion Hc.
+    intros hF h0 c' ss' hdis htoh hred.
+    inversion hred; subst.
+    exists h0, h; repeat split; eauto; simpl.
+    destruct n; simpl; repeat split; eauto; intros; try congruence.
+    intros Hc; inversion Hc.
+    inversion H1; subst; repeat eexists; eauto.
+    - eapply safe_seq; simpl; eauto; intros; apply IHn; try omega; eauto.
+    - eapply safe_skip; repeat split; simpl in *; eauto.
+      rewrite B0; eauto.
   Qed.
 
   Lemma rule_while P B C :
     CSL (Aconj P (Apure B)) C P ->
     CSL P (Cwhile B C) (Aconj P (Apure (Bnot B))).  
   Proof.
-    unfold CSL, safe_nt; ins; intuition; eapply safe_while; unfold CSL; eauto.
+    unfold CSL, safe_nt; intros; intuition; eapply safe_while; unfold CSL; eauto.
   Qed.
 
   Section For_Vector_Notation.
@@ -490,9 +509,13 @@ Section SeqCSL.
     forall n C s h (Q : assn) (OK: safe_nt n C s h Q) (Q' : assn) (IMP: Q |= Q'),
       safe_nt n C s h Q'.
   Proof.
-    unfold safe_nt; induction n; ins; intuition.
-    exploit H3; eauto; ins; desf; repeat eexists; eauto.
-    exploit H5; eauto; ins; desf; repeat eexists; eauto.
+    unfold safe_nt; induction n; intros; intuition.
+    simpl in *; intuition; repeat split; eauto.
+    refine ((fun x y => y x) (H3 _ _ _ _ _ _ _) _); eauto; intros.
+    destruct x0 as (? & ? & ? & ? & ? & ?); repeat eexists; eauto.
+    rewrite H8; eauto.
+    refine ((fun x y => y x) (H5 _ _ _ ) _); eauto; intros.
+    destruct x0 as (? & ? & ? & ? & ? & ?); repeat eexists; eauto.
   Qed.
 
   Theorem rule_conseq (P : assn) C (Q P' Q' : assn) :
@@ -505,7 +528,7 @@ Section SeqCSL.
     CSL P1 C Q1 -> CSL P2 C Q2 ->
     CSL (Adisj P1 P2) C (Adisj Q1 Q2).
   Proof.
-    unfold CSL; ins; intuition; eapply safe_conseq; eauto; vauto.
+    unfold CSL; intros; intuition; eapply safe_conseq; eauto; eauto.
   Qed.
 End SeqCSL.
 
@@ -803,7 +826,8 @@ Section ParCSL.
   Theorem rule_par (Ps : Vector.t assn ntrd) (Qs : Vector.t assn ntrd) 
           (P : assn) (c : cmd) (Q : assn) (ty : type):
     (P |= Aistar_v Ps) -> (Aistar_v Qs |= Q) ->
-    (forall tid, low_assn E Ps[@tid]) -> (forall tid, low_assn E Qs[@tid]) ->
+    (forall tid, low_assn E Ps[@tid]) -> 
+    (forall tid, low_assn E Qs[@tid]) ->
     typing_cmd E c ty ->
     (forall tid : Fin.t ntrd, 
        CSL bspec tid 
@@ -819,14 +843,15 @@ Section ParCSL.
     destruct (aistar_disj Hsat) as [prehs [Hdisj Hsati]].
     assert (forall tid, Bdiv.sat ((Vector.map (fun s => snd s) ks)[@tid], prehs[@tid]) Ps[@tid]) as
         Hsat'.
-    { intros tid; apply ((HlowP tid) (Vector.map [eta snd (B:=stack)] ks)[@tid] s _ (Hlows tid));
+    { intros tid; (*simpl; erewrite Vector.nth_map; eauto.*)
+      apply ((HlowP tid) (Vector.map (snd (B:=stack)) ks)[@tid] s _ (Hlows tid));
       eauto. }
     apply (safe_par (hs := prehs) (Qs := Qs)); eauto.
     - intros tid; specialize (Hsafei tid); specialize (Hsat' tid); erewrite !Vector.nth_map in *; 
       eauto.
       rewrite Heqc; apply Hsafei.
       erewrite Vector.nth_map in Hsat'; eauto.
-    - exists (ks, h), prehs, (Vector.map [eta snd (B:=stack)] ks), c, ty; repeat split; eauto.
+    - exists (ks, h), prehs, (Vector.map (snd (B:=stack)) ks), c, ty; repeat split; eauto.
       + apply rt1n_refl. 
       + unfold get_cs_k; simpl; intros tid; erewrite Vector.nth_map; eauto.
       + intros tid; unfold safe_aux; exists Qs[@tid]; intros n'.

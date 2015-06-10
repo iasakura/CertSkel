@@ -121,7 +121,7 @@ Lemma red_det (c c1 c2 : cmd) (st st1 st2 : state) :
   c1 = c2 /\ st1 = st2.
 Proof.
   intros red1 red2.
-  induction [c2 st2 red2]red1; intros c2' st2 red2; try (inversion red2; subst; split; congruence).
+  revert c2 st2 red2; induction red1; intros c2' st2 red2; try (inversion red2; subst; split; congruence).
   - inversion red2; subst; eauto.
     inversion R.
   - inversion red2; subst.
@@ -213,6 +213,12 @@ Proof.
     contradict naborts; constructor; simpl; destruct (hdis1 (edenot e1 s1)); congruence.
 Qed.
 
+Fixpoint disjoint_list A (l : list A) :=
+  match l with
+    | nil => True
+    | x :: l => ~ In x l /\ disjoint_list l
+  end.
+
 Definition wf_cmd c := disjoint_list (barriers c).
 
 Module PLang.
@@ -285,26 +291,26 @@ Module PLang.
         repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end).
       destruct (Z.eq_dec x x); try tauto.
       rewrite have1 in *.
-      destruct (phF x) as [[pF vF]|]; des.
-      + apply Qcle_minus_iff in pd3.
-        cutrewrite (1 + -(full_p + pF) = -pF) in pd3; [|unfold full_p; field].
-        apply Qcopp_le_compat in pd3; ring_simplify in pd3.
-        apply Qcle_not_lt in pd3; tauto.
+      destruct (phF x) as [[pF vF]|]; intuition.
+      + apply Qcle_minus_iff in H8.
+        cutrewrite (1 + -(full_p + pF) = -pF) in H8; [|unfold full_p; field].
+        apply Qcopp_le_compat in H8; ring_simplify in H8.
+        apply Qcle_not_lt in H8; tauto.
       + destruct (ph2 x) as [[p2 v2]|]; try congruence.
-        des; congruence.
+        intuition; congruence.
     - unfold is_pheap, pdisj, ptoheap, upd, phplus in *;
       repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H y) end).
       destruct (Z.eq_dec y x); [symmetry in e; tauto |].
-      destruct (ph1 y) as [[? ?]|], (phF y) as [[? ?]|], (ph2 y) as [[? ?]|]; des; 
+      destruct (ph1 y) as [[? ?]|], (phF y) as [[? ?]|], (ph2 y) as [[? ?]|]; intuition; 
       try congruence.
-      apply Q1 in toh1; apply Q1 in toh2.
-      destruct (h y) as [? | ]; inversion toh0; inversion toh3; congruence.
-      rewrite toh2 in toh1.
-      assert (q + full_p - full_p = full_p - full_p) by (rewrite toh1; ring).
-      ring_simplify in H; rewrite H in h1; inversion h1.
-      rewrite toh1 in toh2.
-      assert (q0 + full_p - full_p = full_p - full_p) by (rewrite toh2; ring).
-      ring_simplify in H; rewrite H in h2; inversion h2.
+      apply Q1 in H9; apply Q1 in H11.
+      destruct (h y) as [? | ]; inversion H12; inversion H10; congruence.
+      rewrite H7 in H5.
+      assert (q + full_p - full_p = full_p - full_p) by (rewrite H5; ring).
+      ring_simplify in H4; rewrite H4 in H; inversion H.
+      rewrite H5 in H7.
+      assert (q0 + full_p - full_p = full_p - full_p) by (rewrite H7; ring).
+      ring_simplify in H4; rewrite H4 in H; inversion H.
   Qed.
 
   Lemma red_p_det (c c1 c2 : cmd) (st st1 st2 : pstate) :
@@ -319,7 +325,7 @@ Module PLang.
     destruct red2 as
         [c2 c2' st2 st2' pst2 pst2' s2 s2' ph2 ph2' phF2 h2 h2' eq2 eq2' 
             peq2 peq2' aok2 wok2 dis2 to2 red2 dis2' to2'].
-    induction [c2' red2]red1; intros c2' red2; 
+    revert c2' red2; induction red1; intros c2' red2; 
     try (inversion red2; subst; 
          repeat (match goal with [H : (_, _) = (_, _) |- _ ] => inversion H; subst; clear H end);
          simpl in *; try congruence;
@@ -353,7 +359,7 @@ Module PLang.
       repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H vad) end).
       unfold phplus in *.
       rewrite Hv in *.
-      destruct (this phF1 vad) as [[? ?] | ], (this phF2 vad) as [[? ?] | ]; des; try congruence.
+      destruct (this phF1 vad) as [[? ?] | ], (this phF2 vad) as [[? ?] | ]; intuition; try congruence.
     - inversion red2; subst.
       split; eauto.
       assert (s1' = s2') by congruence; subst.
@@ -374,7 +380,7 @@ Module PLang.
     c1 / pst1 ==>p c2 / pst2 ->
     pdisj hF (snd pst1) -> pdisj hF (snd pst2).
   Proof.
-    intros hred; move: hF; case hred.
+    intros hred; revert hF; case hred.
     clear c1 c2 pst1 pst2 hred; 
     intros c1 c2 st1 st2 pst1 pst2 s1 s2 ph1 ph2 phF h1 h2 hst1 hst2 hpst1 hpst2 haok hwok 
            hdis1 htoh1 hred_s hdis2 htoh2 hF hdisF.
@@ -401,7 +407,7 @@ Module PLang.
     exists (ph2 : pheap),
       pdisj ph2 hF /\ ptoheap (phplus ph2 hF) (snd st2).
   Proof.
-    intros red1; move: pst1 hF; induction red1; intros pst1 hF hst hdis1 hto1 haok hwok;
+    intros red1; revert pst1 hF; induction red1; intros pst1 hF hst hdis1 hto1 haok hwok;
     try (exists (snd pst1); subst; simpl; try destruct ss; split; tauto).
     - eapply IHred1; eauto.
     - subst; rewrite hst in *; unfold access_ok, write_ok in *; simpl in *.
@@ -482,11 +488,11 @@ Module BigStep.
   Lemma red1_eval (c1 c2 : cmd) (st1 st2 : pstate) (st : pstate) : 
     c1 / st1 ==>p c2 / st2 -> c2 / st2 || None / st -> c1 / st1 || None / st.
   Proof.
-    move=> H IH.
+    intros H IH.
     destruct H as
         [c c' st' st'' pst pst' s s' ph ph' phF h h' eq eq' 
             peq peq' aok wok dis to red dis' to'].
-    induction [st IH]red; ins; subst; 
+    revert st IH; induction red; intros; simpl in *; eauto; intros; subst; 
     repeat (match goal with [H : (_, _) = (_, _) |- _ ] => inversion H; subst; clear H end); 
     try assert (ph = ph') by (eapply phplus_cancel_toheap; eauto); subst;
     try (constructor; tauto).
@@ -525,9 +531,9 @@ Module BigStep.
     assert (st = snd s) as h by (rewrite Heqs; tauto); rewrite h; clear h.
     assert (st' = snd s') as h by (rewrite Heqs'; tauto); rewrite h; clear h.
     clear Heqs.
-    induction [Heqs'] H.
-    - move=>->; simpl; apply eval_Skip.
-    - move/IHclos_refl_trans_1n=>IH; clear IHclos_refl_trans_1n.
+    revert Heqs'; induction H.
+    - intros H; rewrite H; clear H; simpl; apply eval_Skip.
+    - intros Hz; apply IHclos_refl_trans_1n in Hz.
       clear H0.
       eapply red1_eval; eauto.
   Qed.
@@ -544,22 +550,22 @@ Module BigStep.
     assert (st = snd s) as h by (rewrite Heqs; tauto); rewrite h; clear h.
     assert (st' = snd s') as h by (rewrite Heqs'; tauto); rewrite h; clear h.
     clear Heqs.
-    induction [Heqs'] hs.
+    revert Heqs'; induction hs.
     - intros ->.
-      induction [c'' j hwait]c'; move=> c'' j' hwait; inversion hwait.
+      revert c'' j hwait; induction c'; intros c'' j' hwait; inversion hwait.
       + destruct (wait c'1); eauto.
         * destruct p as (j'', c'); simpl in *.
           apply eval_Seq1.
           now apply IHc'1.
         * inversion H0.
       + apply eval_Barrier.
-    - move=>->; simpl in *.
+    - intros ->; simpl in *.
       assert ((c', st') = (c', st')) as IH by eauto; apply IHhs in IH; clear IHhs; simpl in *.
       clear hs hwait c' c st.
       unfold red_p_tup in H.
       destruct H as [c c' stp' stp'' pst pst' s s' ph ph' phF h h' eq eq' 
                      peq peq' aok wok dis to red dis' to'].
-      induction [c'' IH]red; ins; subst; try inversion eq'; subst;
+      revert c'' IH; induction red; simpl in *; eauto; intros; subst; try inversion eq'; subst;
       try assert (ph = ph') by (eapply phplus_cancel_toheap; eauto); subst;
       try (econstructor; tauto).
       + eapply eval_Seq2; [apply eval_Skip | eauto ].
@@ -813,85 +819,85 @@ Section NonInter.
   Proof.
     intros htng hcomp ev1 ev2.
     revert hcomp ev2; generalize st2 st2' t2; clear st2 st2' t2; induction ev1;
-    intros st2 st2' t2 hcomp ev2; unfold st_compat in *; des.
-    - inversion ev2; split; [eauto | split; subst; eauto].
+    intros st2 st2' t2 hcomp ev2; unfold st_compat in *.
+    - inversion ev2; repeat split; subst; intuition eauto.
     - inversion htng; subst.
       inversion ev2; subst.
-      + pose proof (IHev1 H1 _ _ _ (conj hcomp hcomp0) H6) as H; clear IHev1; rename H into IHev1.
+      + pose proof (IHev1 H1 _ _ _ hcomp H6) as H; clear IHev1; rename H into IHev1.
         destruct IHev1 as [hteq ?]; split; eauto.
         inversion hteq; subst; eauto.
-      + pose proof (IHev1 H1 _ _ _ (conj hcomp hcomp0) H2) as H; clear IHev1; rename H into IHev1.
+      + pose proof (IHev1 H1 _ _ _ hcomp H2) as H; clear IHev1; rename H into IHev1.
         destruct IHev1 as [H ?]; inversion H.
     - inversion htng; subst.
       inversion ev2; subst.
-      + pose proof (IHev1_1 H1 _ _ _ (conj hcomp hcomp0) H6) as [H ?]; inversion H.
-      + pose proof (IHev1_1 H1 _ _ _ (conj hcomp hcomp0) H2) as [_ hcomp'].
+      + pose proof (IHev1_1 H1 _ _ _ hcomp H6) as [H ?]; inversion H.
+      + pose proof (IHev1_1 H1 _ _ _ hcomp H2) as [_ hcomp'].
         apply (IHev1_2 H3 _ _ _ hcomp' H7).
     - inversion htng; subst.
       rename H3 into htngb, H5 into htng1, H6 into htng2.
       inversion ev2; subst.
       + destruct ty0.
         * assert (join ty Hi = Hi) as Hr by (destruct ty; eauto); rewrite Hr in *; clear Hr.
-          eapply (non_interference_hi2 htng1 htng1 (conj hcomp hcomp0) ev1 H7).
-        * destruct ty; [eapply (non_interference_hi2 htng1 htng1 (conj hcomp hcomp0) ev1 H7)|].
-          apply (IHev1 htng1 _ _ _ (conj hcomp hcomp0)); eauto.
+          eapply (non_interference_hi2 htng1 htng1 hcomp ev1 H7).
+        * destruct ty; [eapply (non_interference_hi2 htng1 htng1 hcomp ev1 H7)|].
+          apply (IHev1 htng1 _ _ _ hcomp); eauto.
       + destruct ty0.
         * assert (join ty Hi = Hi) as Hr by (destruct ty; eauto); rewrite Hr in *; clear Hr.
-          eapply (non_interference_hi2 htng1 htng2 (conj hcomp hcomp0) ev1 H7).
-        * destruct ty; [eapply (non_interference_hi2 htng1 htng2 (conj hcomp hcomp0) ev1 H7)|].
-          pose proof (low_eq_eq_bexp hcomp htngb); congruence.
+          eapply (non_interference_hi2 htng1 htng2 hcomp ev1 H7).
+        * destruct ty; [eapply (non_interference_hi2 htng1 htng2 hcomp ev1 H7)|].
+          pose proof (low_eq_eq_bexp (proj1 hcomp) htngb); congruence.
     - inversion htng; subst.
       rename H3 into htngb, H5 into htng1, H6 into htng2.
       inversion ev2; subst.
       + destruct ty0.
         * assert (join ty Hi = Hi) as Hr by (destruct ty; eauto); rewrite Hr in *; clear Hr.
-          eapply (non_interference_hi2 htng2 htng1 (conj hcomp hcomp0) ev1 H7).
-        * destruct ty; [eapply (non_interference_hi2 htng2 htng1 (conj hcomp hcomp0) ev1 H7)|].
-          pose proof (low_eq_eq_bexp hcomp htngb); congruence.
+          eapply (non_interference_hi2 htng2 htng1  hcomp ev1 H7).
+        * destruct ty; [eapply (non_interference_hi2 htng2 htng1 hcomp ev1 H7)|].
+          pose proof (low_eq_eq_bexp (proj1 hcomp) htngb); congruence.
       + destruct ty0.
         * assert (join ty Hi = Hi) as Hr by (destruct ty; eauto); rewrite Hr in *; clear Hr.
-          eapply (non_interference_hi2 htng2 htng2 (conj hcomp hcomp0) ev1 H7).
-        * destruct ty; [eapply (non_interference_hi2 htng2 htng2 (conj hcomp hcomp0) ev1 H7)|].
-          apply (IHev1 htng2 _ _ _ (conj hcomp hcomp0)); eauto.
+          eapply (non_interference_hi2 htng2 htng2 hcomp ev1 H7).
+        * destruct ty; [eapply (non_interference_hi2 htng2 htng2 hcomp ev1 H7)|].
+          apply (IHev1 htng2 _ _ _ hcomp); eauto.
     - inversion ev2; subst.
       inversion H4; subst.
       + assert (typing_cmd (Cif b (c;; Cwhile b c) SKIP) ty).
         { inversion htng; subst; repeat (econstructor; eauto).
           destruct ty, ty0; eauto. }
-        apply (IHev1 H _ _ _ (conj hcomp hcomp0) H4).
+        apply (IHev1 H _ _ _ hcomp H4).
       + inversion H7; subst.
         inversion ev1; subst; try (inversion H9; subst; tauto).
         destruct ty; inversion htng; subst.
         * cutrewrite (join Hi ty = Hi) in H3; [|eauto].
-          pose proof (st_compat_sym (conj hcomp hcomp0)).
+          pose proof (st_compat_sym hcomp).
           assert (typing_cmd (c ;; Cwhile b c) Hi) by (econstructor; eauto).
           pose proof (non_interference_hi H0 H H9).
           destruct H2 as [? H']; split; [eauto | apply (st_compat_sym H')].
         * destruct ty.
           { assert (typing_cmd (Cwhile b c) Hi) by (econstructor; eauto).
             assert (typing_cmd (c;; Cwhile b c) Hi) by (econstructor; eauto).
-            pose proof (non_interference_hi H0 (st_compat_sym (conj hcomp hcomp0)) H9).
+            pose proof (non_interference_hi H0 (st_compat_sym hcomp) H9).
             destruct H2 as [? H']; split; [eauto | apply (st_compat_sym H')]. }
-          pose proof (low_eq_eq_bexp hcomp H1); congruence.
-    - inversion ev2; subst; simpl in *; repeat split; eauto.
+          pose proof (low_eq_eq_bexp (proj1 hcomp) H1); congruence.
+    - inversion ev2; subst; simpl in *; repeat split; eauto; [|  intuition eauto].
       destruct ty; inversion htng; subst.
-      + inversion H3; apply hi_low_eq; eauto.
+      + inversion H3; apply hi_low_eq; intuition eauto.
         destruct ty, (g x); unfold le_type in *; simpl in *; inversion H3; eauto.
-      + intros y hlo; pose proof (hcomp y hlo); unfold upd; destruct (Z.eq_dec y x); eauto; subst.
-        eapply low_eq_eq_exp; eauto.
+      + intros y hlo; pose proof ((proj1 hcomp) y hlo); unfold upd; destruct (Z.eq_dec y x); eauto; subst.
+        eapply low_eq_eq_exp; intuition eauto.
         destruct ty, (g x); simpl in H3; inversion H3; inversion hlo; eauto.
-    - inversion ev2; subst; simpl in *; repeat split; eauto.
+    - inversion ev2; subst; simpl in *; repeat split; [ | intuition eauto].
       destruct ty; inversion htng; subst.
-      + apply hi_low_eq; eauto.
-        destruct ty, (g x); unfold le_type in *; simpl in *; inversion H4; eauto.
-      + intros y hlo; pose proof (hcomp y hlo); unfold upd; destruct (Z.eq_dec y x); eauto; subst.
+      + apply hi_low_eq; intuition eauto.
+        destruct ty, (g x); unfold le_type in *; simpl in *; inversion H4; intuition eauto.
+      + intros y hlo; pose proof ((proj1 hcomp) y hlo); unfold upd; destruct (Z.eq_dec y x); eauto; subst.
         destruct ty, (g x); simpl in H4; inversion H4; inversion hlo; eauto.
-        assert (edenot e s = edenot e s0) by (apply low_eq_eq_exp; eauto).
+        assert (edenot e s = edenot e s0) by (apply low_eq_eq_exp; intuition eauto).
         rewrite H1 in *.
-        eapply pheap_disj_eq; eauto.
-    - inversion ev2; subst; simpl in *; repeat split; eauto.
-      apply (pheap_disj_disj _ _ hcomp0 H0 H5).
-    - inversion ev2; subst; repeat split; eauto.
+        eapply pheap_disj_eq; intuition eauto.
+    - inversion ev2; subst; simpl in *; repeat split; intuition eauto.
+      apply (pheap_disj_disj _ _ H1 H0 H5).
+    - inversion ev2; subst; repeat split; intuition eauto.
   Qed.
 
   Theorem non_interference_p1 (ty : type) (c : cmd) (st1 st2 st1' st2' : pstate) :
@@ -935,7 +941,7 @@ Section NonInter.
     destruct H as [H' ?]; inversion H'.
   Qed. 
 
-  Lemma weaken_type (ty ty' : type) (c : cmd) : le_type ty' ty -> typing_cmd c ty -> typing_cmd c ty'.
+  Lemma weaken_type (ty ty' : type) (c : cmd) : le_type ty' ty = true -> typing_cmd c ty -> typing_cmd c ty'.
   Proof.
     intros le htyp; revert ty' le; induction htyp; intros ty' hle; try (constructor; eauto).
     - econstructor; eauto. 

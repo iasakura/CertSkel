@@ -301,6 +301,8 @@ Proof.
   eapply padd_cancel; eauto.
 Qed.
 
+Definition heap := Z -> option Z.
+
 Definition ptoheap (ph : pheap') (h : heap) : Prop :=
   forall (x : Z), match ph x with
                     | None => h x = None
@@ -315,14 +317,14 @@ Proof.
   unfold is_pheap, pdisj, phplus, ptoheap in *; extensionality x; simpl in *;
   repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end);
   destruct (ph1 x) as [[? ?] |], (ph2 x) as [[? ?] |];
-  des; eauto; try congruence.
+  intuition; eauto; try congruence.
 Qed.
 
 Lemma pdisj_is_pheap (h1 h2 : pheap) :
   pdisj h1 h2 -> is_pheap (phplus h1 h2).
 Proof.
   intros dis12 x; specialize (dis12 x); specialize (is_p h1 x); specialize (is_p h2 x).
-  unfold phplus; destruct (this h1 x) as [[q1 v1] | ], (this h2 x) as [[q2 v2] | ]; des; eauto.
+  unfold phplus; destruct (this h1 x) as [[q1 v1] | ], (this h2 x) as [[q2 v2] | ]; intuition; eauto.
 Qed.
 
 Definition phplus_pheap (h1 h2 : pheap) (H : pdisj h1 h2) : pheap := Pheap (pdisj_is_pheap H).
@@ -369,7 +371,7 @@ Lemma pheap_disj_eq (h1 h2 : pheap) (v v1 v2 : Z) (q1 q2 : Qc) :
   pdisj h1 h2 -> this h1 v = Some (q1, v1) -> this h2 v = Some (q2, v2) -> v1 = v2.
 Proof.
   intros hdis h1v h2v.
-  specialize (hdis v); rewrite h1v, h2v in hdis; des; eauto.
+  specialize (hdis v); rewrite h1v, h2v in hdis; intuition; eauto.
 Qed.
 
 Lemma pheap_disj_disj (h1 h2 : pheap) (v1 v2 v1' v2' v1'' v2'' : Z) :
@@ -431,7 +433,7 @@ Qed.
 Lemma disj_eq_fun (n : nat) (hs : Vector.t pheap n) (h h' : pheap) :
   disj_eq hs h -> disj_eq hs h' -> h = h'.
 Proof.
-  move: n h h' hs; induction n; intros h h' hs hdis hdis'.
+  revert n h h' hs; induction n; intros h h' hs hdis hdis'.
   - rewrite (vinv0 hs) in *; inversion hdis; inversion hdis'; subst; eauto.
   - destruct (vinvS hs) as [h0 [hs' ?]]; subst; inversion hdis; inversion hdis'; 
     clear hdis hdis'; subst.
@@ -443,7 +445,7 @@ Qed.
 Lemma disj_exclude (n : nat) (hs : Vector.t pheap n) (h h' : pheap) (i : Fin.t n) :
   disj_eq hs h -> disj_eq (replace hs i emp_ph) h' -> pdisj hs[@i] h' /\ this h = phplus hs[@i] h'.
 Proof.
-  move: hs h h' i; induction n; 
+  revert hs h h' i; induction n; 
   intros hs h h' i heq heq'; [inversion i|].
   destruct (vinvS hs) as [h0 [hs0 ?]]; subst.
   inversion heq; inversion heq';  
@@ -465,7 +467,7 @@ Qed.
 
 Lemma disj_weak (n : nat) (hs : Vector.t pheap n) (h h' h'': pheap) (i : Fin.t n) :
   disj_eq hs h -> pdisj h'' h -> disj_eq (replace hs i emp_ph) h' -> pdisj h'' h'.
-  move: h h' h''; generalize dependent n.
+  revert h h' h''; generalize dependent n.
   induction n; intros hs i h h' h'' heq hdis heq'; [inversion i |].
   destruct (vinvS hs) as [h0 [hs0 ?]]; subst.
   destruct (finvS i) as [? | [i' ?]]; subst; simpl in *.
@@ -488,7 +490,7 @@ Qed.
 Lemma disj_exclude_exists (n : nat) (hs : Vector.t pheap n) (h : pheap) (i : Fin.t n) :
   disj_eq hs h -> exists h', disj_eq (Vector.replace hs i emp_ph) h'.
 Proof.
-  move: hs h i; induction n; 
+  revert hs h i; induction n; 
   intros hs h i heq; [inversion i|].
   destruct (vinvS hs) as [h0 [hs0 ?]]; subst.
   inversion heq; 
@@ -521,7 +523,7 @@ Lemma disj_upd (n : nat) (hs : Vector.t pheap n) (i : Fin.t n) (h hq : pheap):
   exists h', 
     disj_eq (replace hs i hq) h' /\ phplus hq h = h'.
 Proof.
-  move: hs h i hq; induction n; 
+  revert hs h i hq; induction n; 
   intros hs h i hq heq hdis; [inversion i|].
   destruct (vinvS hs) as [h0 [hs0 ?]]; subst.
   inversion heq; subst. apply inj_pair2 in H0; subst.
@@ -649,7 +651,7 @@ Lemma disj_eq_sub (n : nat) (hs hs1 hs2 : Vector.t pheap n) (h : pheap):
   exists (h1 h2 : pheap), 
     disj_eq hs1 h1 /\ disj_eq hs2 h2 /\ pdisj h1 h2 /\ phplus h1 h2 = h.
 Proof.
-  move: h; induction n; intros h hdis heq.
+  revert h; induction n; intros h hdis heq.
   - generalize (vinv0 hs), (vinv0 hs1), (vinv0 hs2); intros; subst; repeat eexists; 
     (repeat split); try constructor.
     inversion hdis; subst; unfold emp_ph; simpl; extensionality x; eauto.
@@ -801,6 +803,8 @@ Proof.
   intros Hdis heq; specialize (Hdis x); unfold hplus in *; destruct (h1 x), (h2 x), Hdis;
   try tauto; congruence.
 Qed.
+
+Definition upd A (f: Z -> A) x y a := if Z.eq_dec a x then y else f a.
 
 Lemma hplus_upd (h1 h2 hF : heap) (x : Z) (v : Z) :
   hdisj h1 hF -> hdisj h2 hF -> upd (hplus h1 hF) x (Some v) = hplus h2 hF ->

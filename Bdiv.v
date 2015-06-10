@@ -247,7 +247,7 @@ Section Barrier.
     eapply (aistar_eq heq) in hp.
     apply eq in hp.
     apply aistar_disj in hp.
-    des; repeat eexists; eauto.
+    intuition; repeat eexists; eauto.
   Qed.
 
   Lemma loweq_sat (n : nat) (s : stack) (sts : Vector.t pstate n)
@@ -442,7 +442,7 @@ Section BarrierDivergenceFreedom.
   Lemma replace_nth (T : Type) (n : nat) (i j : Fin.t n) (v : Vector.t T n) (x : T) : 
     (replace v i x)[@j] = if fin_eq_dec i j then x else v[@j].
   Proof.
-    move:v; induction n; [inversion i | ]; intros v.
+    revert v; induction n; [inversion i | ]; intros v.
     destruct (finvS i) as [? | [i' ?]]; subst;
     destruct (finvS j) as [? | [j' ?]]; subst;
     destruct (vinvS v) as [t [v' ?]]; subst; simpl; eauto.
@@ -577,7 +577,7 @@ Section BarrierDivergenceFreedom.
                   pdisj phPs[@tid] phFs[@tid] /\ phplus phPs[@tid] phFs[@tid] = (get_hs pss2)[@tid]) 
         as H'.
         { intros tid; specialize (Hpre tid); split; try tauto.
-          unfold get_hs; erewrite Vector.nth_map; eauto; des; tauto. }
+          unfold get_hs; erewrite Vector.nth_map; eauto; intuition; tauto. }
         destruct (disj_eq_sub hdeq2 H') as [hP [hF [HhP [HhF [hdispf hppf]]]]].
         destruct hty' as [ty hty'].
         set (psspre := Vector.map2 (fun x y => (fst x, y)) pss2 phPs).
