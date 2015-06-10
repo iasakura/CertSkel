@@ -1,0 +1,16 @@
+#+TITLE: GPUCSL TODOまとめ
+* Vafeaidisライブラリに依存しないように書き換え
+* 変数の表現
+** Inductive var := V of Zの方がZと混乱しなくて良さそう
+* *_{i \in Tid} P_iの表現
+** 各iがFin.t nなのはつらい
+* low_assn -> Bdiv.low_assn -> indePのunfoldが鬱陶しい
+* lassnの自動証明
+* ntrdをどう扱うか
+** 1．定数として扱う
+*** ソースコードに埋め込む
+** 2．特殊な局所変数を用意して常にntrdの値を返すようにする
+* VCG作る
+* 分離論理のassertionを証明するためのタクティック
+* P=>*P_i, BSpre(b, i)=>BSpost(b, i), *Q_i=>Q関連
+** 各種補題をライブラリ化
