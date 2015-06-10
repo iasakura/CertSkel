@@ -15,7 +15,7 @@ Require Export ProofIrrelevance.
 Require Export Coq.ZArith.BinInt.
 Require Export String.
 
-Require Export Vbase Varith Vlistbase Vlist Basic.
+(* Require Export Vbase Varith Vlistbase Vlist Basic.*)
 
 Set Implicit Arguments.
 Unset Strict Implicit.

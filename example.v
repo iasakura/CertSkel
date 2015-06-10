@@ -282,7 +282,7 @@ Section Example.
           specialize (Hgf (Fin.FS i)); rewrite Heq', Hg1 in Hgf; inversion Hgf; apply inj_pair2 in H3;
           congruence.
           rewrite <-Heq'; rewrite Hgf; eauto. }
-        eapply (IHm _ _ _ _ f' g' H H2 Heq Hsat2).
+        apply (IHm _ _ _ _ f' g' H H2 Heq Hsat2).
     Qed.
 
     Lemma fin_dec (n : nat) (P : Fin.t n -> Prop) (P_dec : forall i : Fin.t n, {P i} + {~ P i}):
@@ -407,7 +407,6 @@ Section Example.
         | 0 => fun _ => Vector.nil T
         | S n => fun v => vec_n1 (Vector.append (Vector.tl v) [Vector.hd v])
       end v.
-
 
     Import VectorNotations.
     Lemma rotate1_0th (T : Type) (m : nat) (v : Vector.t T m) (x : T) :
