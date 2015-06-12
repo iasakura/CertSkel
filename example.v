@@ -17,11 +17,11 @@ Close Scope Qc_scope.
 Close Scope Q_scope.
 
 Section Example.
-  Notation TID := (0%Z : var).
-  Notation X := (1%Z : var).
-  Notation Y := (2%Z : var).
-  Notation R := (3%Z : var).
-  Notation ARR := (4%Z : var).
+  Notation TID := (Var 0).
+  Notation X := (Var 1).
+  Notation Y := (Var 2).
+  Notation R := (Var 3).
+  Notation ARR := (Var 4).
 
   Variable ntrd : nat.
 
@@ -60,13 +60,16 @@ Section Example.
   Section Rotate.
     Notation ntrdZ := (Z_of_nat ntrd).
 
+    Coercion Evar : var >-> exp.
+    Coercion Enum : Z >-> exp.
+    
     Definition rotate := 
-      X ::= [Evar ARR + Evar TID] ;;
+      X ::= [ARR + TID] ;;
       Cbarrier 0 ;;
-      Cif (Evar TID == Enum (ntrdZ - 1)) (
-        Y ::= Enum 0%Z
+      Cif (TID == (ntrdZ - 1)%Z) (
+        Y ::= 0%Z
       ) (
-        Y ::= Evar TID + Enum 1%Z
+        Y ::= TID + 1%Z
       ) ;;
       [Evar ARR + Evar Y] ::= Evar X.
 
@@ -79,9 +82,9 @@ Section Example.
       (Evar ARR + ((Enum ((Z_of_fin i + 1) mod ntrdZ))%Z)  -->p (1%Qc, Enum (Z_of_fin i)))%assn.
 
     Definition E (var : var) := 
-      if Z.eq_dec var TID then Hi
-      else if Z.eq_dec var X then Hi
-      else if Z.eq_dec var Y then Hi
+      if var_eq_dec var TID then Hi
+      else if var_eq_dec var X then Hi
+      else if var_eq_dec var Y then Hi
       else Lo.
 
     Definition bpre (tid : Fin.t ntrd) := 
@@ -94,6 +97,7 @@ Section Example.
       unfold low_assn, Bdiv.low_assn, indeP, bpre, low_eq, E in *; intros s1 s2 h Hleq; simpl.
       rewrite Hleq; simpl; eauto.
       split; intros x H; eauto.
+      
     Qed.
 
     Lemma post_lassn (tid : Fin.t ntrd) : low_assn E (bpost tid).
@@ -130,13 +134,13 @@ Section Example.
     Lemma prei_lassn : forall tid : Fin.t ntrd, low_assn E (Vector.nth (init Pre_i) tid).
     Proof.
       unfold low_assn, Bdiv.low_assn, indeP, E, Pre_i, low_eq; simpl; intros; rewrite init_spec.
-      cutrewrite (s1 4%Z = s2 4%Z); [split; intros; eauto|rewrite H; eauto].
+      cutrewrite (s1 ARR = s2 ARR); [split; intros; eauto|rewrite H; eauto].
     Qed.
 
     Lemma posti_lassn : forall tid : Fin.t ntrd, low_assn E (Vector.nth (init Post_i) tid).
     Proof.
       unfold low_assn, Bdiv.low_assn, indeP, E, Post_i, low_eq; simpl; intros; rewrite init_spec.
-      cutrewrite (s1 4%Z = s2 4%Z); [split; intros; eauto|rewrite H; eauto].
+      cutrewrite (s1 ARR = s2 ARR); [split; intros; eauto|rewrite H; eauto].
     Qed.
       
     Lemma default_wf (s : stack) (h : pheap) : 
@@ -256,7 +260,7 @@ Section Example.
             rewrite <-e in Heq.
             pose proof (Hgf (Fin.FS i)) as Hc1;  pose proof (Hgf (Fin.F1)) as Hc2.
             rewrite Heq in Hc1; rewrite H1 in Hc2; rewrite Hc1 in Hc2; inversion Hc2. }
-        assert (exists j', g Fin.F1 = Fin.FS j') as [j' Hg1].
+         assert (exists j', g Fin.F1 = Fin.FS j') as [j' Hg1].
         { destruct (finvS (g Fin.F1)) as [Heqg | [j' Heqg']]; [|exists j'; eauto]. 
           specialize (Hfg Fin.F1); rewrite Heqg in Hfg; rewrite H1 in Hfg; inversion Hfg. }
         set (g' := fun i : Fin.t m =>
@@ -709,14 +713,14 @@ Section Example.
                       (fun (i : Fin.t n) (s0 : stack) (ph : pheap) =>
                          forall x : Z,
                            this ph x =
-                           (if Z.eq_dec x (s0 4%Z + Z.of_nat (proj1_sig (Fin.to_nat (fin_rev i))))
+                           (if Z.eq_dec x (s0 ARR + Z.of_nat (proj1_sig (Fin.to_nat (fin_rev i))))
                             then Some (1%Qc, Z.of_nat (proj1_sig (Fin.to_nat (fin_rev i))))
                             else None)) = 
                     init
                       (fun (i : Fin.t n) (s0 : stack) (ph : pheap) =>
                          forall x : Z,
                            this ph x =
-                           (if Z.eq_dec x (s0 4%Z + Z.of_nat (proj1_sig (Fin.to_nat (fin_rev (Fin.FS i)))))
+                           (if Z.eq_dec x (s0 ARR + Z.of_nat (proj1_sig (Fin.to_nat (fin_rev (Fin.FS i)))))
                             then
                               Some (1%Qc, Z.of_nat (proj1_sig (Fin.to_nat (fin_rev (Fin.FS i)))))
                             else None))); eauto.
@@ -982,7 +986,7 @@ Section Example.
     Proof.
       simpl; intros s h (ph1 & ph2 & H); intuition; repeat eexists; eauto.
       intros x; specialize (H x). rewrite H4 in H; eauto.
-      destruct (Z_eq_dec (s 1%Z) (Z_of_fin tid)); try firstorder congruence.
+      destruct (Z_eq_dec (s X) (Z_of_fin tid)); try firstorder congruence.
     Qed.
 
     Lemma rotate_l4 (tid : Fin.t ntrd) :
@@ -995,9 +999,9 @@ Section Example.
        !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid))).
     Proof.
       apply rule_frame; eauto.
-      cutrewrite (Apointsto 1%Qc (Evar 4%Z + Enum (Z_of_fin tid)) (Enum (Z_of_fin tid)) =
+      cutrewrite (Apointsto 1%Qc (Evar ARR + Enum (Z_of_fin tid)) (Enum (Z_of_fin tid)) =
                   (fst (bspec 0))[@tid]); [|simpl; rewrite init_spec; eauto].
-      cutrewrite (Apointsto 1%Qc (Evar 4%Z + Enum ((Z_of_fin tid + 1) mod ntrdZ)) (Enum ((Z_of_fin tid + 1) mod ntrdZ)) =
+      cutrewrite (Apointsto 1%Qc (Evar ARR + Enum ((Z_of_fin tid + 1) mod ntrdZ)) (Enum ((Z_of_fin tid + 1) mod ntrdZ)) =
                   (snd (bspec 0))[@tid]); [|simpl; rewrite init_spec; eauto].
       apply rule_barrier.
       unfold inde; simpl; firstorder.
@@ -1027,14 +1031,14 @@ Section Example.
       exists ph1, ph2; repeat split; eauto.
       intros x; specialize (H x); unfold upd; simpl in *.
       assert ((Z_of_fin tid + 1) mod ntrdZ = 0)%Z as Heq.
-      { assert ((s 0%Z) = ntrdZ - 1)%Z by (destruct (Z.eq_dec (s 0%Z) (ntrdZ - 1)); congruence).
+      { assert ((s TID) = ntrdZ - 1)%Z by (destruct (Z.eq_dec (s TID) (ntrdZ - 1)); congruence).
         cutrewrite (Z_of_fin tid = ntrdZ - 1)%Z; [|congruence].
         cutrewrite ((ntrdZ - 1 + 1)%Z = ntrdZ); [| omega].
         rewrite Z_mod_same_full; eauto. }
       rewrite Heq in *; eauto.
       simpl in *; unfold upd.
       destruct (Z.eq_dec 2 2); try congruence.
-      destruct (Z.eq_dec (s 0%Z) (ntrdZ - 1)); try congruence.    
+      destruct (Z.eq_dec (s TID) (ntrdZ - 1)); try congruence.    
       rewrite <-H3, e0.
       cutrewrite (ntrdZ - 1 + 1 = ntrdZ)%Z; [|omega].
       rewrite Z_mod_same_full; eauto.
@@ -1055,20 +1059,20 @@ Section Example.
       eapply rule_conseq_pre; [ apply rule_assign| ].
       intros s h [(ph1 &ph2 & H1) H2]; intuition.
       exists ph1, ph2; repeat split; eauto.
-      - intros x; specialize (H x); unfold upd; simpl in *.
+      - intros x; specialize (H x); unfold var_upd; simpl in *.
         rewrite H3.
         assert ((Z_of_fin tid + 1) mod ntrdZ = Z_of_fin tid + 1)%Z as Heq.
         { assert (Z_of_fin tid <> ntrdZ - 1)%Z.
-          destruct (Z.eq_dec (s 0%Z) (ntrdZ - 1)); simpl in *; congruence.
+          destruct (Z.eq_dec (s TID) (ntrdZ - 1)); simpl in *; congruence.
           apply Zmod_small; split;
           unfold Z_of_fin, nat_of_fin in *; destruct (Fin.to_nat tid); simpl in *; try omega. }
         rewrite Heq in *; eauto.
-      - simpl in *; unfold upd.
-        rewrite H3; destruct (Z.eq_dec 2 2); try congruence.
-        destruct (Z.eq_dec (s 0%Z) (ntrdZ - 1)); simpl in *; try congruence.
+      - simpl in *; unfold var_upd.
+        rewrite H3; destruct (var_eq_dec Y Y); try congruence.
+        destruct (Z.eq_dec (s TID) (ntrdZ - 1)); simpl in *; try congruence.
         assert ((Z_of_fin tid + 1) mod ntrdZ = Z_of_fin tid + 1)%Z as Heq.
         { assert (Z_of_fin tid <> ntrdZ - 1)%Z.
-          destruct (Z.eq_dec (s 0%Z) (ntrdZ - 1)); simpl in *; congruence.
+          destruct (Z.eq_dec (s TID) (ntrdZ - 1)); simpl in *; congruence.
           apply Zmod_small; split;
           unfold Z_of_fin, nat_of_fin in *; destruct (Fin.to_nat tid); simpl in *; try omega. }
         congruence.
@@ -1120,7 +1124,7 @@ Section Example.
       rewrite <-H4; specialize (H x); specialize (Hph1 x); specialize (Hph2 x); 
       specialize (H1 x); unfold phplus;
       destruct (ph1 x) as [[? ?] |], (ph2 x) as [[? ?]|]; simpl in *; eauto;
-      destruct (Z.eq_dec x (s 4%Z + (Z_of_fin tid + 1) mod ntrdZ)); inversion H0; subst; intuition.
+      destruct (Z.eq_dec x (s ARR + (Z_of_fin tid + 1) mod ntrdZ)); inversion H0; subst; intuition.
       apply frac_contra1 in H12; tauto.
     Qed.      
       

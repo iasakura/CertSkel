@@ -18,7 +18,7 @@ Unset Strict Implicit.
 
 Require Import PHeap.
 (* Definition of Language *)
-Definition var := Z.
+Inductive var := Var : Z -> var.
 Definition stack := var -> Z.
 Definition state := (stack * heap)%type.
 
@@ -79,6 +79,13 @@ Fixpoint bdenot b s : bool :=
     | Blt e1 e2 => if Z_lt_dec (edenot e1 s) (edenot e2 s) then true else false
   end.
 
+Lemma var_eq_dec (x y : var) : {x = y} + {x <> y}.
+Proof.
+  repeat decide equality. 
+Defined.
+
+Definition var_upd A (f: var -> A) x y a := if var_eq_dec a x then y else f a.
+
 Reserved Notation "c '/' st  '==>s'  c' '/' st' " (at level 40, st at level 39, c' at level 39).
 Inductive red: cmd -> state -> cmd  -> state -> Prop := 
 | red_Seq1: forall (c : cmd) (ss : state), (SKIP ;; c) / ss ==>s c / ss
@@ -95,12 +102,12 @@ Inductive red: cmd -> state -> cmd  -> state -> Prop :=
              (Cwhile b c) / ss ==>s (Cif b (Cseq c (Cwhile b c)) Cskip) / ss
 | red_Assign: forall (x : var) (e : exp) ss ss' s h
                      (EQ1: ss = (s, h))
-                     (EQ2: ss' = (upd s x (edenot e s), h)),
+                     (EQ2: ss' = (var_upd s x (edenot e s), h)),
                 (x ::= e) / ss ==>s Cskip / ss'
 | red_Read: forall x e ss ss' s h v
                    (EQ1: ss = (s, h))
                    (RD: h (edenot e s) = Some v)
-                   (EQ2: ss' = (upd s x v, h)),
+                   (EQ2: ss' = (var_upd s x v, h)),
               (x ::= [e]) / ss ==>s Cskip / ss'
 | red_Write: forall e1 e2 ss ss' s h
                     (EQ1: ss = (s, h))
@@ -200,7 +207,7 @@ Proof.
     + rewrite H7 in RD.
       destruct (hplus_map hdis1 RD) as [[? ?]| [? ?]]; [congruence|].
       contradict naborts; constructor; subst; eauto.
-    + cut (h2 = h1 /\ s2 = upd s1 x v); [intros [? ?]; rewrite <-H4; subst; eauto|].
+    + cut (h2 = h1 /\ s2 = var_upd s1 x v); [intros [? ?]; rewrite <-H4; subst; eauto|].
       split; [eapply (hplus_cancel_l hdis2); eauto | congruence].
   - apply (@red_Write _ _ _ _ s1 h1); eauto.
     destruct ss as [sx hx], ss' as [sx' hx'].
@@ -470,11 +477,11 @@ Module BigStep.
                   (Cif b (c ;; (Cwhile b c)) Cskip) / st || c'/ st' ->
                   (Cwhile b c) / st || c' / st'
   | eval_Assign : forall (x : var) (e : exp) (st st' : pstate) s h,
-                    (st = (s, h)) -> (st' = (upd s x (edenot e s), h)) ->
+                    (st = (s, h)) -> (st' = (var_upd s x (edenot e s), h)) ->
                     (x ::= e) / st || None / st'
   | eval_Read : forall (x : var) (e : exp) (v : Z) (st st' : pstate) (s : stack) (h : pheap) (q : Qc),
                   (st = (s, h)) -> (this h (edenot e s) = Some (q, v)) ->
-                  (st' = (upd s x v, h)) ->
+                  (st' = (var_upd s x v, h)) ->
                   (x ::= [e]) / st || None / st'
   | eval_Write : forall (e1 e2 : exp) (ss ss' : pstate) (s : stack) (h : pheap) (v : Z),
                    (ss = (s, h)) ->
@@ -712,9 +719,9 @@ Section NonInter.
   Definition low_eq (s1 s2 : stack) := forall x, g x = Lo -> s1 x = s2 x.
   
   Lemma hi_low_eq (x : var) (v1 v2 : Z) (s1 s2 : stack):
-    low_eq s1 s2 -> g x = Hi -> low_eq (upd s1 x v1) (upd s2 x v2).
+    low_eq s1 s2 -> g x = Hi -> low_eq (var_upd s1 x v1) (var_upd s2 x v2).
   Proof.
-    unfold upd; intros heq hhi y; destruct (Z.eq_dec y x); subst.
+    unfold var_upd; intros heq hhi y; destruct (var_eq_dec y x); subst.
     - intros h; rewrite hhi in h; inversion h.
     - intros h; apply heq in h; eauto.
   Qed.
@@ -779,7 +786,7 @@ Section NonInter.
       assert (g x = Hi) by (destruct (g x); inversion H5; eauto).
       destruct hcomp as [heq ?];
         repeat split; destruct st1 as [s1 h1]; simpl; eauto.
-      intros y; unfold upd; destruct (Z.eq_dec y x); subst.
+      intros y; unfold var_upd; destruct (var_eq_dec y x); subst.
       + intros H'; congruence.
       + specialize (heq y); eauto.
     - inversion htng1; subst.
@@ -787,7 +794,7 @@ Section NonInter.
       assert (g x = Hi) by (destruct (g x); inversion H6; eauto).
       destruct st1 as [s' h'], hcomp as [heq hdisj]; simpl in *.
       repeat split; eauto; simpl.
-      intros y; unfold upd; destruct (Z.eq_dec y x); subst.
+      intros y; unfold var_upd; destruct (var_eq_dec y x); subst.
       + intros H'; congruence.
       + specialize (heq y); simpl; eauto.
     - subst; destruct st1, hcomp; unfold st_compat in *; simpl in *; repeat split; eauto.
@@ -883,14 +890,14 @@ Section NonInter.
       destruct ty; inversion htng; subst.
       + inversion H3; apply hi_low_eq; intuition eauto.
         destruct ty, (g x); unfold le_type in *; simpl in *; inversion H3; eauto.
-      + intros y hlo; pose proof ((proj1 hcomp) y hlo); unfold upd; destruct (Z.eq_dec y x); eauto; subst.
+      + intros y hlo; pose proof ((proj1 hcomp) y hlo); unfold var_upd; destruct (var_eq_dec y x); eauto; subst.
         eapply low_eq_eq_exp; intuition eauto.
         destruct ty, (g x); simpl in H3; inversion H3; inversion hlo; eauto.
     - inversion ev2; subst; simpl in *; repeat split; [ | intuition eauto].
       destruct ty; inversion htng; subst.
       + apply hi_low_eq; intuition eauto.
         destruct ty, (g x); unfold le_type in *; simpl in *; inversion H4; intuition eauto.
-      + intros y hlo; pose proof ((proj1 hcomp) y hlo); unfold upd; destruct (Z.eq_dec y x); eauto; subst.
+      + intros y hlo; pose proof ((proj1 hcomp) y hlo); unfold var_upd; destruct (var_eq_dec y x); eauto; subst.
         destruct ty, (g x); simpl in H4; inversion H4; inversion hlo; eauto.
         assert (edenot e s = edenot e s0) by (apply low_eq_eq_exp; intuition eauto).
         rewrite H1 in *.
@@ -975,7 +982,7 @@ Section Substitution.
   (* from CSLsound.v *)
   Fixpoint subE x e e0 := 
     match e0 with 
-      | Evar y => (if Z.eq_dec x y then e else Evar y)
+      | Evar y => (if var_eq_dec x y then e else Evar y)
       | Enum n => Enum n
       | Eplus e1 e2 => Eplus (subE x e e1) (subE x e e2)
       | Ediv2 e1 => Ediv2 (subE x e e1)
@@ -990,14 +997,16 @@ Section Substitution.
     end.
 
   Lemma subE_assign : forall (x : var) (e e' : exp) (s : stack),
-    edenot (subE x e e') s = edenot e' (upd s x (edenot e s)).
+    edenot (subE x e e') s = edenot e' (var_upd s x (edenot e s)).
   Proof.
-    intros; induction e'; simpl; eauto; unfold upd; 
-    repeat match goal with [ |- context[if Z.eq_dec ?x ?y then _ else _]] => destruct (Z.eq_dec x y) end; try congruence; eauto; f_equal; eauto.
+    intros; induction e'; simpl; eauto; unfold var_upd; 
+    repeat match goal with [ |- context[if var_eq_dec ?x ?y then _ else _]] => 
+                           destruct (var_eq_dec x y) 
+           end; try congruence; eauto; f_equal; eauto.
   Qed.
 
   Lemma subB_assign : forall (x : var) (e : exp) (b : bexp) (s : stack),
-    bdenot (subB x e b) s = bdenot b (upd s x (edenot e s)).
+    bdenot (subB x e b) s = bdenot b (var_upd s x (edenot e s)).
   Proof.
     intros; induction b; simpl;
     repeat match goal with [ |- context[if Z.eq_dec ?x ?y then _ else _]] => 

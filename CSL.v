@@ -93,7 +93,7 @@ Section SeqCSL.
   Lemma writes_agrees (c1 c2 : cmd) (st1 st2 : state) :
     c1 / st1 ==>s c2 / st2 ->
     fst st1 = fst st2 \/
-    exists x v : Z, In x (writes_var c1) /\ fst st2 = upd (fst st1) x v.
+    exists (x : var) (v : Z), In x (writes_var c1) /\ fst st2 = var_upd (fst st1) x v.
   Proof.
     induction 1; try (left; now eauto).
     - destruct IHred as [ ? | [x [ v [Hin Heq] ]] ]; [tauto | right].
@@ -106,7 +106,7 @@ Section SeqCSL.
 
   Definition inde (R : assn) (ls : list var) :=
     forall (x : var) (s : stack) (h : pheap) (v : Z),
-      In x ls -> (sat (s, h) R <-> sat ((upd s x v), h) R).
+      In x ls -> (sat (s, h) R <-> sat ((var_upd s x v), h) R).
 
   Lemma writes_agrees' (c1 c2 : cmd) (st1 st2 : state) (h : pheap) (R : assn):
     c1 / st1 ==>s c2 / st2 ->
@@ -369,7 +369,7 @@ Section SeqCSL.
   End For_Vector_Notation.
 
 
-  Notation subA x e P := (fun (s : stack) (h : pheap) => P (upd s x (edenot e s)) h).
+  Notation subA x e P := (fun (s : stack) (h : pheap) => P (var_upd s x (edenot e s)) h).
 
 (*
   Lemma subA_assign : forall (x : var) (e : exp) (P : assn) (s : stack) (ph : pheap),
@@ -403,7 +403,7 @@ Section SeqCSL.
   Qed.
 
   Definition indeE (Exp : exp) (x : var) :=
-    forall s v, edenot Exp s = edenot Exp (upd s x v).
+    forall s v, edenot Exp s = edenot Exp (var_upd s x v).
 
   Lemma htop_eq (h : heap) (ph : pheap) :
     ph = htop h -> forall x, h x = match this ph x with | Some (_, x) => Some x | None => None end.
@@ -439,7 +439,7 @@ Section SeqCSL.
       try congruence.
       contradict n0.
       rewrite <-hinde2.
-      unfold upd; destruct (Z.eq_dec x x); try congruence.
+      unfold var_upd; destruct (var_eq_dec x x); try congruence.
       rewrite <-(phplus_eq hdis) in heq; apply ptoheap_eq in heq.
       pose proof (htop_eq heq); simpl in *.
       unfold phplus in H; specialize (H (edenot E1 s0)). rewrite hsat in H.
@@ -819,7 +819,7 @@ Section ParCSL.
   Definition CSLp (P : assn) (c : cmd) (Q : assn) :=
     forall (ks : klist ntrd) (h : heap) (leqks : low_eq_l2 E (Vector.map (fun s => snd s) ks)),
       (forall tid : Fin.t ntrd, fst ks[@tid] = c) ->
-      (forall tid : Fin.t ntrd, (snd ks[@tid]) 0%Z = Z_of_fin tid) ->
+      (forall tid : Fin.t ntrd, (snd ks[@tid]) (Var 0) = Z_of_fin tid) ->
       sat_k h leqks P ->
       forall n, safe_nk n ks h Q.
 
@@ -831,7 +831,7 @@ Section ParCSL.
     typing_cmd E c ty ->
     (forall tid : Fin.t ntrd, 
        CSL bspec tid 
-           (Aconj Ps[@tid] (fun s _ => s 0%Z = Z.of_nat (proj1_sig (Fin.to_nat tid)))) 
+           (Aconj Ps[@tid] (fun s _ => s (Var 0) = Z.of_nat (proj1_sig (Fin.to_nat tid)))) 
            c 
            Qs[@tid]) ->
     CSLp P c Q.
