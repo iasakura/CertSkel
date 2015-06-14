@@ -325,7 +325,7 @@ Section Example.
         (forall i, g (f i) = i).
     Proof.
       induction n; intros Heq.
-      - exists (fun i : Fin.t 0 => match i with end); split; intros i; inversion i.
+      - exists (fun i : Fin.t 0 => i); split; intros i; inversion i.
       - destruct (finvS (f Fin.F1)) as [Heqf1| [f1' Heqf1]].
         + assert (forall i : Fin.t n, {v| f (Fin.FS i) = Fin.FS v}).
           { intros i. destruct (finvS (f (Fin.FS i))) as [HeqfS|[fS HeqfS]].
@@ -469,7 +469,7 @@ Section Example.
       destruct (vinvS hs) as [ph [hs' ?]]; subst; simpl.
       inversion H; subst.
       apply inj_pair2 in H3; subst.
-      unfold vec_n1; destruct (plusn1 m).
+      unfold vec_n1. clear H; destruct (plusn1 m).
       assert (pdisj ph0 ph) as Hdis0 by (apply pdisjC; eauto).
       assert ({| this := phplus ph ph0; is_p := pdisj_is_pheap hdis |} =
               phplus_pheap Hdis0 ) as Heq by  (apply pheap_eq; apply phplus_comm; eauto); 
@@ -625,7 +625,8 @@ Section Example.
       - apply rotate_disjeq; eauto.
       - intros tid; rewrite init_spec; intros x. destruct st as [s h]; simpl.
         erewrite Vector.nth_map; eauto; simpl.
-        unfold vec_n1. destruct (plusn1 n'); simpl.
+        unfold vec_n1. generalize (plusn1 n'). intros e.
+        revert tid; rewrite <-e; intros tid.
         destruct (fin_addmn tid) as [[tid' Htid] | [tid' Htid]].
         + rewrite (append_nth1 (j :=tid')); eauto.
           rewrite tl_nth.
