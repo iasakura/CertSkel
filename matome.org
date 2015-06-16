@@ -1,11 +1,14 @@
 #+TITLE: GPUCSL TODOまとめ
 * Vafeaidisライブラリに依存しないように書き換え
-* 変数の表現
+* DONE 変数の表現
+  CLOSED: [2015-06-12 金 16:17]
 ** Inductive var := V of Zの方がZと混乱しなくて良さそう
 * *_{i \in Tid} P_iの表現
 ** 各iがFin.t nなのはつらい
 * low_assn -> Bdiv.low_assn -> indePのunfoldが鬱陶しい
-* lassnの自動証明
+* DONE lassnの自動証明
+  CLOSED: [2015-06-12 金 17:34]
+** prove_lassnタクティック
 * ntrdをどう扱うか
 ** 1．定数として扱う
 *** ソースコードに埋め込む

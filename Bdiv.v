@@ -4,7 +4,7 @@ Require Import Coq.Relations.Relations.
 Require Import MyVector.
 Require Import List.
 Require Import Lang.
-
+Require Import assertions.
 Set Implicit Arguments.
 Unset Strict Implicit.
 
@@ -19,17 +19,17 @@ Import VectorNotations.
   | Astar (p1: assn) (p2: assn)
   | Apointsto (p : Qc) (e1 e2: exp)
   | Aex (pp: nat -> assn).*)
-Definition assn := stack -> pheap -> Prop.
+(*Definition assn := stack -> pheap -> Prop.
 Notation Aemp := (fun (s : stack) (ph : pheap) => forall x, this ph x = None).
-Notation Astar P1 P2 := (fun (s : stack) (ph : pheap) => 
-  exists (ph1 ph2 : pheap), P1 s ph1 /\ P2 s ph2 /\ pdisj ph1 ph2 /\ phplus ph1 ph2 = ph).
+Notation Astar P1 P2 := (let tt := tt in (fun (s : stack) (ph : pheap) => 
+  exists (ph1 ph2 : pheap), P1 s ph1 /\ P2 s ph2 /\ pdisj ph1 ph2 /\ phplus ph1 ph2 = ph)).
 Notation Aconj P1 P2 := (fun (s : stack) (ph : pheap) => P1 s ph /\ P2 s ph).
 Notation Adisj P1 P2 := (fun (s : stack) (ph : pheap) => P1 s ph \/ P2 s ph).
 Notation Apure b := (fun (s : stack) (ph : pheap) => bdenot b s = true).
 Notation Apointsto p e1 e2 := (fun (s : stack) (ph : pheap) =>
   forall x, this ph x = if Z.eq_dec x (edenot e1 s) then Some (p, edenot e2 s) else None).
 Notation Aex P := (fun (s : stack) (h : pheap) => exists v, P v s h).
-(*  Fixpoint sat (ss : pstate) (p : assn) : Prop := 
+  Fixpoint sat (ss : pstate) (p : assn) : Prop := 
   match p with
     | Aemp => (forall x, this (snd ss) x = None) 
     | Apure b => bdenot b (fst ss)
@@ -41,7 +41,7 @@ Notation Aex P := (fun (s : stack) (h : pheap) => exists v, P v s h).
         (if Z.eq_dec x (edenot e1 (fst ss)) then Some (q, edenot e2 (fst ss)) else None)
     | Aex pp => exists v, sat ss (pp v)
   end.*)
-Notation sat ss P := (P (fst ss) (snd ss)).
+(*Notation sat ss P := (P (fst ss) (snd ss)).*)
 (*  Definition sat (ss : pstate) (P : assn) : Prop := P (fst ss) (snd ss).*)
 
 (*  Lemma sat_istar_map_expand :
@@ -77,36 +77,6 @@ Notation sat ss P := (P (fst ss) (snd ss)).
       simpl; auto using padd_left_comm.
   Qed.*)
 
-Definition precise (p : assn) :=
-  forall (h1 h2 h1' h2' : pheap) s,
-    sat (s, h1) p -> sat (s, h1') p ->
-    pdisj h1 h2 -> pdisj  h1' h2' ->
-    phplus h1 h2 = phplus h1' h2' ->
-    h1 = h1'.
-
-Lemma precise_emp : precise Aemp.
-Proof.
-  red; intros h1 h2 h1' h2' s hsat hsat' hdis hdis' heq;
-  destruct h1 as [h1 ?], h1' as [h1' ?]; apply pheap_eq; extensionality x; simpl in *;
-  rewrite hsat, hsat'; eauto.
-Qed.
-
-Lemma precise_star (p q : assn) : precise p -> precise q -> precise (Astar p q).
-Proof.
-  intros pp pq h1 h2 h1' h2' s hsat hsat' hdis hdis' heq; simpl in *.
-  destruct hsat as [ph1 [ph1' [satp1 [satq1 [Hdis1 Heq1]]]]], 
-                   hsat' as [ph2 [ph2' [satp2 [satq2 [Hdis2 Heq2]]]]].
-  destruct h1 as [h1 ?], h1' as [h1' ?]; apply pheap_eq; simpl in *; rewrite <-Heq1, <-Heq2 in *.
-  apply pdisj_padd_expand in hdis; apply pdisj_padd_expand in hdis'; eauto.
-  rewrite !padd_assoc in heq; try tauto. 
-  f_equal; destruct hdis as [hdis1 hdis2], hdis' as [hdis1' hdis2'].
-  - rewrite (pp ph1 (phplus_pheap hdis2) ph2 (phplus_pheap hdis2') s); eauto.
-  - rewrite padd_left_comm in heq at 1; try tauto.
-    rewrite (@padd_left_comm ph2 ph2' h2') in heq; try tauto.
-    pose proof (pdisjE2 hdis1 hdis2) as dis12; pose proof (pdisjE2 hdis1' hdis2') as dis12'.
-    rewrite (pq ph1' (phplus_pheap dis12) ph2' (phplus_pheap dis12') s); simpl in *; eauto; 
-    apply pdisj_padd_comm; eauto.
-Qed.
 (*
   Lemma precise_istar : forall (l : list assn), (forall x, In x l -> precise x) -> precise (Aistar l).
   Proof.
@@ -116,7 +86,7 @@ Import VectorNotations.
 Fixpoint Aistar_v (n : nat) (assns : Vector.t assn n) :=
   match assns with
     | [] => Aemp
-    | (a :: assns) => Astar a (Aistar_v assns)
+    | (a :: assns) => a ** (Aistar_v assns)
   end.
 
 Lemma aistar_disj (n : nat) (assns : Vector.t assn n) (s : stack) (h : pheap) :
@@ -217,6 +187,7 @@ Section Barrier.
   Definition get_hs (n : nat) (sts : Vector.t pstate n) : Vector.t pheap n := 
     Vector.map (fun st => snd st) sts.
 
+  Hint Resolve emp_emp_ph.
   Lemma aistar_eq (n : nat) (s : stack) (assns : Vector.t assn n) (hs : Vector.t pstate n)
         (h : pheap) :
     disj_eq (get_hs hs) h -> (forall tid : Fin.t n, sat (s, snd hs[@tid]) assns[@tid]) ->
@@ -504,8 +475,9 @@ Section BarrierDivergenceFreedom.
         { unfold get_cs_k in Hi1; simpl in Hi1. rewrite Hi1.
           rewrite (Vector.nth_map _ _ tid tid); eauto; rewrite sstid; eauto. }
         assert (fst pss2[@tid] = s1) as Hseq.
-        { unfold get_ss_k, get_ss in Hi2; simpl in Hi2; 
-          rewrite !(Vector.nth_map _ _ tid tid), sstid in Hi2; eauto; simpl in Hi2. }
+        { unfold get_ss_k, get_ss in Hi2; simpl in Hi2.
+          repeat rewrite (Vector.nth_map _ _ tid tid eq_refl) in Hi2. 
+          rewrite sstid in Hi2; eauto; simpl in Hi2. }
         rewrite <-Hceq,<-Hseq in red'.
         pose proof (safe_inv' Hi3 Hi4) as hsafei.
         destruct (disj_tid tid H3) as [h_ni [eqni [h_ntid hnip]]].
@@ -518,7 +490,8 @@ Section BarrierDivergenceFreedom.
         destruct (disj_upd eqni tdisj) as [hq [hdeq_q  heq_q]].
         exists pss', (replace pss2 tid pst2), c', (replace cs tid c2), h'.
         repeat split; eauto.
-        + rewrite heq_q in tto; simpl in tto.
+
+         + rewrite heq_q in tto; simpl in tto.
           assert (get_hs (replace pss2 tid pst2) = replace (get_hs pss2) tid (snd pst2)) as Ht.
           { apply eq_nth_iff; intros p1 p2 peq; rewrite peq. 
             unfold get_hs; erewrite Vector.nth_map; eauto.
@@ -532,7 +505,7 @@ Section BarrierDivergenceFreedom.
         + unfold get_ss, get_ss_k; erewrite !Vector.nth_map; eauto; simpl; 
           rewrite !replace_nth; destruct (fin_eq_dec tid tid0); eauto.
           destruct (H5 tid0) as [_ [Ht _]].
-          unfold get_ss, get_ss_k in Ht; erewrite !Vector.nth_map in Ht; eauto; simpl.
+          unfold get_ss, get_ss_k in Ht; erewrite !Vector.nth_map in Ht; eauto; simpl. 
         + destruct (H5 tid0) as [_ [_ [Ht _]]]; eauto.
         + destruct (H5 tid0) as [_ [_ [_ Ht]]]; eauto.
           rewrite !replace_nth; destruct (fin_eq_dec tid tid0); subst; eauto.
@@ -549,7 +522,7 @@ Section BarrierDivergenceFreedom.
         assert (forall tid : Fin.t ngroup, ss'[@tid] = (cs[@tid], fst pss2[@tid])) as heqss'.
         { intros tid; destruct (H tid) as [H1 [H2 [_ _]]]; unfold get_ss, get_ss_k, get_cs_k in *;
           simpl in *.
-          erewrite !(Vector.nth_map) in H1; erewrite !(Vector.nth_map) in H2; eauto;
+          do 1 erewrite (Vector.nth_map) in H1; do 2 erewrite (Vector.nth_map) in H2; eauto;
           destruct ss'[@tid]; f_equal; eauto. }
         assert (forall tid : Fin.t ngroup, wait cs[@tid] = Some (j, fst ss2[@tid])) as cswait.
         { intros tid; destruct (Hbrr tid) as [cp [s [cq' [H1 [H2 H3]]]]]. specialize (heqss' tid).

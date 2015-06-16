@@ -12,7 +12,7 @@ Unset Strict Implicit.
 Require Import PHeap.
 Require Import Bdiv.
 Require Import CSL.
-
+Require Import assertions.
 Close Scope Qc_scope.
 Close Scope Q_scope.
 
@@ -25,18 +25,12 @@ Section Example.
 
   Variable ntrd : nat.
 
-  Bind Scope exp_scope with exp.
-  Bind Scope bexp_scope with bexp.
-  
-  Infix "+" := (Eplus) : exp_scope.
-  Infix "<" := (Blt) : bexp_scope.
-  Infix "==" := (Beq) : bexp_scope.
   Open Scope exp_scope.
   Open Scope bexp_scope.
+  Definition nosimpl (T : Type) (P : T) := let tt := tt in P.
 
-  Bind Scope assn_scope with assn.
-  Notation "P '//\\' Q" := (fun s h => P s h /\ Q s h) (at level 80, right associativity).
-  Notation "P1 ** P2" := (Astar P1 P2) (at level 70, right associativity).
+(*  Notation "P '//\\' Q" := (fun s h => P s h /\ Q s h) (at level 80, right associativity).
+  Notation "P1 ** P2" := (nosimpl (Astar P1 P2)) (at level 70, right associativity).
   Notation "x '===' y" := 
     (fun s h => edenot x s = edenot y s) (at level 70, no associativity).
   Notation "'existS' x .. y , p" := 
@@ -44,8 +38,9 @@ Section Example.
       (at level 200, x binder, y binder, right associativity).
   Notation "e1 '-->p' ( p ,  e2 )" := (Apointsto p e1 e2) (at level 75).
   Notation Emp := (fun s h => forall x, this h x = None).
-  Notation "!( P )" := (Emp //\\ P).
+  Notation "!( P )" := (Emp //\\ P).*)
   Delimit Scope assn_scope with assn.
+  Delimit Scope exp_scope with exp.
 
   Fixpoint is_array (e : exp) (n : nat) (f : nat -> Z) :=
     match n with
@@ -54,8 +49,8 @@ Section Example.
                 is_array e n' f
     end.
 
-  Definition nat_of_fin (i : Fin.t ntrd) : nat := proj1_sig (Fin.to_nat i).
-  Definition Z_of_fin (i : Fin.t ntrd) : Z := Z.of_nat (nat_of_fin i).
+(*  Notation nat_of_fin i := (proj1_sig (Fin.to_nat i)) (at level 10).
+  Notation Z_of_fin i := (Z.of_nat (nat_of_fin i)) (at level 10).*)
 
   Section Rotate.
     Notation ntrdZ := (Z_of_nat ntrd).
@@ -71,15 +66,15 @@ Section Example.
       ) (
         Y ::= TID + 1%Z
       ) ;;
-      [Evar ARR + Evar Y] ::= Evar X.
+      [ ARR +  Y] ::=  X.
 
-    Definition Pre := is_array (Evar ARR) ntrd (fun i => Z.of_nat i).
-    Definition Post := is_array (Evar ARR) ntrd (fun i : nat => (Z.of_nat i - 1) mod ntrdZ)%Z.
+    Definition Pre := is_array ARR ntrd (fun i => Z.of_nat i).
+    Definition Post := is_array ARR ntrd (fun i : nat => (Z.of_nat i - 1) mod ntrdZ)%Z.
 
     Definition Pre_i (i : Fin.t ntrd) := 
-      (Evar ARR + Enum (Z_of_fin i)  -->p (1%Qc, Enum (Z_of_fin i)))%assn.
+      (ARR + (Z_of_fin i) -->p (1%Qc, (Z_of_fin i))).
     Definition Post_i (i : Fin.t ntrd) := 
-      (Evar ARR + ((Enum ((Z_of_fin i + 1) mod ntrdZ))%Z)  -->p (1%Qc, Enum (Z_of_fin i)))%assn.
+      ( ARR + ((Z_of_fin i + 1) mod ntrdZ)%Z) -->p (1%Qc, (Z_of_fin i)).
 
     Definition E (var : var) := 
       if var_eq_dec var TID then Hi
@@ -88,34 +83,37 @@ Section Example.
       else Lo.
 
     Definition bpre (tid : Fin.t ntrd) := 
-      (Evar ARR + Enum (Z_of_fin tid) -->p (1%Qc, Enum (Z_of_fin tid)))%assn.
+      (ARR + (Z_of_fin tid) -->p (1%Qc, (Z_of_fin tid)))%assn.
     Definition bpost (tid : Fin.t ntrd) := 
-      (Evar ARR + Enum ((Z_of_fin tid + 1) mod ntrdZ)%Z) -->p (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)%Z)%assn.
+      (ARR + ((Z_of_fin tid + 1) mod ntrdZ)%Z) -->p (1%Qc, ((Z_of_fin tid + 1) mod ntrdZ)%Z).
+
+    Hint Unfold bpre.
+
+    Ltac prove_lassn tac :=
+      let Heq := fresh in
+      match goal with
+        | [ |- low_assn _ _] => intros ? ? ? Heq
+      end; autounfold; simpl; 
+      tac;
+      repeat rewrite Heq; split; eauto.
+
+    Ltac prove_lassn0 := prove_lassn ltac:(idtac).
 
     Lemma pre_lassn (tid : Fin.t ntrd) : low_assn E (bpre tid).
-    Proof.
-      unfold low_assn, Bdiv.low_assn, indeP, bpre, low_eq, E in *; intros s1 s2 h Hleq; simpl.
-      rewrite Hleq; simpl; eauto.
-      split; intros x H; eauto.
-      
-    Qed.
+    Proof. prove_lassn ltac:(unfold_conn). Qed.
 
+    Hint Unfold bpost.
     Lemma post_lassn (tid : Fin.t ntrd) : low_assn E (bpost tid).
-    Proof.
-      unfold low_assn, Bdiv.low_assn, indeP, bpost, low_eq, E in *; intros s1 s2 h Hleq; simpl.
-      rewrite Hleq; simpl; eauto.
-      split; intros H x; eauto.
-    Qed.
+    Proof. prove_lassn ltac:(unfold_conn). Qed.
 
     Notation FalseP := (fun (_ : stack) (h : pheap) => False).
 
     Definition default : (Vector.t assn ntrd * Vector.t assn ntrd) := 
       (init (fun _ => FalseP), init (fun _ => FalseP)).
 
+    Hint Unfold default.
     Lemma FalseP_lassn (E' : env) : low_assn E' FalseP.
-    Proof.
-      unfold low_assn, Bdiv.low_assn, indeP; intros; tauto.
-    Qed.
+    Proof. prove_lassn0. Qed.
 
     Definition bspec (i : nat) :=
       match i with
@@ -131,33 +129,38 @@ Section Example.
       split; intros tid; destruct i; simpl; rewrite init_spec; eauto.
     Qed.
 
+    Hint Unfold Pre_i.
     Lemma prei_lassn : forall tid : Fin.t ntrd, low_assn E (Vector.nth (init Pre_i) tid).
     Proof.
-      unfold low_assn, Bdiv.low_assn, indeP, E, Pre_i, low_eq; simpl; intros; rewrite init_spec.
-      cutrewrite (s1 ARR = s2 ARR); [split; intros; eauto|rewrite H; eauto].
+      intros; prove_lassn ltac:(unfold_conn; rewrite init_spec).
     Qed.
-
+    
+    Hint Unfold Post_i.
     Lemma posti_lassn : forall tid : Fin.t ntrd, low_assn E (Vector.nth (init Post_i) tid).
-    Proof.
-      unfold low_assn, Bdiv.low_assn, indeP, E, Post_i, low_eq; simpl; intros; rewrite init_spec.
-      cutrewrite (s1 ARR = s2 ARR); [split; intros; eauto|rewrite H; eauto].
-    Qed.
+    Proof. intros; prove_lassn ltac:(unfold_conn; rewrite init_spec). Qed.
       
     Lemma default_wf (s : stack) (h : pheap) : 
       Aistar_v (fst default) s h <-> Aistar_v (snd default) s h.
     Proof.
-      cutrewrite (fst default = snd default); [tauto | unfold default; eauto].
+      cutrewrite (fst default = snd default); tauto.
     Qed.
 
     Import VectorNotations.
+    Require Import Program.Equality.
+
     Lemma swap_wf : 
-      forall (m : nat) (s : stack) (h : pheap) (p : assn) (ps : Vector.t assn m) (i : Fin.t m),
-        Aistar_v (p :: ps) s h -> Aistar_v (ps[@i] :: (Vector.replace ps i p)) s h.
+      forall (m : nat) (p : assn) (ps : Vector.t assn m) (i : Fin.t m),
+        Aistar_v (p :: ps) |= Aistar_v (ps[@i] :: (Vector.replace ps i p)).
     Proof.
-      induction m; intros s h p ps i; [rewrite (vinv0 ps); inversion i | ].
+      induction m; intros p ps i s h H; simpl; [rewrite (vinv0 ps); inversion i | ].
       destruct (vinvS ps) as (p' & ps' & ?); subst. 
       destruct (finvS i) as [|[i' ?]]; subst; [simpl |].
-      - intros (ph1 & ph2 & Hp1 & (ph3 & ph4 & Hp3 & Hp4 & Hd34 & Heq34) & Hdis12 & Heq12).
+      - simpl in *.
+        match goal with
+          | [ H : ?P' ?s ?h |- ((?P ** ?Q) ?s ?h) ] => 
+            
+        end
+        simpl in H. intros (ph1 & ph2 & Hp1 & (ph3 & ph4 & Hp3 & Hp4 & Hd34 & Heq34) & Hdis12 & Heq12).
         assert (pdisj ph1 ph4) as Hdis14.
         { rewrite <-Heq34 in Hdis12; apply pdisjE2 in Hdis12; eauto. }
         exists ph3, (phplus_pheap Hdis14); repeat split; eauto.
@@ -325,7 +328,7 @@ Section Example.
         (forall i, g (f i) = i).
     Proof.
       induction n; intros Heq.
-      - exists (fun i : Fin.t 0 => i); split; intros i; inversion i.
+      - exists (fun i : Fin.t 0 => match i with end); split; intros i; inversion i.
       - destruct (finvS (f Fin.F1)) as [Heqf1| [f1' Heqf1]].
         + assert (forall i : Fin.t n, {v| f (Fin.FS i) = Fin.FS v}).
           { intros i. destruct (finvS (f (Fin.FS i))) as [HeqfS|[fS HeqfS]].
@@ -469,7 +472,7 @@ Section Example.
       destruct (vinvS hs) as [ph [hs' ?]]; subst; simpl.
       inversion H; subst.
       apply inj_pair2 in H3; subst.
-      unfold vec_n1. clear H; destruct (plusn1 m).
+      unfold vec_n1; destruct (plusn1 m).
       assert (pdisj ph0 ph) as Hdis0 by (apply pdisjC; eauto).
       assert ({| this := phplus ph ph0; is_p := pdisj_is_pheap hdis |} =
               phplus_pheap Hdis0 ) as Heq by  (apply pheap_eq; apply phplus_comm; eauto); 
@@ -617,7 +620,7 @@ Section Example.
        Aistar_v (fst (bspec i)) (fst st) (snd st) -> Aistar_v (snd (bspec i)) (fst st) (snd st).
     Proof.
       destruct i; simpl; [|apply default_wf].
-      unfold bpre, bpost, Z_of_fin, nat_of_fin; destruct ntrd as [|n']; [simpl; intros; eauto |].
+      unfold bpre, bpost; destruct ntrd as [|n']; [simpl; intros; eauto |].
       intros H. destruct (aistar_disj H) as [hsP [Hdis Hsati]].
       apply (aistar_eq (hs := Vector.map (fun h => (fst st, h)) (rotate1 hsP))).
       unfold get_hs; rewrite MyVector.map_map, (@MyVector.map_ext _ _ _ _ _ (fun x => x));
@@ -625,8 +628,7 @@ Section Example.
       - apply rotate_disjeq; eauto.
       - intros tid; rewrite init_spec; intros x. destruct st as [s h]; simpl.
         erewrite Vector.nth_map; eauto; simpl.
-        unfold vec_n1. generalize (plusn1 n'). intros e.
-        revert tid; rewrite <-e; intros tid.
+        unfold vec_n1. destruct (plusn1 n'); simpl.
         destruct (fin_addmn tid) as [[tid' Htid] | [tid' Htid]].
         + rewrite (append_nth1 (j :=tid')); eauto.
           rewrite tl_nth.
@@ -702,7 +704,7 @@ Section Example.
     Lemma pre_sat : (Pre |= Aistar_v (init Pre_i)).
     Proof.
       intros s h H; apply pre_sat'.
-      unfold Pre,Pre_i,Z_of_fin,nat_of_fin in *; revert s h H. induction ntrd; [simpl in *; eauto|].
+      unfold Pre,Pre_i in *; revert s h H. induction ntrd; [simpl in *; eauto|].
       intros s h H.
       destruct H as (ph1 & ph2 & Hpt & ? & ? & ?); exists ph1, ph2; repeat split; eauto.
       - cutrewrite (proj1_sig (Fin.to_nat (fin_rev (@Fin.F1 n))) = n)%nat; eauto.
@@ -882,8 +884,8 @@ Section Example.
  
     Lemma Aistar_v_is_array (n : nat) (assns : Vector.t assn n) (g : nat -> Z) (e : exp) :
       (forall i : Fin.t n, assns[@i] |= 
-         (e + Enum (Z.of_nat (proj1_sig (Fin.to_nat i))) -->p 
-            (1%Qc, Enum (g (proj1_sig (Fin.to_nat i))))))%assn ->
+         (e +  (Z.of_nat (proj1_sig (Fin.to_nat i))) -->p 
+            (1%Qc,  (g (proj1_sig (Fin.to_nat i))))))%assn ->
       (Aistar_v assns |= is_array e n g).
     Proof.
       induction n; [rewrite (vinv0 assns) in *; intros; eauto|].
@@ -912,7 +914,7 @@ Section Example.
       intros s h H; apply post_sat' in H; clear ntrd_gt_0; revert H.
       apply Aistar_v_is_array; clear s h.
       intros i s h Hsat x.
-      rewrite init_spec in Hsat; unfold Post_i,Z_of_fin,nat_of_fin,frotate1 in Hsat.
+      rewrite init_spec in Hsat; unfold Post_i,frotate1 in Hsat.
       destruct (Fin.to_nat i) as [ni Hni]; simpl in *.
       rewrite fin_of_nat_lt_inv1 in Hsat; destruct ni.
       - assert ((Z.of_nat (ntrd - 1) + 1) mod ntrdZ = 0)%Z as Heq; [|rewrite Heq in Hsat; clear Heq].
@@ -955,8 +957,8 @@ Section Example.
 
     Lemma rotate_l1 (tid : Fin.t ntrd) :
       ((init Pre_i)[@tid] //\\ (fun s _ => s TID = Z.of_nat (proj1_sig (Fin.to_nat tid))))%assn |=
-      ((Evar ARR + Evar TID -->p (1%Qc, Enum (Z_of_fin tid))) ** 
-       !(Evar TID === Enum (Z_of_fin tid))).
+      (( ARR +  TID -->p (1%Qc,  (Z_of_fin tid))) ** 
+       !( TID ===  (Z_of_fin tid))).
     Proof.
       intros s h [H0 H1].
       rewrite init_spec in H0; unfold Pre_i in H0.
@@ -968,22 +970,22 @@ Section Example.
     Hint Unfold indeE inde writes_var.
     Lemma rotate_l2 (tid : Fin.t ntrd) :
       CSL bspec tid 
-          ((Evar ARR + Evar TID -->p (1%Qc, Enum (Z_of_fin tid))) ** !(Evar TID === Enum (Z_of_fin tid)))
-          (X ::= [Evar ARR + Evar TID])
-          (((Evar ARR + Evar TID) -->p (1%Qc, Enum (Z_of_fin tid)) //\\
-            Apure (Beq (Evar X) (Enum (Z_of_fin tid)))) **
-           !(Evar TID === Enum (Z_of_fin tid))).
+          (( ARR +  TID -->p (1%Qc,  (Z_of_fin tid))) ** !( TID ===  (Z_of_fin tid)))
+          (X ::= [ ARR +  TID])
+          ((( ARR +  TID) -->p (1%Qc,  (Z_of_fin tid)) //\\
+            Apure (Beq ( X) ( (Z_of_fin tid)))) **
+           !( TID ===  (Z_of_fin tid))).
     Proof.
       apply rule_frame;  [apply rule_read | ]; simpl; eauto.
       split; destruct H; subst; firstorder.
     Qed.
     
     Lemma rotate_l3 (tid : Fin.t ntrd) :
-      (((Evar ARR + Evar TID) -->p (1%Qc, Enum (Z_of_fin tid)) //\\
-           Apure (Beq (Evar X) (Enum (Z_of_fin tid)))) **
-        !(Evar TID === Enum (Z_of_fin tid))) |=
-      ((Evar ARR + Enum (Z_of_fin tid)) -->p (1%Qc, Enum (Z_of_fin tid)) **
-       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid))).
+      ((( ARR +  TID) -->p (1%Qc,  (Z_of_fin tid)) //\\
+           Apure (Beq ( X) ( (Z_of_fin tid)))) **
+        !( TID ===  (Z_of_fin tid))) |=
+      (( ARR +  (Z_of_fin tid)) -->p (1%Qc,  (Z_of_fin tid)) **
+       !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid))).
     Proof.
       simpl; intros s h (ph1 & ph2 & H); intuition; repeat eexists; eauto.
       intros x; specialize (H x). rewrite H4 in H; eauto.
@@ -992,18 +994,21 @@ Section Example.
 
     Lemma rotate_l4 (tid : Fin.t ntrd) :
       CSL bspec tid
-      ((Evar ARR + Enum (Z_of_fin tid)) -->p (1%Qc, Enum (Z_of_fin tid)) **
-       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid)))
+      (( ARR +  (Z_of_fin tid)) -->p (1%Qc,  (Z_of_fin tid)) **
+       !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid)))
       (Cbarrier 0)
-      ((Evar ARR + Enum ((Z_of_fin tid + 1) mod ntrdZ)) -->p 
-          (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)) **
-       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid))).
+      (( ARR +  ((Z_of_fin tid + 1) mod ntrdZ)%Z) -->p 
+          (1%Qc,  ((Z_of_fin tid + 1) mod ntrdZ)%Z) **
+       !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid))).
     Proof.
       apply rule_frame; eauto.
-      cutrewrite (Apointsto 1%Qc (Evar ARR + Enum (Z_of_fin tid)) (Enum (Z_of_fin tid)) =
-                  (fst (bspec 0))[@tid]); [|simpl; rewrite init_spec; eauto].
-      cutrewrite (Apointsto 1%Qc (Evar ARR + Enum ((Z_of_fin tid + 1) mod ntrdZ)) (Enum ((Z_of_fin tid + 1) mod ntrdZ)) =
-                  (snd (bspec 0))[@tid]); [|simpl; rewrite init_spec; eauto].
+      assert (Heq : Apointsto 1%Qc (ARR +  (Z_of_fin tid)) ((Z_of_fin tid)) =
+                    (fst (bspec 0))[@tid]) by (simpl; rewrite init_spec; eauto).
+      rewrite Heq; clear Heq.
+      assert (Heq : (Evar ARR + ((Z_of_fin tid + 1) mod ntrdZ)%Z)%exp -->p 
+                      (1%Qc, (((Z_of_fin tid + 1) mod ntrdZ)))%Z =
+                    (snd (bspec 0))[@tid]) by (simpl; rewrite init_spec; eauto).
+      rewrite Heq; clear Heq.
       apply rule_barrier.
       unfold inde; simpl; firstorder.
     Qed.
@@ -1017,15 +1022,15 @@ Section Example.
 
     Lemma rotate_l5 (tid : Fin.t ntrd) :
       CSL bspec tid
-      (((Evar ARR + Enum ((Z_of_fin tid + 1) mod ntrdZ)) -->p 
-          (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)) **
-       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid))) //\\
-       (Apure (Evar TID == Enum (ntrdZ - 1))))
-      (Y ::= Enum 0)
-      (((Evar ARR + Evar Y) -->p 
-          (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)) **
-       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid) //\\
-        Evar Y === Enum ((Z_of_fin tid + 1) mod ntrdZ)))).
+      ((( ARR +  ((Z_of_fin tid + 1) mod ntrdZ)%Z) -->p 
+          (1%Qc,  ((Z_of_fin tid + 1) mod ntrdZ)%Z) **
+       !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid))) //\\
+       (Apure ( TID ==  (ntrdZ - 1)%Z)))
+      (Y ::=  0%Z)
+      ((( ARR +  Y) -->p 
+          (1%Qc,  ((Z_of_fin tid + 1) mod ntrdZ)%Z) **
+       !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid) //\\
+         Y ===  ((Z_of_fin tid + 1) mod ntrdZ)%Z))).
     Proof.
       eapply rule_conseq_pre; [ apply rule_assign| ].
       intros s h [(ph1 &ph2 & H1) H2]; intuition.
@@ -1033,8 +1038,8 @@ Section Example.
       intros x; specialize (H x); unfold upd; simpl in *.
       assert ((Z_of_fin tid + 1) mod ntrdZ = 0)%Z as Heq.
       { assert ((s TID) = ntrdZ - 1)%Z by (destruct (Z.eq_dec (s TID) (ntrdZ - 1)); congruence).
-        cutrewrite (Z_of_fin tid = ntrdZ - 1)%Z; [|congruence].
-        cutrewrite ((ntrdZ - 1 + 1)%Z = ntrdZ); [| omega].
+        assert (Heq : Z_of_fin tid = (ntrdZ - 1)%Z) by congruence; rewrite Heq; clear Heq.
+        assert (Heq : (ntrdZ - 1 + 1)%Z = ntrdZ) by omega; rewrite Heq; clear Heq. 
         rewrite Z_mod_same_full; eauto. }
       rewrite Heq in *; eauto.
       simpl in *; unfold upd.
@@ -1047,15 +1052,15 @@ Section Example.
 
     Lemma rotate_l6 (tid : Fin.t ntrd) :
       CSL bspec tid
-      (((Evar ARR + Enum ((Z_of_fin tid + 1) mod ntrdZ)) -->p 
-          (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)) **
-       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid))) //\\
-       Apure (Bnot (Evar TID == Enum (ntrdZ - 1))))
-      (Y ::= Evar TID + Enum 1%Z)
-      (((Evar ARR + Evar Y) -->p 
-          (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)) **
-       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid) //\\
-        Evar Y === Enum ((Z_of_fin tid + 1) mod ntrdZ)))).
+      ((( ARR +  ((Z_of_fin tid + 1) mod ntrdZ)%Z) -->p 
+          (1%Qc,  ((Z_of_fin tid + 1) mod ntrdZ)%Z) **
+       !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid))) //\\
+       Apure (Bnot ( TID ==  (ntrdZ - 1)%Z)))
+      (Y ::=  TID +  1%Z)
+      ((( ARR +  Y) -->p 
+          (1%Qc,  ((Z_of_fin tid + 1) mod ntrdZ)%Z) **
+       !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid) //\\
+         Y ===  ((Z_of_fin tid + 1) mod ntrdZ)%Z))).
     Proof.
       eapply rule_conseq_pre; [ apply rule_assign| ].
       intros s h [(ph1 &ph2 & H1) H2]; intuition.
@@ -1065,8 +1070,8 @@ Section Example.
         assert ((Z_of_fin tid + 1) mod ntrdZ = Z_of_fin tid + 1)%Z as Heq.
         { assert (Z_of_fin tid <> ntrdZ - 1)%Z.
           destruct (Z.eq_dec (s TID) (ntrdZ - 1)); simpl in *; congruence.
-          apply Zmod_small; split;
-          unfold Z_of_fin, nat_of_fin in *; destruct (Fin.to_nat tid); simpl in *; try omega. }
+          simpl in *; apply Zmod_small; split; destruct (Fin.to_nat tid); simpl in *; try omega. 
+        }
         rewrite Heq in *; eauto.
       - simpl in *; unfold var_upd.
         rewrite H3; destruct (var_eq_dec Y Y); try congruence.
@@ -1074,47 +1079,47 @@ Section Example.
         assert ((Z_of_fin tid + 1) mod ntrdZ = Z_of_fin tid + 1)%Z as Heq.
         { assert (Z_of_fin tid <> ntrdZ - 1)%Z.
           destruct (Z.eq_dec (s TID) (ntrdZ - 1)); simpl in *; congruence.
-          apply Zmod_small; split;
-          unfold Z_of_fin, nat_of_fin in *; destruct (Fin.to_nat tid); simpl in *; try omega. }
+          simpl in *; apply Zmod_small; split;
+          destruct (Fin.to_nat tid); simpl in *; try omega. }
         congruence.
     Qed.
 
     Lemma rotate_l7 (tid : Fin.t ntrd) :
       CSL bspec tid
-      ((Evar ARR + Enum ((Z_of_fin tid + 1) mod ntrdZ)) -->p 
-          (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)) **
-       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid)))
-      (Cif (Evar TID == Enum (ntrdZ - 1)) (
-         Y ::= Enum 0%Z
+      (( ARR +  ((Z_of_fin tid + 1) mod ntrdZ))%exp -->p 
+          (1%Qc,  ((Z_of_fin tid + 1) mod ntrdZ))%Z **
+       !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid)))
+      (Cif ( TID ==  (ntrdZ - 1)%Z) (
+         Y ::=  0%Z
        ) (
-         Y ::= Evar TID + Enum 1%Z
+         Y ::=  TID +  1%Z
        ))
-      (((Evar ARR + Evar Y) -->p 
-          (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)) **
-       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid) //\\
-        Evar Y === Enum ((Z_of_fin tid + 1) mod ntrdZ)))).
+      ((( ARR +  Y) -->p 
+          (1%Qc,  ((Z_of_fin tid + 1) mod ntrdZ)%Z) **
+       !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid) //\\
+         Y ===  ((Z_of_fin tid + 1) mod ntrdZ)%Z))).
     Proof.
       apply rule_if; [apply rotate_l5 | apply rotate_l6].
     Qed.
 
     Lemma rotate_l8 (tid : Fin.t ntrd) :
       CSL bspec tid
-      ((Evar ARR + Evar Y) -->p 
-          (1%Qc, Enum ((Z_of_fin tid + 1) mod ntrdZ)) **
-       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid) //\\
-         Evar Y === Enum ((Z_of_fin tid + 1) mod ntrdZ)))
-      ([Evar ARR + Evar Y] ::= Evar X)
-      ((Evar ARR + Evar Y) -->p (1%Qc, Evar X) **
-       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid) //\\
-         Evar Y === Enum ((Z_of_fin tid + 1) mod ntrdZ))).
+      (( ARR +  Y) -->p 
+          (1%Qc,  ((Z_of_fin tid + 1) mod ntrdZ)%Z) **
+       !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid) //\\
+          Y ===  ((Z_of_fin tid + 1) mod ntrdZ)%Z))
+      ([ ARR +  Y] ::=  X)
+      (( ARR +  Y) -->p (1%Qc,  X) **
+       !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid) //\\
+          Y ===  ((Z_of_fin tid + 1) mod ntrdZ)%Z)).
     Proof.
         apply rule_frame; [apply rule_write|]; autounfold; simpl; tauto.
     Qed.
 
     Lemma rotate_l9 (tid : Fin.t ntrd) :
-      ((Evar ARR + Evar Y) -->p (1%Qc, Evar X) **
-       !(Evar TID === Enum (Z_of_fin tid) //\\ Evar X === Enum (Z_of_fin tid) //\\
-         Evar Y === Enum ((Z_of_fin tid + 1) mod ntrdZ))) |=
+      (( ARR +  Y) -->p (1%Qc,  X) **
+       !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid) //\\
+          Y ===  ((Z_of_fin tid + 1) mod ntrdZ)%Z)) |=
       (init Post_i)[@tid].
     Proof.
       rewrite init_spec; unfold Post_i.

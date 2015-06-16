@@ -5,6 +5,7 @@ Require Import List.
 Require Import ZArith.
 Require Import Lang.
 Require Import Relation_Operators.
+Require Import assertions.
 Set Implicit Arguments.
 Unset Strict Implicit.
 
@@ -75,8 +76,8 @@ Section SeqCSL.
     match goal with
         [  |- context [match ?v with | Some _ => _ | None => _ end] ] => 
         destruct v as [[? ?]|] end.
-    - assert (full_p + q <= 1) by tauto.
-      assert (0 < q) by tauto.
+    - assert (full_p + q <= 1)%Qc by tauto.
+      assert (0 < q)%Qc by tauto.
       apply frac_contra1 in H0; [tauto| eauto ].
     - exists v; eauto.
   Qed.
@@ -310,7 +311,8 @@ Section SeqCSL.
     - unfold access_ok; simpl; eauto.
     - unfold write_ok; simpl; eauto.
     - inversion H4; subst; repeat eexists; eauto; simpl.
-      apply H0; split; eauto; simpl in *; eauto; rewrite B0; eauto.
+      apply H; split; eauto; simpl in *; eauto; rewrite B0; eauto.
+      apply H0; split; auto; unfold_conn; rewrite B0; auto.
     - inversion H2.
   Qed.
 
@@ -335,9 +337,10 @@ Section SeqCSL.
     destruct n; simpl; repeat split; eauto; intros; try congruence.
     intros Hc; inversion Hc.
     inversion H1; subst; repeat eexists; eauto.
-    - eapply safe_seq; simpl; eauto; intros; apply IHn; try omega; eauto.
+    - eapply safe_seq; simpl; eauto; intros; [| apply IHn; try omega; eauto].
+      apply OK; split; simpl; eauto.
     - eapply safe_skip; repeat split; simpl in *; eauto.
-      rewrite B0; eauto.
+      unfold_conn; rewrite B0; eauto.
   Qed.
 
   Lemma rule_while P B C :
@@ -429,10 +432,10 @@ Section SeqCSL.
       destruct (this hF (edenot E1 s)) as [[? ?] | ]; congruence.
     - unfold access_ok; simpl in *; specialize (hsat (edenot E1 s)).
       destruct (Z.eq_dec (edenot E1 s) (edenot E1 s)) as [_ | ?]; [eexists; eauto | congruence].
-    - intros hF h0 c' ss' hdis heq hred; inversion hred; clear hred; subst.
+    - intros hF h0 c' ss' hdis heq hred. inversion hred; clear hred; subst.
       inversion EQ1; clear EQ1; subst; simpl in *.
       repeat eexists; eauto. 
-      apply safe_skip; simpl. split; [intros x0|];
+      apply safe_skip; simpl. split; unfold_conn; [intros x0|];
       repeat match goal with [ |- context [Z.eq_dec ?x ?y] ] => destruct (Z.eq_dec x y) end;
       (try specialize (hsat x0)); subst; repeat rewrite <-hinde1 in hsat;
       repeat match goal with [ H : context [Z.eq_dec ?x ?y] |- _ ] => destruct (Z.eq_dec x y) end;
@@ -498,7 +501,7 @@ Section SeqCSL.
         cutrewrite (phplus ph hF = phplus_pheap hdis); [|simpl; eauto].
         apply ph_upd_ptoheap; eauto.
       + apply safe_skip; simpl; intros x.
-        unfold ph_upd.
+        unfold_conn; unfold ph_upd.
         destruct (Z.eq_dec (edenot E1 s0) x); subst; eauto.
         * destruct (Z.eq_dec (edenot E1 s0) (edenot E1 s0)); congruence.
         * rewrite hsat; eauto.
@@ -528,7 +531,7 @@ Section SeqCSL.
     CSL P1 C Q1 -> CSL P2 C Q2 ->
     CSL (Adisj P1 P2) C (Adisj Q1 Q2).
   Proof.
-    unfold CSL; intros; intuition; eapply safe_conseq; eauto; eauto.
+    unfold CSL; unfold_conn; intros; intuition; eapply safe_conseq; eauto; eauto.
   Qed.
 End SeqCSL.
 
@@ -841,17 +844,17 @@ Section ParCSL.
     destruct (low_eq_repr leqks) as [s Hlows].
     apply PPs in Hsat.
     destruct (aistar_disj Hsat) as [prehs [Hdisj Hsati]].
-    assert (forall tid, Bdiv.sat ((Vector.map (fun s => snd s) ks)[@tid], prehs[@tid]) Ps[@tid]) as
+    assert (forall tid, sat ((Vector.map (fun s => snd s) ks)[@tid], prehs[@tid]) Ps[@tid]) as
         Hsat'.
     { intros tid; (*simpl; erewrite Vector.nth_map; eauto.*)
       apply ((HlowP tid) (Vector.map (snd (B:=stack)) ks)[@tid] s _ (Hlows tid));
       eauto. }
     apply (safe_par (hs := prehs) (Qs := Qs)); eauto.
-    - intros tid; specialize (Hsafei tid); specialize (Hsat' tid); erewrite !Vector.nth_map in *; 
+    - unfold_conn; intros tid; specialize (Hsafei tid); specialize (Hsat' tid); erewrite !Vector.nth_map in *; 
       eauto.
       rewrite Heqc; apply Hsafei.
       erewrite Vector.nth_map in Hsat'; eauto.
-    - exists (ks, h), prehs, (Vector.map (snd (B:=stack)) ks), c, ty; repeat split; eauto.
+    - exists (ks, h), prehs, (Vector.map (snd (B:=stack)) ks), c, ty; repeat split; eauto; unfold_conn.
       + apply rt1n_refl. 
       + unfold get_cs_k; simpl; intros tid; erewrite Vector.nth_map; eauto.
       + intros tid; unfold safe_aux; exists Qs[@tid]; intros n'.
