@@ -12,8 +12,6 @@ Unset Strict Implicit.
 Require Import PHeap.
 Require Import Bdiv.
 
-Notation "P '|=' Q" := (forall (s : stack) (h : pheap), P s h -> Q s h) (at level 100).
-
 Section SeqCSL.
   Variable ntrd : nat.
   Variable bspec : nat -> (Vector.t assn ntrd * Vector.t assn ntrd)%type.
@@ -361,8 +359,6 @@ Section SeqCSL.
       - intros; inversion H1.
       - intros j' c' H; inversion H; subst.
         exists ph, emp_ph; repeat split; eauto.
-        + simpl; apply pdisj_empty2.
-        + rewrite phplus_comm; eauto using pdisj_empty2.
         + intros phQ H0 hsatq.
           apply safe_skip; simpl.
           cutrewrite (phplus_pheap H0 = phQ); 
@@ -370,7 +366,6 @@ Section SeqCSL.
              destruct phQ; apply pheap_eq; rewrite phplus_comm; eauto using pdisj_empty2  ].
     Qed.
   End For_Vector_Notation.
-
 
   Notation subA x e P := (fun (s : stack) (h : pheap) => P (var_upd s x (edenot e s)) h).
 

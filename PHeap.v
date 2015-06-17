@@ -827,3 +827,13 @@ Lemma disj_emp2 (h : pheap) : pdisj emp_ph h.
 Proof.
   intros x; destruct (this h x) as [[? ?]|]; simpl; eauto.
 Qed.
+
+Lemma phplus_emp1 (h : pheap) : phplus emp_ph h = h.
+Proof.
+  unfold phplus; simpl; extensionality x; auto.
+Qed.
+
+Lemma phplus_emp2 (h : pheap) : phplus h emp_ph = h.
+Proof.
+  unfold phplus; simpl; extensionality x; destruct (this h x) as [[? ? ]|]; auto.
+Qed.
