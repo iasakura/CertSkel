@@ -183,15 +183,60 @@ Goal exists x, x + 1 = 10.
 test_ex.
 Abort.
 
-Ltac normalize_goal :=
+Lemma emp_emp_ph_eq s h : emp s h -> h = emp_ph.
+Proof.
+  intros H; unfold emp in *.
+  destruct h as [h ?]; unfold emp_ph; apply pheap_eq; extensionality x; auto.
+Qed.
+
+Lemma scban_r (P Q : assn) s h:  P s h -> Q s emp_ph -> (P ** !(Q)) s h.
+Proof.  
+  intros Hp Hq.
+  unfold "**"; repeat eexists; eauto.
+  apply emp_emp_ph.
+Qed.
+
+Lemma scban_r' (P Q : assn) s h: (P ** !(Q)) s h -> P s h /\ Q s emp_ph.
+Proof.  
+  intros (phP & phQ & Hp & (Hemp & Hq) & Hdis & Heq); split; auto.
+  assert (H : phQ = emp_ph).
+  { unfold emp in *; destruct phQ as [phQ ?]; unfold emp_ph; apply pheap_eq.
+    extensionality x; rewrite Hemp; eauto. }
+  rewrite H, phplus_emp2 in Heq.
+  assert (phP = h) by (destruct phP, h; apply pheap_eq; simpl in *; auto); subst; auto.
+  apply emp_emp_ph_eq in Hemp; rewrite <-Hemp; auto.
+Qed.
+
+Lemma scban_l (P Q : assn) s h: P s emp_ph -> Q s h -> (!(P) ** Q) s h.
+Proof.  
+  intros Hp Hq.
+  unfold "**"; repeat eexists; eauto.
+  apply emp_emp_ph.
+Qed.
+
+Lemma scban_l' (P Q : assn) s h: (!(P) ** Q) s h -> P s emp_ph /\ Q s h.
+Proof.  
+  intros (phP & phQ & (Hemp & Hp) & Hq & Hdis & Heq).
+  assert (H : phP = emp_ph).
+  { unfold emp in *; destruct phP as [phP ?]; unfold emp_ph; apply pheap_eq.
+    extensionality x; rewrite Hemp; eauto. }
+  split.
+  - apply emp_emp_ph_eq in Hemp; rewrite <-Hemp; auto.
+  - rewrite H, phplus_emp1 in Heq.
+    assert (phQ = h) by (destruct phQ, h; apply pheap_eq; simpl in *; auto); subst; auto.
+Qed.
+
+Ltac sep_normal :=
   let H := fresh "H" in
   match goal with
-    | [ |- (emp ** ?P) ?s ?h ] => apply sc_emp1; normalize_goal 
-    | [ |- (?P ** emp) ?s ?h ] => apply sc_emp2; normalize_goal
-    | [ |- (Ex _, _) ?s ?h ] => eapply scEx; [intros ? ? ? H; normalize_goal; exact H | idtac ]
+    | [ |- (emp ** ?P) ?s ?h ] => apply sc_emp1; sep_normal 
+    | [ |- (?P ** emp) ?s ?h ] => apply sc_emp2; sep_normal
+    | [ |- (?P ** !(?Q)) ?s ?h ] => apply scban_r; [sep_normal | ]
+    | [ |- (!(?P) ** ?Q) ?s ?h ] => apply scban_l; [ | sep_normal ]
+    | [ |- (Ex _, _) ?s ?h ] => eapply scEx; [intros ? ? ? H; sep_normal; exact H | idtac ]
     | [ |- (?P ** ?Q) ?s ?h] => 
-      eapply scRw; [intros ? ? H; normalize_goal; exact H |
-                    intros ? ? H; normalize_goal; exact H | idtac];
+      eapply scRw; [intros ? ? H; sep_normal; exact H |
+                    intros ? ? H; sep_normal; exact H | idtac];
       append_slist
     | _ => idtac
   end.
@@ -199,25 +244,269 @@ Ltac normalize_goal :=
 Example normalize_test1 (P Q R S : assn) s h :
   (P ** Q ** R ** S) s h -> ((P ** Q) ** (R ** S)) s h.
 Proof.
-  intros H. normalize_goal. exact H.
+  intros H. sep_normal. exact H.
 Qed.
   
 Example normalize_test2 (P Q R S : assn) s h : (P ** Q ** R) s h -> ((P ** Q) ** R) s h.
 Proof.
-  intros H. normalize_goal. exact H.
+  intros H. sep_normal. exact H.
 Qed.
 
 Example normalize_test3 (P Q R S : assn) s h : (P ** Q ** R) s h -> (((P ** emp) ** Q) ** R) s h.
 Proof.
-  intros H. normalize_goal. exact H.
+  intros H. sep_normal. exact H.
 Qed.
 
-Example normalize_goal4 (P Q R S : nat -> assn) s h : 
+Example sep_normal4 (P Q R S : nat -> assn) s h : 
   (Ex x, (P x ** Q x ** R x ** S x)) s h -> (Ex x, ((P x ** Q x) ** (R x ** S x))) s h.
 Proof.
-  intros H. normalize_goal. exact H.
+  intros H. sep_normal. exact H.
+Qed.
+
+Example normalize_test5 (P Q R S : assn) s h : 
+  (P ** Q) s h -> R s emp_ph -> ((P ** Q) ** !(R)) s h.
+Proof.
+  intros H0 H1. sep_normal; [apply H0 | apply H1].
+Qed.
+
+Lemma sc_emp1' (P : assn) : (emp ** P) |= P.
+Proof.
+  intros s h (ph1 & ph2 & Hsat1 & Hsat2 & Hdis & Heq).
+  assert (h = ph2).
+  { destruct h, ph2; apply pheap_eq; simpl in *; rewrite <-Heq.
+    unfold phplus; extensionality x.
+    unfold_conn; rewrite Hsat1; auto. }
+  rewrite H; auto.
+Qed.
+
+Lemma sc_emp2' (P : assn) : (P ** emp) |= P.
+Proof.
+  intros s h (ph1 & ph2 & Hsat1 & Hsat2 & Hdis & Heq).
+  assert (h = ph1).
+  { destruct h as [h ?], ph1 as [ph1 ?]; apply pheap_eq; simpl in *; rewrite <-Heq.
+    unfold phplus; extensionality x.
+    unfold_conn; rewrite Hsat2; destruct (ph1 x) as [[? ?]|]; auto. }
+  rewrite H; auto.
+Qed.
+
+Goal forall (P : nat -> assn) s h, (Ex x, P x) s h -> False.
+Proof.
+  intros P s h H. eapply scEx in H.
+Abort.
+
+Goal forall (P Q : assn) s h, (P ** Q) s h -> False.
+Proof.
+  intros P Q s h H. eapply scRw in H.
+Abort.
+
+Goal forall (P Q R : assn) s h, ((P ** Q) ** R) s h -> False.
+Proof.
+  intros P Q R s h H. eapply scRw in H.
+Abort.
+
+Lemma scA' (P Q R : assn) : (((P ** Q) ** R) |= (P ** Q ** R)).
+Proof.
+  unfold_conn; intros s h (ph0 & ph1 & ((ph2 & ph3 & Hp & Hq & Hdis & Heq) & Hr & Hdis' & Heq')).
+  rewrite <-Heq in *.
+  assert (Hdis02 : pdisj ph3 ph1). 
+  { apply pdisjC in Hdis'; apply pdisjC; apply pdisj_padd in Hdis'; tauto. }
+  exists ph2, (phplus_pheap Hdis02). repeat split; simpl; auto.
+  exists ph3, ph1; repeat split; auto.
+  apply pdisj_padd_expand; auto.
+  rewrite <-padd_assoc; auto.
+  apply pdisj_padd_expand; auto.
+Qed.
+
+Ltac last_slist_in H :=
+  let Hf := fresh "H" in
+  match goal with
+    | [ H' : (?P ** ?R) ?s ?h |- _ ] => match H with H' =>
+        eapply scRw in H; [ idtac |
+                            intros ? ? Hf; exact Hf |
+                            intros ? ? Hf; last_slist_in Hf; exact Hf ];
+        apply scA in H
+      end
+    | _ => idtac
+  end.
+
+Example last_slist_in_test P Q R s h :
+  (P ** Q ** R) s h -> ((P ** Q) ** R) s h.
+Proof. intros H; last_slist_in H; exact H. Qed.
+
+Ltac append_slist_in H :=
+  let Hf := fresh "H" in
+  match goal with
+    | [ H' : ((?P ** ?Q) ** ?R) ?s ?h |- _ ] => match H with H' =>
+        eapply scRw in H; [ idtac |
+                            intros ? ? Hf; last_slist_in Hf; exact Hf |
+                            intros ? ? Hf; exact Hf ];
+        apply scA' in H; append_slist_in H
+      end
+    | [ |- _ ] => idtac
+  end.
+
+Ltac sep_normal_in' H :=
+  let Hf := fresh "H" in
+  match goal with
+    | [ H' : (emp ** ?P) ?s ?h |- _ ] => match H with H' =>
+        apply sc_emp1' in H; sep_normal_in' H
+      end
+    | [ H' : (?P ** emp) ?s ?h |- _ ] => match H with H' =>
+        apply sc_emp2' in H; sep_normal_in' H
+      end
+    | [ H' : (Ex _, _) ?s ?h |- _ ] => match H with H' => 
+        eapply scEx in H; [ idtac | intros ? ? ? Hf; sep_normal_in' Hf; exact Hf ]
+      end
+    | [ H' : (?P ** ?Q) ?s ?h |- _ ] => match H with H' => 
+        eapply scRw in H; [ idtac |
+                            intros ? ? Hf; sep_normal_in' Hf; exact Hf |
+                            intros ? ? Hf; sep_normal_in' Hf; exact Hf ];
+        append_slist_in H
+      end
+    | _ => idtac
+  end.
+
+Example sep_normal_in'_test1 (P Q R S : assn) s h :
+  ((P ** Q) ** (R ** S)) s h -> (P ** Q ** R ** S) s h.
+Proof.
+  intros H. 
+  sep_normal_in' H. exact H.
 Qed.
   
+Example sep_normal_in'_test2 (P Q R S : assn) s h : ((P ** Q) ** R) s h ->(P ** Q ** R) s h.
+Proof.
+  intros H. sep_normal_in' H. exact H.
+Qed.
+
+Example sep_normal_in'_test3 (P Q R S : assn) s h : (((P ** emp) ** Q) ** R) s h ->(P ** Q ** R) s h.
+Proof.
+  intros H. sep_normal_in' H. exact H.
+Qed.
+
+Example sep_normal_in'_goal4 (P Q R S : nat -> assn) s h : 
+  (Ex x, ((P x ** Q x) ** (R x ** S x))) s h -> (Ex x, (P x ** Q x ** R x ** S x)) s h.
+Proof.
+  intros H. sep_normal_in' H. exact H.
+Qed.
+
+Example sep_normal_in'_test5 (P Q R S : assn) s h :
+  (((P ** emp ** Q) ** Q) ** R) s h -> (P ** Q ** Q ** R) s h.
+Proof.
+  intros H; sep_normal_in' H; exact H.
+Qed.
+
+Ltac sep_lift_in H n :=
+  match goal with
+    | [ H' : (Ex _, _) ?s ?h |- _ ] => match H' with H =>
+      match n with
+        | O => fail 2
+        | S ?n => 
+          let Hf := fresh "H" in
+          eapply scEx in H; [idtac | intros ? ? ? Hf; sep_lift_in Hf n; exact Hf] 
+      end end
+    | [ H' : (_ ** _ ** _) ?s ?h |- _ ] => match H' with H =>
+      match n with
+        | 0 => idtac
+        | S ?n => 
+          let Hf := fresh "H" in
+          eapply scRw in H; [idtac |
+                        intros ? ? Hf; exact Hf | 
+                        intros ? ? Hf; sep_lift_in Hf n; exact Hf];
+          apply scCA in H
+      end end
+    | [ H' : (_ ** _) ?s ?h |- _] => match H' with H =>
+      match n with
+        | 0 => idtac
+        | S ?n => apply scC in H
+      end end
+    | _ => idtac
+  end.
+
+Example sep_lift_in_test_example (P0 P1 P2 : assn) s h :
+  (P0 ** P1 ** P2) s h -> (P1 ** P0 ** P2) s h.
+Proof. intros H. sep_lift_in H 1. exact H. Qed.
+
+Example sep_lift_in_test0 (P0 P1 P2 P3 P4 : assn) s h :
+  (P0 ** P1 ** P2 ** P3 ** P4) s h -> (P0 ** P1 ** P2 ** P3 ** P4) s h.
+Proof. intros H. sep_lift_in H 0. exact H. Qed.
+
+Example sep_lift_in_test1 (P0 P1 P2 P3 P4 : assn) s h :
+  (P0 ** P1 ** P2 ** P3 ** P4) s h -> (P1 ** P0 ** P2 ** P3 ** P4) s h.
+Proof. intros H. sep_lift_in H 1. exact H. Qed.
+
+Example sep_lift_in_test2 (P0 P1 P2 P3 P4 : assn) s h :
+  (P0 ** P1 ** P2 ** P3 ** P4) s h -> (P2 ** P0 ** P1 ** P3 ** P4) s h.
+Proof. intros H. sep_lift_in H 2. exact H. Qed.
+
+Example sep_lift_in_test3 (P0 P1 P2 P3 P4 : assn) s h :
+  (P0 ** P1 ** P2 ** P3 ** P4) s h -> (P3 ** P0 ** P1 ** P2 ** P4) s h.
+Proof. intros H. sep_lift_in H 3. exact H. Qed.
+
+Example sep_lift_in_test4 (P0 P1 P2 P3 P4 : assn) s h :
+  (P0 ** P1 ** P2 ** P3 ** P4) s h -> (P4 ** P0 ** P1 ** P2 ** P3) s h.
+Proof. intros H. sep_lift_in H 4. exact H. Qed.
+
+Example sep_lift_in_testEx0 (P0 P1 P2 : nat -> assn) s h :
+  (Ex x, P0 x ** P1 x ** P2 x) s h -> (Ex x, (P1 x ** P0 x ** P2 x)) s h.
+Proof. intros H. sep_lift_in H 2. exact H. Qed.
+
+Example sep_lift_in_testEx1 (P0 P1 P2 : nat -> assn) s h :
+  (Ex x, P0 x ** P1 x ** P2 x) s h -> (Ex x, (P2 x ** P0 x ** P1 x)) s h.
+Proof. intros H. sep_lift_in H 3. exact H. Qed.
+
+Ltac find_ban Ps k :=
+  match Ps with
+    | !(?P) => k (Some 0)
+    | !(?P) ** _ => k (Some 0)
+    | _ ** ?Ps => find_ban Ps ltac:(fun n =>
+        idtac "debug:" n;
+        match n with false => k false | Some ?n => k (Some (S n)) end)
+    | _ => k false
+  end.
+
+Ltac sep_normal_in H :=
+  sep_normal_in' H;
+  repeat (match goal with
+    | [ H' : ?P ?s ?h |- _ ] => match H' with H =>
+      find_ban P ltac:(fun n =>
+      idtac "debug" n;
+      match n with
+        | false => idtac
+        | Some ?n =>
+          let HP := fresh "HP" in
+          sep_lift_in H n; apply scban_l' in H as [HP H]
+      end)
+  end end).
+
+Example sep_normal_in_test5 (P Q R S : assn) s h :
+  (((P ** emp ** !(Q)) ** !(S)) ** R) s h ->(P ** R) s h /\ Q s emp_ph /\ S s emp_ph.
+Proof.
+  intros H; sep_normal_in H; auto.
+Qed.
+
+Example sep_normal_in_test1 (P Q R S : assn) s h :
+  ((P ** Q) ** (R ** S)) s h -> (P ** Q ** R ** S) s h.
+Proof.
+  intros H. 
+  sep_normal_in H. exact H.
+Qed.
+  
+Example sep_normal_in_test2 (P Q R S : assn) s h : ((P ** Q) ** R) s h ->(P ** Q ** R) s h.
+Proof.
+  intros H. sep_normal_in H. exact H.
+Qed.
+
+Example sep_normal_in_test3 (P Q R S : assn) s h : (((P ** emp) ** Q) ** R) s h ->(P ** Q ** R) s h.
+Proof.
+  intros H. sep_normal_in H. exact H.
+Qed.
+
+Example sep_normal_in_goal4 (P Q R S : nat -> assn) s h : 
+  (Ex x, ((P x ** Q x) ** (R x ** S x))) s h -> (Ex x, (P x ** Q x ** R x ** S x)) s h.
+Proof.
+  intros H. sep_normal_in H. exact H.
+Qed.
+
 Ltac sep_lift n :=
   let pred_n n k :=
     match n with
@@ -291,64 +580,6 @@ Proof.
   apply scCA in H.
 Abort.
 
-Ltac sep_lift_in H n :=
-  match goal with
-    | [ H' : (Ex _, _) ?s ?h |- _ ] => match H' with H =>
-      match n with
-        | O => fail 2
-        | S ?n => 
-          let Hf := fresh "H" in
-          eapply scEx in H; [idtac | intros ? ? ? Hf; sep_lift_in Hf n; exact Hf] 
-      end end
-    | [ H' : (_ ** _ ** _) ?s ?h |- _ ] => match H' with H =>
-      match n with
-        | 0 => idtac
-        | S ?n => 
-          let Hf := fresh "H" in
-          eapply scRw in H; [idtac |
-                        intros ? ? Hf; exact Hf | 
-                        intros ? ? Hf; sep_lift_in Hf n; exact Hf];
-          apply scCA in H
-      end end
-    | [ H' : (_ ** _) ?s ?h |- _] => match H' with H =>
-      match n with
-        | 0 => idtac
-        | S ?n => apply scC in H
-      end end
-    | _ => idtac
-  end.
-
-Example sep_lift_in_test_example (P0 P1 P2 : assn) s h :
-  (P0 ** P1 ** P2) s h -> (P1 ** P0 ** P2) s h.
-Proof. intros H. sep_lift_in H 1. exact H. Qed.
-
-Example sep_lift_in_test0 (P0 P1 P2 P3 P4 : assn) s h :
-  (P0 ** P1 ** P2 ** P3 ** P4) s h -> (P0 ** P1 ** P2 ** P3 ** P4) s h.
-Proof. intros H. sep_lift_in H 0. exact H. Qed.
-
-Example sep_lift_in_test1 (P0 P1 P2 P3 P4 : assn) s h :
-  (P0 ** P1 ** P2 ** P3 ** P4) s h -> (P1 ** P0 ** P2 ** P3 ** P4) s h.
-Proof. intros H. sep_lift_in H 1. exact H. Qed.
-
-Example sep_lift_in_test2 (P0 P1 P2 P3 P4 : assn) s h :
-  (P0 ** P1 ** P2 ** P3 ** P4) s h -> (P2 ** P0 ** P1 ** P3 ** P4) s h.
-Proof. intros H. sep_lift_in H 2. exact H. Qed.
-
-Example sep_lift_in_test3 (P0 P1 P2 P3 P4 : assn) s h :
-  (P0 ** P1 ** P2 ** P3 ** P4) s h -> (P3 ** P0 ** P1 ** P2 ** P4) s h.
-Proof. intros H. sep_lift_in H 3. exact H. Qed.
-
-Example sep_lift_in_test4 (P0 P1 P2 P3 P4 : assn) s h :
-  (P0 ** P1 ** P2 ** P3 ** P4) s h -> (P4 ** P0 ** P1 ** P2 ** P3) s h.
-Proof. intros H. sep_lift_in H 4. exact H. Qed.
-
-Example sep_lift_in_testEx0 (P0 P1 P2 : nat -> assn) s h :
-  (Ex x, P0 x ** P1 x ** P2 x) s h -> (Ex x, (P1 x ** P0 x ** P2 x)) s h.
-Proof. intros H. sep_lift_in H 2. exact H. Qed.
-
-Example sep_lift_in_testEx1 (P0 P1 P2 : nat -> assn) s h :
-  (Ex x, P0 x ** P1 x ** P2 x) s h -> (Ex x, (P2 x ** P0 x ** P1 x)) s h.
-Proof. intros H. sep_lift_in H 3. exact H. Qed.
 
 Ltac find_assn P Qs k :=
   match Qs with

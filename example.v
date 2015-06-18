@@ -667,106 +667,6 @@ Section Example.
       rewrite (proof_irrelevance _ Hi Hj); eauto.
     Qed.
 
-    Lemma pre_sat' : (Aistar_v (init (fun i => Pre_i (fin_rev i)))) |= Aistar_v (init Pre_i).
-    Proof.
-      intros s h. 
-      destruct (inject_biject (@fin_rev_inj ntrd)) as (g & Hfg & Hgf).
-      apply (biject_wf Hgf Hfg).
-      apply eq_nth_iff; intros j i ?; subst; rewrite !init_spec; congruence.
-    Qed.
-
-    Lemma pre_sat : (Pre |= Aistar_v (init Pre_i)).
-    Proof.
-      intros s h H; apply pre_sat'.
-      unfold Pre,Pre_i in *; revert s h H. induction ntrd; [simpl in *; eauto|].
-      intros s h H.
-      destruct H as (ph1 & ph2 & Hpt & ? & ? & ?); exists ph1, ph2; repeat split; eauto.
-      - cutrewrite (proj1_sig (Fin.to_nat (fin_rev (@Fin.F1 n))) = n)%nat; eauto.
-        unfold fin_rev. remember (Fin.to_nat Fin.F1) as t; destruct t as [x1 Hx1]; simpl.
-        rewrite fin_of_nat_lt_inv1.
-        simpl in Heqt; inversion Heqt; simpl; omega.
-      - apply IHn in H; simpl in *.
-        cutrewrite <-(init
-                      (fun (i : Fin.t n) (s0 : stack) (ph : pheap) =>
-                         forall x : Z,
-                           this ph x =
-                           (if Z.eq_dec x (s0 ARR + Z.of_nat (proj1_sig (Fin.to_nat (fin_rev i))))
-                            then Some (1%Qc, Z.of_nat (proj1_sig (Fin.to_nat (fin_rev i))))
-                            else None)) = 
-                    init
-                      (fun (i : Fin.t n) (s0 : stack) (ph : pheap) =>
-                         forall x : Z,
-                           this ph x =
-                           (if Z.eq_dec x (s0 ARR + Z.of_nat (proj1_sig (Fin.to_nat (fin_rev (Fin.FS i)))))
-                            then
-                              Some (1%Qc, Z.of_nat (proj1_sig (Fin.to_nat (fin_rev (Fin.FS i)))))
-                            else None))); eauto.
-        apply eq_nth_iff; intros ? i ?; subst; rewrite !init_spec.
-        cutrewrite (proj1_sig (Fin.to_nat (fin_rev i)) = proj1_sig (Fin.to_nat (fin_rev (Fin.FS i))));           eauto.
-        unfold fin_rev; simpl. destruct (Fin.to_nat i).
-        rewrite !fin_of_nat_lt_inv1.
-        rewrite (plus_comm (S x) 1); simpl; omega.
-    Qed.
-
-    Definition frotate1 (n : nat) (i : Fin.t n) : Fin.t n.
-      refine (let (ni, H) := Fin.to_nat i in 
-              @Fin.of_nat_lt (match ni with 0 => n - 1 | S n => n end) n _).
-      abstract (destruct ni; omega).
-    Defined.
-
-    Lemma frotate1_inj (n : nat) (i j : Fin.t n) : frotate1 i = frotate1 j -> i = j.
-    Proof.
-      unfold frotate1; intros Heq; 
-      apply (f_equal (@fin_to_nat _)) in Heq; apply fin_eq_of_nat.
-      destruct (Fin.to_nat i) as [ni Hi], (Fin.to_nat j) as [nj Hj].
-      unfold fin_to_nat in Heq; rewrite !fin_of_nat_lt_inv1 in Heq; destruct ni, nj; subst; f_equal;
-      try apply proof_irrelevance; try omega.
-    Qed.
-
-    Lemma post_sat' : Aistar_v (init Post_i) |= (Aistar_v (init (fun i => Post_i (frotate1 i)))).
-    Proof.
-      intros s h.
-      destruct (inject_biject (@frotate1_inj ntrd)) as (g & Hfg & Hgf).
-      apply (biject_wf Hfg Hgf).
-      apply eq_nth_iff; intros j i ?; subst; rewrite !init_spec; congruence.
-    Qed.
-
-    Lemma post_sat'' : Aistar_v (init Post_i) |= 
-                         Aistar_v (init (fun i => Post_i (frotate1 (fin_rev i)))).
-    Proof.
-      intros s h; destruct (inject_biject (@fin_rev_inj ntrd)) as (g & Hfg & Hgf).
-      intros H; apply post_sat' in H; revert H.
-      apply (biject_wf Hfg Hgf).
-      apply eq_nth_iff; intros ? i ?; subst; rewrite !init_spec; eauto.
-    Qed.
-
-    Lemma is_array_eq (n : nat) (f g : nat -> Z) (e : exp) :
-      (forall x, (x < n)%nat -> f x = g x) -> (is_array e n f |= is_array e n g).
-    Proof.
-      induction n; intros H; [simpl; firstorder|].
-      simpl; intros s h (ph1 & ph2 & Hpt & Hr & ? & ?).
-      exists ph1, ph2; repeat split; eauto.
-      intros x; specialize (Hpt x); rewrite <-H; eauto. 
-    Qed.
-    
-    Lemma Aistar_v_append (n m : nat) (assns1 : Vector.t assn n) (assns2 : Vector.t assn m) :
-      Aistar_v (Vector.append assns1 assns2) |= Astar (Aistar_v assns1) (Aistar_v assns2).
-    Proof.
-      revert m assns2; induction n; intros m assns2 s h Hsat.
-      - rewrite (vinv0 assns1) in *; simpl in *; exists emp_ph, h; intuition; apply disj_emp2.
-      - destruct (vinvS assns1) as (assn1 & assn1' & ?); subst; simpl in *.
-        destruct Hsat as (ph1 & ph1' & ? & ? & ? & ?).
-        apply IHn in H0 as (ph2 & ph2' & ? & ? & ? & ?).
-        assert (pdisj ph1 ph2).
-        { rewrite <-H5 in H1. apply pdisjE1 in H1; eauto. }
-        exists (phplus_pheap H6), ph2'; repeat split; eauto.
-        exists ph1, ph2; repeat split; eauto.
-        simpl.
-        + apply pdisj_padd_expand; eauto; split; eauto.
-          rewrite H5; eauto.
-        + simpl. rewrite padd_assoc; try rewrite H5; eauto.
-    Qed.
-    
     Section VectorNotation.
       Import VectorNotations.
       
@@ -799,16 +699,16 @@ Section Example.
             rewrite (H0 y) in H3; inversion H3; subst; eauto. }
           rewrite H3; eauto.
         - destruct (vinvS assns) as (a1 & assns' & ?); subst; simpl in *.
-          destruct Hsat as (ph1 & ph2 & Hsat1 & Hsat2 & ? & ?).
-          apply IHn in Hsat2 as (ph0 & ph3 & Hsat0 & Hsat2 & ? & ?).
-          assert (pdisj ph1 ph0) by (rewrite <-H2 in H; apply pdisjE1 in H; eauto).
-          exists (phplus_pheap H3), ph3; repeat split; eauto.
-          exists ph1, ph0; repeat split; eauto.
-          simpl; apply pdisj_padd_expand; eauto; split; eauto.
-          rewrite H2; eauto.
-          simpl; rewrite padd_assoc; eauto.
-          + rewrite H2; eauto.
-          + rewrite H2; eauto.
+          sep_normal. sep_cancel. apply IHn; auto.
+      Qed.
+
+      Lemma aistar_v_snoc' (n : nat) (assns : Vector.t assn n) (x : assn) :
+        Astar (Aistar_v assns) x |= Aistar_v (snoc_vec assns x).
+      Proof.
+        induction n; intros s ph Hsat; simpl in *.
+        - rewrite (vinv0 assns) in *; simpl in *; sep_cancel. 
+        - destruct (vinvS assns) as (a1 & assns' & ?); subst; simpl in *.
+          sep_normal_in Hsat; sep_cancel; apply IHn; sep_cancel.
       Qed.
 
       Lemma snoc_last (T : Type) (n : nat) (vs : Vector.t T n) (x : T) :
@@ -855,35 +755,71 @@ Section Example.
         rewrite L_R_Sn, IHm; eauto.
       Qed.
     End VectorNotation.
- 
+
     Lemma Aistar_v_is_array (n : nat) (assns : Vector.t assn n) (g : nat -> Z) (e : exp) :
       (forall i : Fin.t n, assns[@i] |= 
-         (e +  (Z.of_nat (proj1_sig (Fin.to_nat i))) -->p 
-            (1%Qc,  (g (proj1_sig (Fin.to_nat i))))))%assn ->
+         (e +  Z_of_fin i) -->p (1%Qc,  (g (nat_of_fin i))))%assn ->
       (Aistar_v assns |= is_array e n g).
     Proof.
       induction n; [rewrite (vinv0 assns) in *; intros; eauto|].
       destruct (snoc_dst assns) as (assn & vs & Heq); rewrite Heq in *.
-      intros H s ph Hsat.
-      apply aistar_v_snoc in Hsat as (phvs & phas & Hsat1 & Hsat2 & Hdis & Heq').
-      exists phas, phvs; repeat split; eauto.
-      - intros x.
-        specialize (H (last_idx n) s phas).
-        rewrite snoc_last in H; specialize (H Hsat2 x).
-        rewrite last_n in *; eauto.
-      - apply (IHn vs); eauto.
-        intros i s' h' Hsat x.
-        remember (proj1_sig (Fin.to_nat i)).
-        specialize (H (Fin.L_R 1 i) s' h').
-        rewrite nth_L_R in H.
-        specialize (H Hsat x).
-        rewrite <-(L_R_n 1), <-Heqy in H; eauto.
-      - rewrite phplus_comm; eauto.
+      intros H s ph Hsat; simpl.
+      apply aistar_v_snoc in Hsat. 
+      pose proof (H (last_idx n)) as Hlast; rewrite last_n in *.
+      eapply scRw; [apply Hlast| apply IHn|].
+      - intros i; specialize (H (Fin.L_R 1 i)); repeat rewrite <-(L_R_n 1), (nth_L_R) in H; eauto.
+      - rewrite snoc_last; sep_cancel.
+    Qed.
+
+    Lemma is_array_Aistar_v (n : nat) (assns : Vector.t assn n) (g : nat -> Z) (e : exp) :
+      (forall i : Fin.t n, 
+         (e +  Z_of_fin i) -->p (1%Qc,  (g (nat_of_fin i)))%assn |= assns[@i])  ->
+      (is_array e n g |= Aistar_v assns).
+    Proof.
+      induction n; [rewrite (vinv0 assns) in *; intros; eauto|].
+      destruct (snoc_dst assns) as (assn & vs & Heq); rewrite Heq in *.
+      intros H s ph Hsat; simpl in *.
+      apply aistar_v_snoc'. 
+      pose proof (H (last_idx n)) as Hlast; rewrite last_n in *.
+      eapply scRw; [apply IHn | |].
+      - intros i; specialize (H (Fin.L_R 1 i)); repeat rewrite <-(L_R_n 1), (nth_L_R) in H; eauto.
+      - rewrite snoc_last in Hlast; eauto.
+      - rewrite snoc_last in *; sep_cancel.
+    Qed.
+    
+    Lemma pre_sat : (Pre |= Aistar_v (init Pre_i)).
+    Proof.
+      apply is_array_Aistar_v; intros; rewrite init_spec; unfold Pre_i; auto.
+    Qed.      
+
+    Definition frotate1 (n : nat) (i : Fin.t n) : Fin.t n.
+      refine (let (ni, H) := Fin.to_nat i in 
+              @Fin.of_nat_lt (match ni with 0 => n - 1 | S n => n end) n _).
+      abstract (destruct ni; omega).
+    Defined.
+
+    Lemma frotate1_inj (n : nat) (i j : Fin.t n) : frotate1 i = frotate1 j -> i = j.
+    Proof.
+      unfold frotate1; intros Heq.
+      apply fin_eq_of_nat.
+      apply (f_equal (fun i => nat_of_fin i)) in Heq.
+      destruct (Fin.to_nat i) as [ni Hi], (Fin.to_nat j) as [nj Hj].
+      rewrite !fin_of_nat_lt_inv1 in Heq.
+      assert (H : ni = nj) by (destruct ni, nj; omega); destruct H.
+      f_equal; apply proof_irrelevance.
+    Qed.
+
+    Lemma post_sat' : Aistar_v (init Post_i) |= (Aistar_v (init (fun i => Post_i (frotate1 i)))).
+    Proof.
+      intros s h.
+      destruct (inject_biject (@frotate1_inj ntrd)) as (g & Hfg & Hgf).
+      apply (biject_wf Hfg Hgf).
+      apply eq_nth_iff; intros j i ?; subst; rewrite !init_spec; congruence.
     Qed.
 
     Lemma post_sat : (Aistar_v (init Post_i) |= Post).
     Proof.
-      intros s h H; apply post_sat' in H; clear ntrd_gt_0; revert H.
+      intros s h H; apply post_sat' in H. revert H.
       apply Aistar_v_is_array; clear s h.
       intros i s h Hsat x.
       rewrite init_spec in Hsat; unfold Post_i,frotate1 in Hsat.
@@ -902,6 +838,26 @@ Section Example.
         cutrewrite (Z.of_nat (S ni) = Z.of_nat ni + 1)%Z; [|rewrite Nat2Z.inj_succ; omega ].
         cutrewrite (Z.of_nat ni + 1 - 1 = Z.of_nat ni)%Z; [|omega].
         rewrite Z.mod_small; [auto|omega].
+    Qed.
+
+    Lemma is_array_eq (n : nat) (f g : nat -> Z) (e : exp) :
+      (forall x, (x < n)%nat -> f x = g x) -> (is_array e n f |= is_array e n g).
+    Proof.
+      induction n; intros H; [simpl; firstorder|].
+      simpl; intros s h (ph1 & ph2 & Hpt & Hr & ? & ?).
+      exists ph1, ph2; repeat split; eauto.
+      intros x; specialize (Hpt x); rewrite <-H; eauto. 
+    Qed.
+    
+    Lemma Aistar_v_append (n m : nat) (assns1 : Vector.t assn n) (assns2 : Vector.t assn m) :
+      Aistar_v (Vector.append assns1 assns2) |= Astar (Aistar_v assns1) (Aistar_v assns2).
+    Proof.
+      revert m assns2; induction n; intros m assns2 s h Hsat.
+      - rewrite (vinv0 assns1) in *; simpl in *.
+        sep_normal; auto.
+      - destruct (vinvS assns1) as (assn1 & assn1' & ?); subst; simpl in *.
+        sep_normal; sep_normal_in Hsat; sep_cancel.
+        apply IHn; auto.
     Qed.
 
     Lemma typing_rotate : typing_cmd E rotate Lo.
@@ -959,6 +915,8 @@ Section Example.
       (( ARR +  (Z_of_fin tid)) -->p (1%Qc,  (Z_of_fin tid)) **
        !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid))).
     Proof.
+      simpl; intros s h H.
+      
       simpl; intros s h (ph1 & ph2 & H); intuition; repeat eexists; eauto.
       intros x; specialize (H x). rewrite H4 in H; eauto.
       destruct (Z_eq_dec (s X) (Z_of_fin tid)); try firstorder congruence.
