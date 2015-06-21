@@ -55,9 +55,6 @@ Section Example.
   Section Rotate.
     Notation ntrdZ := (Z_of_nat ntrd).
 
-    Coercion Evar : var >-> exp.
-    Coercion Enum : Z >-> exp.
-    
     Definition rotate := 
       X ::= [ARR + TID] ;;
       Cbarrier 0 ;;
@@ -882,19 +879,22 @@ Section Example.
       destruct h; unfold emp_ph,phplus; simpl; extensionality x; simpl; destruct (this x) as [[? ?]|];auto.
     Qed.
     Hint Resolve phplus_emp1 phplus_emp2.
-
+(*
     Lemma rotate_l1 (tid : Fin.t ntrd) :
-      ((init Pre_i)[@tid] //\\ (fun s _ => s TID = Z.of_nat (proj1_sig (Fin.to_nat tid))))%assn |=
+      ((init Pre_i)[@tid] ** !(TID === Z_of_fin tid))%assn |=
       (( ARR +  TID -->p (1%Qc,  (Z_of_fin tid))) ** 
        !( TID ===  (Z_of_fin tid))).
     Proof.
+      intros.
+      sep_normal_in H. sep_normal.
+      unfold Pre_i in H; rewrite init_spec in H. 
       intros s h [H0 H1].
       rewrite init_spec in H0; unfold Pre_i in H0.
       exists h, emp_ph; repeat split; eauto.
       intros x; specialize (H0 x); simpl in *.
       rewrite H1; simpl; apply H0.
     Qed.
-
+ *)
     Hint Unfold indeE inde writes_var.
     Lemma rotate_l2 (tid : Fin.t ntrd) :
       CSL bspec tid 

@@ -9,9 +9,12 @@ Require Import assertions.
 Set Implicit Arguments.
 Unset Strict Implicit.
 
+Coercion Evar : var >-> exp.
+Coercion Enum : Z >-> exp.
+
 Require Import PHeap.
 Require Import Bdiv.
-
+Require Import assertions.
 Section SeqCSL.
   Variable ntrd : nat.
   Variable bspec : nat -> (Vector.t assn ntrd * Vector.t assn ntrd)%type.
@@ -829,7 +832,7 @@ Section ParCSL.
     typing_cmd E c ty ->
     (forall tid : Fin.t ntrd, 
        CSL bspec tid 
-           (Aconj Ps[@tid] (fun s _ => s (Var 0) = Z.of_nat (proj1_sig (Fin.to_nat tid)))) 
+           (Ps[@tid] ** !((Var 0) === Z_of_fin tid))
            c 
            Qs[@tid]) ->
     CSLp P c Q.
@@ -849,11 +852,17 @@ Section ParCSL.
       eauto.
       rewrite Heqc; apply Hsafei.
       erewrite Vector.nth_map in Hsat'; eauto.
+      repeat eexists; unfold emp_ph; eauto.
+      intros x; unfold emp_ph; auto.
+      unfold_conn; auto. 
     - exists (ks, h), prehs, (Vector.map (snd (B:=stack)) ks), c, ty; repeat split; eauto; unfold_conn.
       + apply rt1n_refl. 
       + unfold get_cs_k; simpl; intros tid; erewrite Vector.nth_map; eauto.
       + intros tid; unfold safe_aux; exists Qs[@tid]; intros n'.
         erewrite Vector.nth_map; eauto; apply Hsafei.
         specialize (Hsat' tid); erewrite Vector.nth_map in Hsat'; eauto.
+        repeat eexists; eauto.
+        intros; unfold emp_ph; auto.
+        apply disj_emp1.
   Qed.
 End ParCSL.

@@ -41,8 +41,8 @@ Definition Apointsto p e1 e2 := (nosimpl (fun (s : stack) (ph : pheap) =>
 Notation "e1 '-->p' ( p ,  e2 )" := (Apointsto p e1 e2) (at level 75).
 Definition ban P := (nosimpl (emp //\\ P)).
 Notation "!( P )" := (emp //\\ P).
-Notation "x '===' y" := 
-  (nosimpl (fun s h => edenot x s = edenot y s)) (at level 70, no associativity).
+Definition eeq (x y : exp) := (nosimpl (fun s (h : pheap) => edenot x s = edenot y s)).
+Notation "x '===' y" := (eeq x y) (at level 70, no associativity).
 Definition AEx {T : Type} (Px : T -> assn) := (nosimpl (fun s h => ex (fun x => Px x s h))).
 Notation "'Ex' x .. y , p" := (AEx (fun x => .. (AEx (fun y => p)) ..))
   (at level 200, x binder, right associativity).                               
@@ -64,7 +64,7 @@ Notation nat_of_fin i := (proj1_sig (Fin.to_nat i)).
 Notation Z_of_fin i := (Z.of_nat (nat_of_fin i)).
 
 Ltac unfold_conn :=
-  unfold Aemp, Astar, Aconj, Adisj, Apure, Apointsto, ban in *; simpl in *.
+  unfold Aemp, Astar, Aconj, Adisj, Apure, Apointsto, ban, eeq in *; simpl in *.
 Notation "P |= Q" := (forall s h, P s h -> Q s h) (at level 87).
 
 Section Precise.
