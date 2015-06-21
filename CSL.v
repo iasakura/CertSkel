@@ -416,8 +416,8 @@ Section SeqCSL.
 
   Theorem rule_read (x : var) (E1 E2 : exp) (p : Qc) :
     indeE E1 x -> indeE E2 x -> 
-    CSL (Apointsto p E1 E2) (x ::= [ E1 ]) 
-        (Aconj (Apointsto p E1 E2) (Apure (Beq (Evar x) E2))).
+    CSL (E1-->p(p, E2)) (x ::= [ E1 ]) 
+        ((E1-->p(p, E2)) ** !(x === E2)).
   Proof.
     unfold indeE, CSL, safe_nt; intros hinde1 hinde2 s h hsat; destruct n; 
     [simpl; eauto | simpl; repeat split; try congruence].
@@ -433,14 +433,13 @@ Section SeqCSL.
     - intros hF h0 c' ss' hdis heq hred. inversion hred; clear hred; subst.
       inversion EQ1; clear EQ1; subst; simpl in *.
       repeat eexists; eauto. 
-      apply safe_skip; simpl. split; unfold_conn; [intros x0|];
+      apply safe_skip; simpl. apply scban_r; unfold_conn; [intros x0|];
       repeat match goal with [ |- context [Z.eq_dec ?x ?y] ] => destruct (Z.eq_dec x y) end;
       (try specialize (hsat x0)); subst; repeat rewrite <-hinde1 in hsat;
       repeat match goal with [ H : context [Z.eq_dec ?x ?y] |- _ ] => destruct (Z.eq_dec x y) end;
       try congruence.
-      contradict n0.
-      rewrite <-hinde2.
-      unfold var_upd; destruct (var_eq_dec x x); try congruence.
+      rewrite <-hinde2;
+      unfold var_upd; destruct (var_eq_dec x x) as [|]; try congruence.
       rewrite <-(phplus_eq hdis) in heq; apply ptoheap_eq in heq.
       pose proof (htop_eq heq); simpl in *.
       unfold phplus in H; specialize (H (edenot E1 s0)). rewrite hsat in H.
@@ -862,7 +861,7 @@ Section ParCSL.
         erewrite Vector.nth_map; eauto; apply Hsafei.
         specialize (Hsat' tid); erewrite Vector.nth_map in Hsat'; eauto.
         repeat eexists; eauto.
-        intros; unfold emp_ph; auto.
+        unfold_conn; intros; unfold emp_ph; auto.
         apply disj_emp1.
   Qed.
 End ParCSL.

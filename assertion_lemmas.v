@@ -15,9 +15,9 @@ Close Scope Q_scope.
 Bind Scope exp_scope with exp.
 Bind Scope bexp_scope with bexp.
 
-Infix "+" := (Eplus) : exp_scope.
-Infix "<" := (Blt) : bexp_scope.
-Infix "==" := (Beq) : bexp_scope.
+Global Infix "+" := (Eplus) : exp_scope.
+Global Infix "<" := (Blt) : bexp_scope.
+Global Infix "==" := (Beq) : bexp_scope.
 
 Notation nosimpl t := (let tt := tt in t).
 
@@ -40,7 +40,7 @@ Definition Apointsto p e1 e2 := (nosimpl (fun (s : stack) (ph : pheap) =>
   forall x, this ph x = if Z.eq_dec x (edenot e1 s) then Some (p, edenot e2 s) else None)).
 Notation "e1 '-->p' ( p ,  e2 )" := (Apointsto p e1 e2) (at level 75).
 Definition ban P := (nosimpl (emp //\\ P)).
-Notation "!( P )" := (emp //\\ P).
+Notation "!( P )" := (ban P).
 Definition eeq (x y : exp) := (nosimpl (fun s (h : pheap) => edenot x s = edenot y s)).
 Notation "x '===' y" := (eeq x y) (at level 70, no associativity).
 Definition AEx {T : Type} (Px : T -> assn) := (nosimpl (fun s h => ex (fun x => Px x s h))).
