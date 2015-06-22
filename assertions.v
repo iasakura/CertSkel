@@ -235,7 +235,10 @@ Ltac sep_cancel :=
       match p with
         | Some (?n, ?m) =>
           sep_lift m; sep_lift_in H n;
-          sep_cancel
+          let Hf := fresh "H" in
+          eapply scRw_stack; [ intros ? Hf; exact Hf | 
+                               intros ? ? |
+                               exact H ]
         | None => idtac
       end)
   end.

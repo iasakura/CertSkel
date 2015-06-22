@@ -233,3 +233,10 @@ Proof.
   apply pdisj_padd_expand; auto.
 Qed.
 
+Lemma scRw_stack (s : stack) (P Q P' Q' : assn) :
+  (forall h, P s h -> P' s h) -> (forall h, Q s h -> Q' s h) ->
+  (forall h, (P ** Q) s h -> (P' ** Q') s h).
+Proof.
+  intros Hp Hq h (? & ? & ? & ? & ? & ?).
+  exists x, x0; split; firstorder.
+Qed.
