@@ -74,7 +74,7 @@ Section independent_prover.
   Qed.
 End independent_prover.
 
-Ltac prove_indeE := unfold indeE, var_upd; intros; simpl; auto.
+Ltac prove_indeE := unfold indeE, var_upd in *; intros; simpl; auto.
 
 Ltac prove_inde :=
   match goal with
@@ -131,6 +131,7 @@ Proof.
 Qed.
 
 Ltac find_enough_resource E H :=
+  match type of H with ?P => idtac "debug" P end;
   match type of H with
     | ((?E0 -->p (_, ?E1)) ?s ?h) => 
       let Hf := fresh in
@@ -154,7 +155,22 @@ Ltac find_enough_resource E H :=
         | ((_ ** _) _ _) => apply scC in H
       end end end
   end.
- 
+
+Ltac sep_combine_in H :=
+  repeat match type of H with
+    | ?P ?s ?h =>
+      match goal with
+        | [ H' : ?Q ?s emp_ph |- _ ] =>
+          apply (scban_l H') in H; sep_lift_in H 1; clear H'
+      end
+  end.
+
+Example sep_combine_test P Q R S s h : (P ** Q ** !(R) ** !(S)) s h -> True.
+Proof.
+  intros H; sep_split_in H.
+  sep_combine_in H.
+Abort.
+
 Ltac hoare_forward :=
   match goal with
     | [ |- CSL ?bspec ?tid ?P (?X ::= [?E]) ?Q ] => 
@@ -162,11 +178,13 @@ Ltac hoare_forward :=
       eapply Hbackward; [idtac |
         intros s ? Hf;
         sep_normal_in Hf;
+        sep_split_in Hf;
         find_enough_resource E Hf;
+        sep_combine_in Hf;
         exact Hf];
       eapply Hforward; [
         eapply rule_frame;
-        [try eapply rule_read; idtac "ok!!!"; try prove_indeE | try prove_inde] | idtac ]
+        [eapply rule_read; idtac "ok!!!"; prove_indeE | prove_inde] | prove_inde ]
   end.
 
 Section Hoare_test.
@@ -177,50 +195,13 @@ Section Hoare_test.
     CSL bspec tid 
       (P ** Q ** (E -->p (1%Qc, 3%Z)) ** ( (ARR +  Z_of_fin tid) -->p (1%Qc,  (Z_of_fin tid))) ** !( TID ===  (Z_of_fin tid)))
       (X ::= [ ARR + TID]) 
-      (P ** Q ** (ARR + TID -->p (1%Qc, (Z_of_fin tid))) ** !( TID === (Z_of_fin tid))).
+      (P ** Q ** (ARR + TID -->p (1%Qc, (Z_of_fin tid))) ** !( TID === (Z_of_fin tid)) ** (E -->p (1%Qc, 3%Z))).
     Proof.
-      intros. hoare_forward.
-      apply H1.
-      intros ? ? Hsat; sep_normal_in Hsat. sep_normal.
-      sep_cancel. sep_cancel. sep_cancel. 
-      
-      sep_lift 0. sep_lift_in Hsat 1. eapply scRw_stack; [intros ? Hf; exact Hf |
-                                                          intros ? ? |
-                                                          exact Hsat].
-(*      intros; eapply Hbackward; [| intros s ? Hf; sep_normal_in Hf; find_enough_resource (ARR+TID) Hf]. Focus 2.*)
-      intros; eapply Hbackward. Focus 2.
-      assert (((ARR + Z_of_fin tid -->p (1,  Z_of_fin tid)) s h) -> False).
-      intros H'.
-      assert ((ARR + Z_of_fin tid === ARR + TID) s h) by (unfold_conn; simpl in *; omega).
-      apply (mapsto_rewrite H1) in H'.
-      intros s h Hf.
-      sep_normal_in Hf.
-      eapply scRw_stack in Hf.
-      Focus 2. intros ? Hf'; exact Hf'.
-      Focus 2. intros h' Hf'.
-      eapply scRw_stack in Hf'.
-      Focus 2. intros ? Hf''; exact Hf''.
-      Focus 2. intros h'' Hf''.
-      eapply scRw_stack in Hf''.
-      Focus 2. intros ? Hf'''; exact Hf'''.
-      Focus 2. intros h''' Hf'''; exact Hf'''.
-      eapply scC in Hf''. exact Hf''.
-      eapply scCA in Hf'. exact Hf'.
-      eapply scCA in Hf. exac
-      sep_normal_in Hf. 
-      find_enough_resource (ARR + TID) Hf.
-
-      match goal with
-        | [|- CSL _ _ ?P (?X ::= [?E]) ?Q] =>
-          let Hf := fresh in
-          eapply Hbackward; [idtac | intros ? ? Hf; sep_normal_in Hf; find_enough_resource E Hf]
-      end.
-
-      eapply Hbackward;[idtac|
-      intros ? ? ?; sep_lift_in H1 2;
-      sep_normal_in H1;
-      assert (forall h, (ARR + Z_of_fin tid === ARR + TID) s h) by 
-          (unfold_conn; solve [congruence | omega]); 
-      eapply scRw_stack in H1; [idtac |
-                                intros hf Hf; eapply (mapsto_rewrite (H2 hf)) in Hf; exact Hf |
-                                intros ? Hf; exact Hf]].
+      intros. 
+      hoare_forward.
+      intros.
+      sep_normal_in H2; sep_normal; sep_split_in H2; sep_split. 
+      - auto.
+      - repeat sep_cancel.
+    Qed.
+End Hoare_test.

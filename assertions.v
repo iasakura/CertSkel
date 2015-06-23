@@ -33,8 +33,8 @@ Ltac sep_normal :=
   match goal with
     | [ |- (emp ** ?P) ?s ?h ] => apply sc_emp1; sep_normal 
     | [ |- (?P ** emp) ?s ?h ] => apply sc_emp2; sep_normal
-    | [ |- (?P ** !(?Q)) ?s ?h ] => apply scban_r; [sep_normal | ]
-    | [ |- (!(?P) ** ?Q) ?s ?h ] => apply scban_l; [ | sep_normal ]
+(*    | [ |- (?P ** !(?Q)) ?s ?h ] => apply scban_r; [sep_normal | ]
+    | [ |- (!(?P) ** ?Q) ?s ?h ] => apply scban_l; [ | sep_normal ]*)
     | [ |- (Ex _, _) ?s ?h ] => eapply scEx; [intros ? ? ? H; sep_normal; exact H | idtac ]
     | [ |- (?P ** ?Q) ?s ?h] => 
       eapply scRw; [intros ? ? H; sep_normal; exact H |
@@ -53,10 +53,6 @@ Proof.
   intros P Q s h H. eapply scRw in H.
 Abort.
 
-Goal forall (P Q R : assn) s h, ((P ** Q) ** R) s h -> False.
-Proof.
-  intros P Q R s h H. eapply scRw in H.
-Abort.
 
 Ltac last_slist_in H :=
   let Hf := fresh "H" in
@@ -82,22 +78,22 @@ Ltac append_slist_in H :=
     | [ |- _ ] => idtac
   end.
 
-Ltac sep_normal_in' H :=
+Ltac sep_normal_in H :=
   let Hf := fresh "H" in
   match goal with
     | [ H' : (emp ** ?P) ?s ?h |- _ ] => match H with H' =>
-        apply sc_emp1' in H; sep_normal_in' H
+        apply sc_emp1' in H; sep_normal_in H
       end
     | [ H' : (?P ** emp) ?s ?h |- _ ] => match H with H' =>
-        apply sc_emp2' in H; sep_normal_in' H
+        apply sc_emp2' in H; sep_normal_in H
       end
     | [ H' : (Ex _, _) ?s ?h |- _ ] => match H with H' => 
-        eapply scEx in H; [ idtac | intros ? ? ? Hf; sep_normal_in' Hf; exact Hf ]
+        eapply scEx in H; [ idtac | intros ? ? ? Hf; sep_normal_in Hf; exact Hf ]
       end
     | [ H' : (?P ** ?Q) ?s ?h |- _ ] => match H with H' => 
         eapply scRw in H; [ idtac |
-                            intros ? ? Hf; sep_normal_in' Hf; exact Hf |
-                            intros ? ? Hf; sep_normal_in' Hf; exact Hf ];
+                            intros ? ? Hf; sep_normal_in Hf; exact Hf |
+                            intros ? ? Hf; sep_normal_in Hf; exact Hf ];
         append_slist_in H
       end
     | _ => idtac
@@ -140,20 +136,6 @@ Ltac find_ban Ps k :=
     | _ => k false
   end.
 
-Ltac sep_normal_in H :=
-  sep_normal_in' H;
-  repeat (match goal with
-    | [ H' : ?P ?s ?h |- _ ] => match H' with H =>
-      find_ban P ltac:(fun n =>
-      idtac "debug" n;
-      match n with
-        | false => idtac
-        | Some ?n =>
-          let HP := fresh "HP" in
-          sep_lift_in H n; apply scban_l' in H as [HP H]
-      end)
-  end end).
-
 Ltac sep_lift n :=
   let pred_n n k :=
     match n with
@@ -182,6 +164,43 @@ Ltac sep_lift n :=
       end
     | _ => idtac
   end.
+
+Ltac sep_split :=
+  let H := fresh "H" in
+  match goal with
+    | [ |- ?P ?s ?h ] => 
+      find_ban P ltac:(fun n =>
+      match n with
+        | false => idtac
+        | Some ?n => sep_lift n; apply scban_l; [ idtac | sep_split ]
+      end)
+  end.
+
+Goal forall (P Q R : assn) s h, (!(P) ** Q ** !(R)) s h.
+Proof.
+  intros; sep_split.
+Abort.
+
+Example sep_split_in_test1 (P Q R S : assn) s h :
+  ((P ** !(Q)) ** (R ** S)) s h -> (P ** !(Q) ** R ** S) s h.
+Proof.
+  intros. 
+  sep_split.
+Abort.
+
+Ltac sep_split_in H :=
+  repeat (match goal with
+    | [ H' : ?P ?s ?h |- _ ] => match H' with H =>
+      find_ban P ltac:(fun n =>
+      idtac "debug" n;
+      match n with
+        | false => idtac
+        | Some ?n =>
+          let HP := fresh "HP" in
+          sep_lift_in H n; apply scban_l' in H as [HP H]
+      end)
+  end end).
+
 
 Goal forall P Q R, (Ex x : nat, (P ** Q ** R)) |= P ** Q ** R.
 Proof.
