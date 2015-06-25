@@ -1,6 +1,6 @@
 Require Export assertion_lemmas.
 Require Import PHeap.
-
+Require Import Lang.
 Ltac last_slist :=
   let H := fresh "H" in
   match goal with
@@ -100,8 +100,10 @@ Ltac sep_normal_in H :=
   end.
 
 Ltac sep_lift_in H n :=
+  idtac "called";
   match goal with
     | [ H' : (Ex _, _) ?s ?h |- _ ] => match H' with H =>
+      idtac "match first case";
       match n with
         | O => fail 2
         | S ?n => 
@@ -109,6 +111,7 @@ Ltac sep_lift_in H n :=
           eapply scEx in H; [idtac | intros ? ? ? Hf; sep_lift_in Hf n; exact Hf] 
       end end
     | [ H' : (_ ** _ ** _) ?s ?h |- _ ] => match H' with H =>
+      idtac "match second case";
       match n with
         | 0 => idtac
         | S ?n => 
@@ -119,6 +122,7 @@ Ltac sep_lift_in H n :=
           apply scCA in H
       end end
     | [ H' : (_ ** _) ?s ?h |- _] => match H' with H =>
+      idtac "match third case";
       match n with
         | 0 => idtac
         | S ?n => apply scC in H
@@ -241,6 +245,74 @@ Ltac search_match P Q k :=
     | _ => k false
   end.
 
+Ltac find_enough_resource E H :=
+  match type of H with ?P => idtac "debug" P end;
+  match type of H with
+    | ((?E0 -->p (_, ?E1)) ?s ?h) => 
+      let Hf := fresh in
+      assert (Hf : ((E0 === E) s h)) by (unfold_conn; simpl in *; first [congruence | omega]);
+      apply (mapsto_rewrite1 Hf) in H
+    | ((?E0 -->p (_, ?E1) ** _) ?s _) =>
+      let Hf := fresh in
+      assert (Hf : forall h, (E0 === E) s h) by solve [congruence | omega];
+      let hf := fresh in let Hf' := fresh in 
+      idtac "found: " E0 E;
+      eapply scRw_stack in H;
+      [idtac |
+       intros hf Hf'; eapply (mapsto_rewrite1 (Hf hf)) in Hf'; exact Hf' |
+       intros ? Hf'; exact Hf'];
+      clear Hf
+    | ((_ ** _) _ _) =>
+      let Hf := fresh in
+      eapply scRw_stack in H; [idtac | intros ? Hf; exact Hf |
+                               intros ? Hf; find_enough_resource E Hf; exact Hf];
+      match goal with _ => idtac  end;
+(*      match goal with [ H' : ?P |- _ ] => match H with H' => match P with*)
+      match type of H with
+        | ((_ ** _ ** _) _ _) => apply scCA in H
+        | ((_ ** _) _ _) => apply scC in H
+      end 
+    | _ => idtac
+  end.
+
+Ltac search_addr E0 E1 H :=
+  find_enough_resource E0 H;
+  match type of H with
+    | (?E0' -->p (_, ?E1')) ?s ?h =>
+      let Hf := fresh in
+      assert (Hf : ((E1' === E1) s h)) by (unfold_conn; simpl in *; first [congruence | omega]);
+      apply (mapsto_rewrite2 Hf) in H
+    | ((?E0' -->p (_, ?E1') ** _) ?s _) =>
+      let Hf := fresh in
+      assert (Hf : forall h, (E1' === E1) s h) by solve [congruence | omega];
+      let hf := fresh in let Hf' := fresh in 
+      eapply scRw_stack in H;
+      [idtac |
+       intros hf Hf'; eapply (mapsto_rewrite2 (Hf hf)) in Hf'; exact Hf' |
+       intros ? Hf'; exact Hf'];
+      clear Hf
+  end.
+
+Ltac search_same_maps H :=
+  match goal with
+    | [ |- ((?E0 -->p (_, ?E1)) ** ?Q) _ _ ] => search_addr E0 E1 H
+    | [ |- ((?E0 -->p (_, ?E1))) _ _ ] => search_addr E0 E1 H
+    | [ |- (_ ** ?Q) _ _ ] =>
+      let Hf := fresh in
+      eapply scRw_stack; [intros ? Hf; exact Hf | intros ? Hf; search_same_maps H; exact Hf | idtac ]
+  end.  
+
+Ltac sep_cancel2 :=
+  match goal with
+    | [H : ?P ?s ?h |- ?Q ?s ?h ] =>
+      idtac "cancel2:" P Q;
+      search_same_maps H;
+      let Hf := fresh in
+      exact H ||
+      (eapply scRw_stack; [intros ? Hf; exact Hf | intros ? ? | exact H ])
+    | _ => idtac
+  end.
+
 Ltac sep_cancel :=
   match goal with
     | [ H : ?P ?s ?h |- ?P ?s ?h] => exact H
@@ -258,6 +330,15 @@ Ltac sep_cancel :=
           eapply scRw_stack; [ intros ? Hf; exact Hf | 
                                intros ? ? |
                                exact H ]
-        | None => idtac
       end)
+    | _ => sep_cancel2
+  end.
+
+Ltac sep_combine_in H :=
+  repeat match type of H with
+    | ?P ?s ?h =>
+      match goal with
+        | [ H' : ?Q ?s emp_ph |- _ ] =>
+          apply (scban_l H') in H; sep_lift_in H 1; clear H'
+      end
   end.

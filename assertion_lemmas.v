@@ -240,3 +240,21 @@ Proof.
   intros Hp Hq h (? & ? & ? & ? & ? & ?).
   exists x, x0; split; firstorder.
 Qed.
+
+Lemma mapsto_rewrite1 (E1 E2 E3 : exp) (p : Qc) (s : stack) (h : pheap) :
+  (E1 === E2) s h -> (E1 -->p (p, E3)) s h -> (E2 -->p (p, E3)) s h.
+Proof.
+  intros.
+  unfold_conn; simpl in *.
+  rewrite<-H.
+  auto.
+Qed.
+  
+Lemma mapsto_rewrite2 (E1 E2 E3 : exp) (p : Qc) (s : stack) (h : pheap) :
+  (E2 === E3) s h -> (E1 -->p (p, E2)) s h -> (E1 -->p (p, E3)) s h.
+Proof.
+  intros.
+  unfold_conn; simpl in *.
+  rewrite<-H.
+  auto.
+Qed.

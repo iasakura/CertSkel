@@ -84,7 +84,7 @@ Ltac prove_inde :=
     | [ |- inde (?P \\// ?Q) _ ] => apply inde_disj; prove_inde
     | [ |- inde (?E -->p (_, ?E')) _ ] => apply inde_pointto; repeat (constructor; prove_indeE)
     | [ |- inde (?E === ?E') _ ] => apply inde_eeq; repeat (constructor; prove_indeE)
-    | [ |- _ ] => (unfold inde, var_upd; simpl; auto)
+    | [ |- _ ] => (unfold inde, var_upd; simpl; try tauto)
   end.
 
 Ltac find_addr P E k :=
@@ -121,49 +121,35 @@ End hoare_lemmas.
 
 Notation "P <=> Q" := (forall s h, P s h <-> Q s h) (at level 87).
 
-Lemma mapsto_rewrite (E1 E2 E3 : exp) (p : Qc) (s : stack) (h : pheap) :
-  (E1 === E2) s h -> (E1 -->p (p, E3)) s h -> (E2 -->p (p, E3)) s h.
-Proof.
-  intros.
-  unfold_conn; simpl in *.
-  rewrite<-H.
-  auto.
-Qed.
-
-Ltac find_enough_resource E H :=
-  match type of H with ?P => idtac "debug" P end;
+Ltac ltac_bug E H :=
   match type of H with
-    | ((?E0 -->p (_, ?E1)) ?s ?h) => 
-      let Hf := fresh in
-      assert (Hf : ((E0 === E) s h)) by (unfold_conn; simpl in *; first [congruence | omega]);
-      apply (mapsto_rewrite Hf) in H
-    | ((?E0 -->p (_, ?E1) ** _) ?s _) =>
-      let Hf := fresh in
-      assert (Hf : forall h, (E0 === E) s h) by solve [congruence | omega];
-        let hf := fresh in let Hf' := fresh in 
-        eapply scRw_stack in H;
-        [idtac |
-         intros hf Hf'; eapply (mapsto_rewrite (Hf hf)) in Hf'; exact Hf |
-         intros ? Hf'; exact Hf]
     | ((_ ** _) _ _) =>
       let Hf := fresh in
       eapply scRw_stack in H; [idtac | intros ? Hf; exact Hf |
-                               intros ? Hf; find_enough_resource E Hf; exact Hf];
-(*      match goal with [|- ?P] => idtac P end;*)
-      match goal with [ H' : ?P |- _ ] => match H with H' => match P with
+                               intros ? Hf; ltac_bug E Hf; exact Hf];
+      match goal with _ => idtac  end;
+      match type of H with
         | ((_ ** _ ** _) _ _) => apply scCA in H
         | ((_ ** _) _ _) => apply scC in H
-      end end end
+      end 
+    | _ => idtac
   end.
 
-Ltac sep_combine_in H :=
-  repeat match type of H with
-    | ?P ?s ?h =>
-      match goal with
-        | [ H' : ?Q ?s emp_ph |- _ ] =>
-          apply (scban_l H') in H; sep_lift_in H 1; clear H'
-      end
-  end.
+Example ltac_bug P Q s h n (tid : Fin.t n) :
+  (P ** Q ** ( (ARR +  Z_of_fin tid) -->p (1%Qc,  (Z_of_fin tid))) ** !( TID ===  (Z_of_fin tid))) s h -> False.
+Proof.
+  intros.
+  sep_split_in H.
+  ltac_bug (ARR + Z_of_fin tid) H.
+Abort.
+
+Example find_test P Q s h n (tid : Fin.t n) :
+  (P ** Q ** ( (ARR +  Z_of_fin tid) -->p (1%Qc,  (Z_of_fin tid))) ** !( TID ===  (Z_of_fin tid))) s h -> False.
+Proof.
+  intros.
+  sep_split_in H.
+  find_enough_resource (ARR + Z_of_fin tid) H.
+Abort.
 
 Example sep_combine_test P Q R S s h : (P ** Q ** !(R) ** !(S)) s h -> True.
 Proof.
@@ -174,7 +160,9 @@ Abort.
 Ltac hoare_forward :=
   match goal with
     | [ |- CSL ?bspec ?tid ?P (?X ::= [?E]) ?Q ] => 
+      idtac "case: read";
       let Hf := fresh in
+      let s := fresh in
       eapply Hbackward; [idtac |
         intros s ? Hf;
         sep_normal_in Hf;
@@ -185,6 +173,20 @@ Ltac hoare_forward :=
       eapply Hforward; [
         eapply rule_frame;
         [eapply rule_read; idtac "ok!!!"; prove_indeE | prove_inde] | prove_inde ]
+    | [ |- CSL ?bspec ?tid ?P ([?E] ::= _) ?Q ] =>
+      idtac "case: write";
+      let Hf := fresh in
+      let s := fresh in
+      eapply Hbackward; [idtac |
+        intros s ? Hf;
+        sep_normal_in Hf;
+        sep_split_in Hf;
+        find_enough_resource E Hf;
+        sep_combine_in Hf;
+        exact Hf];
+      eapply Hforward; [
+        eapply rule_frame;
+        [eapply rule_write; idtac "ok!!!" | prove_inde ] | idtac]
   end.
 
 Section Hoare_test.
@@ -199,9 +201,17 @@ Section Hoare_test.
     Proof.
       intros. 
       hoare_forward.
-      intros.
-      sep_normal_in H2; sep_normal; sep_split_in H2; sep_split. 
-      - auto.
-      - repeat sep_cancel.
+      intros; sep_normal_in H2; sep_split_in H2; sep_normal; sep_split; solve [auto | repeat sep_cancel].
     Qed.
+
+  Lemma rotate_l3 (tid : Fin.t ntrd) (P Q : assn) (E : exp) :
+    (inde P (X :: List.nil)) -> (inde Q (X :: List.nil)) -> (indeE E X) ->
+    CSL bspec tid 
+      (P ** Q ** (E -->p (full_p%Qc, 2%Z)) ** ( (ARR +  Z_of_fin tid) -->p (1%Qc,  (Z_of_fin tid))) ** !( TID ===  (Z_of_fin tid)))
+      ([ ARR + TID] ::= 3%Z) 
+      (P ** Q ** (ARR + TID -->p (full_p%Qc, 3%Z)) ** !( TID === (Z_of_fin tid)) ** (E -->p (1%Qc, 2%Z))).
+  Proof.
+    intros. hoare_forward.
+    intros; repeat sep_cancel.
+  Qed.
 End Hoare_test.

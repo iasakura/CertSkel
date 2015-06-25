@@ -1,5 +1,8 @@
 Require Import PHeap.
 Require Import assertions.
+Require Import Lang.
+Require Qcanon.
+Require Import VCG.
 
 Section Sep_normal_test.
   Example normalize_test1 (P Q R S : assn) s h :
@@ -173,3 +176,53 @@ Section Sep_cancel_test.
     repeat sep_cancel. 
   Qed.
 End Sep_cancel_test.
+
+Section VCG_test.
+  Import Qcanon.
+  Example find_test (tx ty : Z) (X Y : exp) s h (H : (X -->p(1%Qc, Enum tx) ** (Y -->p(1%Qc, Enum ty))) s h) : (X -->p(1%Qc, Enum tx) ** (Y -->p(1%Qc, Enum ty))) s h.
+  Proof.
+    find_enough_resource X H.
+    exact H.
+  Qed.
+  
+  Example sep_cancel_test (tx ty : Z) (X Y U V : exp) s h :
+    (X -->p(1%Qc, U) ** (Y -->p(1%Qc, V)) ** !(Enum tx === U) ** !(Enum ty === V)) s h ->
+    (X -->p(1%Qc, Enum tx) ** (Y -->p(1%Qc, Enum ty))) s h.
+  Proof.
+    intros.
+    sep_split_in H.
+    sep_cancel.
+    sep_cancel.
+  Qed.
+End VCG_test.
+
+Section Swap.
+  Require Import CSL.
+  Require Import Qcanon.
+  Variable ntrd : nat.
+  Variable bspec : Bdiv.barrier_spec ntrd.
+  
+  Open Scope exp_scope.
+  Open Scope bexp_scope.
+
+  Definition Y := Var 3.
+  Definition T := Var 4.
+  Definition U := Var 5.
+  Definition swap :=
+    ( T ::= [X] ;;
+      U ::= [Y] ;;
+      [X] ::= U ;;
+      [Y] ::= T  ).
+
+  Lemma swap_spec (tid : Fin.t ntrd) (tx ty : Z) : 
+    CSL bspec tid
+       (X -->p(1%Qc, tx) ** (Y -->p(1%Qc, ty))) 
+       swap
+       (X -->p(1%Qc, ty) ** (Y -->p(1%Qc, tx))).
+  Proof.
+    repeat (hoare_forward || (eapply rule_seq; [hoare_forward; intros ? ? H'; exact H' |])).
+    intros ? ? ?.
+    sep_normal_in H. sep_split_in H. sep_normal. sep_split. 
+    repeat sep_cancel2.
+  Qed.
+End Swap.
