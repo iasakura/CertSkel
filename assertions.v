@@ -194,6 +194,7 @@ Abort.
 
 Ltac sep_split_in H :=
   repeat (match goal with
+    | [ H' : (Ex x, ?P) ?s ?h |- _ ] => destruct H'
     | [ H' : ?P ?s ?h |- _ ] => match H' with H =>
       find_ban P ltac:(fun n =>
       idtac "debug" n;
@@ -202,9 +203,8 @@ Ltac sep_split_in H :=
         | Some ?n =>
           let HP := fresh "HP" in
           sep_lift_in H n; apply scban_l' in H as [HP H]
-      end)
-  end end).
-
+      end) end
+   end).
 
 Goal forall P Q R, (Ex x : nat, (P ** Q ** R)) |= P ** Q ** R.
 Proof.

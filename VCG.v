@@ -87,6 +87,84 @@ Ltac prove_inde :=
     | [ |- _ ] => (unfold inde, var_upd; simpl; try tauto)
   end.
 
+Section subA_simpl.
+  Lemma subA_pointto (X : var) (E1 E2 E  : exp) (q : Qc) s h : (subA X E (E1 -->p (q, E2))) s h ->
+                                                     (subE X E E1 -->p (q, subE X E E2)) s h.
+  Proof.
+    intros; unfold subA' in *; unfold_conn.
+    repeat rewrite <-subE_assign in *; auto.
+  Qed.
+
+  Lemma subA_sconj (P Q : assn) (X : var) (E : exp) s h :
+    subA X E (P ** Q) s h -> (subA X E P  ** subA X E Q) s h.
+  Proof.
+    intros; unfold subA' in *; unfold_conn.
+    destruct H as (ph1 & ph2 & ? & ? & ? & ?); eexists; eauto.
+  Qed.
+
+  Lemma subA_conj (P Q : assn) (X : var) (E : exp) s h :
+    subA X E (P //\\ Q) s h -> (subA X E P //\\ subA X E Q) s h.
+  Proof.
+    intros; unfold subA' in *; unfold_conn; auto.
+  Qed.
+
+  Lemma subA_disj (P Q : assn) (X : var) (E : exp) s h :
+    subA X E (P \\// Q) s h -> (subA X E P \\// subA X E Q) s h.
+  Proof.
+    intros; unfold subA' in *; unfold_conn; auto.
+  Qed.
+
+  Lemma subA_pure (P : assn) (X : var) (E : exp) s h :
+    subA X E !(P) s h -> !(subA X E P) s h.
+  Proof.
+    intros; unfold subA' in *; unfold_conn; auto.
+  Qed.
+
+  Lemma subA_eeq (X : var) (E E1 E2 : exp) s h :
+    subA X E (E1 === E2) s h -> (subE X E E1 === subE X E E2) s h.
+  Proof.
+    intros; unfold subA' in *; unfold_conn.
+    repeat rewrite <-subE_assign in *; auto.
+  Qed.
+End subA_simpl.
+
+Lemma conj_mono (P Q P' Q' : assn) s h : (P s h -> P' s h) -> (Q s h -> Q' s h) ->
+                                         (P //\\ Q) s h -> (P' //\\ Q') s h.
+Proof.
+  intros ? ? [? ?]; split; auto.
+Qed.
+
+Lemma disj_mono (P Q P' Q' : assn) s h : (P s h -> P' s h) -> (Q s h -> Q' s h) ->
+                                         (P \\// Q) s h -> (P' \\// Q') s h.
+Proof.
+  intros ? ? [? | ?]; ((left; tauto) || (right; tauto)).
+Qed.
+
+Lemma pure_mono (P P' : assn) s h : (P s h -> P' s h) ->
+                                    !(P) s h -> !(P') s h.
+Proof.
+  intros ? [? ?]; split; auto.
+Qed.
+
+Ltac subA_normalize_in H :=
+  let Hf := fresh in
+  match type of H with
+    | subA _ _ (_ ** _) _ _ =>
+      apply subA_sconj in H; eapply scRw in H;
+        [ idtac | intros ? ? Hf; subA_normalize_in Hf; exact Hf .. ]
+    | subA _ _ (_ //\\ _) _ _ =>
+      apply subA_conj in H;  eapply conj_mono in H;
+        [ idtac | intros ? ? Hf; subA_normalize_in Hf; exact Hf .. ]
+    | subA _ _ (_ \\// _) _ _ =>
+      apply subA_conj in H;  eapply disj_mono in H;
+        [ idtac | intros ? ? Hf; subA_normalize_in Hf; exact Hf .. ]
+    | subA _ _ (_ -->p (_, _)) _ _ => apply subA_pointto in H
+    | subA _ _ !(_) _ _ => apply subA_pure in H; eapply pure_mono in H;
+        [ idtac | intros ? ? Hf; subA_normalize_in Hf; exact Hf .. ]
+    | subA _ _ (_ === _) _ _ => apply subA_eeq in H
+    | _ => idtac
+  end.
+
 Ltac find_addr P E k :=
   idtac "find_addr debug:" P;
   match P with
@@ -157,6 +235,23 @@ Proof.
   sep_combine_in H.
 Abort.
 
+Lemma rule_assign_forward (ntrd : nat) (bspec : Bdiv.barrier_spec ntrd) (tid : Fin.t ntrd) (X : var) (E : exp) (P : assn) :
+  CSL bspec tid P (X ::= E) (Ex v, subA X v P ** !(X === subE X v E)).
+Proof.
+  unfold subA'.
+  eapply Hbackward.
+  apply rule_assign.
+  intros s h H; exists (s X).
+  sep_split; unfold_conn; simpl.
+  rewrite subE_assign; unfold var_upd; simpl.
+  destruct (var_eq_dec X X) as [_|]; try congruence.
+  f_equal; extensionality x.
+  destruct (var_eq_dec _ _); subst; congruence.
+
+  assert (Heq : s = var_upd (var_upd s X (edenot E s)) X (s X)); [|rewrite <-Heq; auto].
+  extensionality x; unfold var_upd; destruct (var_eq_dec _ _); subst; congruence.
+Qed.
+
 Ltac hoare_forward :=
   match goal with
     | [ |- CSL ?bspec ?tid ?P (?X ::= [?E]) ?Q ] => 
@@ -187,7 +282,12 @@ Ltac hoare_forward :=
       eapply Hforward; [
         eapply rule_frame;
         [eapply rule_write; idtac "ok!!!" | prove_inde ] | idtac]
+    | [ |- CSL ?bspec ?tid ?P (?X ::= _) ?Q] =>
+      let Hf := fresh in
+      eapply Hforward; [
+        apply rule_assign_forward | idtac ]
   end.
+
 
 Section Hoare_test.
   Variable ntrd : nat.
@@ -214,4 +314,16 @@ Section Hoare_test.
     intros. hoare_forward.
     intros; repeat sep_cancel.
   Qed.
+
+  Lemma test_assign (tid : Fin.t ntrd) (P Q : assn) (E : exp) :
+    CSL bspec tid 
+        (P ** Q ** (E -->p (full_p%Qc, 2%Z)) ** ( (ARR +  Z_of_fin tid) -->p (1%Qc,  (Z_of_fin tid))) ** !( TID ===  (Z_of_fin tid)))
+        (X ::= 3%Z) 
+        (P ** Q ** (ARR + TID -->p (full_p%Qc, 3%Z)) ** !( TID === (Z_of_fin tid)) ** (E -->p (1%Qc, 2%Z))).
+  Proof.
+    intros. hoare_forward.
+    intros s h H.
+    sep_split_in H; simpl in *.
+    subA_normalize_in H.
+  Abort.
 End Hoare_test.

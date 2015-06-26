@@ -46,6 +46,9 @@ Notation "x '===' y" := (eeq x y) (at level 70, no associativity).
 Definition AEx {T : Type} (Px : T -> assn) := (nosimpl (fun s h => ex (fun x => Px x s h))).
 Notation "'Ex' x .. y , p" := (AEx (fun x => .. (AEx (fun y => p)) ..))
   (at level 200, x binder, right associativity).                               
+Definition subA' x e (P : assn) := (nosimpl (fun (s : stack) (h : pheap) => P (var_upd s x (edenot e s)) h)).
+Notation subA x e P := (subA' x e P).
+
 Delimit Scope assn_scope with assn.
 Delimit Scope exp_scope with exp.
 

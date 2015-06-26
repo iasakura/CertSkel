@@ -196,6 +196,50 @@ Section VCG_test.
   Qed.
 End VCG_test.
 
+Section subA_test.
+  Import Qcanon.
+  Example subA_test1 (P Q R S : assn) (X : var) (E : exp) s h :
+    subA X E (P ** Q ** R ** S) s h ->
+    ((subA X E P) ** (subA X E Q) ** (subA X E R) ** (subA X E S)) s h.
+  Proof.
+    intros H; subA_normalize_in H; auto.
+  Qed.
+
+  Example subA_test2 (P Q R S : assn) (X : var) (E : exp) s h :
+    subA X E (P //\\ Q //\\ R //\\ S) s h ->
+    ((subA X E P) //\\ (subA X E Q) //\\ (subA X E R) //\\ (subA X E S)) s h.
+  Proof.
+    intros H; subA_normalize_in H; auto.
+  Qed.
+
+  Example subA_test3 (P Q R S : assn) (X : var) (E : exp) s h :
+    subA X E (P \\// Q \\// R \\// S) s h ->
+    ((subA X E P) \\// (subA X E Q) \\// (subA X E R) \\// (subA X E S)) s h.
+  Proof.
+    intros H; subA_normalize_in H; auto.
+  Qed.
+
+  Example subA_test4 (P Q : assn) (X : var) (E : exp) s h :
+    subA X E !(P //\\ Q) s h ->
+    !(subA X E P //\\ subA X E Q) s h.
+  Proof.
+    intros H; subA_normalize_in H; auto.
+  Qed.
+
+  Example subA_test5 (E1 E2 : exp) (q : Qc) (X : var) (E : exp) s h :
+    subA X E (E1 -->p (q, E2)) s h -> (subE X E E1 -->p (q, subE X E E2)) s h.
+  Proof.
+    intros H; subA_normalize_in H; auto.
+  Qed.
+
+  Example subA_test6 (E1 E2 : exp) (X : var) (E : exp) s h :
+    subA X E (E1 === E2) s h -> (subE X E E1 === subE X E E2) s h.
+  Proof.
+    intros H; subA_normalize_in H; auto.
+  Qed.
+End subA_test.
+
+
 Section Swap.
   Require Import CSL.
   Require Import Qcanon.
@@ -208,11 +252,12 @@ Section Swap.
   Definition Y := Var 3.
   Definition T := Var 4.
   Definition U := Var 5.
+
   Definition swap :=
-    ( T ::= [X] ;;
-      U ::= [Y] ;;
-      [X] ::= U ;;
-      [Y] ::= T  ).
+    T ::= [X] ;;
+    U ::= [Y] ;;
+    [X] ::= U ;;
+    [Y] ::= T.
 
   Lemma swap_spec (tid : Fin.t ntrd) (tx ty : Z) : 
     CSL bspec tid
