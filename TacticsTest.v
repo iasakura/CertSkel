@@ -194,6 +194,21 @@ Section VCG_test.
     sep_cancel.
     sep_cancel.
   Qed.
+  Open Scope exp_scope.
+  Open Scope bexp_scope.
+  Require Import CSL.
+  
+  Example for_seminor (P : assn) (i : Z) (x a : var) :
+    (a +  x -->p (1%Qc, 3%Z)) ** P ** !(x === i) |=
+    P ** (a + i -->p (1%Qc, 3%Z)) ** !(x === i).
+  Proof.
+    intros ? ? ?.
+    sep_split_in H.
+    sep_cancel.
+    find_enough_resource (a+i) H0.
+    sep_combine_in H0.
+    sep_cancel.
+  Qed.
 End VCG_test.
 
 Section subA_test.
@@ -241,7 +256,6 @@ End subA_test.
 
 
 Section Swap.
-  Require Import CSL.
   Require Import Qcanon.
   Variable ntrd : nat.
   Variable bspec : Bdiv.barrier_spec ntrd.
@@ -265,6 +279,7 @@ Section Swap.
        swap
        (X -->p(1%Qc, ty) ** (Y -->p(1%Qc, tx))).
   Proof.
+    unfold swap.
     repeat (hoare_forward || (eapply rule_seq; [hoare_forward; intros ? ? H'; exact H' |])).
     intros ? ? ?.
     sep_normal_in H. sep_split_in H. sep_normal. sep_split. 
