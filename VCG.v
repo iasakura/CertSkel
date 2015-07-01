@@ -252,6 +252,23 @@ Proof.
   extensionality x; unfold var_upd; destruct (var_eq_dec _ _); subst; congruence.
 Qed.
 
+Ltac frame_analysis P :=
+  let Pe := fresh in
+  evar (Pe : assn);
+  let Hf := fresh in
+  let s := fresh in
+  let h := fresh in
+  intros s h Hf;
+  let Hf' := fresh in
+  assert (Hf' : (P ** Pe) s h);
+  [ autounfold; simpl; rewrite MyVector.init_spec;
+    repeat match goal with
+      | [P' := ?ev : assn, H : ?Q s h |- ?P s h] => match P with
+           | P' => is_evar ev; exact H
+        end
+      | _ => progress sep_cancel
+    end | exact Hf' ].
+
 Ltac hoare_forward :=
   match goal with
     | [ |- CSL ?bspec ?tid ?P (?X ::= [?E]) ?Q ] => 
@@ -286,12 +303,50 @@ Ltac hoare_forward :=
       let Hf := fresh in
       eapply Hforward; [
         apply rule_assign_forward | idtac ]
+    | [ |- CSL ?bspec ?tid ?P (Cbarrier ?i) ?Q] =>
+      eapply Hbackward; [idtac | frame_analysis (Vector.nth (fst (bspec i)) tid)];
+      eapply Hforward; [
+        eapply rule_frame; 
+        [eapply rule_barrier | prove_inde] |
+         autounfold; simpl; repeat rewrite MyVector.init_spec in *]
   end.
-
 
 Section Hoare_test.
   Variable ntrd : nat.
-  Variable bspec : Bdiv.barrier_spec ntrd.
+  Notation ntrdZ := (Z.of_nat ntrd).
+
+  Require Import MyVector.
+  Import VectorNotations.
+
+  Definition bpre (tid : Fin.t ntrd) := 
+    (ARR + (Z_of_fin tid) -->p (1%Qc, (Z_of_fin tid)))%assn.
+  Definition bpost (tid : Fin.t ntrd) := 
+    (ARR + ((Z_of_fin tid + 1) mod ntrdZ)%Z) -->p (1%Qc, ((Z_of_fin tid + 1) mod ntrdZ)%Z).
+  Notation FalseP := (fun (_ : stack) (h : pheap) => False).
+  Definition default : (Vector.t assn ntrd * Vector.t assn ntrd) := 
+    (init (fun _ => FalseP), init (fun _ => FalseP)).
+
+  Definition bspec (i : nat) :=
+    match i with
+      | 0 => (init bpre, init bpost)
+      | S _ => default
+    end.
+
+  Hint Unfold bspec bpre bpost.
+  Lemma rotate_l4 (tid : Fin.t ntrd) :
+    CSL bspec tid
+      (( ARR +  (Z_of_fin tid)) -->p (1%Qc,  (Z_of_fin tid)) **
+                                !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid)))
+      (Cbarrier 0)
+      (( ARR +  ((Z_of_fin tid + 1) mod ntrdZ)%Z) -->p 
+          (1%Qc,  ((Z_of_fin tid + 1) mod ntrdZ)%Z) **
+      !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid))).
+  Proof.
+    hoare_forward.
+    intros.
+    sep_cancel.
+  Qed.
+
   Lemma rotate_l2 (tid : Fin.t ntrd) (P Q : assn) (E : exp) :
     (inde P (X :: List.nil)) -> (inde Q (X :: List.nil)) -> (indeE E X) ->
     CSL bspec tid 
@@ -326,4 +381,7 @@ Section Hoare_test.
     sep_split_in H; simpl in *.
     subA_normalize_in H.
   Abort.
+
+
+
 End Hoare_test.
