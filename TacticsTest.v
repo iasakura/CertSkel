@@ -205,8 +205,7 @@ Section VCG_test.
     intros ? ? ?.
     sep_split_in H.
     sep_cancel.
-    find_enough_resource (a+i) H0.
-    sep_combine_in H0.
+    sep_cancel.
     sep_cancel.
   Qed.
 End VCG_test.
@@ -252,6 +251,13 @@ Section subA_test.
   Proof.
     intros H; subA_normalize_in H; auto.
   Qed.
+
+  Example subA_test7 (P Q : assn) (X : var) (E : exp) s h :
+    subA X E (!(P) ** !(Q)) s h ->
+    (!(subA X E P) ** !(subA X E Q)) s h.
+  Proof.
+    intros H; subA_normalize_in H; auto.
+  Qed.
 End subA_test.
 
 
@@ -263,6 +269,7 @@ Section Swap.
   Open Scope exp_scope.
   Open Scope bexp_scope.
 
+  Definition X := Var 2.
   Definition Y := Var 3.
   Definition T := Var 4.
   Definition U := Var 5.

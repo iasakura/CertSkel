@@ -26,28 +26,31 @@ Definition assn := stack -> pheap -> Prop.
 Definition Aemp : assn := (nosimpl (fun (s : stack) (ph : pheap) => forall x, this ph x = None)).
 Notation emp := Aemp.
 (* separate conjunction *)
-Definition Astar P1 P2 := (nosimpl (fun (s : stack) (ph : pheap) => 
+Definition Astar (P1 P2 : assn) : assn := (nosimpl (fun (s : stack) (ph : pheap) => 
   exists (ph1 ph2 : pheap), P1 s ph1 /\ P2 s ph2 /\ pdisj ph1 ph2 /\ phplus ph1 ph2 = ph)).
 Notation "P1 ** P2" := (Astar P1 P2) (at level 70, right associativity).
 (* conjunction *)
-Definition Aconj P1 P2 := (nosimpl (fun (s : stack) (ph : pheap) => P1 s ph /\ P2 s ph)).
+Definition Aconj (P1 P2 : assn) : assn := (nosimpl (fun (s : stack) (ph : pheap) => P1 s ph /\ P2 s ph)).
 Notation "P '//\\' Q" := (Aconj P Q) (at level 80, right associativity).
-Definition Adisj P1 P2 := (nosimpl (fun (s : stack) (ph : pheap) => P1 s ph \/ P2 s ph)).
+Definition Adisj (P1 P2 : assn) : assn := (nosimpl (fun (s : stack) (ph : pheap) => P1 s ph \/ P2 s ph)).
 Notation "P '\\//' Q" := (Adisj P Q) (at level 85, right associativity).
-Definition Apure b := (nosimpl (fun (s : stack) (ph : pheap) => bdenot b s = true)).
+Definition Apure (b : bexp) := (nosimpl (fun (s : stack) (ph : pheap) => bdenot b s = true)).
 Notation pure b := (Apure b).
-Definition Apointsto p e1 e2 := (nosimpl (fun (s : stack) (ph : pheap) =>
+Definition Apointsto (p : Qc) (e1 e2 : exp) := (nosimpl (fun (s : stack) (ph : pheap) =>
   forall x, this ph x = if Z.eq_dec x (edenot e1 s) then Some (p, edenot e2 s) else None)).
 Notation "e1 '-->p' ( p ,  e2 )" := (Apointsto p e1 e2) (at level 75).
-Definition ban P := (nosimpl (emp //\\ P)).
+Definition ban (P : assn) := (nosimpl (emp //\\ P)).
 Notation "!( P )" := (ban P).
 Definition eeq (x y : exp) := (nosimpl (fun s (h : pheap) => edenot x s = edenot y s)).
 Notation "x '===' y" := (eeq x y) (at level 70, no associativity).
 Definition AEx {T : Type} (Px : T -> assn) := (nosimpl (fun s h => ex (fun x => Px x s h))).
 Notation "'Ex' x .. y , p" := (AEx (fun x => .. (AEx (fun y => p)) ..))
   (at level 200, x binder, right associativity).                               
-Definition subA' x e (P : assn) := (nosimpl (fun (s : stack) (h : pheap) => P (var_upd s x (edenot e s)) h)).
+Definition subA' (x : var) (e : exp) (P : assn) := (nosimpl (fun (s : stack) (h : pheap) => P (var_upd s x (edenot e s)) h)).
 Notation subA x e P := (subA' x e P).
+
+Definition bexp_to_assn (b : bexp) : assn := fun s h => bdenot b s = true.
+Coercion bexp_to_assn : bexp >-> assn.
 
 Delimit Scope assn_scope with assn.
 Delimit Scope exp_scope with exp.
@@ -260,4 +263,13 @@ Proof.
   unfold_conn; simpl in *.
   rewrite<-H.
   auto.
+Qed.
+
+Lemma pure_emp (P : assn) s h : P s emp_ph -> emp s h -> !(P) s h.
+Proof.
+  unfold_conn; intros.
+  split; unfold_conn; auto.
+  assert (h = emp_ph).
+  destruct h as [h ?]; apply pheap_eq; extensionality x; simpl in *; auto.
+  rewrite H1; auto.
 Qed.

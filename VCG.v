@@ -7,10 +7,10 @@ Require Import Lang.
 Require Import CSL.
 Require Import PHeap.
 
-Definition TID := Var 0.
-Definition ARR := Var 1.
-Definition X := Var 2.
-
+Local Notation TID := (Var 0).
+Local Notation ARR := (Var 1).
+Local Notation X := (Var 2).
+Local Notation Y := (Var 3).
 Open Scope exp_scope.
 Open Scope bexp_scope.
 
@@ -146,25 +146,44 @@ Proof.
   intros ? [? ?]; split; auto.
 Qed.
 
+Lemma subA_bexp_to_assn (x : var) (e : exp) (b : bexp) :
+  subA x e (bexp_to_assn b) |= bexp_to_assn (subB x e b).
+Proof.
+  intros.
+  unfold bexp_to_assn, subA' in *; simpl.
+  rewrite <-subB_assign in H; auto.
+Qed.
+
+Lemma subA_emp (x : var) (e : exp) : subA x e emp |= emp.
+Proof. unfold_conn; auto. Qed.
+
 Ltac subA_normalize_in H :=
   let Hf := fresh in
+  match goal with _ => idtac end;
   match type of H with
     | subA _ _ (_ ** _) _ _ =>
       apply subA_sconj in H; eapply scRw in H;
         [ idtac | intros ? ? Hf; subA_normalize_in Hf; exact Hf .. ]
     | subA _ _ (_ //\\ _) _ _ =>
       apply subA_conj in H;  eapply conj_mono in H;
-        [ idtac | intros ? ? Hf; subA_normalize_in Hf; exact Hf .. ]
+        [ idtac | intros Hf; subA_normalize_in Hf; exact Hf .. ]
     | subA _ _ (_ \\// _) _ _ =>
-      apply subA_conj in H;  eapply disj_mono in H;
-        [ idtac | intros ? ? Hf; subA_normalize_in Hf; exact Hf .. ]
+      apply subA_disj in H;  eapply disj_mono in H;
+        [ idtac | intros Hf; subA_normalize_in Hf; exact Hf .. ]
     | subA _ _ (_ -->p (_, _)) _ _ => apply subA_pointto in H
-    | subA _ _ !(_) _ _ => apply subA_pure in H; eapply pure_mono in H;
-        [ idtac | intros ? ? Hf; subA_normalize_in Hf; exact Hf .. ]
+    | subA _ _ !(_) _ _ => eapply subA_pure in H; eapply pure_mono in H;
+        [ idtac | intros Hf; subA_normalize_in Hf; exact Hf ]
     | subA _ _ (_ === _) _ _ => apply subA_eeq in H
-    | _ => idtac
+    | subA _ _ emp _ _ => apply subA_emp in H
+    | subA _ _ (bexp_to_assn ?b) _ _ => apply subA_bexp_to_assn in H
+    | _ => simpl in H
   end.
 
+Example subA_test6 (E1 E2 : exp) (X : var) (E : exp) s h :
+  subA X E (E1 === E2) s h -> (subE X E E1 === subE X E E2) s h.
+Proof.
+  intros. subA_normalize_in H.
+Abort.
 Ltac find_addr P E k :=
   idtac "find_addr debug:" P;
   match P with
@@ -252,6 +271,11 @@ Proof.
   extensionality x; unfold var_upd; destruct (var_eq_dec _ _); subst; congruence.
 Qed.
 
+Global Create HintDb sep.
+
+Ltac simplify :=
+  autounfold; simpl; autorewrite with sep.
+
 Ltac frame_analysis P :=
   let Pe := fresh in
   evar (Pe : assn);
@@ -261,13 +285,25 @@ Ltac frame_analysis P :=
   intros s h Hf;
   let Hf' := fresh in
   assert (Hf' : (P ** Pe) s h);
-  [ autounfold; simpl; rewrite MyVector.init_spec;
+  [ simplify;
     repeat match goal with
-      | [P' := ?ev : assn, H : ?Q s h |- ?P s h] => match P with
-           | P' => is_evar ev; exact H
+      | [P' := ?ev : assn, H : ?Q ?s ?h |- ?P ?s ?h] => match P with
+           | P' => is_evar ev; sep_combine_in H; exact H
         end
-      | _ => progress sep_cancel
+      | _ => progress (sep_split_in Hf; unfold lt in *; sep_cancel; sep_combine_in Hf)
     end | exact Hf' ].
+
+Lemma rule_if_disj (ntrd : nat) (bspec : Bdiv.barrier_spec ntrd) (tid : Fin.t ntrd) (P Q1 Q2 : assn)
+      (b : bexp) (C1 C2 : cmd) :
+  CSL bspec tid (P ** !(b)) C1 Q1 -> CSL bspec tid (P ** !(Bnot b)) C2 Q2 ->
+  CSL bspec tid (P) (Cif b C1 C2) (Q1 \\// Q2).
+Proof.
+  intros.
+  eapply rule_if;
+  eapply Hforward; unfold Apure; unfold bexp_to_assn in *;
+  [eapply Hbackward; [apply H |] | | eapply Hbackward; [apply H0 |] |];
+   try (intros; destruct H1; exists h, emp_ph; repeat split; auto); intros; unfold_conn; tauto.
+Qed.
 
 Ltac hoare_forward :=
   match goal with
@@ -304,14 +340,21 @@ Ltac hoare_forward :=
       eapply Hforward; [
         apply rule_assign_forward | idtac ]
     | [ |- CSL ?bspec ?tid ?P (Cbarrier ?i) ?Q] =>
-      eapply Hbackward; [idtac | frame_analysis (Vector.nth (fst (bspec i)) tid)];
+      idtac "called";
+      eapply Hbackward; [
+        eapply Hforward; [
+          eapply rule_frame; 
+          [eapply rule_barrier | prove_inde] |
+           autounfold; simpl; repeat rewrite MyVector.init_spec in *] | 
+        frame_analysis (Vector.nth (fst (bspec i)) tid)]
+    | [ |- CSL ?bspec ?tid ?P (Cif ?b ?c1 ?c2) ?Q ] =>
       eapply Hforward; [
-        eapply rule_frame; 
-        [eapply rule_barrier | prove_inde] |
-         autounfold; simpl; repeat rewrite MyVector.init_spec in *]
+          eapply rule_if_disj | idtac]
+    | [ |- CSL ?bspec ?tid (?P1 \\// ?P2) ?C ?Q ] =>
+      eapply rule_disj; hoare_forward
   end.
 
-Section Hoare_test.
+(*Section Hoare_test.
   Variable ntrd : nat.
   Notation ntrdZ := (Z.of_nat ntrd).
 
@@ -332,15 +375,41 @@ Section Hoare_test.
       | S _ => default
     end.
 
+  Lemma rotate_l7 (tid : Fin.t ntrd) :
+      CSL bspec tid
+      (( ARR +  ((Z_of_fin tid + 1) mod ntrdZ))%exp -->p 
+          (1%Qc,  ((Z_of_fin tid + 1) mod ntrdZ))%Z **
+       !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid)))
+      (Cif ( TID ==  (ntrdZ - 1)%Z) (
+         Y ::=  0%Z
+       ) (
+         Y ::=  TID +  1%Z
+       ))
+      ((( ARR +  Y) -->p 
+          (1%Qc,  ((Z_of_fin tid + 1) mod ntrdZ)%Z) **
+       !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid) //\\
+         Y ===  ((Z_of_fin tid + 1) mod ntrdZ)%Z))).
+    Proof.
+      hoare_forward; [hoare_forward | hoare_forward | idtac].
+      intros. simpl in H. sep_split_in H. subA_normalize_in H. simpl in H.
+      sep_combine_in H. exact H.
+      intros. simpl in H. sep_split_in H. subA_normalize_in H. simpl in H. sep_combine_in H. exact H.
+      intros ? ? H.
+      destruct H.
+      sep_split_in H.
+    Abort.
+
+
   Hint Unfold bspec bpre bpost.
+  Hint Rewrite MyVector.init_spec : sep.
   Lemma rotate_l4 (tid : Fin.t ntrd) :
     CSL bspec tid
       (( ARR +  (Z_of_fin tid)) -->p (1%Qc,  (Z_of_fin tid)) **
-                                !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid)))
+                                !( TID ===  (Z_of_fin tid)) ** !(X ===  (Z_of_fin tid)))
       (Cbarrier 0)
       (( ARR +  ((Z_of_fin tid + 1) mod ntrdZ)%Z) -->p 
           (1%Qc,  ((Z_of_fin tid + 1) mod ntrdZ)%Z) **
-      !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid))).
+      !( TID ===  (Z_of_fin tid)) **  !(X ===  (Z_of_fin tid))).
   Proof.
     hoare_forward.
     intros.
@@ -381,7 +450,4 @@ Section Hoare_test.
     sep_split_in H; simpl in *.
     subA_normalize_in H.
   Abort.
-
-
-
-End Hoare_test.
+End Hoare_test.*)

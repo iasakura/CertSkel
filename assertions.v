@@ -194,7 +194,6 @@ Abort.
 
 Ltac sep_split_in H :=
   repeat (match goal with
-    | [ H' : (Ex x, ?P) ?s ?h |- _ ] => destruct H'
     | [ H' : ?P ?s ?h |- _ ] => match H' with H =>
       find_ban P ltac:(fun n =>
       idtac "debug" n;
@@ -203,8 +202,9 @@ Ltac sep_split_in H :=
         | Some ?n =>
           let HP := fresh "HP" in
           sep_lift_in H n; apply scban_l' in H as [HP H]
-      end) end
-   end).
+      end)
+  end end).
+
 
 Goal forall P Q R, (Ex x : nat, (P ** Q ** R)) |= P ** Q ** R.
 Proof.
@@ -246,15 +246,18 @@ Ltac search_match P Q k :=
   end.
 
 Ltac find_enough_resource E H :=
+  match goal with _ => idtac end;
   match type of H with ?P => idtac "debug" P end;
   match type of H with
     | ((?E0 -->p (_, ?E1)) ?s ?h) => 
       let Hf := fresh in
-      assert (Hf : ((E0 === E) s h)) by (unfold_conn; simpl in *; first [congruence | omega]);
+      assert (Hf : ((E0 === E) s h)) by (unfold_conn; simpl in *; unfold lt in *;
+                                         first [congruence | omega | eauto with zarith]);
       apply (mapsto_rewrite1 Hf) in H
     | ((?E0 -->p (_, ?E1) ** _) ?s _) =>
       let Hf := fresh in
-      assert (Hf : forall h, (E0 === E) s h) by solve [congruence | omega];
+      assert (Hf : forall h, (E0 === E) s h) by (unfold_conn; simpl in *; unfold lt in *;
+                                                 first [congruence | omega | eauto with zarith]);
       let hf := fresh in let Hf' := fresh in 
       idtac "found: " E0 E;
       eapply scRw_stack in H;
@@ -280,11 +283,13 @@ Ltac search_addr E0 E1 H :=
   match type of H with
     | (?E0' -->p (_, ?E1')) ?s ?h =>
       let Hf := fresh in
-      assert (Hf : ((E1' === E1) s h)) by (unfold_conn; simpl in *; first [congruence | omega]);
+      assert (Hf : ((E1' === E1) s h)) by (unfold_conn; simpl in *; unfold lt in *;
+                                           first [congruence | omega | eauto with earith]);
       apply (mapsto_rewrite2 Hf) in H
     | ((?E0' -->p (_, ?E1') ** _) ?s _) =>
       let Hf := fresh in
-      assert (Hf : forall h, (E1' === E1) s h) by solve [congruence | omega];
+      assert (Hf : forall h, (E1' === E1) s h) by (unfold_conn; simpl in *; unfold lt in *;
+                                           first [congruence | omega | eauto with earith]);
       let hf := fresh in let Hf' := fresh in 
       eapply scRw_stack in H;
       [idtac |
@@ -309,7 +314,8 @@ Ltac sep_cancel2 :=
       search_same_maps H;
       let Hf := fresh in
       exact H ||
-      (eapply scRw_stack; [intros ? Hf; exact Hf | intros ? ? | exact H ])
+      (eapply scRw_stack; [intros ? Hf; exact Hf | clear H; intros ? H | exact H ]) ||
+      (eapply (@sc_emp2 _ s h) in H; eapply scRw_stack; [intros ? Hf; exact Hf | clear H; intros ? H | exact H ])
     | _ => idtac
   end.
 
@@ -331,6 +337,8 @@ Ltac sep_cancel :=
                                intros ? ? |
                                exact H ]
       end)
+    | [ H : ?P ?s emp_ph, H' : emp ?s ?h |- !(?P) ?s ?h ] =>
+      eapply pure_emp; eauto
     | _ => sep_cancel2
   end.
 

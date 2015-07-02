@@ -17,11 +17,11 @@ Close Scope Qc_scope.
 Close Scope Q_scope.
 
 Section Example.
-  Notation TID := (Var 0).
-  Notation X := (Var 1).
-  Notation Y := (Var 2).
-  Notation R := (Var 3).
-  Notation ARR := (Var 4).
+  Local Notation TID := (Var 0).
+  Local Notation X := (Var 1).
+  Local Notation Y := (Var 2).
+  Local Notation R := (Var 3).
+  Local Notation ARR := (Var 4).
 
   Variable ntrd : nat.
 
@@ -152,8 +152,8 @@ Section Example.
       induction m; intros p ps i s h H; simpl; [rewrite (vinv0 ps); inversion i | ].
       destruct (vinvS ps) as (p' & ps' & ?); subst. 
       destruct (finvS i) as [|[i' ?]]; subst; [simpl |].
-      - simpl in *. sep_cancel.
-      - simpl in *; sep_cancel.
+      - simpl in *. repeat sep_cancel.
+      - simpl in *; repeat sep_cancel.
         apply IHm; auto.
     Qed.
 
@@ -703,7 +703,7 @@ Section Example.
         Astar (Aistar_v assns) x |= Aistar_v (snoc_vec assns x).
       Proof.
         induction n; intros s ph Hsat; simpl in *.
-        - rewrite (vinv0 assns) in *; simpl in *; sep_cancel. 
+        - rewrite (vinv0 assns) in *; simpl in *; repeat sep_cancel. 
         - destruct (vinvS assns) as (a1 & assns' & ?); subst; simpl in *.
           sep_normal_in Hsat; sep_cancel; apply IHn; sep_cancel.
       Qed.
@@ -765,7 +765,7 @@ Section Example.
       pose proof (H (last_idx n)) as Hlast; rewrite last_n in *.
       eapply scRw; [apply Hlast| apply IHn|].
       - intros i; specialize (H (Fin.L_R 1 i)); repeat rewrite <-(L_R_n 1), (nth_L_R) in H; eauto.
-      - rewrite snoc_last; sep_cancel.
+      - rewrite snoc_last; repeat sep_cancel.
     Qed.
 
     Lemma is_array_Aistar_v (n : nat) (assns : Vector.t assn n) (g : nat -> Z) (e : exp) :
@@ -781,7 +781,7 @@ Section Example.
       eapply scRw; [apply IHn | |].
       - intros i; specialize (H (Fin.L_R 1 i)); repeat rewrite <-(L_R_n 1), (nth_L_R) in H; eauto.
       - rewrite snoc_last in Hlast; eauto.
-      - rewrite snoc_last in *; sep_cancel.
+      - rewrite snoc_last in *; repeat sep_cancel.
     Qed.
     
     Lemma pre_sat : (Pre |= Aistar_v (init Pre_i)).
@@ -894,7 +894,7 @@ Section Example.
       intros x; specialize (H0 x); simpl in *.
       rewrite H1; simpl; apply H0.
     Qed.
- *)
+
     Hint Unfold indeE inde writes_var.
     Lemma rotate_l2 (tid : Fin.t ntrd) :
       CSL bspec tid 
@@ -1077,6 +1077,62 @@ Section Example.
       eapply rule_conseq_pre; [| crush_rotate] .
       eapply rule_seq; [crush_rotate|].
       eapply rule_seq; [crush_rotate|crush_rotate].
+    Qed.
+*)
+
+
+    Hint Unfold Pre_i Post_i : sep.
+    Hint Unfold bspec bpre bpost lt.
+    Hint Rewrite init_spec : sep.
+    Require Import VCG.
+    Lemma rotate_seq (tid : Fin.t ntrd) : 
+      CSL bspec tid
+          ((init Pre_i)[@tid] ** !(TID === Z_of_fin tid))%assn
+          rotate (init Post_i)[@tid].
+    Proof.
+      autounfold; autorewrite with sep.
+      eapply rule_seq.
+      hoare_forward; intros ? ? H'; exact H'.
+      eapply rule_seq.
+      hoare_forward; intros ? ? H'; exact H'.
+      eapply rule_seq.
+      hoare_forward.
+      hoare_forward; intros ? ? H'; exact H'.
+      hoare_forward; intros ? ? H'; exact H'.
+      intros ? ? H'; exact H'.
+      eapply Hforward.
+      eapply rule_disj.
+      eapply Hbackward.
+      Focus 2.
+        intros ? ? H.
+        destruct H; sep_split_in H.
+        subA_normalize_in H. simpl in *. 
+        sep_normal_in H. sep_split_in H.
+        assert (((Z_of_fin tid + 1) mod ntrdZ === 0)%Z s emp_ph).
+        { clear H. unfold_conn; unfold bexp_to_assn in HP2; simpl in *.
+          destruct (Z.eq_dec (s TID) (ntrdZ - 1)); try congruence.
+          assert (Z_of_fin tid + 1 = ntrdZ)%Z by (unfold lt; omega).
+          rewrite H. apply Z.mod_same; omega. }
+        sep_combine_in H.
+        exact H.
+      hoare_forward. intros ? ? H; exact H.
+      eapply Hbackward.
+      Focus 2.
+        intros ? ? H.
+        destruct H; sep_split_in H.
+        subA_normalize_in H. simpl in *. 
+        sep_normal_in H. sep_split_in H.
+        assert (((Z_of_fin tid + 1) mod ntrdZ === Z_of_fin tid + 1)%Z s emp_ph).
+        { clear H. unfold_conn; unfold bexp_to_assn in HP2; simpl in *.
+          destruct (Z.eq_dec (s TID) (ntrdZ - 1)); simpl in *; try congruence.
+          assert (Z_of_fin tid + 1 < ntrdZ)%Z by (destruct (Fin.to_nat tid); simpl in *; omega).
+          rewrite Z.mod_small_iff; [left; omega | omega]. }
+        sep_combine_in H.
+        exact H.
+        hoare_forward; intros ? ? H; exact H.
+      intros ? ? H; destruct H; sep_split_in H.
+      sep_cancel.
+      sep_cancel.
     Qed.
 
     Lemma rotate_par : CSLp ntrd E Pre rotate Post.
