@@ -301,8 +301,8 @@ Section SeqCSL.
   Qed.
   
   Lemma rule_if (C1 C2 : cmd) (B : bexp) (P Q : assn) :
-    CSL (Aconj P (Apure B)) C1 Q ->
-    CSL (Aconj P (Apure (Bnot B))) C2 Q ->
+    CSL (Aconj P (B)) C1 Q ->
+    CSL (Aconj P ((Bnot B))) C2 Q ->
     CSL P (Cif B C1 C2) Q.
   Proof.
     unfold CSL, safe_nt; intuition; destruct n; [simpl; eauto|]; simpl in *; eauto; intros;
@@ -313,13 +313,13 @@ Section SeqCSL.
     - unfold write_ok; simpl; eauto.
     - inversion H4; subst; repeat eexists; eauto; simpl.
       apply H; split; eauto; simpl in *; eauto; rewrite B0; eauto.
-      apply H0; split; auto; unfold_conn; rewrite B0; auto.
+      apply H0; split; auto; unfold_conn; unfold bexp_to_assn; simpl; rewrite B0; auto.
     - inversion H2.
   Qed.
 
   Lemma safe_while :
-    forall P B C (OK: CSL (Aconj P (Apure B)) C P) s h (SAT_P: sat (s, h) P) n,
-      safe_nt n (Cwhile B C) s h (Aconj P (Apure (Bnot B))).
+    forall P (B : bexp) C (OK: CSL (P ** !(B)) C P) s h (SAT_P: sat (s, h) P) n,
+      safe_nt n (Cwhile B C) s h (P ** !((Bnot B))).
   Proof.
     unfold safe_nt.
     intros; revert s h SAT_P. 
@@ -339,14 +339,15 @@ Section SeqCSL.
     intros Hc; inversion Hc.
     inversion H1; subst; repeat eexists; eauto.
     - eapply safe_seq; simpl; eauto; intros; [| apply IHn; try omega; eauto].
-      apply OK; split; simpl; eauto.
+      apply OK. apply scban_r; auto.
     - eapply safe_skip; repeat split; simpl in *; eauto.
-      unfold_conn; rewrite B0; eauto.
+      apply scban_r; auto.
+      unfold bexp_to_assn; simpl. rewrite B0; auto.
   Qed.
 
-  Lemma rule_while P B C :
-    CSL (Aconj P (Apure B)) C P ->
-    CSL P (Cwhile B C) (Aconj P (Apure (Bnot B))).  
+  Lemma rule_while P (B : bexp) C :
+    CSL (P ** !(B)) C P ->
+    CSL P (Cwhile B C) (P ** !((Bnot B))).  
   Proof.
     unfold CSL, safe_nt; intros; intuition; eapply safe_while; unfold CSL; eauto.
   Qed.
