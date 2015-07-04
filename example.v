@@ -1152,3 +1152,9 @@ Section Example.
     Qed.
   End Rotate.
 End Example.
+
+Section While.
+
+
+  
+

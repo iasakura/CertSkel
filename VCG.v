@@ -305,6 +305,8 @@ Proof.
    try (intros; destruct H1; exists h, emp_ph; repeat split; auto); intros; unfold_conn; tauto.
 Qed.
 
+Definition WhileI (I : assn) (b : bexp) (c : cmd) := nosimpl (Cwhile b c).
+
 Ltac hoare_forward :=
   match goal with
     | [ |- CSL ?bspec ?tid ?P (?X ::= [?E]) ?Q ] => 
@@ -352,9 +354,97 @@ Ltac hoare_forward :=
           eapply rule_if_disj | idtac]
     | [ |- CSL ?bspec ?tid (?P1 \\// ?P2) ?C ?Q ] =>
       eapply rule_disj; hoare_forward
+    | [ |- CSL ?bspec ?tid ?P (WhileI ?I ?b ?c) ?Q ] => 
+      let Hf := fresh in
+      eapply Hbackward; [
+        eapply Hforward; [apply (@rule_while _ _ _ I) | idtac] |
+        idtac
+      ]
   end.
 
-(*Section Hoare_test.
+Section map.
+  Definition ele (x y : exp) := (nosimpl (fun s (h : pheap) => edenot x s <= edenot y s)%Z).
+  Notation "x '<==' y" := (ele x y) (at level 70, no associativity).
+  Definition elt (x y : exp) := (nosimpl (fun s (h : pheap) => edenot x s < edenot y s)%Z).
+  Notation "x '<<' y" := (elt x y) (at level 70, no associativity).
+  Local Notation I := (Var 4).
+  Variable len : nat.
+  Variable ntrd : nat.
+  Notation ntrdZ := (Z.of_nat ntrd).
+  Variable f : nat -> Z.
+  Definition loop_inv : assn :=
+    Ex x : nat,
+      is_array ARR x (fun i => Z.succ (f i)) **
+      is_array (ARR + Z.of_nat x) (len - x) (fun j => f (j + x)) **
+      !(I === Z.of_nat x) ** !(pure (x < len))%nat.
+
+  Definition map :=
+    I ::= 0%Z;;
+    WhileI loop_inv (I < Z.of_nat len) (
+      X ::= [ARR + I] ;;
+      [ARR + I] ::= X + 1%Z ;;
+      I ::= I + 1%Z
+    ).
+
+  Lemma is_array_unfold : forall (n : nat) (i : nat) (fi : nat -> Z) (e : exp),
+    (i < n)%nat ->
+    is_array e n fi |=
+      (e + Z.of_nat i) -->p (1, fi i) **
+      (is_array e i fi) **
+      (is_array (e + Z.succ (Z.of_nat i)) (n - i - 1) (fun j => fi (S (i + j))%nat)).
+  Proof.
+    induction n; intros; [omega|].
+    assert (i < n \/ i = n)%nat as [Hle|] by omega; subst.
+    simpl in H0.
+    eapply scRw in H0; [|intros ? ? H'; exact H' | intros ? ? H'; apply (IHn i) in H'; [exact H' | auto]].
+    do 2 sep_cancel.
+    cutrewrite (S n - i - 1 = S (n - i - 1)); [|omega].
+    simpl; apply scC; sep_cancel.
+    assert (Z.of_nat i + Z.succ (Z.of_nat (n - i - 1)) = Z.of_nat n)%Z.
+    (rewrite <-Zplus_succ_r_reverse, <-Znat.Nat2Z.inj_add, <-Znat.Nat2Z.inj_succ; f_equal; omega).
+    assert (S (i + (n - i - 1)) = n)%nat by omega.
+    sep_cancel.
+    simpl in H0.
+    sep_cancel.
+    cutrewrite (S n - n - 1 = 0); [|omega]; simpl.
+    sep_normal; sep_cancel.
+  Qed.
+
+  Lemma is_array_S : forall (n : nat) (fi : nat -> Z) (e : exp),
+    is_array e (S n) fi |= e -->p (1, fi 0) ** is_array (e + 1%Z) n (fun i => fi (S i)).
+  Proof.
+    induction n as [|n]; [simpl|]; intros; sep_cancel.
+    cutrewrite (is_array e (S (S n)) fi =
+                ((e + Z.of_nat (S n)) -->p (1, fi (S n)) ** is_array e (S n) fi)) in H; [|auto].
+    cutrewrite (is_array (e + 1%Z) (S n) (fun i : nat => fi (S i)) =
+                (e + 1%Z + Z.of_nat n -->p (1, fi (S n)) ** 
+                is_array (e + 1%Z) n (fun i : nat => fi (S i)))); [|auto].
+    apply scCA. rewrite Znat.Nat2Z.inj_succ in H. sep_cancel.
+    apply IHn in H. auto.
+  Qed.
+
+  Lemma Ex_intro {T : Type} (P : T -> assn) (x : T) :P x |= (Ex x, P x).
+  Proof. intros; exists x; auto. Qed.
+
+  Lemma map_correct (tid : Fin.t ntrd) (bspec : Bdiv.barrier_spec ntrd) :
+    CSL bspec tid (is_array ARR len f) map (is_array ARR len (fun i => Z.succ (f i))).
+  Proof.
+    unfold map.
+    eapply rule_seq; [hoare_forward; intros ? ? H; exact H| ].
+    hoare_forward.
+    eapply Hbackward.
+    Focus 2.
+    intros ? ? H.
+    unfold loop_inv in H; sep_split_in H; destruct H; repeat sep_split_in H.
+    cutrewrite (len - x = S (len - x - 1)) in H; [|unfold Apure in HP1; simpl in HP1; omega].
+    eapply scRw in H; [idtac | intros ? ? H'; exact H' |
+                       intros ? ? H'; apply is_array_S in H'; exact H'].
+    sep_lift_in H 1.
+    sep_combine_in H.
+    patter   
+    
+    
+ (*Section Hoare_test.
   Variable ntrd : nat.
   Notation ntrdZ := (Z.of_nat ntrd).
 

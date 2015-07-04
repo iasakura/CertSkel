@@ -34,8 +34,8 @@ Definition Aconj (P1 P2 : assn) : assn := (nosimpl (fun (s : stack) (ph : pheap)
 Notation "P '//\\' Q" := (Aconj P Q) (at level 80, right associativity).
 Definition Adisj (P1 P2 : assn) : assn := (nosimpl (fun (s : stack) (ph : pheap) => P1 s ph \/ P2 s ph)).
 Notation "P '\\//' Q" := (Adisj P Q) (at level 85, right associativity).
-Definition Apure (b : bexp) := (nosimpl (fun (s : stack) (ph : pheap) => bdenot b s = true)).
-Notation pure b := (Apure b).
+Definition Apure (p : Prop) := (nosimpl (fun (s : stack) (ph : pheap) => p)).
+Notation pure p := (Apure p).
 Definition Apointsto (p : Qc) (e1 e2 : exp) := (nosimpl (fun (s : stack) (ph : pheap) =>
   forall x, this ph x = if Z.eq_dec x (edenot e1 s) then Some (p, edenot e2 s) else None)).
 Notation "e1 '-->p' ( p ,  e2 )" := (Apointsto p e1 e2) (at level 75).
