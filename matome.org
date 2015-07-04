@@ -1,19 +1,21 @@
 #+TITLE: GPUCSL TODOまとめ
-* Vafeaidisライブラリに依存しないように書き換え
-* DONE 変数の表現
-  CLOSED: [2015-06-12 金 16:17]
-** Inductive var := V of Zの方がZと混乱しなくて良さそう
-* *_{i \in Tid} P_iの表現
-** 各iがFin.t nなのはつらい
-* low_assn -> Bdiv.low_assn -> indePのunfoldが鬱陶しい
-* DONE lassnの自動証明
-  CLOSED: [2015-06-12 金 17:34]
-** prove_lassnタクティック
-* ntrdをどう扱うか
-** 1．定数として扱う
-*** ソースコードに埋め込む
-** 2．特殊な局所変数を用意して常にntrdの値を返すようにする
-* VCG作る
-* 分離論理のassertionを証明するためのタクティック
-* P=>*P_i, BSpre(b, i)=>BSpost(b, i), *Q_i=>Q関連
-** 各種補題をライブラリ化
+
+* TODO bexp -> assnへのリフレクション
+
+* TODO While規則
+
+* TODO コメント書く
+
+* TODO ユニットテストを増やす
+** 何が足りないか調べる？
+
+* TODO mapの検証
+
+* TODO foldの検証
+
+* TODO [#C] スレッドブロック/共有メモリのサポート
+
+* TODO hoare_forward, exact Hを1つのタクティックにまとめる
+
+* TODO read規則の前提を弱める
+
