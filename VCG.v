@@ -441,7 +441,7 @@ Section map.
                        intros ? ? H'; apply is_array_S in H'; exact H'].
     sep_lift_in H 1.
     sep_combine_in H.
-    patter   
+
     
     
  (*Section Hoare_test.
