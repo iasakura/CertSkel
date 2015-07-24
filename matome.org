@@ -19,3 +19,14 @@
 
 * TODO read規則の前提を弱める
 
+* TODO distribute functionの設計
+** 事前条件 
+   is_array(E, n, f)
+   scatter : {i | i < n} -> list ({j | j < T} * Q)
+   side condition: forall i, \sum (snd scatter(i)) = 1
+   $is_array(E, n, f) => **_{i \in Tid} (**_{0 <=j < n} ** filter_map (\(j, q). fst scatter(j) = i => E+i |->^q f(i) )$
+** 事後条件 g : {i | i < n}
+   is_array(E, n, f)
+   gather  : {i | i < n} -> list ({j | j < T} * Q)
+   side condition: forall i, \sum (snd gather(i)) = 1
+   $**_{i \in Tid} (**_{0 <=j < n} ** filter_map (\(j, q). fst gather(j) = i -> E+i |->^q f(i) )=>is_array(E, n, f)$
