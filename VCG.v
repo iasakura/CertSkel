@@ -362,6 +362,200 @@ Ltac hoare_forward :=
       ]
   end.
 
+Section pmap.
+  Definition ele (x y : exp) := (nosimpl (fun s (h : pheap) => edenot x s <= edenot y s)%Z).
+  Notation "x '<==' y" := (ele x y) (at level 70, no associativity).
+  Definition elt (x y : exp) := (nosimpl (fun s (h : pheap) => edenot x s < edenot y s)%Z).
+  Notation "x '<<' y" := (elt x y) (at level 70, no associativity).
+
+  Variable ntrd : nat.
+  Variable len : nat.
+  
+  Local Notation I := (Var 4).
+
+  Definition map :=
+    I ::= TID%Z;;
+    Cwhile (I < Z.of_nat len) (
+      X ::= [ARR + I] ;;
+      [ARR + I] ::= X + 1%Z ;;
+      I ::= I + Z.of_nat ntrd%Z
+    ).
+  Require Import NPeano.
+  Require Import Arith.
+  Require Import List.
+  Import ListNotations.
+  Local Open Scope list_scope.
+  Local Close Scope exp_scope.
+  Local Open Scope nat_scope.
+
+  Definition modi_filter {A : Type} (l : list A) s i n :=
+    map snd (filter (fun x => beq_nat (fst x mod n) i) (combine (seq s (length l)) l)).
+
+  Require Import Omega.
+
+  Lemma seq_add : forall (n1 n2 s : nat), seq s (n1 + n2) = seq s n1 ++ seq (s + n1) n2.
+  Proof.
+    induction n1; intros n2 s; simpl; eauto.
+    rewrite <-plus_n_Sm, IHn1; simpl; eauto.
+  Qed.
+  
+  Lemma combine_app :
+    forall (S T : Type) (s1 s2 : list S) (t1 t2 : list T),
+      length s1 = length t1 -> combine (s1 ++ s2) (t1 ++ t2) = combine s1 t1 ++ combine s2 t2.
+  Proof.
+    induction s1; intros s2 t1 t2 Hlen.
+    - destruct t1; inversion Hlen; simpl; eauto.
+    - destruct t1; inversion Hlen; simpl; rewrite IHs1; eauto.
+  Qed.
+    
+  Lemma filter_app : 
+    forall (T : Type) (a : T -> bool) (s1 s2 : list T),
+      filter a (s1 ++ s2) = filter a s1 ++ filter a s2.
+  Proof.
+    induction s1; simpl; eauto.
+    intros s2; rewrite IHs1; destruct (a a0); eauto.
+  Qed.
+
+  Fixpoint mask {T : Type} (m : list bool) (l : list T) :=
+    match m with
+      | nil => nil
+      | b :: m => 
+        match l with
+          | nil => nil
+          | x :: l => if b then x :: mask m l else mask m l
+        end
+      end.
+
+  Lemma filter_mask:
+    forall (T : Type) (a : T -> bool) (s : list T),
+      filter a s = mask (map a s) s.
+  Proof.
+    induction s; simpl; eauto.
+    rewrite IHs; eauto.
+  Qed.
+
+  Fixpoint nseq (T : Type) (n : nat) (d : T) : list T :=
+    match n with
+      | 0 => nil
+      | S n => d :: nseq n d
+    end.
+  
+  Lemma eq_from_nth :
+    forall (T : Type) (x : T) (s1 s2 : list T),
+      length s1 = length s2 ->
+      (forall i : nat, i < length s1 -> nth i s1 x = nth i s2 x) -> s1 = s2.
+  Proof.
+    induction s1; intros [|y s2]; inversion 1; eauto.
+    intros Heq; f_equal.
+    apply (Heq 0); simpl; omega.
+    apply IHs1; eauto.
+    intros i H'; pose proof (Heq (S i)); simpl in H0; apply H0; omega.
+  Qed.
+
+  Lemma length_nseq : forall (T : Type) (n : nat) (x : T), length (nseq n x) = n.
+  Proof.
+    intros; induction n; simpl; omega.
+  Qed.
+
+  Lemma nth_map :
+    forall (T1 : Type) (x1 : T1) (T2 : Type) (x2 : T2) 
+           (f : T1 -> T2) (n : nat) (s : list T1),
+      n < length s -> nth n (map f s) x2 = f (nth n s x1).
+  Proof.
+    induction n; intros [|y s]; simpl; eauto; try omega.
+    intros. firstorder; omega.
+  Qed.
+
+  Lemma nth_nseq :
+    forall (T : Type) (x0 : T) (m : nat) (x : T) (n : nat),
+      nth n (nseq m x) x0 = (if leb m n then x0 else x).
+  Proof.
+    induction m; intros; simpl; eauto.
+    - destruct n; simpl; eauto.
+    - destruct n; eauto.
+  Qed.
+
+  Lemma mask_cat:
+    forall (T : Type) (m1 m2 : list bool) (s1 s2 : list T),
+      length m1 = length s1 -> mask (m1 ++ m2) (s1 ++ s2) = mask m1 s1 ++ mask m2 s2.
+  Proof.
+    induction m1; intros; destruct s1; simpl in *; try omega; eauto.
+    rewrite IHm1; destruct a; simpl; eauto.
+  Qed.
+
+  Lemma mask_false:
+    forall (T : Type) (s : list T ) (n : nat), mask (nseq n false) s = nil.
+  Proof.
+    induction s; destruct n; simpl in *; eauto.
+  Qed.
+
+  Lemma skipn_length:
+    forall (T : Type) (s : list T) (n0 : nat), length (skipn n0 s) = length s - n0.
+  Proof.
+    induction s; destruct n0; simpl; eauto.
+  Qed.
+
+  Lemma nth_skipn:
+    forall (n0 : nat) (T : Type) (x0 : T) (s : list T) (i : nat),
+      nth i (skipn n0 s) x0 = nth (n0 + i) s x0.
+  Proof.
+    induction i; destruct n s.
+    
+    
+  Lemma modi_filter_cons : forall {A : Type} (l : list A) (s i n : nat) (d : A),
+    n <> 0 ->
+    n <= length l -> i < n ->
+    modi_filter l (s * n) i n = nth i l d :: modi_filter (skipn n l) (S s * n) i n.
+  Proof.
+    unfold modi_filter; intros A l s i n d Hn0 Hnl Hin.
+    assert (Heq :combine (seq (s * n) (length l)) l =
+                 combine (seq (s * n) n) (firstn n l) ++
+                    combine (seq (S s * n) (length l - n)) (skipn n l)).
+    { assert (H' : length l = n + (length l - n)) by omega.
+      rewrite H' at 1; rewrite seq_add; rewrite <-(firstn_skipn n l) at 2.
+      rewrite combine_app; simpl.
+      cutrewrite (s * n + n = n + s * n); [|omega]; eauto.
+      rewrite seq_length, firstn_length; rewrite Min.min_l; eauto. }
+    rewrite Heq, filter_app, map_app; clear Heq.
+    match goal with
+      | [|- ?X ++ ?Y = ?Z :: ?W] => assert (Heq : X = Z :: nil /\ Y = W)
+    end; [|destruct Heq as [Heq1 Heq2]; rewrite Heq1, Heq2; simpl; eauto].
+    split.
+    - rewrite filter_mask.
+      assert (Heq : map (fun x => beq_nat (fst x mod n) i) (combine (seq (s * n) n) (firstn n l)) =
+                    nseq i false ++ (true :: nseq (n - i - 1) false)); [|rewrite Heq; clear Heq].
+      { apply (@eq_from_nth _ false).
+        { rewrite map_length, combine_length, firstn_length, app_length, seq_length; simpl.
+          rewrite !length_nseq. 
+          repeat rewrite !Min.min_l; eauto; omega. }
+        rewrite map_length; intros j Hj; rewrite (nth_map (0, d)); auto.
+        rewrite combine_length, seq_length, firstn_length in Hj.
+          rewrite Min.min_l in Hj; [|rewrite Min.min_l; auto].
+        rewrite combine_nth; [|rewrite seq_length, firstn_length, Min.min_l; omega]; simpl.
+        rewrite seq_nth; auto.
+        rewrite plus_comm, Nat.add_mod, Nat.mod_mul, <-plus_n_O, Nat.mod_mod, Nat.mod_small; auto.
+        assert (j < i \/ j = i \/ i < j) as [H | [H | H]] by omega.
+        + rewrite app_nth1; [| rewrite length_nseq; auto].
+          rewrite nth_nseq; cutrewrite (leb i j = false); [|apply leb_correct_conv; omega].
+          apply beq_nat_false_iff; omega.
+        + rewrite app_nth2; rewrite length_nseq; [|omega].
+          subst; rewrite minus_diag; simpl.
+          apply beq_nat_true_iff; omega.
+        + rewrite app_nth2; rewrite length_nseq; try omega.
+          case_eq (j - i); intros; try omega; simpl; rewrite nth_nseq.
+          destruct (leb (n - i - 1) n0); apply beq_nat_false_iff; omega. }
+      rewrite <-(firstn_skipn i (combine _ _)).
+      rewrite mask_cat;
+        [|rewrite length_nseq, !firstn_length, combine_length, seq_length,
+                  firstn_length; repeat rewrite Min.min_l; auto; omega].
+      case_eq (skipn i (combine (seq (s * n) n) (firstn n l))); [|intros x ss]; intros H.
+      apply (f_equal (@length (nat * A))) in H; simpl in H.
+      rewrite skipn_length, combine_length, seq_length, firstn_length in H.
+      rewrite Min.min_l in H; [|repeat rewrite Min.min_l; omega]; omega.
+      simpl; rewrite !mask_false; simpl; f_equal.
+      apply (f_equal (fun x => nth 0 x (0, d))) in H; simpl in H.
+      rewrite nth_skipn.
+
 Section map.
   Definition ele (x y : exp) := (nosimpl (fun s (h : pheap) => edenot x s <= edenot y s)%Z).
   Notation "x '<==' y" := (ele x y) (at level 70, no associativity).
