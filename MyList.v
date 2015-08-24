@@ -1,5 +1,6 @@
 Set Implicit Arguments.
 Unset Strict Implicit.
+
 Require Import NPeano.
 Require Import Arith.
 Require Import List.
@@ -266,17 +267,17 @@ Section Distibution.
 
   Require Import Lang.
   Require Import Qcanon.
-  Fixpoint is_array (e : exp) (n : nat) (f : nat -> exp) :=
+  Fixpoint is_array (e : exp) (n : nat) (f : nat -> exp) (s : nat) :=
     match n with
       | 0 => Aemp
-      | S n' => e + Enum (Z.of_nat n') -->p (1%Qc, f n') **
-                         is_array e n' f
+      | S n' => e + Enum (Z.of_nat s) -->p (1%Qc, f s) **
+                         is_array e n' f (S s)
     end.
 
-  Fixpoint distribute (d : nat) (e : exp) (n : nat) (f : nat -> exp) (dist : nat -> nat):=
+  Fixpoint distribute (d : nat) (e : exp) (n : nat) (f : nat -> exp) (dist : nat -> nat) (s : nat) :=
     match n with
       | O => nseq d emp
-      | S n => add_nth (dist n) (e + Enum (Z.of_nat n) -->p (1%Qc, f n)) (distribute d e n f dist)
+      | S n => add_nth (dist s) (e + Enum (Z.of_nat s) -->p (1%Qc, f s)) (distribute d e n f dist (S s))
     end.
   
   Open Scope nat_scope.
@@ -300,60 +301,214 @@ Section Distibution.
   Qed.
 
   Lemma distribute_length (d : nat) (e : exp) (n : nat) (f : nat -> exp) (dist : nat -> nat) :
-    length (distribute d e n f dist) = d.
+    forall i, length (distribute d e n f dist i) = d.
   Proof.
-    induction n; simpl.
+    induction n; simpl; intros.
     - apply length_nseq.
     - rewrite add_nth_length; auto.
   Qed.
 
+  Notation Enum' n := (Enum (Z.of_nat n)).
+
   Lemma distribute_correct (d : nat) (e : exp) (n : nat) (f : nat -> exp) (dist : nat -> nat) :
-    (forall x, dist x < d) ->
-    is_array e n f <=> conj_xs (distribute d e n f dist).
+    forall s, (forall x, dist x < d) ->
+    is_array e n f s <=> conj_xs (distribute d e n f dist s).
   Proof.
-    induction n; intros Hdist; simpl.
+    induction n; intros s Hdist; simpl.
     - rewrite nseq_emp_emp; reflexivity.
     - rewrite conj_xs_add_nth, IHn; [reflexivity| auto| rewrite distribute_length;auto ].
   Qed.
 
   Definition nt_step (nt n : nat) := n mod nt.
   
-  Definition nt_dist_nth (i : nat) e n f nt := nth i [] (distribute nt e n f (nt_step nt)).
-
-  Notation Enum' n := (Enum (Z.of_nat n)).
-
-  Lemma wf_lt' : well_founded lt.
-  Proof.
-    intros x. induction x; constructor; intros.
-    - inversion H.
-    - assert (y = x \/ y < x) as [? | ?] by omega; eauto.
-      subst. apply IHx.
-      inversion IHx as [H']. apply H'. auto.
-  Defined.
+  Definition nt_dist_nth (i : nat) e n f nt (s : nat) :=
+    nth i (distribute nt e n f (nt_step nt)s ) emp.
 
   Definition skip_array_body (e : exp) (nt : nat) (f : nat -> exp) (Hnt0 : nt <> 0) :
     forall x, (forall y, y < x -> nat -> assn) -> nat -> assn.
     refine (fun rest rec x =>
-      match ltb 0 rest as b return ltb 0 rest = b -> assn with 
+      match ltb 0 (rest - x) as b return ltb 0 (rest - x) = b -> assn with 
         | true => fun Heq => (e + Enum' x -->p (1%Qc, f x)) ** rec (rest - nt) _ (x + nt)
         | false => fun _ => emp
-      end eq_refl).
-    abstract (apply ltb_lt in Heq; omega).
+      end eq_refl); abstract (apply ltb_lt in Heq; omega).
   Defined.
 
   Definition skip_array nt e f (Hnt0 : nt <> 0) : nat -> nat -> assn :=
-    Fix wf_lt' (fun _ => nat -> assn) (skip_array_body e f Hnt0).
+    Fix lt_wf (fun _ => nat -> assn) (skip_array_body e f Hnt0).
 
   Lemma three_neq_0 : 3 <> 0. auto. Defined.
-  Goal skip_array (Enum 0) (fun i => Enum' i) three_neq_0 5 2 = 
+  Goal skip_array (Enum 0) (fun i => Enum' i) three_neq_0 10 3 = 
        ((Enum 0 + Enum' 0 -->p (1%Qc, Enum' 0)) **
        (Enum 0 + Enum' 2 -->p (1%Qc, Enum' 2))).
   Proof.
     unfold skip_array, Fix, skip_array_body. simpl.
+  Abort.
+  
+  Hint Unfold nt_step.
+  Hint Resolve Nat.mod_upper_bound.
 
-  Lemma nt_dist_unfold (i : nat) e n f nt :
-    nt_dist_nth i e n f nt <=> (e -->p (1%Qc, f 
-                  
+  Lemma leb_le_false: forall n m : nat, (n <=? m) = false <-> m < n.
+  Proof.
+    split; intros.
+    assert (~ n <= m) by (intros Hc; apply leb_le in Hc; congruence); omega.
+    assert (~(n <=? m = true)) by (intros Hc; apply leb_le in Hc; omega); destruct (_ <=? _); congruence.
+  Qed.
+
+  Lemma ltb_lt_false: forall n m : nat, (n <? m) = false <-> m <= n.
+  Proof.
+    split; intros.
+    assert (~ n < m) by (intros Hc; apply ltb_lt in Hc; congruence); omega.
+    assert (~(n <? m = true)) by (intros Hc; apply ltb_lt in Hc; omega); destruct (_ <? _); congruence.
+  Qed.
+
+  Lemma nth_add_nth (i j : nat) (a : assn) (l : list assn) (d : assn) :
+    i < length l -> j < length l ->
+    nth i (add_nth j a l) d = if beq_nat i j then a ** nth i l d else nth i l d.
+  Proof.
+    revert i l; induction j; intros i l; destruct l, i; simpl in *; eauto; try omega.
+    intros; apply IHj; omega.
+  Qed.
+  
+  Lemma nth_dist_next i e f nt (Hnt0 : nt <> 0) dist : forall next s n,
+    i < nt ->
+    (forall i, dist i < nt) ->
+    dist (s + next) = i -> next < n ->
+    (forall j, j < next -> dist (s + j) <> i) ->
+    nth i (distribute nt e n f dist s) emp <=> 
+    (e + Enum' (s + next) -->p (1%Qc, f (s + next))) **
+      nth i (distribute nt e (n - S next) f dist (S (s + next))) emp.
+  Proof.
+    induction next; intros s n Hint Hdistnt Hdnx Hnxn Hltnx.
+    - destruct n; [omega|].
+      rewrite <-plus_n_O in Hdnx.
+      simpl; rewrite nth_add_nth; [|rewrite distribute_length; omega..].
+      subst. rewrite <-beq_nat_refl.
+      rewrite <-plus_n_O, <-minus_n_O; reflexivity.
+    - destruct n; [omega|]; simpl.
+      rewrite nth_add_nth; [|rewrite distribute_length; auto..].
+      assert (Heq : beq_nat i (dist s) = false); [| rewrite Heq; clear Heq].
+      { specialize (Hltnx 0); rewrite <-plus_n_O in Hltnx.
+        apply Nat.eqb_neq; intros Hc; rewrite Hc in Hltnx; apply Hltnx; auto; omega. }
+      assert (Heq : s + S next = S s + next) by omega; rewrite Heq in *; clear Heq.
+      rewrite IHnext; auto; [reflexivity|..].
+      + omega.
+      + intros j Hj.
+        assert (S j < S next) by omega.
+        cutrewrite (S s + j = s + S j); [|omega].
+        apply Hltnx; auto.
+  Qed.
+
+  Lemma nth_dist_nil i e f nt (Hnt0 : nt <> 0) dist : forall next s n,
+    i < nt ->
+    (forall i, dist i < nt) ->
+    (forall j, j < next -> dist (s + j) <> i) ->
+    nth i (distribute nt e n f dist s) emp <=> 
+        nth i (distribute nt e (n - next) f dist (s + next)) emp.
+  Proof.
+    induction next; intros s n Hint Hdist Hndist.
+    - rewrite <-minus_n_O, <-plus_n_O; reflexivity.
+    - destruct n; simpl; [reflexivity|].
+      rewrite nth_add_nth; [|rewrite distribute_length; auto..].
+      assert (Heq : beq_nat i (dist s) = false); [|rewrite Heq; clear Heq].
+      { apply Nat.eqb_neq; intros Hc; rewrite Hc in Hndist.
+        apply (Hndist 0); [omega|f_equal; omega]. }
+      rewrite IHnext; [rewrite <-plus_n_Sm; reflexivity|auto..].
+      intros j Hj.
+      cutrewrite (S s + j = s + S j); [|omega]; apply Hndist; omega.
+  Qed.
+
+  Lemma nt_step_ok (nt : nat) (Hnt0 : nt <> 0) : forall n, nt_step nt n < nt.
+  Proof.
+    intros; apply Nat.mod_upper_bound; auto.
+  Qed.
+
+  Lemma skip_arr_init i e f n nt (Hnt0 : nt <> 0) :
+    i < nt ->
+    nth i (distribute nt e n f (nt_step nt) 0) emp <=>
+        nth i (distribute nt e (n - i) f (nt_step nt) i) emp.
+  Proof.
+    intros Hint; cutrewrite (i = 0 + i); [|auto]; apply nth_dist_nil; auto.
+    - intros; apply nt_step_ok; auto.
+    - intros j Hji; unfold nt_step; simpl.
+      rewrite Nat.mod_small; omega.
+  Qed.
+
+  Hint Resolve nt_step_ok.
+
+  Lemma skip_arr_unfold i e f n nt (Hnt0 : nt <> 0) : forall s, 
+    i < nt -> 0 < n ->
+    nth i (distribute nt e n f (nt_step nt) (s * nt + i)) emp <=>
+        (e + Enum' (s * nt + i) -->p (1,  f (s * nt + i))) **
+        nth i (distribute nt e (n - nt) f (nt_step nt) (S s * nt + i)) emp.
+  Proof.
+    intros s Hint Hn0.
+    etransitivity.
+    { apply nth_dist_next with (next := 0); auto.
+      - unfold nt_step.
+        rewrite <-plus_n_O, plus_comm, Nat.mod_add; [rewrite Nat.mod_small; auto| auto].
+      - intros; omega. }
+    rewrite <-plus_n_O.
+    match goal with [|- _ ** ?X <=> _ ** ?Y] => assert (H : X <=> Y); [|rewrite H; reflexivity] end.
+    etransitivity; [apply nth_dist_nil with (next := nt - 1); auto|].
+    { intros j Hjnt; unfold nt_step.
+      rewrite plus_Snm_nSm, <-plus_assoc, plus_comm, Nat.mod_add; auto.
+      intros Hc.
+      pose proof (div_mod (i + S j) nt Hnt0) as Heq; rewrite Hc in Heq.
+      assert (S j = nt * ((i + S j) / nt)) by omega.
+      destruct ((i + S j ) / nt) as [|n']; rewrite mult_comm in H; simpl in H; try omega.
+      destruct (n' * nt) as [|n'']; omega. }
+    cutrewrite (n - 1 - (nt - 1) = n - nt); [|omega].
+    simpl; generalize (s * nt); intros n0.
+    cutrewrite (S (n0 + i + (nt - 1)) = nt + n0 + i); [|omega].
+    reflexivity.
+  Qed.
+
+  Lemma nth_dist_lt i e f nt (Hnt0 : nt <> 0) n : forall s,
+    i < nt -> i < n -> 
+    nt_dist_nth i e n f nt (s * nt) <=>
+       (e + Enum' ((s * nt) + i) -->p (1%Qc, f ((s * nt) + i))) ** nt_dist_nth i e (n - nt) f nt (S s * nt).
+  Proof.
+    remember (n / nt) as q eqn:Hq.
+    revert Hq; induction q; intros Hq s Hint Hin.
+    pose proof (div_mod n nt Hnt0) as Hn.
+    rewrite <-Hq, mult_0_r, plus_0_l in Hn.
+    assert (n < nt) by (rewrite Hn;apply Nat.mod_upper_bound; auto). 
+    - 
+  Qed.
+
+  Lemma nth_dist_ge n : forall (i : nat) e f nt (Hnt0 : nt <> 0),
+    nt <= n ->
+    nt_dist_nth i e n f nt <=> (e + Enum' i -->p (1%Qc, f i)) ** nt_dist_nth i 
+  Proof.
+    unfold nt_dist_nth; induction n; intros i e f nt Hnt0 Hint Hnnt; simpl.
+    - simpl_nth; destruct (leb _ _); reflexivity.
+    - rewrite nth_add_nth; [|rewrite distribute_length; unfold nt_step; auto..].
+      remember (beq_nat i _) as b0 eqn:Hb0; remember (i <? S n) as b1 eqn:Hb1.
+      cutrewrite (nt_step nt n = n) in Hb0; [|unfold nt_step; rewrite Nat.mod_small; omega].
+      assert (i < n \/ i = n \/ n < i) as [Hin | [Hin | Hin]] by omega;
+        symmetry in Hb0; destruct b0;  first [apply beq_nat_true in Hb0 | apply beq_nat_false in Hb0];
+        symmetry in Hb1; destruct b1;  first [apply ltb_lt_false in Hb1 | apply ltb_lt in Hb1]; 
+        try omega; [rewrite IHn; auto; [|omega]..].
+      rewrite ((proj2 (ltb_lt _ _)) Hin); reflexivity.
+      cutrewrite (i <? n = false); [|apply ltb_lt_false; omega]; rewrite emp_unit_r; subst; reflexivity.
+      cutrewrite (i <? n = false); [|apply ltb_lt_false; omega]; reflexivity.
+  Qed.
+  
+  Lemma nth_dist_skip (i : nat) e n f nt (Hnt0 : nt <> 0) :
+    i < nt ->
+    nt_dist_nth i e n f nt <=> skip_array e f Hnt0 n i.
+  Proof.
+    intros Hint.
+    unfold nt_dist_nth, skip_array.
+    remember (n / nt) as q eqn:Hq.
+    revert Hq; induction q; intros Hq.
+    - pose proof (div_mod n nt Hnt0) as Hnnt; rewrite <-Hq, mult_0_r in Hnnt; simpl in Hnnt.
+      assert (n < nt) by (rewrite Hnnt; apply Nat.mod_upper_bound; auto).
+      rewrite Fix_eq; unfold skip_array_body.
+      cutrewrite (0 <? n - x = false); [|destruct (0 <? n - nt) eqn:Ht; auto; apply ltb_lt in Ht; omega].
+      induction n; simpl; [simpl_nth; destruct (leb _ _); reflexivity|].
+      unfold nt_step.
+      
   
 Definition modi_filter {A : Type} (l : list A) s i n :=
   map snd (filter (fun x => beq_nat (fst x mod n) i) (combine (seq s (length l)) l)).
