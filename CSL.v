@@ -814,8 +814,8 @@ Section ParCSL.
             extensionality x; unfold hplus; destruct (h x); eauto. }
   Qed.
 
-  Definition nat_of_fin (i : Fin.t ntrd) : nat := proj1_sig (Fin.to_nat i).
-  Definition Z_of_fin (i : Fin.t ntrd) : Z := Z.of_nat (nat_of_fin i).
+(*  Definition nat_of_fin (i : Fin.t ntrd) : nat := proj1_sig (Fin.to_nat i).*)
+(*  Definition Z_of_fin (i : Fin.t ntrd) : Z := Z.of_nat (nat_of_fin i).*)
 
   Definition CSLp (P : assn) (c : cmd) (Q : assn) :=
     forall (ks : klist ntrd) (h : heap) (leqks : low_eq_l2 E (Vector.map (fun s => snd s) ks)),
