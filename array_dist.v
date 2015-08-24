@@ -460,6 +460,7 @@ Proof.
   simpl; generalize (s * nt); intros n0.
   cutrewrite (S (n0 + i + (nt - 1)) = nt + n0 + i); [|omega].
   reflexivity.
+Qed.
 
 Lemma distribute_snoc i e f nt (Hnt : nt <> 0) dist : forall n s,
   i < nt ->
@@ -469,12 +470,31 @@ Lemma distribute_snoc i e f nt (Hnt : nt <> 0) dist : forall n s,
            (distribute nt e n f dist s)) emp.
 Proof.
   induction n; intros s Hit Hdist; [simpl|].
-  rewrite !nth_add_nth; [| rewrite length_nseq || rewrite distribute_length..]; auto.
-  simpl_nth; destruct (leb _ _); rewrite <-!plus_n_O; destruct (beq_nat _ _); reflexivity.
-  remember (S n); simpl.
-  
+  - rewrite !nth_add_nth; [| rewrite length_nseq || rewrite distribute_length..]; auto.
+    simpl_nth; destruct (leb _ _); rewrite <-!plus_n_O; destruct (beq_nat _ _); reflexivity.
+  - remember (S n) as Sn.
+    simpl; rewrite nth_add_nth; [|rewrite distribute_length; auto..].
+    destruct (beq_nat i (dist s)) eqn:His.
+    + rewrite IHn; auto.
+      cutrewrite (S s + n = s + Sn); [|omega]; rewrite !nth_add_nth; [|rewrite distribute_length; auto..].
+      destruct (beq_nat i (dist (s + Sn))); rewrite HeqSn; simpl.
+      * rewrite nth_add_nth; [|rewrite distribute_length; auto..]; rewrite His.
+        split; intros H; repeat sep_cancel.
+      * rewrite nth_add_nth; [|rewrite distribute_length; auto..]; rewrite His.
+        split; intros H; repeat sep_cancel.
+    + rewrite IHn; auto.
+      cutrewrite (S s + n = s + Sn); [|omega]; rewrite !nth_add_nth; [|rewrite distribute_length; auto..].
+      destruct (beq_nat i (dist (s +Sn))) eqn:Hisn.
+      * rewrite HeqSn; simpl; rewrite nth_add_nth; [|rewrite distribute_length; auto..].
+        rewrite His; split; intros; sep_cancel.
+      * rewrite HeqSn; simpl; rewrite nth_add_nth; [|rewrite distribute_length; auto..].
+        rewrite His; split; intros; sep_cancel.
+Qed.
 
-Lemma nth_dist_snoc i e f nt (Hnt0 : nt <> 0) dist : forall n next s,
+Hint Extern 1 (_ <  length (distribute _ _ _ _ _ _) ) =>
+  rewrite distribute_length; auto.
+
+Lemma nth_dist_snoc i e f nt (Hnt0 : nt <> 0) dist : forall next n s,
   i < nt ->
   (forall i, dist i < nt) ->
   dist (s + n + next) = i -> 
@@ -483,8 +503,20 @@ Lemma nth_dist_snoc i e f nt (Hnt0 : nt <> 0) dist : forall n next s,
   (e + Enum' (s + n + next) -->p (1%Qc, Enum (f (s + n + next))))
   <=> nth i (distribute nt e (S (n + next)) f dist s) emp.
 Proof.
-  induction n; intros next s Hit Hdist Hnext Hj; simpl.
-  - simpl_nth; destruct (leb _ _).
-    rewrite nth_add_nth; [|rewrite distribute_length; auto..].
-    cutrewrite (
+  induction next; intros n s Hint Hdist Hdisti Hj.
+  - rewrite <-!plus_n_O in *.
+    rewrite distribute_snoc; auto; rewrite nth_add_nth; auto.
+    symmetry in Hdisti; rewrite (proj2 (beq_nat_true_iff _ _) Hdisti).
+    split; intros; repeat sep_cancel.
+  - cutrewrite (S (n + S next) = S (S n + next)); [|omega].
+    rewrite <-IHnext; auto.
+    + cutrewrite (s + S n + next = s + n + S next); [|omega].
+      rewrite distribute_snoc; auto; rewrite nth_add_nth; auto.
+      assert (H : beq_nat i (dist (s + n)) = false); [|rewrite H; clear H].
+      { apply Nat.eqb_neq; intros Hc.
+        apply (Hj 0); [omega| rewrite <-plus_n_O; auto]. }
+      split; intros; repeat sep_cancel.
+    + cutrewrite (s + S n + next = s + n + S next); [|omega]; auto.
+    + intros j Hjnext.
+      cutrewrite (s + S n + j = s + n + S j); [|omega]; apply Hj; omega.
 Qed.

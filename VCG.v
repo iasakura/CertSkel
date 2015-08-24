@@ -252,7 +252,8 @@ Section hoare_lemmas.
   Qed.
 End hoare_lemmas.
 
-Notation "P <=> Q" := (forall s h, P s h <-> Q s h) (at level 87).
+Definition equiv_sep (P Q : assn) := (forall s h, P s h <-> Q s h).
+Notation "P <=> Q" := (equiv_sep P Q) (at level 87).
 
 Ltac ltac_bug E H :=
   match type of H with
@@ -421,6 +422,7 @@ Ltac hoare_forward :=
       ]
   end.
 
+<<<<<<< Updated upstream
 
 
 Section pmap.
@@ -582,6 +584,8 @@ Section pmap.
       
       
 
+=======
+>>>>>>> Stashed changes
 Section map.
   Definition ele (x y : exp) := (nosimpl (fun s (h : pheap) => edenot x s <= edenot y s)%Z).
   Notation "x '<==' y" := (ele x y) (at level 70, no associativity).
