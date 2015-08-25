@@ -520,3 +520,73 @@ Proof.
     + intros j Hjnext.
       cutrewrite (s + S n + j = s + n + S j); [|omega]; apply Hj; omega.
 Qed.
+
+Lemma nth_dist_ext' i e f nt (Hnt0 : nt <> 0) dist : forall n s,
+  i < nt ->
+  (forall i, dist i < nt) ->
+  dist (s + n) <> i ->
+  nth i (distribute nt e n f dist s) emp <=> 
+  nth i (distribute nt e (S n) f dist s) emp.
+Proof.
+  induction n; intros s Hint Hdisi Hdisneq.
+  - simpl; rewrite nth_add_nth; simpl_nth.
+    rewrite <-plus_n_O in Hdisneq.
+    rewrite (proj2 (Nat.eqb_neq i (dist s))); auto; reflexivity.
+  - remember (S (S n)) as n'; simpl; rewrite nth_add_nth; auto.
+    assert (dist (S s + n) <> i) by (rewrite <-plus_n_Sm in Hdisneq; simpl; auto).
+    destruct (beq_nat i (dist s)) eqn:His; rewrite IHn; auto;
+    subst; remember (S n); simpl; rewrite nth_add_nth; auto; rewrite His; reflexivity.
+Qed.    
+
+Lemma nth_dist_ext i e f nt (Hnt0 : nt <> 0) dist : forall next s n,
+  i < nt ->
+  (forall i, dist i < nt) ->
+  (forall j, j < next -> dist (s + n + j) <> i) ->
+  nth i (distribute nt e n f dist s) emp <=> 
+  nth i (distribute nt e (n + next) f dist s) emp.
+Proof.
+  induction next; intros s n Hint Hdist Hdisti.
+  - rewrite <-plus_n_O; reflexivity.
+  - rewrite <-plus_n_Sm; simpl.
+    rewrite nth_add_nth; auto.
+    destruct (beq_nat _ _) eqn:Heq.
+    + apply Nat.eqb_eq in Heq.
+      rewrite <-IHnext; auto.
+      destruct n.
+      { contradict Heq; intros Hc; apply (Hdisti 0); [omega| rewrite <-!plus_n_O; auto]. }
+      remember (S n) eqn:Heq'; rewrite Heq' at 1; simpl; rewrite nth_add_nth; auto.
+      rewrite Heq, <-beq_nat_refl; subst.
+      rewrite <-nth_dist_ext' with (s := (S s)); [reflexivity|auto..].
+      cutrewrite (S s + n = s + S n + 0); [|omega]; apply Hdisti; omega.
+      intros j Hj; cutrewrite (S s + n + j = s + n + S j); [|omega]; apply Hdisti; omega.
+    + rewrite <-IHnext; auto.
+      destruct n; [simpl; reflexivity|].
+      remember (S n) eqn:Heq'; rewrite Heq' at 1; simpl; rewrite nth_add_nth; auto; rewrite Heq.
+      subst; rewrite <-nth_dist_ext'; [reflexivity|auto..].
+      cutrewrite (S s + n = s + S n + 0); [|omega]; apply Hdisti; omega.
+      intros j Hj; cutrewrite (S s + n + j = s + n + S j); [|omega]; apply Hdisti; omega.
+Qed.
+
+Lemma skip_arr_fold i e f n nt (Hnt0 : nt <> 0) : forall s, 
+  i < nt -> 0 < n ->
+  nth i (distribute nt e (s * nt + i) f (nt_step nt) 0) emp **
+   (e + Enum' (s * nt + i) -->p (1,  Enum (f (s * nt + i)))) <=>
+    nth i (distribute nt e (S s * nt + i) f (nt_step nt) 0) emp.
+Proof.
+  intros s Hint Hn0.
+  assert (Heq : s * nt + i = 0 + (s * nt + i) + 0) by omega.
+  rewrite Heq at 2; rewrite Heq at 3.
+  rewrite nth_dist_snoc; auto.
+  rewrite nth_dist_ext with (next := nt - 1); auto.
+  cutrewrite (S (s * nt + i + 0) + (nt - 1) = S s * nt + i); [|simpl; omega]; reflexivity.
+  intros j Hj; unfold nt_step.
+  - cutrewrite (0 + S (s * nt + i + 0) + j = (S (i + j)) + s * nt); [|omega].
+    rewrite Nat.mod_add; auto.
+    intros Heqij. pose proof (div_mod (S (i + j)) nt Hnt0) as H'; rewrite Heqij in H'.
+    assert (S j = nt * (S (i + j) / nt)) by omega.
+    destruct (S (i + j) / nt); simpl in *; [omega|].
+    rewrite mult_comm in H; simpl in *; destruct (n0 * nt); omega.
+  - simpl; rewrite <-!plus_n_O; unfold nt_step.
+    rewrite plus_comm, Nat.mod_add; auto; rewrite Nat.mod_small; auto.
+  - inversion 1.
+Qed.
