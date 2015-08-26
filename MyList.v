@@ -510,7 +510,7 @@ Section Distibution.
       unfold nt_step.
       
   
-Definition modi_filter {A : Type} (l : list A) s i n :=
+\Definition modi_filter {A : Type} (l : list A) s i n :=
   map snd (filter (fun x => beq_nat (fst x mod n) i) (combine (seq s (length l)) l)).
 
 

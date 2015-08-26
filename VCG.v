@@ -7,10 +7,6 @@ Require Import Lang.
 Require Import CSL.
 Require Import PHeap.
 Require Import array_dist.
-Local Notation TID := (Var 0).
-Local Notation ARR := (Var 1).
-Local Notation X := (Var 2).
-Local Notation Y := (Var 3).
 Open Scope exp_scope.
 Open Scope bexp_scope.
 
@@ -100,7 +96,7 @@ Ltac prove_inde :=
     | [ |- inde (?E === ?E') _ ] => apply inde_eeq; repeat (constructor; prove_indeE)
     | [ |- inde (inde (List.nth _ (distribute _ _ _ _ _ _) emp) _) ] =>
       apply inde_distribute; auto; repeat (constructor; prove_indeE)
-    | [ |- _ ] => (* unfold inde, var_upd; simpl; try tauto *) idtac
+    | [ |- _ ] => try now (unfold inde, var_upd; simpl; try tauto) 
   end.
 
 Section subA_simpl.
@@ -252,7 +248,8 @@ Section hoare_lemmas.
   Qed.
 End hoare_lemmas.
 
-Notation "P <=> Q" := (forall s h, P s h <-> Q s h) (at level 87).
+Definition equiv_sep (P Q : assn) := (forall s h, P s h <-> Q s h).
+Notation "P <=> Q" := (equiv_sep P Q) (at level 87).
 
 Ltac ltac_bug E H :=
   match type of H with
@@ -267,7 +264,7 @@ Ltac ltac_bug E H :=
       end 
     | _ => idtac
   end.
-
+(*
 Example ltac_bug P Q s h n (tid : Fin.t n) :
   (P ** Q ** ( (ARR +  Z_of_fin tid) -->p (1%Qc,  (Z_of_fin tid))) ** !( TID ===  (Z_of_fin tid))) s h -> False.
 Proof.
@@ -283,7 +280,7 @@ Proof.
   sep_split_in H.
   find_enough_resource (ARR + Z_of_fin tid) H.
 Abort.
-
+*)
 Example sep_combine_test P Q R S s h : (P ** Q ** !(R) ** !(S)) s h -> True.
 Proof.
   intros H; sep_split_in H.
@@ -422,342 +419,3 @@ Ltac hoare_forward :=
   end.
 
 
-
-Section pmap.
-  Require Import NPeano.
-  Require Import Arith.
-  Require Import List.
-  Import ListNotations.
-  Local Open Scope list_scope.
-  Local Close Scope exp_scope.
-  Local Open Scope nat_scope.
-
-  Definition ele (x y : exp) := (nosimpl (fun s (h : pheap) => edenot x s <= edenot y s)%Z).
-  Notation "x '<==' y" := (ele x y) (at level 70, no associativity).
-  Definition elt (x y : exp) := (nosimpl (fun s (h : pheap) => edenot x s < edenot y s)%Z).
-  Notation "x '<<' y" := (elt x y) (at level 70, no associativity).
-
-  Variable ntrd : nat.
-  Variable len : nat.
-  
-  Local Notation I := (Var 4).
-
-  Notation Enum' x := (Enum (Z.of_nat x)).
-  Variable f : nat -> Z.
-  Definition inv (i : nat) :=
-    Ex ix, !(I == Enum' (ix * ntrd + i)) **
-      nth i (distribute ntrd ARR (ix * ntrd + i) (fun i => f i + 1)%Z (nt_step ntrd) 0) emp **
-      nth i (distribute ntrd ARR (len - (ix * ntrd + i)) (fun i => f i) (nt_step ntrd) (ix * ntrd + i)) emp.
-
-  Definition map_ker (i : nat) :=
-    I ::= TID%Z;;
-    WhileI  (inv i) (I < Z.of_nat len) (
-      X ::= [ARR + I] ;;
-      [ARR + I] ::= X + 1%Z ;;
-      I ::= I + Z.of_nat ntrd%Z
-    )%exp.
-
-  Require Import MyVector.
-  Notation FalseP := (fun (_ : stack) (h : pheap) => False).
-  Definition default : (Vector.t assn ntrd * Vector.t assn ntrd) := 
-    (init (fun _ => FalseP), init (fun _ => FalseP)).
-
-  Variable tid : Fin.t ntrd.
-  Hypothesis ntrd_neq0 : ntrd <> 0.
-
-  Ltac ex_intro x H :=
-    let t := fresh in
-    let H' := fresh in 
-    lazymatch type of H with
-      | ?X ?s ?h => pose X as t; pattern x in t;
-        match goal with
-          | [t' := ?X x : _ |- _] => 
-            let v := fresh in
-            match t with t' => 
-              assert (H' : (Ex v, X v) s h) by (exists x; auto)
-            end 
-        end;
-        clear t; clear H; rename H' into H
-    end.
-
-  Ltac ex_intros vs H :=
-    match vs with
-      | tt => idtac
-      | (?v, ?vs) => ex_intro v H; ex_intros vs H
-    end.
-
-  Lemma map_correct :
-    CSL (fun n => default) tid
-    (List.nth (nat_of_fin tid) (distribute ntrd ARR len f (nt_step ntrd) 0) emp **
-     !(TID == Z_of_fin tid))
-    (map_ker (nat_of_fin tid))
-    (List.nth (nat_of_fin tid) (distribute ntrd ARR len (fun x => f x + 1)%Z (nt_step ntrd) 0) emp).
-  Proof.
-    assert (Htid : nat_of_fin tid < ntrd) by (destruct (Fin.to_nat _); simpl in *; auto).
-    unfold map_ker.
-    eapply rule_seq.
-    { hoare_forward; intros ? ? H'.
-      destruct H' as [v H']; subA_normalize_in H'. simpl in H'. exact H'. }
-    hoare_forward.
-    eapply Hbackward.
-    Focus 2.
-      intros s h H; sep_normal_in H.
-      sep_split_in H.
-      unfold bexp_to_assn in HP; simpl in HP.
-      Require Import ZArith.
-      destruct (Z_lt_dec _ _) as [HP' | _]; [|congruence]; clear HP.
-      unfold inv in H.
-      destruct H as [ix H]. sep_split_in H.
-      red in HP; simpl in HP; destruct (Z_eq_dec _ _) as [HP'' | ]; [|congruence]; clear HP.
-      rewrite HP'' in HP'; apply Nat2Z.inj_lt in HP'.
-      eapply scRw in H; [|intros ? ? H'; exact H' | intros ? ? H' ].
-      Focus 2.
-      apply skip_arr_unfold in H'; auto; [exact H'| omega].
-      assert ((I === Z.of_nat (ix * ntrd + nat_of_fin tid)) s emp_ph) by (unfold_conn; auto).
-      sep_combine_in H.
-      ex_intro ix H; exact H. 
-    
-    eapply rule_seq. 
-    hoare_forward.
-    hoare_forward.
-      apply inde_distribute; auto; repeat (constructor; prove_indeE).
-      apply inde_distribute; auto; repeat (constructor; prove_indeE).
-      intros ? ? H; apply H.
-
-    eapply rule_seq.
-    hoare_forward.
-    hoare_forward.
-      apply inde_distribute; auto; repeat (constructor; prove_indeE).
-      apply inde_distribute; auto; repeat (constructor; prove_indeE).
-      intros ? ? H; apply H.
-    
-    eapply Hforward.
-    hoare_forward.
-    hoare_forward.
-      intros ? ? H.
-      destruct H as [v H].
-      simpl in H. 
-      eapply scRw in H; [| | intros ? ? Hf; exact Hf].
-      Focus 2.
-        intros ? ? Hf. eapply subA_sconj in Hf.
-        subA_normalize_in Hf. simpl in Hf. 
-        exact Hf.
-      ex_intro v H; simpl in H; exact H.
-    
-    unfold inv; intros s h H. destruct H as (ix & v & H); simpl in H.
-    sep_split_in H.
-    exists (S ix).
-    sep_split; [unfold_conn; simpl in *|].
-    red; simpl; destruct (Z.eq_dec _ _); simpl in *; auto. 
-    repeat first [rewrite Nat2Z.inj_add in * | rewrite Nat2Z.inj_mul in *]; simpl; omega.
-    cutrewrite (len - (ix * ntrd + nat_of_fin tid) - ntrd = 
-                len - (S ix * ntrd + nat_of_fin tid)) in H; [|simpl; omega].
-    cutrewrite (ntrd + ix * ntrd + nat_of_fin tid = 
-                S ix * ntrd + nat_of_fin tid) in H; [|simpl; omega].
-    apply scC. sep_cancel.
-    rewrite skip_arr_unfold.
-    rewrite <-skip_arr_unfold in H0.
-    Definition mark (T : Type) := nosimpl (fun x : T => x).
-    Lemma marking (T : Type) : forall x : T, x = mark x.
-    Proof. intros; unfold mark; simpl; auto. Qed.
-
-    Ltac destruct_ex_in H tac :=
-      let rec go vs :=
-        lazymatch type of H with
-          | (Ex _, _) ?s ?h =>
-            let v := fresh "v" in destruct H as [v H]; idtac; go (v, vs)
-          | _ => tac; ex_intros vs H
-        end in
-      go tt.
-
-      destruct_ex_in H ltac:(
-        sep_normal_in H;
-        sep_split_in H;
-        find_enough_resource (ARR + I)%exp H; sep_combine_in H).
-      exact H.
-      hoare_forward.
-      hoare_forward.
-
-      Lemma distribute_inde nt e n f dist s
-      
-      
-
-Section map.
-  Definition ele (x y : exp) := (nosimpl (fun s (h : pheap) => edenot x s <= edenot y s)%Z).
-  Notation "x '<==' y" := (ele x y) (at level 70, no associativity).
-  Definition elt (x y : exp) := (nosimpl (fun s (h : pheap) => edenot x s < edenot y s)%Z).
-  Notation "x '<<' y" := (elt x y) (at level 70, no associativity).
-  Local Notation I := (Var 4).
-  Variable len : nat.
-  Variable ntrd : nat.
-  Notation ntrdZ := (Z.of_nat ntrd).
-  Variable f : nat -> Z.
-  Definition loop_inv : assn :=
-    Ex x : nat,
-      is_array ARR x (fun i => Z.succ (f i)) **
-      is_array (ARR + Z.of_nat x) (len - x) (fun j => f (j + x)) **
-      !(I === Z.of_nat x) ** !(pure (x < len))%nat.
-
-  Definition map :=
-    I ::= 0%Z;;
-    WhileI loop_inv (I < Z.of_nat len) (
-      X ::= [ARR + I] ;;
-      [ARR + I] ::= X + 1%Z ;;
-      I ::= I + 1%Z
-    ).
-
-  Lemma is_array_unfold : forall (n : nat) (i : nat) (fi : nat -> Z) (e : exp),
-    (i < n)%nat ->
-    is_array e n fi |=
-      (e + Z.of_nat i) -->p (1, fi i) **
-      (is_array e i fi) **
-      (is_array (e + Z.succ (Z.of_nat i)) (n - i - 1) (fun j => fi (S (i + j))%nat)).
-  Proof.
-    induction n; intros; [omega|].
-    assert (i < n \/ i = n)%nat as [Hle|] by omega; subst.
-    simpl in H0.
-    eapply scRw in H0; [|intros ? ? H'; exact H' | intros ? ? H'; apply (IHn i) in H'; [exact H' | auto]].
-    do 2 sep_cancel.
-    cutrewrite (S n - i - 1 = S (n - i - 1)); [|omega].
-    simpl; apply scC; sep_cancel.
-    assert (Z.of_nat i + Z.succ (Z.of_nat (n - i - 1)) = Z.of_nat n)%Z.
-    (rewrite <-Zplus_succ_r_reverse, <-Znat.Nat2Z.inj_add, <-Znat.Nat2Z.inj_succ; f_equal; omega).
-    assert (S (i + (n - i - 1)) = n)%nat by omega.
-    sep_cancel.
-    simpl in H0.
-    sep_cancel.
-    cutrewrite (S n - n - 1 = 0); [|omega]; simpl.
-    sep_normal; sep_cancel.
-  Qed.
-
-  Lemma is_array_S : forall (n : nat) (fi : nat -> Z) (e : exp),
-    is_array e (S n) fi |= e -->p (1, fi 0) ** is_array (e + 1%Z) n (fun i => fi (S i)).
-  Proof.
-    induction n as [|n]; [simpl|]; intros; sep_cancel.
-    cutrewrite (is_array e (S (S n)) fi =
-                ((e + Z.of_nat (S n)) -->p (1, fi (S n)) ** is_array e (S n) fi)) in H; [|auto].
-    cutrewrite (is_array (e + 1%Z) (S n) (fun i : nat => fi (S i)) =
-                (e + 1%Z + Z.of_nat n -->p (1, fi (S n)) ** 
-                is_array (e + 1%Z) n (fun i : nat => fi (S i)))); [|auto].
-    apply scCA. rewrite Znat.Nat2Z.inj_succ in H. sep_cancel.
-    apply IHn in H. auto.
-  Qed.
-
-  Lemma Ex_intro {T : Type} (P : T -> assn) (x : T) :P x |= (Ex x, P x).
-  Proof. intros; exists x; auto. Qed.
-
-  Lemma map_correct (tid : Fin.t ntrd) (bspec : Bdiv.barrier_spec ntrd) :
-    CSL bspec tid (is_array ARR len f) map (is_array ARR len (fun i => Z.succ (f i))).
-  Proof.
-    unfold map.
-    eapply rule_seq; [hoare_forward; intros ? ? H; exact H| ].
-    hoare_forward.
-    eapply Hbackward.
-    Focus 2.
-    intros ? ? H.
-    unfold loop_inv in H; sep_split_in H; destruct H; repeat sep_split_in H.
-    cutrewrite (len - x = S (len - x - 1)) in H; [|unfold Apure in HP1; simpl in HP1; omega].
-    eapply scRw in H; [idtac | intros ? ? H'; exact H' |
-                       intros ? ? H'; apply is_array_S in H'; exact H'].
-    sep_lift_in H 1.
-    sep_combine_in H.
-
-    
-    
- (*Section Hoare_test.
-  Variable ntrd : nat.
-  Notation ntrdZ := (Z.of_nat ntrd).
-
-  Require Import MyVector.
-  Import VectorNotations.
-
-  Definition bpre (tid : Fin.t ntrd) := 
-    (ARR + (Z_of_fin tid) -->p (1%Qc, (Z_of_fin tid)))%assn.
-  Definition bpost (tid : Fin.t ntrd) := 
-    (ARR + ((Z_of_fin tid + 1) mod ntrdZ)%Z) -->p (1%Qc, ((Z_of_fin tid + 1) mod ntrdZ)%Z).
-  Notation FalseP := (fun (_ : stack) (h : pheap) => False).
-  Definition default : (Vector.t assn ntrd * Vector.t assn ntrd) := 
-    (init (fun _ => FalseP), init (fun _ => FalseP)).
-
-  Definition bspec (i : nat) :=
-    match i with
-      | 0 => (init bpre, init bpost)
-      | S _ => default
-    end.
-
-  Lemma rotate_l7 (tid : Fin.t ntrd) :
-      CSL bspec tid
-      (( ARR +  ((Z_of_fin tid + 1) mod ntrdZ))%exp -->p 
-          (1%Qc,  ((Z_of_fin tid + 1) mod ntrdZ))%Z **
-       !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid)))
-      (Cif ( TID ==  (ntrdZ - 1)%Z) (
-         Y ::=  0%Z
-       ) (
-         Y ::=  TID +  1%Z
-       ))
-      ((( ARR +  Y) -->p 
-          (1%Qc,  ((Z_of_fin tid + 1) mod ntrdZ)%Z) **
-       !( TID ===  (Z_of_fin tid) //\\  X ===  (Z_of_fin tid) //\\
-         Y ===  ((Z_of_fin tid + 1) mod ntrdZ)%Z))).
-    Proof.
-      hoare_forward; [hoare_forward | hoare_forward | idtac].
-      intros. simpl in H. sep_split_in H. subA_normalize_in H. simpl in H.
-      sep_combine_in H. exact H.
-      intros. simpl in H. sep_split_in H. subA_normalize_in H. simpl in H. sep_combine_in H. exact H.
-      intros ? ? H.
-      destruct H.
-      sep_split_in H.
-    Abort.
-
-
-  Hint Unfold bspec bpre bpost.
-  Hint Rewrite MyVector.init_spec : sep.
-  Lemma rotate_l4 (tid : Fin.t ntrd) :
-    CSL bspec tid
-      (( ARR +  (Z_of_fin tid)) -->p (1%Qc,  (Z_of_fin tid)) **
-                                !( TID ===  (Z_of_fin tid)) ** !(X ===  (Z_of_fin tid)))
-      (Cbarrier 0)
-      (( ARR +  ((Z_of_fin tid + 1) mod ntrdZ)%Z) -->p 
-          (1%Qc,  ((Z_of_fin tid + 1) mod ntrdZ)%Z) **
-      !( TID ===  (Z_of_fin tid)) **  !(X ===  (Z_of_fin tid))).
-  Proof.
-    hoare_forward.
-    intros.
-    sep_cancel.
-  Qed.
-
-  Lemma rotate_l2 (tid : Fin.t ntrd) (P Q : assn) (E : exp) :
-    (inde P (X :: List.nil)) -> (inde Q (X :: List.nil)) -> (indeE E X) ->
-    CSL bspec tid 
-      (P ** Q ** (E -->p (1%Qc, 3%Z)) ** ( (ARR +  Z_of_fin tid) -->p (1%Qc,  (Z_of_fin tid))) ** !( TID ===  (Z_of_fin tid)))
-      (X ::= [ ARR + TID]) 
-      (P ** Q ** (ARR + TID -->p (1%Qc, (Z_of_fin tid))) ** !( TID === (Z_of_fin tid)) ** (E -->p (1%Qc, 3%Z))).
-    Proof.
-      intros. 
-      hoare_forward.
-      intros; sep_normal_in H2; sep_split_in H2; sep_normal; sep_split; solve [auto | repeat sep_cancel].
-    Qed.
-
-  Lemma rotate_l3 (tid : Fin.t ntrd) (P Q : assn) (E : exp) :
-    (inde P (X :: List.nil)) -> (inde Q (X :: List.nil)) -> (indeE E X) ->
-    CSL bspec tid 
-      (P ** Q ** (E -->p (full_p%Qc, 2%Z)) ** ( (ARR +  Z_of_fin tid) -->p (1%Qc,  (Z_of_fin tid))) ** !( TID ===  (Z_of_fin tid)))
-      ([ ARR + TID] ::= 3%Z) 
-      (P ** Q ** (ARR + TID -->p (full_p%Qc, 3%Z)) ** !( TID === (Z_of_fin tid)) ** (E -->p (1%Qc, 2%Z))).
-  Proof.
-    intros. hoare_forward.
-    intros; repeat sep_cancel.
-  Qed.
-
-  Lemma test_assign (tid : Fin.t ntrd) (P Q : assn) (E : exp) :
-    CSL bspec tid 
-        (P ** Q ** (E -->p (full_p%Qc, 2%Z)) ** ( (ARR +  Z_of_fin tid) -->p (1%Qc,  (Z_of_fin tid))) ** !( TID ===  (Z_of_fin tid)))
-        (X ::= 3%Z) 
-        (P ** Q ** (ARR + TID -->p (full_p%Qc, 3%Z)) ** !( TID === (Z_of_fin tid)) ** (E -->p (1%Qc, 2%Z))).
-  Proof.
-    intros. hoare_forward.
-    intros s h H.
-    sep_split_in H; simpl in *.
-    subA_normalize_in H.
-  Abort.
-End Hoare_test.*)

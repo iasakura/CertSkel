@@ -1153,8 +1153,6 @@ Section Example.
   End Rotate.
 End Example.
 
-Section While.
-
 
   
 
