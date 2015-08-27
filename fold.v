@@ -7,6 +7,42 @@ Notation St := (Var 2).
 Notation T1 := (Var 3).
 Notation T2 := (Var 4).
 Notation ARR := (Var 5).
+
+Fixpoint sum_of (len : nat) (f : nat -> Z) :=
+  match len with
+    | O => 0
+    | S len => f len + sum_of len f
+  end%Z.
+
+Definition skip_sum_body (f : nat -> Z)  (skip : nat) (Hskip : skip <> 0)  :
+  forall (len : nat)
+    (rec : forall len', len' < len -> nat -> Z)
+    (s : nat), Z.
+  refine (
+  fun len rec s => 
+    match len as l0 return l0 = len -> Z with
+      | O => fun _ => 0
+      | _ => fun _ => f s + rec (len - skip)%nat _ (s + skip)%nat
+    end eq_refl)%Z.
+  abstract omega.
+Defined.
+
+Definition skip_sum (skip : nat) (Hskip : skip <> 0) (len s : nat) (f : nat -> Z) : Z :=
+  Fix lt_wf (fun _ => nat -> Z) (skip_sum_body f skip Hskip) len s.
+
+Example two_neq_0 : 2 <> 0. now auto. Qed.
+Eval compute in skip_sum 2 two_neq_0 10 0 (fun i => Z.of_nat i).
+
+Lemma Fix_eq_ok f skip (Hskip : skip <> 0) :
+  forall (len : nat) (F G : forall len' : nat, len' < len -> nat -> Z),
+  (forall (len' : nat) (p : len' < len), F len' p = G len' p) ->
+  skip_sum_body f skip Hskip len F = skip_sum_body f skip Hskip len G.
+Proof.
+  intros; unfold skip_sum_body.
+  assert (F = G) by (do 2 let x := fresh in extensionality x; auto).
+  rewrite !H0; auto.
+Qed.
+
 Variable len : nat.
 Hypothesis len_is_power_of_2 : exists e : nat, len = 2 ^ len.
 
@@ -17,27 +53,15 @@ Definition If (b : bexp) (c : cmd) := Cif b c.
 Variable ntrd : nat.
 Hypothesis ntrd_neq_0 : ntrd <> 0.
 
-Eval compute in (Z.div2 1).
-
-Variable f : nat -> Z.
-
-Fixpoint sum_of (len : nat) (f : nat -> Z) :=
-  match len with
-    | O => 0
-    | S n => f n + sum_of n f
-  end%Z.
-
-Fixpoint sum_of_skip (len s : nat) (f : nat -> Z) :=
-  if lt_dec s < len then f
-
-Definition init_compat (s : nat) (f fc : nat -> Z) :=
-  if Nat.eq_dec s 0 then
-    sum_of s 
-  sum_of s fc = sum_of len f.
+Definition arr_val_compat (s : nat) (len : nat) (f fc : nat -> Z) :=
+  match s with
+    | O => fc 0 = sum_of len f
+    | _ => sum_of (len / 2) fc = sum_of len f
+  end.
 
 Definition INV (i : nat) :=
   Ex (s e st : nat) (fc : nat -> Z),
-    !(S === Enum' s) **
+    !(St === Enum' s) **
     !(pure (s = Div2.div2 (2 ^ e))) **
     (if Nat.eq_dec s 0 then
        !(pure (len = s * st)) ** nth i (distribute 1 (ARR + TID) len fc (nt_step 1) 0) emp

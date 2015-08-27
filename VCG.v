@@ -7,6 +7,7 @@ Require Import Lang.
 Require Import CSL.
 Require Import PHeap.
 Require Import array_dist.
+Require Import MyList.
 Open Scope exp_scope.
 Open Scope bexp_scope.
 
@@ -353,12 +354,23 @@ Proof.
     exists x0, x1; intuition.
 Qed.  
     
-Lemma rule_ex {T : Type} (P Q : T -> assn) ntrd bspec tid C:
+Lemma rule_ex {T : Type} (P : T -> assn) Q ntrd bspec tid C:
+  (forall x, @CSL ntrd bspec tid (P x) C Q) ->
+  @CSL ntrd bspec tid (Ex x, P x) C Q.
+Proof.
+  intros H; simpl; intros s h [x Hsat] n; specialize (H x s h Hsat n); simpl in *.
+  apply H.
+Qed.
+
+Corollary rule_ex' {T : Type} (P Q : T -> assn) ntrd bspec tid C:
   (forall x, @CSL ntrd bspec tid (P x) C (Q x)) ->
   @CSL ntrd bspec tid (Ex x, P x) C (Ex x, Q x).
 Proof.
-  intros H; simpl; intros s h [x Hsat] n; specialize (H x s h Hsat n); simpl in *.
-  eapply safe_ex; apply H.
+  intros.
+  apply rule_ex.
+  intros x s h; simpl; intros Hp n.
+  apply H in Hp.
+  apply safe_ex with x; auto.
 Qed.
 
 Ltac hoare_forward :=

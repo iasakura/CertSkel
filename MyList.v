@@ -173,88 +173,88 @@ Create HintDb nth.
 Hint Rewrite nth_firstn nth_skipn seq_nth nth_map combine_nth nth_nseq : nth.
 Ltac simpl_nth := repeat (autorewrite with nth in *; simpl in *; crush_len).
 
-Section Distibution.
-  Require Import assertion_lemmas.
-  Require Import assertions.
+Require Import assertion_lemmas.
+Require Import assertions.
 
-  Definition conj_xs : list assn -> assn := fold_right Astar emp.
+Definition conj_xs : list assn -> assn := fold_right Astar emp.
 
-  Require Import SetoidClass.
-  Definition equiv_sep (P Q : assn) := (forall s h, P s h <-> Q s h).
-  Notation "P <=> Q" := (equiv_sep P Q) (at level 87).
+Require Import SetoidClass.
+Definition equiv_sep (P Q : assn) := (forall s h, P s h <-> Q s h).
+Notation "P <=> Q" := (equiv_sep P Q) (at level 87).
 
-  Lemma equiv_from_nth :
-    forall (x0 : assn) (s1 s2 : list assn),
-      length s1 = length s2 ->
-      (forall i : nat, i < length s1 -> nth i s1 x0 <=> nth i s2 x0) -> conj_xs s1 <=> conj_xs s2.
-  Proof.
-    intros x0; induction s1; intros s2 Hlen Heq s h; destruct s2; simpl in *; try omega; try tauto.
-    assert (a <=> a0) by (apply (Heq 0); omega).
-    assert (conj_xs s1 <=> conj_xs s2).
-    { apply IHs1; [omega|].
-      intros i Hl; apply (Heq (S i)); auto; omega. }
-    clear IHs1 Hlen Heq.
-    split; apply scRw; intros s' h' H'; specialize (H s' h'); specialize (H0 s' h'); tauto.
-  Qed.
+Lemma equiv_from_nth :
+  forall (x0 : assn) (s1 s2 : list assn),
+    length s1 = length s2 ->
+    (forall i : nat, i < length s1 -> nth i s1 x0 <=> nth i s2 x0) -> conj_xs s1 <=> conj_xs s2.
+Proof.
+  intros x0; induction s1; intros s2 Hlen Heq s h; destruct s2; simpl in *; try omega; try tauto.
+  assert (a <=> a0) by (apply (Heq 0); omega).
+  assert (conj_xs s1 <=> conj_xs s2).
+  { apply IHs1; [omega|].
+    intros i Hl; apply (Heq (S i)); auto; omega. }
+  clear IHs1 Hlen Heq.
+  split; apply scRw; intros s' h' H'; specialize (H s' h'); specialize (H0 s' h'); tauto.
+Qed.
 
-  Require Import SetoidClass.
-  Instance equiv_sep_equiv : Equivalence equiv_sep.
-  split; repeat intro; try tauto.
-  specialize (H s h); tauto.
-  specialize (H s h); specialize (H0 s h); tauto.
-  Qed.
+Require Import SetoidClass.
+Instance equiv_sep_equiv : Equivalence equiv_sep.
+split; repeat intro; try tauto.
+specialize (H s h); tauto.
+specialize (H s h); specialize (H0 s h); tauto.
+Qed.
 
-  Program Instance assn_setoid : Setoid assn :=
-    {| equiv := equiv_sep;
-       setoid_equiv := equiv_sep_equiv |}.
+Program Instance assn_setoid : Setoid assn :=
+  {| equiv := equiv_sep;
+     setoid_equiv := equiv_sep_equiv |}.
 
-  Instance star_proper : Proper (equiv_sep ==> equiv_sep ==> equiv_sep) Astar.
-  Proof.
-    intros p1 p2 H p3 p4 H' s h.
-    split; apply scRw; intros s' h'; firstorder.
-  Qed.
+Instance star_proper : Proper (equiv_sep ==> equiv_sep ==> equiv_sep) Astar.
+Proof.
+  intros p1 p2 H p3 p4 H' s h.
+  split; apply scRw; intros s' h'; firstorder.
+Qed.
 
-  Lemma sep_assoc (P Q R : assn) : P ** Q ** R <=> (P ** Q) ** R.
-  Proof.
-    split; intros. sep_normal. sep_cancel. sep_normal_in H. sep_cancel.
-  Qed.  
+Lemma sep_assoc (P Q R : assn) : P ** Q ** R <=> (P ** Q) ** R.
+Proof.
+  split; intros. sep_normal. sep_cancel. sep_normal_in H. sep_cancel.
+Qed.  
 
-  Lemma conj_xs_app (l1 l2 : list assn) :
-    conj_xs (l1 ++ l2) <=> conj_xs l1 ** conj_xs l2.
-  Proof.
-    induction l1; simpl.
-    split; intros H; sep_normal; sep_normal_in H; auto.
-    rewrite IHl1, sep_assoc; reflexivity.
-  Qed.
+Lemma conj_xs_app (l1 l2 : list assn) :
+  conj_xs (l1 ++ l2) <=> conj_xs l1 ** conj_xs l2.
+Proof.
+  induction l1; simpl.
+  split; intros H; sep_normal; sep_normal_in H; auto.
+  rewrite IHl1, sep_assoc; reflexivity.
+Qed.
 
-  Lemma emp_unit_l (P : assn) : emp ** P <=> P.
-  Proof.
-    split; intros; sep_normal; auto.
-    sep_normal_in H; auto.
-  Qed.
+Lemma emp_unit_l (P : assn) : emp ** P <=> P.
+Proof.
+  split; intros; sep_normal; auto.
+  sep_normal_in H; auto.
+Qed.
 
-  Lemma emp_unit_r (P : assn) : P ** emp <=> P.
-  Proof.
-    split; intros; sep_normal; auto.
-    sep_normal_in H; auto.
-  Qed.
+Lemma emp_unit_r (P : assn) : P ** emp <=> P.
+Proof.
+  split; intros; sep_normal; auto.
+  sep_normal_in H; auto.
+Qed.
 
-  Lemma nseq_emp_emp (n : nat) :
-    conj_xs (nseq n emp) <=> emp.
-  Proof.
-    induction n; simpl.
-    - reflexivity.
-    - rewrite emp_unit_l; auto.
-  Qed.
+Lemma nseq_emp_emp (n : nat) :
+  conj_xs (nseq n emp) <=> emp.
+Proof.
+  induction n; simpl.
+  - reflexivity.
+  - rewrite emp_unit_l; auto.
+Qed.
 
-  Lemma map_conj {A : Type} (l : list A) (f g : A -> assn) :
-    conj_xs (map (fun x => f x ** g x) l) <=> conj_xs (map f l) ** conj_xs (map g l).
-  Proof.
-    induction l; simpl; auto.
-    - rewrite emp_unit_l; reflexivity.
-    - rewrite IHl; split; intros H; sep_normal; sep_normal_in H; repeat sep_cancel.
-  Qed.
+Lemma map_conj {A : Type} (l : list A) (f g : A -> assn) :
+  conj_xs (map (fun x => f x ** g x) l) <=> conj_xs (map f l) ** conj_xs (map g l).
+Proof.
+  induction l; simpl; auto.
+  - rewrite emp_unit_l; reflexivity.
+  - rewrite IHl; split; intros H; sep_normal; sep_normal_in H; repeat sep_cancel.
+Qed. 
 
+(*
   Fixpoint add_nth (n : nat) (t : assn) (xss : list assn) :=
     match xss with
       | [] => []
@@ -693,3 +693,4 @@ Proof.
       rewrite Nat.div_add in Hq; auto.
       omega.
 Qed.
+*)

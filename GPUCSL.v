@@ -1,6 +1,6 @@
 Require Export Lang CSL PHeap.
 Require Export assertion_lemmas assertions VCG array_dist.
-Require Export Qcanon List ZArith NPeano Arith.
+Require Export Qcanon List MyList ZArith NPeano Arith.
 Close Scope Qc_scope.
 Global Notation TID := (Var 0).
 
@@ -33,5 +33,3 @@ Ltac ex_intros vs H :=
     | (?v, ?vs) => ex_intro v H; ex_intros vs H
   end.
 Open Scope nat_scope.
-
-Notation Enum' x := (Enum (Z.of_nat x)).
