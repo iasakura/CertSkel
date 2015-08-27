@@ -220,6 +220,34 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma skip_arr_unfold' i e f n nt (Hnt0 : nt <> 0) : forall s, 
+  i < nt -> i < n ->
+  nth i (distribute nt e n f (nt_step nt) (s * nt)) emp <=>
+   ((e + Enum' (s * nt + i) -->p (1,  Enum (f (s * nt + i)))) **
+    nth i (distribute nt e (n - nt) f (nt_step nt) (S s * nt)) emp).
+Proof.
+  intros s Hint Hn0.
+  etransitivity.
+  { apply nth_dist_next with (next := i); auto.
+    - unfold nt_step.
+      rewrite <-plus_comm, Nat.mod_add; [rewrite Nat.mod_small; auto| auto]. 
+    - intros j Hji; unfold nt_step.
+      rewrite <-plus_comm, Nat.mod_add; [rewrite Nat.mod_small; omega| auto]. }
+  match goal with [|- _ ** ?X <=> _ ** ?Y] => assert (H : X <=> Y); [|rewrite H; reflexivity] end.
+  etransitivity; [apply nth_dist_nil with (next := nt - S i); auto|].
+  { intros j Hjnt; unfold nt_step.
+    rewrite plus_Snm_nSm, <-plus_assoc, plus_comm, Nat.mod_add; auto.
+    intros Hc.
+    pose proof (div_mod (i + S j) nt Hnt0) as Heq; rewrite Hc in Heq.
+    assert (S j = nt * ((i + S j) / nt)) by omega.
+    destruct ((i + S j ) / nt) as [|n']; rewrite mult_comm in H; simpl in H; try omega.
+    destruct (n' * nt) as [|n'']; omega. }
+  cutrewrite (n - S i - (nt - S i) = n - nt); [|omega].
+  simpl; generalize (s * nt); intros n0.
+  cutrewrite (S (n0 + i + (nt - S i)) = nt + n0); [|omega].
+  reflexivity.
+Qed.
+
 Lemma distribute_snoc i e f nt (Hnt : nt <> 0) dist : forall n s,
   i < nt ->
   (forall i, dist i < nt) ->

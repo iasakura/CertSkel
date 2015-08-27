@@ -1100,6 +1100,7 @@ Section Example.
       hoare_forward; intros ? ? H'; exact H'.
       hoare_forward; intros ? ? H'; exact H'.
       intros ? ? H'; exact H'.
+      intros ? ? H'; exact H'.
       eapply Hforward.
       eapply rule_disj.
       eapply Hbackward.
