@@ -62,19 +62,17 @@ Proof.
       sep_combine_in H.
       ex_intro ix H; exact H. } Unfocus.
     
+    hoare_forward.
     eapply rule_seq. 
-    { hoare_forward.
-      hoare_forward; try (apply inde_distribute; auto; repeat (constructor; prove_indeE)).
+    { hoare_forward; try (apply inde_distribute; auto; repeat (constructor; prove_indeE)).
       intros ? ? H; apply H. }
 
     eapply rule_seq.
     { hoare_forward.
-      hoare_forward.
       intros ? ? H; apply H. }
     
     eapply Hforward.
     { hoare_forward.
-      hoare_forward.
       intros ? ? H.
       destruct H as [v H].
       simpl in H. 
@@ -85,33 +83,33 @@ Proof.
         exact Hf. } Unfocus.
       ex_intro v H; simpl in H; exact H. }
     
-    unfold inv; intros s h H. destruct H as (ix & v & H); simpl in H.
+    unfold inv; intros s h H. destruct H as (v & H); simpl in H.
     sep_split_in H.
-    exists (S ix).
+    exists (S x).
     sep_split; [unfold_conn; simpl in *|.. ].
     { red; simpl; destruct (Z.eq_dec _ _); simpl in *; auto. 
       repeat first [rewrite Nat2Z.inj_add in * | rewrite Nat2Z.inj_mul in *]; simpl; omega. }
     { unfold_conn; unfold subA' in HP3; simpl in *. 
-      revert HP3; generalize (ix * ntrd); intros; omega. }
+      revert HP3; generalize (x * ntrd); intros; omega. }
 
-    { cutrewrite (len - (ix * ntrd + nat_of_fin tid) - ntrd = 
-                len - (S ix * ntrd + nat_of_fin tid)) in H; [|simpl; omega].
-      cutrewrite (ntrd + ix * ntrd + nat_of_fin tid = 
-                  S ix * ntrd + nat_of_fin tid) in H; [|simpl; omega].
+    { cutrewrite (len - (x * ntrd + nat_of_fin tid) - ntrd = 
+                len - (S x * ntrd + nat_of_fin tid)) in H; [|simpl; omega].
+      cutrewrite (ntrd + x * ntrd + nat_of_fin tid = 
+                  S x * ntrd + nat_of_fin tid) in H; [|simpl; omega].
       apply scC. sep_cancel.
 
       lazymatch type of H0 with
-        | appcontext f [v] => let x := context f [Enum (Z.of_nat (ix * ntrd + nat_of_fin tid))] in 
+        | appcontext f [v] => let x := context f [Enum (Z.of_nat (x * ntrd + nat_of_fin tid))] in 
                               assert x
       end; repeat sep_cancel.
       lazymatch type of H1 with
         | appcontext c [Evar X] => 
-          let x := context c [Enum (f (ix * ntrd + nat_of_fin tid)%nat)] in 
+          let x := context c [Enum (f (x * ntrd + nat_of_fin tid)%nat)] in 
           assert x
       end; repeat sep_cancel.
     
       apply scC in H2.
-      apply (skip_arr_fold ARR (fun i => (f i + 1)%Z) ntrd_neq0 ix Htid) in H2; auto. } }
+      apply (skip_arr_fold ARR (fun i => (f i + 1)%Z) ntrd_neq0 x Htid) in H2; auto. } }
 
   { unfold inv; intros s h H; sep_split_in H.
     assert (s I >= Z.of_nat len)%Z.

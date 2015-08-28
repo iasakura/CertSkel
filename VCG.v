@@ -7,6 +7,7 @@ Require Import Lang.
 Require Import CSL.
 Require Import PHeap.
 Require Import array_dist.
+Require Import MyList.
 Open Scope exp_scope.
 Open Scope bexp_scope.
 
@@ -69,22 +70,57 @@ Section independent_prover.
     erewrite (H x H0 s); erewrite (H' x H0 s); eauto.
   Qed.
 
+  Definition indeB (B : bexp) (x : var) :=
+    forall (s : var -> Z) (v : Z), bdenot B s = bdenot B (var_upd s x v).
+
+  Lemma inde_bexp (B : bexp) (vs : list var) :
+    List.Forall (indeB B) vs -> inde (bexp_to_assn B) vs.
+  Proof.
+    intros H v s h n; revert v.
+    rewrite List.Forall_forall in *.
+    unfold_conn; split; intros Heq;
+    unfold bexp_to_assn.
+    rewrite<-(H v H0 s); auto.
+    rewrite (H v H0 s n); auto.
+  Qed.
+
+  Lemma add_nth_overflow (j : nat) : forall P Ps,
+    (List.length Ps <= j)%nat -> add_nth j P Ps = Ps.
+  Proof.
+    induction j; destruct Ps; simpl in *; try omega; auto.
+    intros H; rewrite IHj; auto; omega.
+  Qed.    
+    
+  Lemma inde_nth_add_nth j Ps i P  vs : 
+    inde P vs ->
+    inde (List.nth i Ps emp) vs ->
+    inde (List.nth i (add_nth j P Ps) emp) vs.
+  Proof.
+    intros.
+    assert (j < List.length Ps \/ List.length Ps <= j)%nat as [|] by omega.
+    assert (i < List.length Ps \/ List.length Ps <= i)%nat as [|] by omega.
+    - rewrite nth_add_nth; auto; destruct (EqNat.beq_nat); [apply inde_sconj|] ; auto.
+    - rewrite List.nth_overflow; [unfold inde, var_upd; simpl; try tauto|].
+      rewrite add_nth_length; auto.
+    - rewrite add_nth_overflow; auto.
+  Qed.
+  
   Lemma inde_distribute nt arr l f dist (i : nat) (vs : list var) : forall s,
-    (i < nt)%nat -> (forall i, dist i < nt)%nat ->
     List.Forall (indeE arr) vs  ->
     inde (List.nth i (distribute nt arr l f dist s) emp) vs.
   Proof.
     induction l; intros; simpl.
     - simpl_nth. destruct (Compare_dec.leb _ _); inde_simpl; simpl; try tauto.
-    - rewrite nth_add_nth in *; [|rewrite distribute_length; auto..].
-      destruct (EqNat.beq_nat _ _); intuition.
-      apply inde_sconj; [apply inde_pointto|]; intuition.
-      clear IHl; induction vs; constructor; unfold indeE in *; inversion H1; subst; simpl; intuition.
-      clear IHl; induction vs; constructor; unfold indeE in *; inversion H1; subst; simpl; intuition.
+    - apply inde_nth_add_nth.
+      + apply inde_pointto; auto; rewrite List.Forall_forall in *; intros;
+        unfold indeE in *; simpl; intros; auto.
+          rewrite (H _ H0 _ v); auto.
+      + apply IHl; auto.
   Qed.      
 End independent_prover.
 
 Ltac prove_indeE := unfold indeE, var_upd in *; intros; simpl; auto.
+Ltac prove_indeB := unfold indeB, var_upd in *; intros; simpl; auto.
 
 Ltac prove_inde :=
   match goal with
@@ -94,6 +130,7 @@ Ltac prove_inde :=
     | [ |- inde (?P \\// ?Q) _ ] => apply inde_disj; prove_inde
     | [ |- inde (?E -->p (_, ?E')) _ ] => apply inde_pointto; repeat (constructor; prove_indeE)
     | [ |- inde (?E === ?E') _ ] => apply inde_eeq; repeat (constructor; prove_indeE)
+    | [ |- inde (bexp_to_assn ?B) _ ] => apply inde_bexp; repeat (constructor; prove_indeB)
     | [ |- inde (inde (List.nth _ (distribute _ _ _ _ _ _) emp) _) ] =>
       apply inde_distribute; auto; repeat (constructor; prove_indeE)
     | [ |- _ ] => try now (unfold inde, var_upd; simpl; try tauto) 
@@ -140,19 +177,22 @@ Section subA_simpl.
   Qed.
 
   Lemma distribute_subA nt arr l f dist (i : nat) x e : forall s,
-    (i < nt)%nat -> (forall i, dist i < nt)%nat ->
     subA x e (List.nth i (distribute nt arr l f dist s) emp) |=
     List.nth i (distribute nt (subE x e arr) l f dist s) emp.
   Proof.
-    induction l; unfold subA'; intros s Hint dist_ok st hp H; simpl in *.
+    induction l; [unfold subA'|]; intros s st hp H; simpl in *.
     - simpl_nth; destruct (Compare_dec.leb _ _); auto;
       split; intros; simpl; auto.
-    - rewrite nth_add_nth in *; [|rewrite distribute_length; auto..].
-      destruct (EqNat.beq_nat _ _); intuition.
-      apply subA_sconj in H. 
-      revert H; apply scRw; intros.
-      apply subA_pointto in H; simpl in H; auto.
-      apply IHl; eauto.
+    - assert (dist s < nt \/ nt <= dist s)%nat as [|] by omega.
+      + assert (i < nt \/ nt <= i)%nat as [|] by omega.
+        * rewrite nth_add_nth in *; [|rewrite distribute_length; auto..].
+          destruct (EqNat.beq_nat _ _); intuition.
+          apply subA_sconj in H.
+          revert st hp H; apply scRw; intros st hp H.
+          apply subA_pointto in H; auto.
+          apply IHl in H; auto.
+        * rewrite List.nth_overflow in *; [|rewrite add_nth_length, distribute_length..]; auto.
+      + rewrite add_nth_overflow in *; (try rewrite distribute_length); auto.
   Qed.      
 End subA_simpl.
 
@@ -182,8 +222,14 @@ Proof.
   rewrite <-subB_assign in H; auto.
 Qed.
 
+
 Lemma subA_emp (x : var) (e : exp) : subA x e emp |= emp.
 Proof. unfold_conn; auto. Qed.
+
+Lemma subA_pure' x e (P : Prop) : subA x e (pure P) |= (pure P).
+Proof.
+  unfold_conn; simpl; auto.
+Qed.
 
 Ltac subA_normalize_in H :=
   let Hf := fresh in
@@ -204,6 +250,7 @@ Ltac subA_normalize_in H :=
     | subA _ _ (_ -->p (_, _)) _ _ => apply subA_pointto in H
     | subA _ _ !(_) _ _ => eapply subA_pure in H; eapply pure_mono in H;
         [ idtac | intros Hf; subA_normalize_in Hf; exact Hf ]
+    | subA _ _ (pure _) _ _ => apply subA_pure' in H
     | subA _ _ (_ === _) _ _ => apply subA_eeq in H
     | subA _ _ emp _ _ => apply subA_emp in H
     | subA _ _ (bexp_to_assn ?b) _ _ => apply subA_bexp_to_assn in H
@@ -353,12 +400,23 @@ Proof.
     exists x0, x1; intuition.
 Qed.  
     
-Lemma rule_ex {T : Type} (P Q : T -> assn) ntrd bspec tid C:
+Lemma rule_ex {T : Type} (P : T -> assn) Q ntrd bspec tid C:
+  (forall x, @CSL ntrd bspec tid (P x) C Q) ->
+  @CSL ntrd bspec tid (Ex x, P x) C Q.
+Proof.
+  intros H; simpl; intros s h [x Hsat] n; specialize (H x s h Hsat n); simpl in *.
+  apply H.
+Qed.
+
+Corollary rule_ex' {T : Type} (P Q : T -> assn) ntrd bspec tid C:
   (forall x, @CSL ntrd bspec tid (P x) C (Q x)) ->
   @CSL ntrd bspec tid (Ex x, P x) C (Ex x, Q x).
 Proof.
-  intros H; simpl; intros s h [x Hsat] n; specialize (H x s h Hsat n); simpl in *.
-  eapply safe_ex; apply H.
+  intros.
+  apply rule_ex.
+  intros x s h; simpl; intros Hp n.
+  apply H in Hp.
+  apply safe_ex with x; auto.
 Qed.
 
 Ltac hoare_forward :=
@@ -408,8 +466,11 @@ Ltac hoare_forward :=
            autounfold; simpl; repeat rewrite MyVector.init_spec in *] | 
         frame_analysis (Vector.nth (fst (bspec i)) tid)]
     | [ |- CSL ?bspec ?tid ?P (Cif ?b ?c1 ?c2) ?Q ] =>
-      eapply Hforward; [
-          eapply rule_if_disj | idtac]
+      eapply Hbackward; [
+          eapply Hforward; [
+            eapply rule_if_disj | idtac] |
+          idtac
+        ]
     | [ |- CSL ?bspec ?tid ?P (WhileI ?I ?b ?c) ?Q ] => 
       let Hf := fresh in
       eapply Hbackward; [
@@ -417,5 +478,3 @@ Ltac hoare_forward :=
         idtac
       ]
   end.
-
-
