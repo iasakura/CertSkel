@@ -32,4 +32,4 @@ Ltac ex_intros vs H :=
     | tt => idtac
     | (?v, ?vs) => ex_intro v H; ex_intros vs H
   end.
-Open Scope nat_scope.
+

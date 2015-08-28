@@ -376,3 +376,21 @@ Proof.
     rewrite plus_comm, Nat.mod_add; auto; rewrite Nat.mod_small; auto.
   - inversion 1.
 Qed.
+
+Lemma nth_dist_change i e f1 f2 nt (Hnt0 : nt <> 0) dist : forall n s,
+  i < nt ->
+  (forall i, dist i < nt) ->
+  (forall j, j < n -> dist (j + s) = i -> f1 (j + s) = f2 (j + s)) ->
+  nth i (distribute nt e n f1 dist s) emp <=> 
+  nth i (distribute nt e n f2 dist s) emp.
+Proof.
+  induction n; intros s Hint Hdist Hf; simpl; [reflexivity|].
+  rewrite !nth_add_nth; auto.
+  destruct (beq_nat i (dist s)) eqn:Heq.
+  - apply Nat.eqb_eq in Heq.
+    pose (Hf 0) as Hf0; simpl in Hf0; rewrite Hf0; [|omega|auto].
+    rewrite IHn; auto; [reflexivity|].
+    intros j ?; rewrite <-plus_n_Sm; simpl; apply (Hf (S j)); omega.
+  - apply IHn; auto.
+    intros j ?; rewrite <-plus_n_Sm; simpl; apply (Hf (S j)); omega.
+Qed.

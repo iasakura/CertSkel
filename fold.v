@@ -8,10 +8,10 @@ Notation T1 := (Var 3).
 Notation T2 := (Var 4).
 Notation ARR := (Var 5).
 
-Fixpoint sum_of (len : nat) (f : nat -> Z) :=
+Fixpoint sum_of (s len : nat) (f : nat -> Z) :=
   match len with
     | O => 0
-    | S len => f len + sum_of len f
+    | S len => f s + sum_of (S s) len f
   end%Z.
 
 Definition skip_sum_body (f : nat -> Z)  (skip : nat) (Hskip : skip <> 0)  :
@@ -54,7 +54,7 @@ Hypothesis ntrd_is_p2 : exists e : nat, ntrd = 2 ^ e.
 Definition arr_val_compat (len : nat) (f : nat -> Z) (sum : Z) :=
   match len with
     | O => f 0 = sum
-    | _ => sum_of len f = sum
+    | _ => sum_of 0 len f = sum
   end.
 
 Variable f : nat -> Z.
@@ -64,7 +64,7 @@ Definition INV :=
     !(TID === Enum' i) **
     !(St === Enum' s) **
     !(pure (s = Div2.div2 (2 ^ e))) **
-    !(pure (arr_val_compat (2 * s) fc (sum_of (2 * ntrd) f))) **
+    !(pure (arr_val_compat (2 * s) fc (sum_of 0 (2 * ntrd) f))) **
     !(pure (s <= ntrd)) **
     (if Nat.eq_dec s 0 then
        nth i (distribute 1 ARR (2 * ntrd) fc (nt_step 1) 0) emp
@@ -88,19 +88,19 @@ Definition binv0 : Vector.t assn ntrd * Vector.t assn ntrd :=
    let tid := nat_of_fin i in
    Ex s fc, 
      !(St === Enum' s) **
-     !(pure (arr_val_compat (2 * ntrd) fc (sum_of (2 * ntrd) f))) **
+     !(pure (arr_val_compat (2 * ntrd) fc (sum_of 0 (2 * ntrd) f))) **
        let tid := nat_of_fin i in
        nth tid (distribute (2 * s) ARR (2 * ntrd) fc (nt_step (2 * s)) 0) emp),
    MyVector.init (fun i => 
    let tid := nat_of_fin i in
    Ex s fc, 
      !(St === Enum' s) **
-     !(pure (arr_val_compat (2 * ntrd) fc (sum_of (2 * ntrd) f))) **
+     !(pure (arr_val_compat (2 * ntrd) fc (sum_of 0 (2 * ntrd) f))) **
        let tid := nat_of_fin i in
        nth tid (distribute s ARR (2 * ntrd) fc (nt_step s) 0) emp)).
 
 Lemma arr_compat_same (len : nat) (fc : nat -> Z) :
-  len <> 0 -> arr_val_compat len fc (sum_of len fc).
+  len <> 0 -> arr_val_compat len fc (sum_of 0 len fc).
 Proof.
   induction len; simpl in *; auto; omega.
 Qed.
@@ -124,6 +124,49 @@ Ltac rewrite_sep_in lem H :=
     | ?X _ _ => pattern X in H
   end; rewrite lem in H; cbv beta in H. 
 
+Lemma sum_of_concat (l1 : nat) (fc : nat -> Z) : forall s l2,
+  sum_of s (l1 + l2) fc = (sum_of s l1 fc + sum_of (l1 + s) l2 fc)%Z.
+Proof.
+  induction l1; [simpl; auto|].
+  intros s l2; simpl. rewrite IHl1.
+  rewrite plus_n_Sm; omega.
+Qed.
+   
+Lemma shift_values (l1 : nat) (fc : nat -> Z) : forall s sft,
+  (sum_of s l1 fc + sum_of (s + sft) l1 fc = sum_of s l1 (fun i => fc i + fc (i + sft)%nat))%Z.
+Proof.
+  induction l1; intros; simpl; auto.
+  cutrewrite (S (s + sft) = S s + sft); [|omega].
+  cutrewrite (
+    (fc s + sum_of (S s) l1 fc + (fc (s + sft)%nat + sum_of (S s + sft) l1 fc)) =
+    (fc s + (fc (s + sft)%nat + (sum_of (S s) l1 fc + sum_of (S s + sft) l1 fc))))%Z; [|ring].
+  rewrite (IHl1 (S s) (sft)). omega.
+Qed.
+
+Lemma sum_of_eq (len : nat) (f1 f2 : nat -> Z) : forall s,
+   (forall i, s <= i < s + len -> f1 i = f2 i) ->
+   sum_of s len f1 = sum_of s len f2.
+Proof.
+  induction len; intros; simpl; auto.
+  rewrite IHlen, (H s); auto; intros; try omega.
+  apply H; omega.
+Qed.
+
+Lemma shift_arr (len : nat) (fc : nat -> Z) : forall s, 
+   sum_of s (len * 2) fc = sum_of s len (fun i => if lt_dec i (s + len) then fc i + fc (i + len)%nat else f i)%Z.
+Proof.
+  cutrewrite (len * 2 = len + len); [|omega].
+  intros s; rewrite sum_of_concat.
+  rewrite (plus_comm len s), shift_values.
+  apply sum_of_eq; intros; destruct lt_dec; omega.
+Qed.
+
+Corollary shift_arr0 (len : nat) (fc : nat -> Z) : 
+  sum_of 0 (len * 2) fc = sum_of 0 len (fun i => if lt_dec i len then fc i + fc (i + len)%nat else f i)%Z.
+Proof.
+  apply shift_arr.
+Qed.
+  
 Theorem fold_ker_correct (tid : Fin.t ntrd) : 
   CSL (fun i => match i with O => binv0 | _ => default ntrd end) tid
   (nth (nat_of_fin tid) (distribute ntrd ARR (2 * ntrd) f (nt_step ntrd) 0) emp **
@@ -131,7 +174,7 @@ Theorem fold_ker_correct (tid : Fin.t ntrd) :
   fold_ker
   (Ex fc,
      nth (nat_of_fin tid) (distribute ntrd ARR (2 * ntrd) f (nt_step 1) 0) emp **
-     !(pure (fc 0 = sum_of (2 * ntrd) f))).
+     !(pure (fc 0 = sum_of 0 (2 * ntrd) f))).
 Proof.
   unfold fold_ker.
   assert (Htid : nat_of_fin tid < ntrd) by (destruct (Fin.to_nat tid); simpl in *; try omega).
@@ -232,5 +275,5 @@ Proof.
   simpl; rewrite MyVector.init_spec.
   intros s h H.
   sep_normal_in H; sep_split_in H.
-   
+
     
