@@ -335,7 +335,7 @@ Proof.
 Abort.
 
 Lemma rule_assign_forward (ntrd : nat) (bspec : Bdiv.barrier_spec ntrd) (tid : Fin.t ntrd) (X : var) (E : exp) (P : assn) :
-  CSL bspec tid P (X ::= E) (Ex v, subA X v P ** !(X === subE X v E)).
+  CSL bspec tid P (X ::= E) (Ex v, subA X (Enum v) P ** !(X === subE X v E)).
 Proof.
   unfold subA'.
   eapply Hbackward.
