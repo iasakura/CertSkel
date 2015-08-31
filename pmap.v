@@ -99,7 +99,7 @@ Proof.
       apply scC. sep_cancel.
 
       lazymatch type of H0 with
-        | appcontext f [v] => let x := context f [Enum (Z.of_nat (x * ntrd + nat_of_fin tid))] in 
+        | appcontext f [v] => let x := context f [(Z.of_nat (x * ntrd + nat_of_fin tid))] in 
                               assert x
       end; repeat sep_cancel.
       lazymatch type of H1 with
