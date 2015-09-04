@@ -78,8 +78,7 @@ Section independent_prover.
   Proof.
     intros H v s h n; revert v.
     rewrite List.Forall_forall in *.
-    unfold_conn; split; intros Heq;
-    unfold bexp_to_assn.
+    unfold_conn_all; simpl in *;split; intros Heq.
     rewrite<-(H v H0 s); auto.
     rewrite (H v H0 s n); auto.
   Qed.
@@ -140,7 +139,7 @@ Section subA_simpl.
   Lemma subA_pointto (X : var) (E1 E2 E  : exp) (q : Qc) s h : (subA X E (E1 -->p (q, E2))) s h ->
                                                      (subE X E E1 -->p (q, subE X E E2)) s h.
   Proof.
-    intros; unfold subA' in *; unfold_conn.
+    intros; unfold subA' in *; unfold_conn_all; simpl in *;
     repeat rewrite <-subE_assign in *; auto.
   Qed.
 
@@ -172,7 +171,7 @@ Section subA_simpl.
   Lemma subA_eeq (X : var) (E E1 E2 : exp) s h :
     subA X E (E1 === E2) s h -> (subE X E E1 === subE X E E2) s h.
   Proof.
-    intros; unfold subA' in *; unfold_conn.
+    intros; unfold subA' in *; unfold_conn_all; simpl in *;
     repeat rewrite <-subE_assign in *; auto.
   Qed.
 

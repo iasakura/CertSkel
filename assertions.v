@@ -251,18 +251,18 @@ Ltac find_enough_resource E H :=
   match type of H with
     | ((?E0 -->p (_, ?E1)) ?s ?h) => 
       let Hf := fresh in
-      assert (Hf : ((E0 === E) s h)) by (unfold_conn; simpl in *; unfold lt in *;
+      assert (Hf : ((E0 === E) s emp_ph)) by (unfold_conn_all; simpl in *; unfold lt in *;
                                          first [congruence | omega | eauto with zarith]);
       apply (mapsto_rewrite1 Hf) in H
     | ((?E0 -->p (_, ?E1) ** _) ?s _) =>
       let Hf := fresh in
-      assert (Hf : forall h, (E0 === E) s h) by (unfold_conn; simpl in *; unfold lt in *;
+      assert (Hf : (E0 === E) s emp_ph) by (unfold_conn_all; simpl in *; unfold lt in *;
                                                  first [congruence | omega | eauto with zarith]);
       let hf := fresh in let Hf' := fresh in 
       idtac "found: " E0 E;
       eapply scRw_stack in H;
       [idtac |
-       intros hf Hf'; eapply (mapsto_rewrite1 (Hf hf)) in Hf'; exact Hf' |
+       intros hf Hf'; eapply (mapsto_rewrite1 Hf) in Hf'; exact Hf' |
        intros ? Hf'; exact Hf'];
       clear Hf
     | ((_ ** _) _ _) =>
@@ -283,17 +283,17 @@ Ltac search_addr E0 E1 H :=
   match type of H with
     | (?E0' -->p (_, ?E1')) ?s ?h =>
       let Hf := fresh in
-      assert (Hf : ((E1' === E1) s h)) by (unfold_conn; simpl in *; unfold lt in *;
+      assert (Hf : ((E1' === E1) s emp_ph)) by (unfold_conn_all; simpl in *; unfold lt in *;
                                            first [congruence | omega | eauto with earith]);
       apply (mapsto_rewrite2 Hf) in H
     | ((?E0' -->p (_, ?E1') ** _) ?s _) =>
       let Hf := fresh in
-      assert (Hf : forall h, (E1' === E1) s h) by (unfold_conn; simpl in *; unfold lt in *;
+      assert (Hf : (E1' === E1) s emp_ph) by (unfold_conn_all; simpl in *; unfold lt in *;
                                            first [congruence | omega | eauto with earith]);
       let hf := fresh in let Hf' := fresh in 
       eapply scRw_stack in H;
       [idtac |
-       intros hf Hf'; eapply (mapsto_rewrite2 (Hf hf)) in Hf'; exact Hf' |
+       intros hf Hf'; eapply (mapsto_rewrite2 Hf) in Hf'; exact Hf' |
        intros ? Hf'; exact Hf'];
       clear Hf
   end.

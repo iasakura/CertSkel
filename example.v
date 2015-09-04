@@ -97,11 +97,11 @@ Section Example.
     Ltac prove_lassn0 := prove_lassn ltac:(idtac).
 
     Lemma pre_lassn (tid : Fin.t ntrd) : low_assn E (bpre tid).
-    Proof. prove_lassn ltac:(unfold_conn). Qed.
+    Proof. prove_lassn ltac:(unfold_conn_all; simpl in *). Qed.
 
     Hint Unfold bpost.
     Lemma post_lassn (tid : Fin.t ntrd) : low_assn E (bpost tid).
-    Proof. prove_lassn ltac:(unfold_conn). Qed.
+    Proof. prove_lassn ltac:(unfold_conn_all; simpl in *). Qed.
 
     Notation FalseP := (fun (_ : stack) (h : pheap) => False).
 
@@ -129,12 +129,12 @@ Section Example.
     Hint Unfold Pre_i.
     Lemma prei_lassn : forall tid : Fin.t ntrd, low_assn E (Vector.nth (init Pre_i) tid).
     Proof.
-      intros; prove_lassn ltac:(unfold_conn; rewrite init_spec).
+      intros; prove_lassn ltac:(unfold_conn_all; simpl in *; rewrite init_spec).
     Qed.
     
     Hint Unfold Post_i.
     Lemma posti_lassn : forall tid : Fin.t ntrd, low_assn E (Vector.nth (init Post_i) tid).
-    Proof. intros; prove_lassn ltac:(unfold_conn; rewrite init_spec). Qed.
+    Proof. intros; prove_lassn ltac:(unfold_conn_all; simpl in *; rewrite init_spec). Qed.
       
     Lemma default_wf (s : stack) (h : pheap) : 
       Aistar_v (fst default) s h <-> Aistar_v (snd default) s h.
@@ -631,7 +631,7 @@ Section Example.
       destruct i; simpl in *; rewrite init_spec in *; try tauto;
       unfold bpre, bpost in *; destruct h1 as [h1 ?], h1' as [h1' ?];
       apply pheap_eq; extensionality x; simpl in *;
-      unfold_conn; rewrite Hsat, Hsat'; eauto.
+      unfold_conn_all; rewrite Hsat, Hsat'; eauto.
     Qed.
 
     Definition fin_rev (n : nat) (i : Fin.t n) : Fin.t n.
@@ -1110,7 +1110,7 @@ Section Example.
         subA_normalize_in H. simpl in *. 
         sep_normal_in H. sep_split_in H.
         assert (((Z_of_fin tid + 1) mod ntrdZ === 0)%Z s emp_ph).
-        { clear H. unfold_conn; unfold bexp_to_assn in HP2; simpl in *.
+        { clear H. unfold_conn_all; simpl in *; unfold bexp_to_assn in HP5; simpl in *.
           destruct (Z.eq_dec (s TID) (ntrdZ - 1)); try congruence.
           assert (Z_of_fin tid + 1 = ntrdZ)%Z by (unfold lt; omega).
           rewrite H. apply Z.mod_same; omega. }
@@ -1124,7 +1124,7 @@ Section Example.
         subA_normalize_in H. simpl in *. 
         sep_normal_in H. sep_split_in H.
         assert (((Z_of_fin tid + 1) mod ntrdZ === Z_of_fin tid + 1)%Z s emp_ph).
-        { clear H. unfold_conn; unfold bexp_to_assn in HP2; simpl in *.
+        { clear H. unfold_conn_all; simpl in *.
           destruct (Z.eq_dec (s TID) (ntrdZ - 1)); simpl in *; try congruence.
           assert (Z_of_fin tid + 1 < ntrdZ)%Z by (destruct (Fin.to_nat tid); simpl in *; omega).
           rewrite Z.mod_small_iff; [left; omega | omega]. }

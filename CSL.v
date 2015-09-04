@@ -313,7 +313,7 @@ Section SeqCSL.
     - unfold write_ok; simpl; eauto.
     - inversion H4; subst; repeat eexists; eauto; simpl.
       apply H; split; eauto; simpl in *; eauto; rewrite B0; eauto.
-      apply H0; split; auto; unfold_conn; unfold bexp_to_assn; simpl; rewrite B0; auto.
+      apply H0; split; auto; unfold_conn_all; simpl in *; rewrite B0; auto.
     - inversion H2.
   Qed.
 
@@ -434,7 +434,7 @@ Section SeqCSL.
     - intros hF h0 c' ss' hdis heq hred. inversion hred; clear hred; subst.
       inversion EQ1; clear EQ1; subst; simpl in *.
       repeat eexists; eauto. 
-      apply safe_skip; simpl. apply scban_r; unfold_conn; [intros x0|];
+      apply safe_skip; simpl. apply scban_r; unfold_conn_all; simpl in *; [intros x0|];
       repeat match goal with [ |- context [Z.eq_dec ?x ?y] ] => destruct (Z.eq_dec x y) end;
       (try specialize (hsat x0)); subst; repeat rewrite <-hinde1 in hsat;
       repeat match goal with [ H : context [Z.eq_dec ?x ?y] |- _ ] => destruct (Z.eq_dec x y) end;
@@ -443,7 +443,8 @@ Section SeqCSL.
       unfold var_upd; destruct (var_eq_dec x x) as [|]; try congruence.
       rewrite <-(phplus_eq hdis) in heq; apply ptoheap_eq in heq.
       pose proof (htop_eq heq); simpl in *.
-      unfold phplus in H; specialize (H (edenot E1 s0)). rewrite hsat in H.
+      unfold phplus in H; specialize (H (edenot E1 s0)).
+      rewrite hsat in H.
       match goal with [ H : context [Z.eq_dec ?x ?y] |- _ ] => destruct (Z.eq_dec x y) end; 
         try congruence; destruct (this hF (edenot E1 s0)) as [[? ?]|]; congruence.
   Qed.
@@ -499,7 +500,7 @@ Section SeqCSL.
         cutrewrite (phplus ph hF = phplus_pheap hdis); [|simpl; eauto].
         apply ph_upd_ptoheap; eauto.
       + apply safe_skip; simpl; intros x.
-        unfold_conn; unfold ph_upd.
+        unfold_conn_all; simpl in *; unfold ph_upd.
         destruct (Z.eq_dec (edenot E1 s0) x); subst; eauto.
         * destruct (Z.eq_dec (edenot E1 s0) (edenot E1 s0)); congruence.
         * rewrite hsat; eauto.
@@ -848,21 +849,22 @@ Section ParCSL.
       apply ((HlowP tid) (Vector.map (snd (B:=stack)) ks)[@tid] s _ (Hlows tid));
       eauto. }
     apply (safe_par (hs := prehs) (Qs := Qs)); eauto.
-    - unfold_conn; intros tid; specialize (Hsafei tid); specialize (Hsat' tid); erewrite !Vector.nth_map in *; 
+    - unfold_conn_all; simpl in *; intros tid; specialize (Hsafei tid);
+      specialize (Hsat' tid); erewrite !Vector.nth_map in *; 
       eauto.
       rewrite Heqc; apply Hsafei.
       erewrite Vector.nth_map in Hsat'; eauto.
       repeat eexists; unfold emp_ph; eauto.
       intros x; unfold emp_ph; auto.
-      unfold_conn; auto. 
-    - exists (ks, h), prehs, (Vector.map (snd (B:=stack)) ks), c, ty; repeat split; eauto; unfold_conn.
+      unfold_conn_all; simpl; auto. 
+    - exists (ks, h), prehs, (Vector.map (snd (B:=stack)) ks), c, ty; repeat split; eauto; unfold_conn_all; simpl in *.
       + apply rt1n_refl. 
       + unfold get_cs_k; simpl; intros tid; erewrite Vector.nth_map; eauto.
       + intros tid; unfold safe_aux; exists Qs[@tid]; intros n'.
         erewrite Vector.nth_map; eauto; apply Hsafei.
         specialize (Hsat' tid); erewrite Vector.nth_map in Hsat'; eauto.
         repeat eexists; eauto.
-        unfold_conn; intros; unfold emp_ph; auto.
+        unfold_conn_all; simpl in *; intros; unfold emp_ph; auto.
         apply disj_emp1.
   Qed.
 End ParCSL.

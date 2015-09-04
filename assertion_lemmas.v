@@ -69,8 +69,20 @@ Bind Scope assn_scope with assn.
 Notation nat_of_fin i := (proj1_sig (Fin.to_nat i)).
 Notation Z_of_fin i := (Z.of_nat (nat_of_fin i)).
 
+Ltac unfold_conn_all :=
+  unfold Aemp, Astar, Aconj, Adisj, Apure, Apointsto, ban, eeq, bexp_to_assn in *.
+
+Ltac unfold_conn_in1 H :=
+  unfold Aemp, Astar, Aconj, Adisj, Apure, Apointsto, ban, eeq, bexp_to_assn in H.
+Ltac unfold_conn_in H :=
+  match H with
+    | (?Hs, ?H) => unfold_conn_in Hs; unfold_conn_in1 H
+    | _ => unfold_conn_in1 H
+  end.
+
 Ltac unfold_conn :=
-  unfold Aemp, Astar, Aconj, Adisj, Apure, Apointsto, ban, eeq in *; simpl in *.
+     unfold Aemp, Astar, Aconj, Adisj, Apure, Apointsto, ban, eeq, bexp_to_assn.
+
 Notation "P |= Q" := (forall s h, P s h -> Q s h) (at level 87).
 
 Section Precise.
@@ -212,7 +224,7 @@ Proof.
   assert (h = ph2).
   { destruct h, ph2; apply pheap_eq; simpl in *; rewrite <-Heq.
     unfold phplus; extensionality x.
-    unfold_conn; rewrite Hsat1; auto. }
+    unfold_conn_all; rewrite Hsat1; auto. }
   rewrite H; auto.
 Qed.
 
@@ -222,7 +234,7 @@ Proof.
   assert (h = ph1).
   { destruct h as [h ?], ph1 as [ph1 ?]; apply pheap_eq; simpl in *; rewrite <-Heq.
     unfold phplus; extensionality x.
-    unfold_conn; rewrite Hsat2; destruct (ph1 x) as [[? ?]|]; auto. }
+    unfold_conn_all; rewrite Hsat2; destruct (ph1 x) as [[? ?]|]; auto. }
   rewrite H; auto.
 Qed.
 
@@ -248,26 +260,26 @@ Proof.
 Qed.
 
 Lemma mapsto_rewrite1 (E1 E2 E3 : exp) (p : Qc) (s : stack) (h : pheap) :
-  (E1 === E2) s h -> (E1 -->p (p, E3)) s h -> (E2 -->p (p, E3)) s h.
+  (E1 === E2) s emp_ph -> (E1 -->p (p, E3)) s h -> (E2 -->p (p, E3)) s h.
 Proof.
   intros.
-  unfold_conn; simpl in *.
+  unfold_conn_all; simpl in *.
   rewrite<-H.
   auto.
 Qed.
   
 Lemma mapsto_rewrite2 (E1 E2 E3 : exp) (p : Qc) (s : stack) (h : pheap) :
-  (E2 === E3) s h -> (E1 -->p (p, E2)) s h -> (E1 -->p (p, E3)) s h.
+  (E2 === E3) s emp_ph -> (E1 -->p (p, E2)) s h -> (E1 -->p (p, E3)) s h.
 Proof.
   intros.
-  unfold_conn; simpl in *.
+  unfold_conn_all; simpl in *.
   rewrite<-H.
   auto.
 Qed.
 
 Lemma pure_emp (P : assn) s h : P s emp_ph -> emp s h -> !(P) s h.
 Proof.
-  unfold_conn; intros.
+  unfold_conn_all; intros.
   split; unfold_conn; auto.
   assert (h = emp_ph).
   destruct h as [h ?]; apply pheap_eq; extensionality x; simpl in *; auto.

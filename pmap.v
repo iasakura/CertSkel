@@ -86,10 +86,10 @@ Proof.
     unfold inv; intros s h H. destruct H as (v & H); simpl in H.
     sep_split_in H.
     exists (S x).
-    sep_split; [unfold_conn; simpl in *|.. ].
-    { red; simpl; destruct (Z.eq_dec _ _); simpl in *; auto. 
+    sep_split; [unfold_conn_all; simpl in * |.. ].
+    { destruct (Z.eq_dec _ _); simpl in *; auto. 
       repeat first [rewrite Nat2Z.inj_add in * | rewrite Nat2Z.inj_mul in *]; simpl; omega. }
-    { unfold_conn; unfold subA' in HP3; simpl in *. 
+    { unfold_conn_all; unfold subA' in HP3; simpl in *. 
       revert HP3; generalize (x * ntrd); intros; omega. }
 
     { cutrewrite (len - (x * ntrd + nat_of_fin tid) - ntrd = 
