@@ -123,10 +123,10 @@ Proof.
 Qed.
 
 Require Import SetoidClass.
-Instance app_proper (s : stack) (h : pheap) : Proper (equiv_sep ==> iff) (fun P => P s h).
+Instance app_proper (s : stack) (h : pheap) : Proper (equiv_sep s ==> iff) (fun P => P s h).
 Proof.
   intros P Q H.
-  specialize (H s h); auto.
+  specialize (H h); auto.
 Qed.
 
 Ltac fold_pure H s :=
@@ -140,7 +140,7 @@ end.
 Ltac rewrite_sep_in lem H :=
   match type of H with
     | ?X _ _ => pattern X in H
-  end; rewrite lem in H; cbv beta in H. 
+  end; erewrite lem in H; cbv beta in H. 
 
 Lemma sum_of_concat (l1 : nat) (fc : nat -> Z) : forall s l2,
   sum_of s (l1 + l2) fc = (sum_of s l1 fc + sum_of (l1 + s) l2 fc)%Z.
@@ -202,13 +202,31 @@ Proof.
   extensionality v'; unfold var_upd; rewrite <-H; destruct var_eq_dec; congruence.
 Qed.
 
+Lemma mps_eq1 (E1 E1' E2  : exp) (q : Qc) :
+  forall s,
+    (E1 === E1') s emp_ph ->
+    s ||= E1 -->p (q, E2) <=> E1' -->p (q, E2).
+Proof.
+  intros s H1 h; split; intros; eapply mapsto_rewrite1; eauto;
+  unfold_conn_all; simpl in *; auto.
+Qed.
+
+Lemma mps_eq2 (E1 E2 E2'  : exp) (q : Qc) :
+  forall s,
+    (E2 === E2') s emp_ph ->
+    s ||= E1 -->p (q, E2) <=> E1 -->p (q, E2').
+Proof.
+  intros s H1 h; split; intros; eapply mapsto_rewrite2; eauto;
+  unfold_conn_all; simpl in *; auto.
+Qed.
+
 Theorem fold_ker_correct (tid : Fin.t ntrd) : 
   CSL (fun i => match i with O => binv0 | _ => default ntrd end) tid
   (nth (nat_of_fin tid) (distribute ntrd ARR (2 * ntrd) f (nt_step ntrd) 0) emp **
    !(TID === Z_of_fin tid))
   (fold_ker (nat_of_fin tid))
   (Ex fc,
-     nth (nat_of_fin tid) (distribute ntrd ARR (2 * ntrd) f (nt_step 1) 0) emp **
+     nth (nat_of_fin tid) (distribute 1 ARR (2 * ntrd) fc (nt_step 1) 0) emp **
      !(pure (fc 0 = sum_of 0 (2 * ntrd) f))).
 Proof.
   unfold fold_ker.
@@ -232,6 +250,7 @@ Proof.
     - red; auto.
     - destruct (Nat.eq_dec _ _); [omega | congruence]. } Unfocus.
 
+  (* make the precondition normal form *)
   eapply Hbackward.
   Focus 2.
   { unfold INV; intros s h H.
@@ -240,15 +259,15 @@ Proof.
     ex_intro st H; ex_intro e H; ex_intro fc H; simpl in H.    
     exact H. } Unfocus.
   
-  apply rule_ex; intros fc.
-  apply rule_ex; intros e.
-  apply rule_ex; intros st.
+  apply rule_ex; intros fc. apply rule_ex; intros e. apply rule_ex; intros st.
   
   eapply rule_seq.
-
+  
   eapply rule_if_disj.
+  (* then case *)
   { eapply Hbackward.
     Focus 2.
+    (* unfold the skip array *) 
     { unfold INV; intros s h H.
       sep_split_in H.
 
@@ -271,32 +290,39 @@ Proof.
         rewrite mult_1_l in H; exact H. }
       sep_combine_in H.
       exact H. } Unfocus.
-    
+    (* execute first read command *)
     eapply rule_seq.
-    { repeat hoare_forward. 
+    { hoare_forward. 
       apply inde_distribute; repeat (constructor; auto).
       intros ? ? H; exact H. }
-    
+
+    (* execute second read command *)
     eapply rule_seq.
     { cutrewrite (Z.of_nat (st + nat_of_fin tid) = Z.of_nat st + Z.of_nat (nat_of_fin tid))%Z; [|apply Nat2Z.inj_add].
       hoare_forward. 
       apply inde_distribute; repeat (constructor; auto).
       intros ? ? H; exact H. }
     
+    (* execute the write command *)
     { hoare_forward.
       intros ? ? H; exact H. } }
-  
+
+  (* else case *)
   apply rule_skip.
 
+  (* rests of loop commands *)
   eapply Hforward.
   eapply rule_disj.
+  (* then case *)
   - eapply rule_seq; [hoare_forward|].
     { intros s h H.
       destruct H as [st' H].
       subA_normalize_in H. simpl in H.
       ex_intro st' H; exact H. }
 
+    (* the barrier instruction *)
     hoare_forward.
+    instantiate (1 := INV (nf tid)).
     set (fc' := fun i => if lt_dec i st then (fc i + fc (i + st)%nat)%Z else fc i).
     destruct e as [|[|e]].
     Ltac forward_barr := lazymatch goal with
@@ -304,167 +330,266 @@ Proof.
         eapply Hbackward; [
             eapply Hforward; [
               eapply rule_frame; 
-              [eapply rule_barrier | prove_inde] |
+              [eapply rule_barrier |
+               unfold inde; simpl; intros; match goal with [H : False |- _] => destruct H end] |
               autounfold; simpl; repeat rewrite MyVector.init_spec in *] | ] end.
     + forward_barr. Focus 2.
-       { simpl; rewrite MyVector.init_spec.
-         intros s h H; sep_normal_in H; sep_split_in H.
-         unfold_conn_in (HP3, HP4, HP5); simpl in HP3, HP4, HP5.
-         assert (FalseP s h) by (subst; simpl in HP3; congruence). 
-         instantiate (1 := FalseP); destruct H0. } Unfocus.
-       intros; unfold_conn; repeat destruct H; tauto.
-    + forward_barr. Focus 2.
-      { simpl; rewrite MyVector.init_spec. 
+      { simpl; rewrite MyVector.init_spec.
         intros s h H; sep_normal_in H; sep_split_in H.
-        unfold_conn_in (HP4, HP5); simpl in *; subst; simpl in *.
+        unfold_conn_in (HP3, HP4, HP5); simpl in HP3, HP4, HP5.
+        assert (FalseP s h) by (subst; simpl in HP3; congruence). 
+        instantiate (1 := FalseP). destruct H0. } Unfocus.
+      intros; unfold_conn; repeat destruct H; tauto.
+    + eapply Hbackward.
+      Focus 2.
+      { intros s h H; sep_normal_in H; sep_split_in H.
+        unfold_conn_in (HP4, HP5); simpl in *; 
+        lazymatch goal with [H : _ |- _] => rewrite HP4, HP5 in H end; simpl in *.
+        apply (sep_rewrite_var HP) in H; subA_normalize_in H. simpl in H.
+        apply (sep_rewrite_var HP0) in H; subA_normalize_in H. simpl in H.
+        apply (sep_rewrite_var HP2) in H; subA_normalize_in H. simpl in H.
+        assert (nf tid = 0).
+        { unfold_conn_in (HP2, HP1); simpl in HP1, HP2.
+          destruct Z_lt_dec; try congruence; omega. } 
+        rewrite_sep_in (@nth_dist_change (nat_of_fin tid) ARR fc fc') H; try (auto || omega).
+        Focus 2. { unfold fc'; intros j Hj _; destruct lt_dec; try omega. } Unfocus.
+        assert (Heq : (fc (nf tid) + fc (S (nf tid)) === fc' (nf tid)) s emp_ph).
+        { unfold fc'; rewrite HP5, H0; simpl; unfold_conn; auto. }
+        rewrite_sep_in mps_eq2 H; [clear Heq | rewrite HP5; exact Heq].
+        cutrewrite (fc (S (nf tid)) = fc' (S (nf tid))) in H; 
+            [|unfold fc'; rewrite H0, HP5; simpl; unfold_conn; auto].
+
+        Ltac rewrite_sep_r_in lem H :=
+          match type of H with
+            | ?X _ _ => pattern X in H
+          end; rewrite <-lem in H; cbv beta in H.
+        Hint Resolve Nat2Z.inj_add : zarith.
+        assert (s ARR + Z.of_nat (1 + (nf tid)) = s ARR + Z.of_nat (nf tid) + 1%Z)%Z by
+            (rewrite Nat2Z.inj_add; cutrewrite (Z.of_nat 1 = 1%Z); [omega|auto]). 
+        find_enough_resource (ARR + Z.of_nat (1 + (nf tid)))%exp H.
+        sep_lift_in H 1.
+        cutrewrite (1 + nf tid = 1 * 1 + nf tid) in H; [|auto].
+        cutrewrite (S (nf tid) = 1 * 1 + nf tid) in H; [|auto].
+        rewrite_sep_r_in skip_arr_unfold' H; (omega || auto).
+        find_enough_resource (ARR + Z.of_nat (0 * 1 + (nf tid)))%exp H.
+        rewrite_sep_r_in skip_arr_unfold' H; (omega || auto).
+        rewrite HP5 in HP6.
+        assert (pure (fc' 0 = sum_of 0 (2 * ntrd) f) s emp_ph) by
+            (unfold fc'; rewrite HP5; unfold_conn_all; simpl in *; omega).
+        clear HP HP0 HP6 H0 H1.
+        Hint Resolve emp_emp_ph.
+        assert (pure (x = 1%Z) s emp_ph) by (unfold_conn; rewrite HP5 in HP4; auto).
+        assert (pure (st = 1) s emp_ph) by (unfold_conn;  auto).
+        sep_combine_in H.
+        sep_normal_in H. ex_intro fc' H. simpl in H.
+        apply H. } Unfocus.
+        
+      forward_barr.
+      Focus 2.
+      { simpl; rewrite MyVector.init_spec. 
+        clear fc'.
+        intros s h [fc' H]; sep_normal_in H; sep_split_in H.
+        (* unfold_conn_in (HP4, HP5); simpl in *; subst; simpl in *. *)
         apply ex_lift_l; exists 0; apply ex_lift_l; exists fc'.
-        repeat (sep_normal; sep_split).
-        - unfold_conn_in HP8; unfold_conn; simpl; auto.
-        - unfold_conn; simpl; rewrite <-plus_n_O in *.
-          unfold fc'; simpl; unfold_conn_in HP6; omega.
+        simpl in *. do 2 (sep_normal; sep_split).
+        - unfold_conn_in HP5; simpl in HP5; rewrite HP5 in HP3; apply HP3.
+        - exact HP4.
         - simpl; rewrite nth_overflow; [sep_normal | rewrite distribute_length; omega].
-          apply (sep_rewrite_var HP) in H; subA_normalize_in H. simpl in H.
-          apply (sep_rewrite_var HP0) in H; subA_normalize_in H. simpl in H.
-          apply (sep_rewrite_var HP2) in H; subA_normalize_in H. simpl in H.
-          assert (nf tid = 0).
-          { unfold_conn_in (HP2, HP1); simpl in HP1, HP2.
-            destruct Z_lt_dec; try congruence; omega. } 
-          rewrite_sep_in (@nth_dist_change (nat_of_fin tid) ARR fc fc') H; try (auto || omega).
-          Focus 2.
-          { unfold fc'; intros j Hj _.
-            destruct lt_dec; try omega. } Unfocus.
-          
-          Lemma mapsto_equiv1 (E1 E2 E3 : exp) (p : Qc) (s : stack) (h : pheap) :
-            (E1 === E2) s emp_ph -> (E1 -->p (p,  E3)) s h -> (E2 -->p (p,  E3)) s h.
+          sep_combine_in H. 
+          ex_intro fc' H.
+          exact H. } Unfocus.
+
+      intros s h H; unfold INV; clear fc'.
+      Lemma ex_lift_r_in (T : Type) (P : assn) (Q : T -> assn) :
+        (P ** Ex x, Q x) |= (Ex x : T, P ** Q x).
+      Proof.
+        unfold_conn. intros ? ? (? & ? & ? & [? ?] & ? & ?).
+        repeat eexists; eauto.
+      Qed.
+      Lemma ex_lift_l_in (T : Type) (P : T -> assn) (Q : assn) :
+        ((Ex x, P x) ** Q) |= (Ex x : T, P x ** Q).
+      Proof.
+        unfold_conn. intros ? ? (? & ? & [? ?] & ? & ? & ?).
+        repeat eexists; eauto.
+      Qed.
+      apply ex_lift_r_in in H; destruct H as (? & H).
+      apply ex_lift_l_in in H; destruct H as (s0 & H).
+      apply ex_lift_l_in in H; destruct H as (fc' & H).
+      sep_split_in H; sep_normal_in H; sep_split_in H.
+      exists 0, 0, x0; simpl in *. 
+      assert (s0 = 0) by (unfold_conn_all; subst; simpl in *; omega); subst.
+      sep_split; try now unfold_conn; (auto || omega).
+      * rewrite nth_overflow in H; [sep_normal | rewrite distribute_length; omega].
+        sep_normal_in H. exact H.
+    + eapply Hbackward. Focus 2.
+      { intros s h H; sep_split_in H.
+        assert ((T1 + T2 === (fc (nf (tid)) + fc (st + nf tid)%nat)%Z) s emp_ph) by
+            (unfold_conn_all; simpl in *; omega).
+        fold (2 ^ S (S e) / 2) in *.
+        assert (Hst : st = 2 ^ (S (S e)) / 2) by (unfold_conn_in HP6; auto).
+        cutrewrite (2 ^ (S (S e)) = 2 ^ (S e) * 2) in Hst; [|simpl; omega].
+        rewrite Nat.div_mul in Hst; auto.
+        rewrite_sep_in mps_eq2 H; [|exact H0].
+        Hint Resolve Nat.pow_nonzero.
+        assert (nf tid < st)
+          by (unfold_conn_all; simpl in *; destruct (Z_lt_dec (s TID) x); (congruence||omega)).
+        rewrite_sep_in (@nth_dist_change (nat_of_fin tid) ARR fc fc') H;
+          try now (subst; auto || unfold_conn_all; simpl in *; omega).
+        2 : rewrite <-!plus_n_O; intros; unfold fc'; destruct lt_dec; auto; omega.
+        cutrewrite (st + (st + 0) = 2 * st) in H; [|omega].
+        assert (((ARR + TID)%exp + x === ARR + Z.of_nat (1 * st + nf tid)) s emp_ph).
+        { unfold_conn_all; simpl; rewrite !Nat2Z.inj_add, Z.add_0_r; simpl in*; omega. }
+        rewrite_sep_in (@mps_eq1 ((ARR + TID)%exp + x)) H; [|exact H2].
+        cutrewrite (fc (nf tid) + fc (st + nf tid)%nat = fc' (0 * st + nf tid)%nat)%Z in H; [|].
+        2: unfold fc'; destruct lt_dec; unfold_conn_all; simpl in *; [f_equal; f_equal; omega| omega].
+        cutrewrite (fc (st + nf tid)%nat = fc' (1 * st + nf tid)%nat)%Z in H; [|].
+        2: unfold fc'; destruct lt_dec; unfold_conn_all; simpl in *; [omega|f_equal; omega].
+        rewrite_sep_r_in skip_arr_unfold' H; (omega || auto).
+        2: unfold_conn_in HP8; omega.
+        assert (((ARR + TID)%exp === ARR + Z.of_nat (0 * st + nf tid)) s emp_ph).
+        { unfold_conn_all; simpl in *. omega. }
+        rewrite_sep_in mps_eq1 H; [|exact H3].
+        rewrite_sep_r_in skip_arr_unfold' H; (omega || auto).
+        clear HP0 HP1 HP2 H0.
+        sep_combine_in H. exact H. } Unfocus.
+      forward_barr. Focus 2.
+      { cutrewrite (2 ^ (S (S e)) = 2 ^ e * 2 * 2); [|simpl; omega].
+        rewrite Nat.div_mul; auto.
+        remember (2 ^ e * 2) as n2Se.
+        simpl; rewrite MyVector.init_spec. 
+        intros s h H; sep_normal_in H; sep_split_in H.
+        apply ex_lift_l; exists (2 ^ e); apply ex_lift_l; exists fc'.
+        do 2 (sep_normal; sep_split).
+        - unfold_conn_in (HP2, HP3); simpl in HP2, HP3; rewrite HP2, HP3, Heqn2Se in HP.
+          unfold_conn_in HP; simpl in HP; rewrite Zdiv2_div,Nat2Z.inj_mul,Z.div_mul in HP; auto.
+          omega.
+        - Lemma arr_val_compat_n0 len g sum : len <> 0 ->
+            (arr_val_compat len g sum <-> sum_of 0 len g = sum).
           Proof.
-          
-  
-          cutrewrite (fc (S (nf tid)) = fc' (S (nf tid))) in H.
-
-          Ltac rewrite_sep_r_in lem H :=
-            match type of H with
-              | ?X _ _ => pattern X in H
-            end; rewrite <-lem in H; cbv beta in H.
-          Hint Resolve Nat2Z.inj_add : zarith.
-          assert (s ARR + Z.of_nat (1 + (nf tid)) = s ARR + Z.of_nat (nf tid) + 1%Z)%Z by
-              (rewrite Nat2Z.inj_add; cutrewrite (Z.of_nat 1 = 1%Z); [omega|auto]). 
-          find_enough_resource (ARR + Z.of_nat (1 + (nf tid)))%exp H.
-          sep_lift_in H 1.
-
-
-          rewrite_sep_r_in skip_arr_unfold' H.
-
-            
-  find_enough_resource (ARR + TID + Enum' st)%exp H.
-  sep_lift_in H 1.
-
-  set (fc' := fun i => if lt_dec i st then (fc i + fc (i + st)%nat)%Z else fc i).
-
-  Lemma ex_lift_l {T : Type} (P : T -> assn) (Q : assn) :
-    (Ex x, P x ** Q) |= (Ex x, P x) ** Q.
-  Proof.
-    intros; unfold_conn; destruct H as (x & H & ? & ? & ? & ? & ?).
-    repeat eexists; eauto.
-  Qed.
-
-  apply ex_lift_l; exists (st / 2); apply ex_lift_l; exists fc'.
-  sep_normal; sep_split.
-  { unfold_conn_in (HP8, HP4); simpl in HP8, HP4; unfold_conn; simpl.
-    rewrite HP8, HP4, Zdiv2_div; fold (st / 2); rewrite div_Zdiv; auto. }
-  sep_normal; sep_split.
-  { unfold_conn.
-    unfold_conn_in (HP3, HP4, HP5, HP6); simpl in HP3, HP4, HP5, HP6.
-    fold (2 ^ e / 2) in HP5; destruct e as [| [|e]]; rewrite HP5 in HP4; rewrite HP4 in HP3.
-    - simpl in HP3; congruence.
-    - rewrite HP5; rewrite HP5 in HP6; simpl in HP3, HP6; simpl.
-      unfold fc'; rewrite HP5; simpl; rewrite Z.add_0_r in HP6; auto. 
-    - unfold fc'; rewrite HP5; rewrite HP5 in HP6;
-      assert (Heq : 2 ^ S (S e) = 2 ^ e * 2 * 2) by (simpl; omega).
-      rewrite Heq; rewrite Heq in HP6; repeat (rewrite Nat.div_mul in *; auto; rewrite <-plus_n_O in *); clear Heq.
-      cutrewrite (2 ^ e * 2 + 2 ^ e * 2 = 2 * (2 ^ e + 2 ^ e)) in HP6; [|omega].
-      assert (2 ^ e + 2 ^ e <> 0); [pose proof (Nat.pow_nonzero 2 e); omega|].
-      unfold arr_val_compat; destruct (2 ^ e + 2 ^ e) eqn:Heq; [omega|rewrite <-Heq].
-      cutrewrite (2 ^ e + 2 ^e = 2 ^ e * 2); [|omega]; rewrite <-shift_arr0.
-      cutrewrite (2 ^e * 2 * 2 = 2 * S n0); [|omega].
-      simpl in HP6; auto. }
-
-  assert ((nth (nf tid)
-               (distribute (st / 2 + (st / 2 + 0)) ARR (ntrd + (ntrd + 0)) fc'
-                           (nt_step (st / 2 + (st / 2 + 0))) 0) emp) s h).
-  { 
-    
-  Focus 2.
-  intros s0 h0 Hp.
-  
-
-
-
-
-
-
-  assert (Heq : (fc (nf tid) + fc (st + nf tid) === Enum (fc (nf tid) + fc (st + (nf tid)))) s emp_ph).
-  unfold eeq; simpl; auto.
-  eapply scRw_stack in H; [|intros ? Ht; apply (mapsto_rewrite2 Heq) in Ht; exact Ht |intros ? Ht; exact Ht ].
-  cutrewrite (fc (nf tid) + fc (st + (nf tid))%nat = fc' (nf tid))%Z in H;
-    [|unfold fc'; destruct lt_dec;
-      [auto|
-       unfold_conn_all;simpl in *; repeat destruct Z_lt_dec;
-       (congruence || omega)]].
-  cutrewrite (fc (st + nf tid)%nat = fc' (st + nf tid)%nat)%Z in H;
-    [|unfold fc'; destruct lt_dec; auto || omega].
-  cutrewrite (ntrd + (ntrd + 0) = 2 * ntrd) in H; [|omega].
-  cutrewrite (st + (st + 0) = st + st) in H; [|omega].
-
-
-  eapply scRw; [|intros ? ? Hf; exact Hf |].
-  intros ? ? Hf.
-  exists (st / 2), fc'.
-  exact Hf.
-  sep_normal; sep_split.
-  { rewrite div_Zdiv; auto.
-    unfold_conn_all; simpl in *;rewrite Zdiv2_div in HP8; rewrite <-HP4; auto. }
-  { sep_normal. sep_split.
-    unfold_conn_all; simpl in *; unfold arr_val_compat.
-    destruct (ntrd + (ntrd + 0)) as [|ntrd2] eqn:Hntrd; [omega|]; rewrite <-Hntrd.
-    fold (2 ^ e / 2) in HP5.
-    unfold bexp_to_assn in HP3; simpl in HP3; destruct (Z_lt_dec); [|congruence].
-    destruct e as [| [|e]]; [simpl in HP5..|]; try omega .
-    + unfold fc'; rewrite HP5 in *; simpl; simpl in HP6.
-      ring_simplify in HP6; rewrite Hntrd; simpl; auto.
-    + cutrewrite (2 ^ S (S e) / 2 = 2 * (2 * 2 ^ e) / 2) in HP5; [|f_equal; simpl; omega].
-      rewrite mult_comm, Nat.div_mul in HP5; auto.
-      fold (st / 2); rewrite HP5; rewrite mult_comm, Nat.div_mul; auto.
-      destruct (2 ^ e) as [|e2] eqn:H2e; [destruct e; simpl in H2e; omega|].
-      simpl.
-      cutrewrite (ntrd + (ntrd + 0) = 2 * ntrd); [|omega].
-      cutrewrite (fc' 0%nat + sum_of 1 (e2 + S (e2 + 0)) fc' = sum_of 0 (2 * S e2) fc')%Z; [|simpl; auto].
-      repeat rewrite (mult_comm 2); unfold fc'. 
-      rewrite mult_comm, <-HP5.
-      rewrite <-shift_arr0.
-      rewrite HP5 in HP6; simpl in HP6.
-      rewrite <-!plus_n_O in HP6.
-      cutrewrite (e2 + S e2 + S (e2 + S e2) = S (S (S (4 * e2))) ) in HP6; [|omega].
-      cutrewrite (fc 0%nat + sum_of 1 (S (S (S (4 * e2)))) fc = sum_of 0 (S (S (S (S (4 * e2))))) fc)%Z
-                 in HP6; [|auto].
-      cutrewrite (S (S (S (S (4 * e2)))) = (2 * (S e2)) * 2) in HP6; [|omega].
-      rewrite <-HP5 in HP6.
-      cutrewrite (f 0 + sum_of 1 ntrd2 f = sum_of 0 (S ntrd2) f)%Z in HP6; [|auto].
-      rewrite <-Hntrd in HP6; cutrewrite (ntrd + (ntrd + 0) = ntrd * 2) in HP6; [auto|omega].
-    + Ltac rewrite_sep lem :=
-      match goal with
-        | [|- ?X _ _] => pattern X 
-      end; rewrite lem; cbv beta. 
-      repeat rewrite <-plus_n_O.
-      assert (Heq' : 0 = 0 * (st / 2 + st / 2)) by auto; rewrite Heq' at 5; clear Heq'.
-      eapply scRw; [intros ? ? H'| |].
-      fold (2 ^ e / 2) in HP5.
-      unfold_conn_in HP3; simpl in HP3; destruct Z_lt_dec; [|congruence].
-      destruct e as [| [|e]]; [unfold_conn_in (HP4, HP5); simpl in HP4, HP5..|].
-      * rewrite HP4, HP5 in l; simpl in l; omega.
-      * rewrite HP5; simpl.
-        rewrite nth_overflow; [|rewrite distribute_length; omega ].
-        exact H'.
-      *
-      rewrite_sep (@skip_arr_unfold' (nf tid) ARR fc' (ntrd + ntrd) (st / 2 + st / 2)); auto.
-      
-      
+            destruct len; simpl; split; auto; omega.
+          Qed.
+          assert (2 ^ e <> 0) by (apply Nat.pow_nonzero; auto).
+          unfold_conn; unfold_conn_in (HP3, HP4); apply arr_val_compat_n0; [omega|].
+          apply arr_val_compat_n0 in HP4; [|omega].
+          unfold fc'; rewrite HP3, Heqn2Se, <-plus_n_O in *.
+          cutrewrite (2 ^ e + 2 ^ e = 2 ^ e * 2); [|omega].
+          cutrewrite (2 ^ e * 2 + 2 ^ e * 2 = 2 ^ e * 2 * 2) in HP4; [|omega].
+          rewrite <-HP4; unfold fc'; symmetry;  apply shift_arr0.
+        - unfold_conn_in HP3; rewrite HP3, Heqn2Se, mult_comm in H.
+          simpl in H.
+          assert (pure (st = 2 ^ e * 2) s emp_ph) by (unfold_conn; congruence).
+          clear HP1 HP6 HP7.
+          sep_combine_in H.
+          sep_cancel. exact H. } Unfocus.
+      intros s h H; unfold INV; clear fc'.
+      apply ex_lift_l_in in H; destruct H as (s0 & H).
+      apply ex_lift_l_in in H; destruct H as (fc' & H); sep_split_in H.
+      exists (2 ^ e), (S e), fc'.
+      assert ((St === Z.of_nat (2 ^ e)) s emp_ph).
+      { unfold_conn_all; simpl in *; rewrite Zdiv2_div, HP1, HP4 in HP.
+        rewrite Nat2Z.inj_mul,Z.div_mul in HP; auto; omega. }
+      assert (s0 = 2 ^ e).
+        { unfold_conn_in (HP5, H0); rewrite HP5 in H0; simpl in H0.
+          apply Nat2Z.inj in H0; auto. }
+      sep_split; try now (unfold_conn_all; (auto || omega)).
+      * cutrewrite (2 ^ S e = 2 ^e * 2); [|simpl; omega].
+        rewrite Nat.div_mul; unfold_conn; auto.
+      * rewrite H1 in HP6; simpl; auto.
+      * assert (2 ^ e <> 0) by (apply Nat.pow_nonzero; omega).
+        destruct Nat.eq_dec; try omega.
+        rewrite <- H1; apply H.
+  - eapply Hbackward.
+    Focus 2.
+    { intros s h H.
+      sep_normal_in H; sep_split_in H.
+      assert (st <= nf tid).
+      { unfold_conn_all; simpl in *.
+        destruct (Z_lt_dec (s TID)); simpl in *; try (congruence || omega). }
+      assert (0 < st).
+      { unfold_conn_all; simpl in *.
+        destruct (Z_lt_dec); simpl; try (congruence || omega). }
+      assert (emp s h).
+      { destruct (Nat.eq_dec st 0); subst; simpl in H; [omega|].
+        rewrite nth_overflow in H; [|rewrite distribute_length]; auto. }
+      clear H.
+      assert (pure (st <= nf tid) s emp_ph) by (unfold_conn; auto).
+      sep_combine_in H2; sep_normal_in H2; exact H2. } Unfocus.
+    eapply rule_seq; [hoare_forward|].
+    { intros s h [v H].
+      subA_normalize_in H. simpl in H. ex_intro v H. exact H. }
+    forward_barr.
+    Focus 2.
+    { intros s h [s0 H]; simpl; rewrite MyVector.init_spec.
+      fold (2 ^ e / 2) in H.
+      sep_normal_in H; sep_split_in H.
+      apply ex_lift_l; exists (st / 2).
+      set (fc' := fun i => if lt_dec i st then (fc i + fc (i + st)%nat)%Z else fc i).
+      apply ex_lift_l; exists fc'.
+      do 2 (sep_normal; sep_split).
+      - rewrite div_Zdiv; auto; simpl.
+        unfold_conn_all; simpl in *; destruct H. 
+        rewrite Zdiv2_div in H0; simpl in H0. congruence. 
+      - unfold_conn; unfold_conn_in (HP0, HP3); simpl in HP0; destruct Z_lt_dec; try congruence.
+        assert (0 < st).
+        { unfold_conn_all; simpl in *; destruct st; simpl in *; omega. }
+        destruct e as [|[|e]]; unfold_conn_in HP2; [simpl in HP2; try omega|..].
+        + simpl in *; unfold fc'; rewrite HP2 in *; simpl in *; omega.
+        + cutrewrite (2 ^ (S (S e)) = 2 * (2 * 2 ^ e)) in HP2; [|auto].
+          cutrewrite (2 * (2 * 2 ^ e) = 2 ^ e * 2 * 2) in HP2; [|omega].
+          rewrite Nat.div_mul in HP2; auto; rewrite HP2, Nat.div_mul; auto; rewrite <-plus_n_O in *.
+          assert (2 ^ e <> 0) by (apply Nat.pow_nonzero; auto).
+          apply arr_val_compat_n0; try omega.
+          apply arr_val_compat_n0 in HP3; [|omega].
+          rewrite <-HP3; symmetry; cutrewrite (st + st = st * 2); [|omega].
+          cutrewrite (2 ^ e + 2 ^ e = st); [|omega].
+          unfold fc'; apply shift_arr0.
+      - rewrite <-plus_n_O.
+        assert (2 * (st / 2) <= st) by (apply Nat.mul_div_le; auto).
+        assert (st / 2 + st / 2 <= st) by omega.
+        rewrite nth_overflow; [|rewrite distribute_length; unfold_conn_all; omega].
+        sep_normal.
+        sep_combine_in H. ex_intro s0 H. exact H. } Unfocus.
+    instantiate (1 := INV (nf tid)); unfold INV; intros; apply ex_lift_l_in in H; destruct H as [s0 H].
+    apply ex_lift_l_in in H; destruct H as [fc' H].
+    apply ex_lift_r_in in H; destruct H as [v H]; sep_split_in H.
+    destruct e.
+    { simpl in HP3; unfold_conn_in HP3; subst.
+      unfold_conn_in HP2; simpl in HP2; rewrite HP2 in HP1; simpl in HP1.
+      unfold_conn_in HP1; simpl in HP1; congruence. }
+    cutrewrite (2 ^ S e = 2 * 2 ^ e) in HP3; [|auto].
+    cutrewrite (2 * 2  ^ e = 2 ^ e * 2) in HP3; [|omega].
+    rewrite Nat.div_mul in HP3; unfold_conn_in HP3; auto.
+    assert (s0 = st / 2).
+    { unfold_conn_all. simpl in HP8, HP2, HP.
+      rewrite HP, HP2, Zdiv2_div in HP8.
+      apply Nat2Z.inj; rewrite div_Zdiv; auto. }
+    exists s0, e, fc'.
+    sep_split; try now (unfold_conn_all; simpl in *; auto).
+    + rewrite H0, HP3; unfold_conn; auto.
+    + unfold_conn; unfold_conn_in HP5.
+      rewrite H0.
+      assert (st <> 0) by (rewrite HP3; apply Nat.pow_nonzero; auto).
+      assert (st / 2 < st) by (apply Nat.div_lt; omega); omega.
+    + unfold_conn_in HP7.
+      assert (s0 < st).
+      { rewrite H0. apply Nat.div_lt; auto.
+        cut (st <> 0); [omega|].
+        rewrite HP3. apply Nat.pow_nonzero; auto. }
+      rewrite nth_overflow in H; [|rewrite distribute_length; omega].
+      rewrite nth_overflow; [|rewrite distribute_length; omega]; auto.
+      rewrite nth_overflow; [|rewrite distribute_length; omega]; auto.
+      destruct Nat.eq_dec; auto.
+  - intros s h [|]; auto.
+  - intros s h H; unfold INV in *.
+    apply ex_lift_l_in in H; destruct H as [? H].
+    apply ex_lift_l_in in H; destruct H as [? H].
+    apply ex_lift_l_in in H; destruct H as [fc' H].
+    sep_split_in H.
+    assert (x = 0).
+    { unfold_conn_in (HP, HP1); simpl in HP, HP1; destruct Z_lt_dec; simpl in HP; try congruence.
+      rewrite HP1 in n0; cutrewrite (0%Z = Z.of_nat 0) in n0; [|auto]; rewrite <-Nat2Z.inj_lt in n0.
+      omega. }
+    subst; simpl in *.
+    exists fc'.
+    sep_split; auto.
+Qed.
