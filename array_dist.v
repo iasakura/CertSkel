@@ -40,9 +40,9 @@ Fixpoint distribute (d : nat) (e : exp) (n : nat) (f : nat -> Z) (dist : nat -> 
 Open Scope nat_scope.
 
 Lemma conj_xs_add_nth (d : nat) : forall a assns,
-  (d < length assns) -> conj_xs (add_nth d a assns) <=> a ** conj_xs assns.
+  (d < length assns) -> forall s, s ||= conj_xs (add_nth d a assns) <=> a ** conj_xs assns.
 Proof.
-  induction d; simpl in *; intros a assns Hdas.
+  induction d; simpl in *; intros a assns Hdas s.
   - destruct assns; simpl in *; [omega|].
     rewrite sep_assoc; reflexivity.
   - destruct assns as [|a' assns]; simpl in *; [omega|].
@@ -51,7 +51,7 @@ Proof.
 Qed.
 
 Lemma add_nth_length n t : forall xs,
-                             length (add_nth n t xs) = length xs.
+  length (add_nth n t xs) = length xs.
 Proof.
   induction n; destruct xs; simpl in *; try omega.
   rewrite IHn; omega.
@@ -69,9 +69,9 @@ Notation Enum' x := (Enum (Z.of_nat x)).
 
 Lemma distribute_correct (d : nat) (e : exp) (n : nat) (f : nat -> Z) (dist : nat -> nat) :
   forall s, (forall x, dist x < d) ->
-            is_array e n f s <=> conj_xs (distribute d e n f dist s).
+  forall st, st ||= is_array e n f s <=> conj_xs (distribute d e n f dist s).
 Proof.
-  induction n; intros s Hdist; simpl.
+  induction n; intros s Hdist; simpl; intros.
   - rewrite nseq_emp_emp; reflexivity.
   - rewrite conj_xs_add_nth, IHn; [reflexivity| auto| rewrite distribute_length;auto ].
 Qed.
@@ -131,11 +131,11 @@ Lemma nth_dist_next i e f nt (Hnt0 : nt <> 0) dist : forall next s n,
   (forall i, dist i < nt) ->
   dist (s + next) = i -> next < n ->
   (forall j, j < next -> dist (s + j) <> i) ->
-  nth i (distribute nt e n f dist s) emp <=> 
-    (e + Enum' (s + next) -->p (1%Qc, Enum (f (s + next)))) **
-    nth i (distribute nt e (n - S next) f dist (S (s + next))) emp.
+  forall st, st ||= nth i (distribute nt e n f dist s) emp <=> 
+              (e + Enum' (s + next) -->p (1%Qc, Enum (f (s + next)))) **
+              nth i (distribute nt e (n - S next) f dist (S (s + next))) emp.
 Proof.
-  induction next; intros s n Hint Hdistnt Hdnx Hnxn Hltnx.
+  induction next; intros s n Hint Hdistnt Hdnx Hnxn Hltnx stc.
   - destruct n; [omega|].
     rewrite <-plus_n_O in Hdnx.
     simpl; rewrite nth_add_nth; [|rewrite distribute_length; omega..].
@@ -159,10 +159,10 @@ Lemma nth_dist_nil i e f nt (Hnt0 : nt <> 0) dist : forall next s n,
   i < nt ->
   (forall i, dist i < nt) ->
   (forall j, j < next -> dist (s + j) <> i) ->
-  nth i (distribute nt e n f dist s) emp <=> 
+  forall stc, stc ||= nth i (distribute nt e n f dist s) emp <=> 
   nth i (distribute nt e (n - next) f dist (s + next)) emp.
 Proof.
-  induction next; intros s n Hint Hdist Hndist.
+  induction next; intros s n Hint Hdist Hndist stc.
   - rewrite <-minus_n_O, <-plus_n_O; reflexivity.
   - destruct n; simpl; [reflexivity|].
     rewrite nth_add_nth; [|rewrite distribute_length; auto..].
@@ -181,8 +181,8 @@ Qed.
 
 Lemma skip_arr_init i e f n nt (Hnt0 : nt <> 0) :
   i < nt ->
-  nth i (distribute nt e n f (nt_step nt) 0) emp <=>
-  nth i (distribute nt e (n - i) f (nt_step nt) i) emp.
+  forall stc, stc ||= nth i (distribute nt e n f (nt_step nt) 0) emp <=>
+                  nth i (distribute nt e (n - i) f (nt_step nt) i) emp.
 Proof.
   intros Hint; cutrewrite (i = 0 + i); [|auto]; apply nth_dist_nil; auto.
   - intros; apply nt_step_ok; auto.
@@ -194,18 +194,18 @@ Hint Resolve nt_step_ok.
 
 Lemma skip_arr_unfold i e f n nt (Hnt0 : nt <> 0) : forall s, 
   i < nt -> 0 < n ->
-  nth i (distribute nt e n f (nt_step nt) (s * nt + i)) emp <=>
-   ((e + Enum' (s * nt + i) -->p (1,  Enum (f (s * nt + i)))) **
-    nth i (distribute nt e (n - nt) f (nt_step nt) (S s * nt + i)) emp).
+  forall stc, stc ||= nth i (distribute nt e n f (nt_step nt) (s * nt + i)) emp <=>
+                  ((e + Enum' (s * nt + i) -->p (1,  Enum (f (s * nt + i)))) **
+                   nth i (distribute nt e (n - nt) f (nt_step nt) (S s * nt + i)) emp).
 Proof.
-  intros s Hint Hn0.
+  intros s Hint Hn0 stc.
   etransitivity.
   { apply nth_dist_next with (next := 0); auto.
     - unfold nt_step.
       rewrite <-plus_n_O, plus_comm, Nat.mod_add; [rewrite Nat.mod_small; auto| auto].
     - intros; omega. }
   rewrite <-plus_n_O.
-  match goal with [|- _ ** ?X <=> _ ** ?Y] => assert (H : X <=> Y); [|rewrite H; reflexivity] end.
+  match goal with [|- ?stc ||= _ ** ?X <=> _ ** ?Y] => assert (H : stc ||= X <=> Y); [|rewrite H; reflexivity] end.
   etransitivity; [apply nth_dist_nil with (next := nt - 1); auto|].
   { intros j Hjnt; unfold nt_step.
     rewrite plus_Snm_nSm, <-plus_assoc, plus_comm, Nat.mod_add; auto.
@@ -222,7 +222,7 @@ Qed.
 
 Lemma skip_arr_unfold' i e f n nt (Hnt0 : nt <> 0) : forall s, 
   i < nt -> i < n ->
-  nth i (distribute nt e n f (nt_step nt) (s * nt)) emp <=>
+  forall stc, stc ||= nth i (distribute nt e n f (nt_step nt) (s * nt)) emp <=>
    ((e + Enum' (s * nt + i) -->p (1,  Enum (f (s * nt + i)))) **
     nth i (distribute nt e (n - nt) f (nt_step nt) (S s * nt)) emp).
 Proof.
@@ -233,7 +233,7 @@ Proof.
       rewrite <-plus_comm, Nat.mod_add; [rewrite Nat.mod_small; auto| auto]. 
     - intros j Hji; unfold nt_step.
       rewrite <-plus_comm, Nat.mod_add; [rewrite Nat.mod_small; omega| auto]. }
-  match goal with [|- _ ** ?X <=> _ ** ?Y] => assert (H : X <=> Y); [|rewrite H; reflexivity] end.
+  match goal with [|- ?stc ||= _ ** ?X <=> _ ** ?Y] => assert (H : stc ||= X <=> Y); [|rewrite H; reflexivity] end.
   etransitivity; [apply nth_dist_nil with (next := nt - S i); auto|].
   { intros j Hjnt; unfold nt_step.
     rewrite plus_Snm_nSm, <-plus_assoc, plus_comm, Nat.mod_add; auto.
@@ -251,7 +251,7 @@ Qed.
 Lemma distribute_snoc i e f nt (Hnt : nt <> 0) dist : forall n s,
   i < nt ->
   (forall i, dist i < nt) ->
-  nth i (distribute nt e (S n) f dist s) emp <=>
+  forall stc, stc ||= nth i (distribute nt e (S n) f dist s) emp <=>
   nth i (add_nth (dist (s + n)) (e + Enum' (s + n) -->p (1%Qc, Enum (f (s + n))))
            (distribute nt e n f dist s)) emp.
 Proof.
@@ -261,14 +261,14 @@ Proof.
   - remember (S n) as Sn.
     simpl; rewrite nth_add_nth; [|rewrite distribute_length; auto..].
     destruct (beq_nat i (dist s)) eqn:His.
-    + rewrite IHn; auto.
+    + intros; rewrite IHn; auto.
       cutrewrite (S s + n = s + Sn); [|omega]; rewrite !nth_add_nth; [|rewrite distribute_length; auto..].
       destruct (beq_nat i (dist (s + Sn))); rewrite HeqSn; simpl.
       * rewrite nth_add_nth; [|rewrite distribute_length; auto..]; rewrite His.
         split; intros H; repeat sep_cancel.
       * rewrite nth_add_nth; [|rewrite distribute_length; auto..]; rewrite His.
         split; intros H; repeat sep_cancel.
-    + rewrite IHn; auto.
+    + intros; rewrite IHn; auto.
       cutrewrite (S s + n = s + Sn); [|omega]; rewrite !nth_add_nth; [|rewrite distribute_length; auto..].
       destruct (beq_nat i (dist (s +Sn))) eqn:Hisn.
       * rewrite HeqSn; simpl; rewrite nth_add_nth; [|rewrite distribute_length; auto..].
@@ -285,11 +285,12 @@ Lemma nth_dist_snoc i e f nt (Hnt0 : nt <> 0) dist : forall next n s,
   (forall i, dist i < nt) ->
   dist (s + n + next) = i -> 
   (forall j, j < next -> dist (s + n + j) <> i) ->
+  forall stc, stc ||= 
   nth i (distribute nt e n f dist s) emp ** 
   (e + Enum' (s + n + next) -->p (1%Qc, Enum (f (s + n + next))))
   <=> nth i (distribute nt e (S (n + next)) f dist s) emp.
 Proof.
-  induction next; intros n s Hint Hdist Hdisti Hj.
+  induction next; intros n s Hint Hdist Hdisti Hj stc.
   - rewrite <-!plus_n_O in *.
     rewrite distribute_snoc; auto; rewrite nth_add_nth; auto.
     symmetry in Hdisti; rewrite (proj2 (beq_nat_true_iff _ _) Hdisti).
@@ -311,10 +312,11 @@ Lemma nth_dist_ext' i e f nt (Hnt0 : nt <> 0) dist : forall n s,
   i < nt ->
   (forall i, dist i < nt) ->
   dist (s + n) <> i ->
-  nth i (distribute nt e n f dist s) emp <=> 
-  nth i (distribute nt e (S n) f dist s) emp.
+  forall stc, 
+  stc ||= nth i (distribute nt e n f dist s) emp <=> 
+      nth i (distribute nt e (S n) f dist s) emp.
 Proof.
-  induction n; intros s Hint Hdisi Hdisneq.
+  induction n; intros s Hint Hdisi Hdisneq stc.
   - simpl; rewrite nth_add_nth; simpl_nth.
     rewrite <-plus_n_O in Hdisneq.
     rewrite (proj2 (Nat.eqb_neq i (dist s))); auto; reflexivity.
@@ -328,10 +330,11 @@ Lemma nth_dist_ext i e f nt (Hnt0 : nt <> 0) dist : forall next s n,
   i < nt ->
   (forall i, dist i < nt) ->
   (forall j, j < next -> dist (s + n + j) <> i) ->
+  forall stc, stc ||=
   nth i (distribute nt e n f dist s) emp <=> 
   nth i (distribute nt e (n + next) f dist s) emp.
 Proof.
-  induction next; intros s n Hint Hdist Hdisti.
+  induction next; intros s n Hint Hdist Hdisti stc.
   - rewrite <-plus_n_O; reflexivity.
   - rewrite <-plus_n_Sm; simpl.
     rewrite nth_add_nth; auto.
@@ -355,11 +358,12 @@ Qed.
 
 Lemma skip_arr_fold i e f n nt (Hnt0 : nt <> 0) : forall s, 
   i < nt -> 0 < n ->
+  forall stc, stc ||=
   nth i (distribute nt e (s * nt + i) f (nt_step nt) 0) emp **
    (e + Enum' (s * nt + i) -->p (1,  Enum (f (s * nt + i)))) <=>
     nth i (distribute nt e (S s * nt + i) f (nt_step nt) 0) emp.
 Proof.
-  intros s Hint Hn0.
+  intros s Hint Hn0 stc.
   assert (Heq : s * nt + i = 0 + (s * nt + i) + 0) by omega.
   rewrite Heq at 2; rewrite Heq at 3.
   rewrite nth_dist_snoc; auto.
@@ -381,10 +385,11 @@ Lemma nth_dist_change i e f1 f2 nt (Hnt0 : nt <> 0) dist : forall n s,
   i < nt ->
   (forall i, dist i < nt) ->
   (forall j, j < n -> dist (j + s) = i -> f1 (j + s) = f2 (j + s)) ->
+  forall stc, stc ||=
   nth i (distribute nt e n f1 dist s) emp <=> 
   nth i (distribute nt e n f2 dist s) emp.
 Proof.
-  induction n; intros s Hint Hdist Hf; simpl; [reflexivity|].
+  induction n; intros s Hint Hdist Hf stc; simpl; [reflexivity|].
   rewrite !nth_add_nth; auto.
   destruct (beq_nat i (dist s)) eqn:Heq.
   - apply Nat.eqb_eq in Heq.

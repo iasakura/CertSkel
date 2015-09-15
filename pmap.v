@@ -16,9 +16,9 @@ Variable f : nat -> Z.
 Local Close Scope exp_scope.
 
 Definition inv (i : nat) :=
-  Ex ix, !(I == Enum' (ix * ntrd + i)) ** !(Apure (ix * ntrd + i - ntrd < len)%nat) **
-     nth i (distribute ntrd ARR (ix * ntrd + i) (fun i => f i + 1)%Z (nt_step ntrd) 0) emp **
-     nth i (distribute ntrd ARR (len - (ix * ntrd + i)) (fun i => f i) (nt_step ntrd) (ix * ntrd + i)) emp.
+  Ex ix, !(I == Enum' (ix * ntrd + i)) ** !(Apure (ix * ntrd + i < len + ntrd)%nat) **
+     nth i (distribute ntrd ARR (ix * ntrd) (fun i => f i + 1)%Z (nt_step ntrd) 0) emp **
+     nth i (distribute ntrd ARR (len - (ix * ntrd)) (fun i => f i) (nt_step ntrd) (ix * ntrd)) emp.
 
 Definition map_ker (i : nat) :=
   I ::= TID%Z;;
@@ -44,12 +44,12 @@ Proof.
   { hoare_forward; intros ? ? H'.
     destruct H' as [v H']; subA_normalize_in H'. simpl in H'. exact H'. }
   hoare_forward.
-  { eapply Hbackward.
+  { unfold inv; eapply Hbackward.
     Focus 2.
-    { intros s h H; sep_normal_in H.
+    { intros s h H; sep_normal_in H; 
       sep_split_in H.
       unfold bexp_to_assn in HP; simpl in HP.
-      destruct (Z_lt_dec _ _) as [HP' | _]; [|congruence]; clear HP.
+      destruct (Z_lt_dec _ _) as [HP' | _]; [|congruence]; clear HP. 
       unfold inv in H.
       destruct H as [ix H]. sep_split_in H.
       red in HP; simpl in HP; destruct (Z_eq_dec _ _) as [HP'' | ]; [|congruence]; clear HP.

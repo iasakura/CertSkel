@@ -179,77 +179,79 @@ Require Import assertions.
 Definition conj_xs : list assn -> assn := fold_right Astar emp.
 
 Require Import SetoidClass.
-Definition equiv_sep (P Q : assn) := (forall s h, P s h <-> Q s h).
-Notation "P <=> Q" := (equiv_sep P Q) (at level 87).
+Require Import Lang.
+Definition equiv_sep (s : stack) (P Q : assn) := (forall h, P s h <-> Q s h).
+Notation "s ||= P <=> Q" := (equiv_sep s P Q) (at level 86, next at level 87).
 
 Lemma equiv_from_nth :
   forall (x0 : assn) (s1 s2 : list assn),
     length s1 = length s2 ->
-    (forall i : nat, i < length s1 -> nth i s1 x0 <=> nth i s2 x0) -> conj_xs s1 <=> conj_xs s2.
+    (forall i : nat, i < length s1 -> forall s, s ||= nth i s1 x0 <=> nth i s2 x0) ->
+    forall s, s ||= conj_xs s1 <=> conj_xs s2.
 Proof.
   intros x0; induction s1; intros s2 Hlen Heq s h; destruct s2; simpl in *; try omega; try tauto.
-  assert (a <=> a0) by (apply (Heq 0); omega).
-  assert (conj_xs s1 <=> conj_xs s2).
+  assert (s ||= a <=> a0) by (apply (Heq 0); omega).
+  assert (s ||= conj_xs s1 <=> conj_xs s2).
   { apply IHs1; [omega|].
     intros i Hl; apply (Heq (S i)); auto; omega. }
   clear IHs1 Hlen Heq.
-  split; apply scRw; intros s' h' H'; specialize (H s' h'); specialize (H0 s' h'); tauto.
+  split; apply scRw_stack; intros h' H'; specialize (H h'); specialize (H0 h'); try tauto.
 Qed.
 
 Require Import SetoidClass.
-Instance equiv_sep_equiv : Equivalence equiv_sep.
+Instance equiv_sep_equiv (s : stack) : Equivalence (equiv_sep s).
 split; repeat intro; try tauto.
-specialize (H s h); tauto.
-specialize (H s h); specialize (H0 s h); tauto.
+specialize (H h); tauto.
+specialize (H h); specialize (H0 h); tauto.
 Qed.
 
-Program Instance assn_setoid : Setoid assn :=
-  {| equiv := equiv_sep;
-     setoid_equiv := equiv_sep_equiv |}.
+Program Instance assn_setoid (s : stack) : Setoid assn :=
+  {| equiv := equiv_sep s;
+     setoid_equiv := equiv_sep_equiv s |}.
 
-Instance star_proper : Proper (equiv_sep ==> equiv_sep ==> equiv_sep) Astar.
+Instance star_proper (s : stack) : Proper (equiv_sep s ==> equiv_sep s ==> equiv_sep s) Astar.
 Proof.
-  intros p1 p2 H p3 p4 H' s h.
-  split; apply scRw; intros s' h'; firstorder.
+  intros p1 p2 H p3 p4 H' h.
+  split; apply scRw_stack; intros  h'; firstorder.
 Qed.
 
-Lemma sep_assoc (P Q R : assn) : P ** Q ** R <=> (P ** Q) ** R.
+Lemma sep_assoc (P Q R : assn) : forall s, s ||= P ** Q ** R <=> (P ** Q) ** R.
 Proof.
   split; intros. sep_normal. sep_cancel. sep_normal_in H. sep_cancel.
 Qed.  
 
 Lemma conj_xs_app (l1 l2 : list assn) :
-  conj_xs (l1 ++ l2) <=> conj_xs l1 ** conj_xs l2.
+  forall s, s ||= conj_xs (l1 ++ l2) <=> conj_xs l1 ** conj_xs l2.
 Proof.
   induction l1; simpl.
   split; intros H; sep_normal; sep_normal_in H; auto.
-  rewrite IHl1, sep_assoc; reflexivity.
+  intros; rewrite IHl1, sep_assoc; reflexivity.
 Qed.
 
-Lemma emp_unit_l (P : assn) : emp ** P <=> P.
+Lemma emp_unit_l (P : assn) : forall s, s ||= emp ** P <=> P.
 Proof.
   split; intros; sep_normal; auto.
   sep_normal_in H; auto.
 Qed.
 
-Lemma emp_unit_r (P : assn) : P ** emp <=> P.
+Lemma emp_unit_r (P : assn) : forall s, s ||= P ** emp <=> P.
 Proof.
   split; intros; sep_normal; auto.
   sep_normal_in H; auto.
 Qed.
 
 Lemma nseq_emp_emp (n : nat) :
-  conj_xs (nseq n emp) <=> emp.
+  forall s, s ||= conj_xs (nseq n emp) <=> emp.
 Proof.
   induction n; simpl.
   - reflexivity.
-  - rewrite emp_unit_l; auto.
+  - intros; rewrite emp_unit_l; auto.
 Qed.
 
 Lemma map_conj {A : Type} (l : list A) (f g : A -> assn) :
-  conj_xs (map (fun x => f x ** g x) l) <=> conj_xs (map f l) ** conj_xs (map g l).
+  forall s, s ||= conj_xs (map (fun x => f x ** g x) l) <=> conj_xs (map f l) ** conj_xs (map g l).
 Proof.
-  induction l; simpl; auto.
+  induction l; simpl; auto; intros.
   - rewrite emp_unit_l; reflexivity.
   - rewrite IHl; split; intros H; sep_normal; sep_normal_in H; repeat sep_cancel.
 Qed. 

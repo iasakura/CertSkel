@@ -294,8 +294,8 @@ Section hoare_lemmas.
   Qed.
 End hoare_lemmas.
 
-Definition equiv_sep (P Q : assn) := (forall s h, P s h <-> Q s h).
-Notation "P <=> Q" := (equiv_sep P Q) (at level 87).
+(* Definition equiv_sep (P Q : assn) := (forall s h, P s h <-> Q s h). *)
+(* Notation "P <=> Q" := (equiv_sep P Q) (at level 87). *)
 
 Ltac ltac_bug E H :=
   match type of H with
