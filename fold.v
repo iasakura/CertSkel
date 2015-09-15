@@ -1148,7 +1148,7 @@ Proof.
 
   sep_rewrite_in equiv_from_nth H.
   Focus 3.
-  { rewrite init_length; intros i Hi; rewrite ls_init_spec at 1.
+  { rewrite init_length; intros i Hi stc; rewrite ls_init_spec at 1.
     destruct (lt_dec i (dbl s0)); try omega.
     simpl.
     rewrite nth_dist_change; [|auto..|].
@@ -1179,7 +1179,7 @@ Proof.
   
   sep_rewrite equiv_from_nth.
   Focus 3.
-  { rewrite init_length; intros i Hi; rewrite ls_init_spec at 1.
+  { rewrite init_length. intros i Hi stc; rewrite ls_init_spec at 1.
     destruct (lt_dec i); try omega.
     simpl; rewrite Hs0. reflexivity.
     auto.
