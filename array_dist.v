@@ -381,6 +381,26 @@ Proof.
   - inversion 1.
 Qed.
 
+Lemma skip_arr_fold' i e f nt (Hnt0 : nt <> 0) : forall s, 
+  i < nt -> 
+  forall stc, stc ||=
+  nth i (distribute nt e (s * nt) f (nt_step nt) 0) emp **
+   (e + Enum' (s * nt + i) -->p (1,  Enum (f (s * nt + i)))) <=>
+    nth i (distribute nt e (S s * nt) f (nt_step nt) 0) emp.
+Proof.
+  intros s Hint stc.
+  cutrewrite (s * nt + i = 0 + s * nt + i); [|omega].
+  rewrite nth_dist_snoc; try omega; eauto.
+  rewrite nth_dist_ext with (next := (nt - S i)); try omega; eauto.
+  cutrewrite (S (s * nt + i) + (nt - S i) = S s * nt); [|simpl; omega]; reflexivity.
+  intros; simpl; unfold nt_step.
+  cutrewrite (S (s * nt + i + j) = (S (i + j) + s * nt));
+    [rewrite Nat.mod_add, Nat.mod_small; omega|omega].
+  unfold nt_step.
+  cutrewrite (0 + s * nt + i = i + s * nt); [rewrite Nat.mod_add, Nat.mod_small; omega|omega].
+  intros j Hji; simpl; unfold nt_step; rewrite plus_comm, Nat.mod_add, Nat.mod_small; omega.
+Qed.  
+
 Lemma nth_dist_change i e f1 f2 nt (Hnt0 : nt <> 0) dist : forall n s,
   i < nt ->
   (forall i, dist i < nt) ->
