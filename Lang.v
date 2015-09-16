@@ -26,6 +26,8 @@ Inductive exp :=
 | Evar (x : var)
 | Enum (n : Z)
 | Eplus (e1: exp) (e2: exp)
+| Emult (e1 : exp) (e2 : exp)
+| Esub (e1 : exp) (e2 : exp)
 | Ediv2 (e : exp).
 
 Inductive bexp :=
@@ -67,9 +69,11 @@ Fixpoint edenot e s :=
   match e with
     | Evar v => s v
     | Enum n => n
-    | Eplus e1 e2 => (edenot e1 s + edenot e2 s)%Z
+    | Eplus e1 e2 => edenot e1 s + edenot e2 s
+    | Emult e1 e2 => edenot e1 s * edenot e2 s
+    | Esub e1 e2 => edenot e1 s - edenot e2 s
     | Ediv2 e1 => Z.div2 (edenot e1 s)
-  end.
+  end%Z.
 
 Fixpoint bdenot b s : bool := 
   match b with
@@ -678,6 +682,12 @@ Section NonInter.
   | ty_plus : forall (e1 e2 : exp) (ty1 ty2 : type), 
                 typing_exp e1 ty1 -> typing_exp e2 ty2 ->
                 typing_exp (Eplus e1 e2) (join ty1 ty2)
+  | ty_mult : forall (e1 e2 : exp) (ty1 ty2 : type), 
+                typing_exp e1 ty1 -> typing_exp e2 ty2 ->
+                typing_exp (Emult e1 e2) (join ty1 ty2)
+  | ty_sub : forall (e1 e2 : exp) (ty1 ty2 : type), 
+                typing_exp e1 ty1 -> typing_exp e2 ty2 ->
+                typing_exp (Esub e1 e2) (join ty1 ty2)
   | ty_div2 : forall (e : exp) (ty : type),
                 typing_exp e ty -> typing_exp (Ediv2 e) ty.
 
@@ -729,11 +739,10 @@ Section NonInter.
   Lemma low_eq_eq_exp (e : exp) (s1 s2 : stack) :
     low_eq s1 s2 -> typing_exp e Lo -> edenot e s1 = edenot e s2.
   Proof.
-    intros heq hty; induction e; simpl; eauto.
+    intros heq hty; induction e; simpl; eauto; 
+    try now (inversion hty; destruct ty1, ty2; unfold join in *; try congruence;
+             rewrite IHe1, IHe2; eauto).
     - inversion hty; specialize (heq x); eauto.
-    - inversion hty.
-      destruct ty1, ty2; unfold join in H1; simpl in H1; inversion H1.
-      apply IHe1 in H2; apply IHe2 in H3; rewrite H2, H3; eauto.
     - inversion hty; rewrite IHe; eauto. 
   Qed.
 
@@ -985,6 +994,8 @@ Section Substitution.
       | Evar y => (if var_eq_dec x y then e else Evar y)
       | Enum n => Enum n
       | Eplus e1 e2 => Eplus (subE x e e1) (subE x e e2)
+      | Emult e1 e2 => Emult (subE x e e1) (subE x e e2)
+      | Esub e1 e2 => Esub (subE x e e1) (subE x e e2)
       | Ediv2 e1 => Ediv2 (subE x e e1)
     end.
   (* b[x/e]*)
