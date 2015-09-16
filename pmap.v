@@ -58,7 +58,8 @@ Proof.
   unfold map_ker.
   eapply rule_seq.
   { hoare_forward; intros ? ? H'.
-    destruct H' as [v H']; subA_normalize_in H'. simpl in H'. exact H'. }
+    destruct H' as [v H'].
+    subA_normalize_in H'. simpl in H'. exact H'. }
   hoare_forward.
   { unfold inv; eapply Hbackward.
     Focus 2.

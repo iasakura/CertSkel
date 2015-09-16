@@ -116,6 +116,18 @@ Section independent_prover.
           rewrite (H _ H0 _ v); auto.
       + apply IHl; auto.
   Qed.      
+
+  Lemma inde_is_array len arr f vs : forall s,
+    List.Forall (indeE arr) vs ->
+    inde (is_array arr len f s) vs.
+  Proof.
+    induction len; intros; simpl.
+    - unfold inde; intros; cbv; tauto.
+    - apply inde_sconj; [apply inde_pointto|]; eauto.
+      rewrite List.Forall_forall in *; intros. unfold indeE in *; simpl in *; intros.
+      rewrite <-H; eauto.
+      apply List.Forall_forall; unfold indeE; intros; simpl; reflexivity.
+  Qed.
 End independent_prover.
 
 Ltac prove_indeE := unfold indeE, var_upd in *; intros; simpl; auto.
@@ -130,8 +142,10 @@ Ltac prove_inde :=
     | [ |- inde (?E -->p (_, ?E')) _ ] => apply inde_pointto; repeat (constructor; prove_indeE)
     | [ |- inde (?E === ?E') _ ] => apply inde_eeq; repeat (constructor; prove_indeE)
     | [ |- inde (bexp_to_assn ?B) _ ] => apply inde_bexp; repeat (constructor; prove_indeB)
-    | [ |- inde (inde (List.nth _ (distribute _ _ _ _ _ _) emp) _) ] =>
+    | [ |- inde (List.nth _ (distribute _ _ _ _ _ _) emp) _ ] =>
       apply inde_distribute; auto; repeat (constructor; prove_indeE)
+    | [ |- inde (is_array _ _ _ _) _ ] =>
+      apply inde_is_array; auto; repeat (constructor; prove_indeE)
     | [ |- _ ] => try now (unfold inde, var_upd; simpl; try tauto) 
   end.
 
@@ -193,6 +207,15 @@ Section subA_simpl.
         * rewrite List.nth_overflow in *; [|rewrite add_nth_length, distribute_length..]; auto.
       + rewrite add_nth_overflow in *; (try rewrite distribute_length); auto.
   Qed.      
+
+  Lemma subA_is_array (arr : exp) (len : nat) (f : nat -> Z) x e: forall s,
+    subA x e (is_array arr len f s) |= is_array (subE x e arr) len f s.
+  Proof.
+    induction len; simpl; intros s stc h H.
+    - apply H.
+    - apply subA_sconj in H; revert h H; apply scRw_stack; intros h H; eauto.
+      apply subA_pointto in H; apply H.
+  Qed.
 End subA_simpl.
 
 Lemma conj_mono (P Q P' Q' : assn) s h : (P s h -> P' s h) -> (Q s h -> Q' s h) ->
@@ -220,7 +243,6 @@ Proof.
   unfold bexp_to_assn, subA' in *; simpl.
   rewrite <-subB_assign in H; auto.
 Qed.
-
 
 Lemma subA_emp (x : var) (e : exp) : subA x e emp |= emp.
 Proof. unfold_conn; auto. Qed.
@@ -254,6 +276,7 @@ Ltac subA_normalize_in H :=
     | subA _ _ emp _ _ => apply subA_emp in H
     | subA _ _ (bexp_to_assn ?b) _ _ => apply subA_bexp_to_assn in H
     | subA _ _ (List.nth _ (distribute _ _ _ _ _ _) _) _ _ => apply distribute_subA in H; auto
+    | subA _ _ (is_array _ _ _ _) _ _ => apply subA_is_array in H; auto
     | _ => simpl in H
   end.
 
@@ -458,12 +481,12 @@ Ltac hoare_forward :=
         apply rule_assign_forward | idtac ]
     | [ |- CSL ?bspec ?tid ?P (Cbarrier ?i) ?Q] =>
       idtac "called";
-      eapply Hbackward; [
-        eapply Hforward; [
+      eapply Hforward; [
+        eapply Hbackward; [
           eapply rule_frame; 
           [eapply rule_barrier | prove_inde] |
            autounfold; simpl; repeat rewrite MyVector.init_spec in *] | 
-        frame_analysis (Vector.nth (fst (bspec i)) tid)]
+        (* frame_analysis (Vector.nth (fst (bspec i)) tid) *)]
     | [ |- CSL ?bspec ?tid ?P (Cif ?b ?c1 ?c2) ?Q ] =>
       eapply Hbackward; [
           eapply Hforward; [

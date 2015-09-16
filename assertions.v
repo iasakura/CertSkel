@@ -6,7 +6,7 @@ Ltac last_slist :=
   match goal with
     | [ |- (?P ** ?R) ?s ?h ] =>
       eapply scRw; [intros ? ? H; exact H | intros ? ? H; last_slist; exact H | idtac];
-      apply scA
+      apply scA'
     | _ => idtac
   end.
 

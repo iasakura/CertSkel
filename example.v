@@ -1094,7 +1094,9 @@ Section Example.
       eapply rule_seq.
       hoare_forward; intros ? ? H'; exact H'.
       eapply rule_seq.
-      hoare_forward; intros ? ? H'; exact H'.
+      hoare_forward; intros. 
+      sep_normal; sep_normal_in H; sep_split_in H; sep_cancel; sep_combine_in H; sep_normal_in H; exact H.
+      autounfold. simpl in H. rewrite init_spec in H. exact H.
       eapply rule_seq.
       hoare_forward.
       hoare_forward; intros ? ? H'; exact H'.
@@ -1106,7 +1108,7 @@ Section Example.
       eapply Hbackward.
       Focus 2.
         intros ? ? H.
-        destruct H; sep_split_in H.
+        destruct H; sep_split_in H; sep_normal_in H.
         subA_normalize_in H. simpl in *. 
         sep_normal_in H. sep_split_in H.
         assert (((Z_of_fin tid + 1) mod ntrdZ === 0)%Z s emp_ph).
