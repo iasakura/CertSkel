@@ -252,6 +252,17 @@ Proof.
   unfold_conn; simpl; auto.
 Qed.
 
+Lemma subA_if_dec x e A B (d : {A} + {B}) (P Q : assn) :
+  subA x e (if d then P else Q) |= if d then (subA x e P) else (subA x e Q).
+Proof.
+  destruct d; eauto.
+Qed.
+
+Lemma if_mono A B (d : {A} + {B}) (P P' Q Q' : assn) :
+  P |= P' -> Q |= Q' ->
+  (if d then P else Q) |= if d then P' else Q'.
+Proof. destruct d; eauto. Qed.
+
 Ltac subA_normalize_in H :=
   let Hf := fresh in
   match goal with _ => idtac end;
@@ -277,6 +288,9 @@ Ltac subA_normalize_in H :=
     | subA _ _ (bexp_to_assn ?b) _ _ => apply subA_bexp_to_assn in H
     | subA _ _ (List.nth _ (distribute _ _ _ _ _ _) _) _ _ => apply distribute_subA in H; auto
     | subA _ _ (is_array _ _ _ _) _ _ => apply subA_is_array in H; auto
+    | subA _ _ (if _ then _ else _) _ _ =>
+      apply subA_if_dec in H; eapply if_mono in H;
+      [ idtac | intros ? ? Hf; subA_normalize_in Hf; exact Hf ..]
     | _ => simpl in H
   end.
 

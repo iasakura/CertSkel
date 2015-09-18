@@ -1082,7 +1082,7 @@ Section Example.
 
 
     Hint Unfold Pre_i Post_i : sep.
-    Hint Unfold bspec bpre bpost lt.
+    Hint Unfold bspec bpre bpost.
     Hint Rewrite init_spec : sep.
     Require Import VCG.
     Lemma rotate_seq (tid : Fin.t ntrd) : 
