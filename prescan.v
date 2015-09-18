@@ -757,61 +757,57 @@ Section Prescan.
         rewrite Nat.max_l in *; try omega.
         rewrite Nat.min_r in H; try omega.
 
-        Lemma is_array_conj (e : exp) (n : nat) 
-          
-        
-      Focus 2.
-      { intros i Hid.
-        rewrite nth_nseq; destruct (leb ntrd i) eqn:Heq.
-        apply leb_iff in Heq; omega.
-        reflexivity. } Unfocus.
-      
-      sep_rewrite_in_r (@equiv_from_nth emp (ls_init 0 (min (d * 2) ntrd) (fun i : nat =>
-            is_array Sum (Nat.max 2 offset) fc' (i * Nat.max 2 offset)))) H;
-        try (rewrite !init_length; auto).
-      Focus 2.
-      intros i Hi stc.
-      rewrite !ls_init_spec; destruct lt_dec; try omega; simpl.
-      apply is_array_change.
-      intros x Hx; unfold fc'.
-      pose proof (ls_emp _ _ i HP6) as HP8; rewrite ls_init_spec in HP8.
-      destruct lt_dec; try omega.
-      unfold_conn_in HP8; simpl in HP8.
-      rewrite HP8.
-      Focus 2.
-      { assert (offset < 2 \/ 2 <= offset) as [Ho2 | Ho2] by omega.
-        - assert (offset = 1) by omega; subst offset.
-          rewrite <-Hdof; unfold Nat.max; simpl.
-          rewrite <-Hdof in Hi; rewrite Min.min_r in Hi; try omega.
-          unfold Nat.max in Hx; simpl in Hx.
-          omega. 
-        - rewrite Nat.max_r; try omega.
-          assert (d * 2 <= ntrd).
-          rewrite <-Hdof; apply mult_le_compat_l; try omega.
-          rewrite Nat.min_l in Hi; try omega.
-          rewrite Nat.max_r in Hx; try omega.
-          rewrite <-Hdof.
-          unfold lt in Hi.
-          assert (i * offset + offset <= d * offset * 2).
-          { rewrite (Nat.mul_le_mono_pos_r _ _ offset) in Hi; try omega.
-            simpl in Hi.
-            cutrewrite (d * offset * 2 = d * 2 * offset); [|ring].
-            omega. }
-          generalize (i * offset) (d * offset *2 )H4; intros. omega. } Unfocus.
-          
-      assert ((x + i * Nat.max 2 offset) / Nat.max 2 offset < min (d * 2) ntrd).
-      { rewrite Nat.div_add.
-        rewrite Nat.div_small; try omega.
-        assert (offset < 2 \/ 2 <= offset) as [Hol | Hol] by omega.
-        rewrite Nat.max_l; omega.
-        rewrite Nat.max_r; omega. }
-      pose proof (ls_emp _ _ ((x + i * Nat.max 2 offset) / Nat.max 2 offset) HP6) as HP9.
-      rewrite ls_init_spec in HP9; destruct lt_dec.
-      unfold_conn_in HP7; rewrite HP7; try omega.
-      pose proof (ls_emp _ _ i HP6) as HP8; rewrite ls_init_spec in HP8.
-      destruct lt_dec; try omega.
-      unfold_conn_in HP8. simpl in HP8.
+        Lemma is_array_conj (e : exp) (n m : nat) (f : nat -> nat -> Z) :
+          m <> 0 ->
+          forall s stc,
+            stc ||= conj_xs (ls_init s n (fun i => is_array e m (f i) (i * m))) <=>
+                    is_array e (m * n) (fun i => f (i / m) i) (m * s).
+        Proof.
+          induction n; simpl; intros Hm s stc.
+          - rewrite mult_0_r; simpl; reflexivity.
+          - rewrite <-mult_n_Sm, plus_comm.
+            rewrite <-is_array_concat.
+            rewrite IHn; eauto.
+            rewrite <-mult_n_Sm.
+            lazymatch goal with
+              | [|- ?stc ||= ?X ** ?Y <=> ?Z ** ?W] =>
+                assert (Heq : stc ||= X <=> Z); [|rewrite Heq; reflexivity]
+            end.
+          rewrite mult_comm; apply is_array_change; intros x Hxm.
+          rewrite mult_comm, Nat.div_add; eauto; rewrite Nat.div_small; eauto.
+        Qed.
 
+        sep_rewrite_in is_array_conj H; eauto; rewrite mult_0_r in H.
+        erewrite ls_init_eq0.
+        Focus 2.
+        { intros i Hid.
+          rewrite !mult_1_l.
+          cutrewrite (i * 1 * 2 = i * 2); [|omega].
+          rewrite nth_nseq; destruct (leb ntrd i) eqn:Heq; [apply leb_iff in Heq; omega|].
+          reflexivity. } Unfocus.
+        sep_rewrite is_array_conj; try omega.
+        rewrite mult_0_r.
+        apply H.
+      + assert (d * 2 <= ntrd) by (apply (mult_le_compat_l _ _ d) in Ho2; rewrite <-Hdof; eauto).
+        rewrite Nat.min_l in *; eauto.
+        rewrite Nat.max_r in *; eauto.
+        sep_rewrite_in is_array_conj H; try omega.
+        
+        erewrite ls_init_eq0.
+        Focus 2.
+        { intros i Hid.
+          rewrite <-mult_assoc.
+          rewrite nth_nseq; destruct (leb ntrd i) eqn:Heq; [apply leb_iff in Heq; omega|].
+          reflexivity. } Unfocus.
+        sep_rewrite is_array_conj; try omega.
+        rewrite mult_0_r in *.
+        cutrewrite (offset * 2 * d = offset * (d * 2)); [|ring].
+        sep_rewrite_in is_array_change H; [apply H|].
+        intros x Hx.
+        unfold fc'.
+        
+        rewrite Nat.max_r; try omega.
+Qed.
       
 Definition downsweep :=
   D ::= 1 ;;
