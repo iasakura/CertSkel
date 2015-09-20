@@ -61,9 +61,9 @@ Section Prescan.
   Notation Tmp1 := (Var 6).
   Notation Tmp2 := (Var 7).
 
-  Infix "+C" := (Eplus) (at level 50).
-  Infix "*C" := (Emult) (at level 40).
-  Infix "-C" := (Esub) (at level 50).
+  Infix "+C" := (Eplus) (at level 50, left associativity).
+  Infix "*C" := (Emult) (at level 40, left associativity).
+  Infix "-C" := (Esub) (at level 50, left associativity).
   Infix "<C" := (Blt) (at level 70).
 
   Notation leftC ARR := (ARR +C Offset *C (Enum 2 *C Tid +C Enum 1) -C Enum 1).
@@ -823,7 +823,7 @@ Definition downInv (i : nat) :=
            else
              f j = (let m := 2 ^ rdiv2 (j + 1) in sum_of (j + 1 - m) m f_ini))) **
         let p := if Nat.eq_dec d 1 then 1 else 2 in
-        (is_array Sum (offset * p) f (i + 1 - offset * p) )
+        (is_array Sum (offset * p) f (i * (offset * p)))
      else emp).
 
 Definition downsweep (i : nat) :=
@@ -835,7 +835,7 @@ Definition downsweep (i : nat) :=
       Tmp1 ::= [leftC Sum] ;;
       Tmp2 ::= [rightC Sum] ;;
       [leftC Sum] ::= Tmp2 ;;
-      [rightC In] ::= Tmp1 +C Tmp2
+      [rightC Sum] ::= Tmp1 +C Tmp2
     ) (Cskip) ;;
     D ::= D *C 2%Z
   ).
@@ -856,7 +856,7 @@ Definition bspec1 n :=
                 else
                   f j = (let m := 2 ^ rdiv2 (j + 1) in sum_of (j + 1 - m) m f_ini))) **
               let p := if Nat.eq_dec d 1 then 1 else 2 in
-              (is_array Sum (i + 1 - (offset * 2) * p) f (offset * p))
+              (is_array Sum (offset * 2 * p) f (i * (offset * 2 * p)) )
            else emp)),
      MyVector.init (fun i : Fin.t ntrd =>
        let i := nf i in
@@ -869,10 +869,10 @@ Definition bspec1 n :=
          (if lt_dec i d then
              !(pure (forall j : nat, j < ntrd * 2 ->
                 if Nat.eq_dec ((j + 1) mod (offset * 2)) 0 then
-                  f j = sum_of (j + 1 - (offset * 2)) (offset * 2) f_ini
+                  f j = sum_of 0 (j + 1 - (offset * 2)) f_ini
                 else
                   f j = (let m := 2 ^ rdiv2 (j + 1) in sum_of (j + 1 - m) m f_ini))) **
-              (is_array Sum (i + 1 - (offset * 2)) f (offset * 2))
+              (is_array Sum (offset * 2) f  (i * (offset * 2)))
            else emp)))
   else default ntrd.
 
@@ -893,7 +893,7 @@ Lemma downsweep_correct (i : Fin.t ntrd) :
       (Ex f : nat -> Z,
          !(pure
              (forall j : nat, j < ntrd * 2 -> f j = sum_of 0 j f_ini)) **
-          (is_array Sum 2 f ((nf i) - 1) )).
+          (is_array Sum 2 f ((nf i) * 2) )).
 Proof.
   pose proof ntrd_neq_0 as ntrd_neq_0.
   destruct ntrd_is_p2 as [en Hntrd2].
@@ -901,7 +901,8 @@ Proof.
   eapply rule_seq.
   { repeat hoare_forward. intros ? ? [v H]. subA_normalize_in H. simpl in H. ex_intro x H. exact H. }
   simpl; repeat hoare_forward.
-  
+
+  (* loop inv ** ~b => postcondition *)
   Focus 2.
   { unfold downInv; intros s h H.
     ex_dest_in H offset; ex_dest_in H d; ex_dest_in H f.
@@ -919,9 +920,9 @@ Proof.
     exists f; sep_split_in H; sep_split; eauto.
     unfold_pures; unfold_conn; intros j Hj.
     subst offset; simpl in HP4; rewrite HP4; try omega; f_equal; omega.
-    subst offset; destruct Nat.eq_dec; try omega; simpl in H.
-    cutrewrite (nf i + 1 - 2 = nf i - 1) in H; try omega; eauto. } Unfocus.
+    subst offset; destruct Nat.eq_dec; try omega; simpl in H. eauto. } Unfocus.
 
+  (* precondition => loop inv *)
   Focus 2.
   { unfold downInv; intros s h H.
     sep_split_in H; exists (ntrd * 2), 1, x; unfold ceil2; simpl.
@@ -932,8 +933,7 @@ Proof.
       specialize (HP2 j Hj); destruct Nat.eq_dec; subst.
       cutrewrite (2 ^ en * 2 - 1 + 1 = 2 ^ en * 2); [|omega]; rewrite Nat.mod_same, minus_diag; simpl; omega.
       rewrite Nat.mod_small; try omega; destruct Nat.eq_dec; try omega.
-      cutrewrite (nf i + 1 - ntrd * 2 * 1 = 0); [|omega].
-      rewrite mult_1_r; eauto. } Unfocus.
+      rewrite e, mult_1_r; eauto. } Unfocus.
 
   Hint Unfold downInv.
   autounfold.
@@ -945,30 +945,204 @@ Proof.
   eapply rule_seq; [hoare_forward; intros s h [v H]; subA_normalize_in H; ex_intro v H; exact H|].
   simpl.
 
+  (* loop invariant is preserved *)
   repeat hoare_forward.
   eapply rule_seq; [hoare_forward|].
   
   { intros s h H;
     apply ex_lift_l; exists (offset / 2); apply ex_lift_l; exists d; apply ex_lift_l; exists f.
-    sep_split_in H; sep_normal; sep_split; eauto.
+    sep_split_in H.
+    assert (pure (d * (offset / 2) = ntrd) s emp_ph).
+    { unfold_pures; unfold_conn.
+      rewrite <-Nat.divide_div_mul_exact; eauto.
+      rewrite HP3, Nat.div_mul; eauto.
+      unfold Nat.divide, divide; rewrite Hntrd2 in HP3, l.
+      Lemma pow_S (n e : nat) : n ^ e * n = n ^ (S e).
+      Proof.
+        rewrite mult_comm; simpl; reflexivity.
+      Qed.
+      Hint Rewrite pow_S : sep.
+      rewrite HP2, <-Nat2Z.inj_lt in l.
+      autorewrite with sep in *.
+      apply div_pow2 in HP3 as (ed & eoff & Hed & Heof & Hdof); destruct eoff.
+      cutrewrite (d = 2 ^ S en) in l; [|rewrite <-Hdof, Hed, <-Nat.pow_lt_mono_r_iff in l]; omega.
+      subst offset; simpl; exists (2 ^ eoff); omega. }
+    sep_normal; sep_split; eauto.
     - unfold_pures; unfold_conn; rewrite Zdiv2_div in HP; subst; simpl.
       rewrite div_Zdiv; eauto.
     - unfold_pures; unfold_conn.
-      rewrite Hntrd2 in HP3.
-      rewrite HP2, <-Nat2Z.inj_lt in l.
-      cutrewrite (2 ^ en * 2 = 2 ^ (S en)) in HP3; [|simpl; omega].
-      pose proof (div_pow2 _ _ _ HP3) as (ed & eoff & Hed & Heo & _).
-      destruct eoff; [rewrite Heo, mult_comm in HP3; simpl in HP3; try omega|].
-      rewrite Heo; autorewrite with sep; eauto.
-      rewrite Hed, Heo, mult_comm, !Nat.pow_succ_r' in HP3.
-      rewrite <-mult_assoc, Nat.mul_cancel_l in HP3; eauto.
-      rewrite mult_comm; congruence. 
-    - unfold_pures; unfold_conn. rewrite HP2, <-Nat2Z.inj_lt in l; eauto.
-    - destruct (lt_dec (nf i) (ceil2 (d / 2))).
-      destruct lt_dec; try tauto.
-      sep_split_in H; sep_normal; sep_split; unfold_pures.
-      unfold_conn; intros j Hj; specialize (HP5 j Hj).
-      rewrite Hntrd2 in HP3.
-      cutrewrite (2 ^ en * 2 = 2 ^ (S en)) in HP3; [|simpl; omega].
-      pose proof (div_pow2 _ _ _ HP3) as (ed & eof & Hed & Heof & Hdof).
-      destruct eof. rewrite <-plus_n_O in Hdof.
+      rewrite HP2, <-Nat2Z.inj_lt in l; omega.
+    - assert (Hoff : offset / 2 * 2 = offset); [|rewrite Hoff].
+      { unfold_pures.
+        rewrite mult_comm; rewrite <-Nat.divide_div_mul_exact; eauto.
+        rewrite mult_comm, Nat.div_mul; eauto.
+        rewrite Hntrd2 in HP3; autorewrite with sep in HP3; apply div_pow2 in HP3 as (e1 & e2 & ? & ? & ?).
+        destruct e2; subst offset; [unfold div in H0; simpl in H0; try omega|].
+        unfold Nat.divide, divide; exists (2 ^ e2); simpl; omega. }
+      unfold lt in *.
+      clear HP HP1 HP2 HP3 HP3 H0 Hoff; sep_combine_in H; apply H. } 
+      
+  simpl; rewrite MyVector.init_spec; intros s h H.
+  clear d f x x0.
+  ex_dest_in H o; ex_dest_in H d'; ex_dest_in H f'; sep_normal_in H.
+  ex_intro f' H; ex_intro d' H; ex_intro o H; simpl in H. exact H.
+
+  repeat hoare_forward.
+  clear offset d f x0.
+  rename x1 into off; rename x2 into d; rename x3 into f.
+
+  eapply rule_seq; [apply rule_if_disj|].
+  eapply Hbackward.
+  Focus 2.
+  { intros s h H; sep_normal_in H; sep_split_in H.
+    change_in H.
+    { unfold_pures.
+      rewrite HP, HP1, <-Nat2Z.inj_lt in l; destruct lt_dec; try omega.
+      exact H. }
+    sep_split_in H.
+    change_in H.
+    { unfold_pures.
+      cutrewrite (off * 2 = off + off) in H; [|omega].
+      sep_rewrite_in_r is_array_concat H.
+      rewrite <-HP2 in ntrd_neq_0; apply Nat.neq_mul_0 in ntrd_neq_0 as [Hd0 Hof0].
+      sep_rewrite_in is_array_unfold' H; try omega.
+      sep_normal_in H; sep_lift_in H 2.
+      sep_rewrite_in is_array_unfold' H; try omega.
+      assert (Heq : (Sum +C Zn (nf i * (off + off) + off + off - 1) ===
+                     Sum +C Offset *C (2%Z *C Tid +C 2%Z) -C 1%Z) s emp_ph).
+      { unfold_conn; simpl; autorewrite with sep; try ring.
+        simpl; rewrite HP, HP0. ring.
+        generalize (nf i * (off + off)); intros; omega. }
+      sep_rewrite_in mps_eq1 H; [|exact Heq]. clear Heq.
+      assert (Heq : (Sum +C Zn (nf i * (off + off) + off - 1) ===
+                     Sum +C Offset *C (2%Z *C Tid +C 1%Z) -C 1%Z) s emp_ph).
+      { unfold_conn; simpl; autorewrite with sep; try ring.
+        simpl; rewrite HP, HP0. ring.
+        generalize (nf i * (off + off)); intros; omega. }
+      sep_lift_in H 3.
+      sep_rewrite_in mps_eq1 H; [|exact Heq]. clear Heq.
+      exact H. }
+    sep_combine_in H. exact H. } Unfocus.
+
+  eapply rule_seq; [hoare_forward; intros ? ? H; exact H|].
+  eapply rule_seq; [hoare_forward; intros ? ? H; exact H|].
+  eapply rule_seq; [hoare_forward; intros ? ? H; exact H|].
+  hoare_forward.
+
+  intros s h H; exact H.
+
+  eapply Hbackward.
+  Focus 2.
+  { intros s h H; sep_split_in H.
+    change_in H.
+    { unfold_pures.
+      rewrite HP0, HP2, <-Nat2Z.inj_lt in n; destruct lt_dec; try omega. 
+      exact H. }
+    sep_combine_in H; sep_normal_in H; exact H. } Unfocus.
+
+  apply rule_skip.
+
+  eapply Hforward.
+  apply rule_disj; hoare_forward; intros s h [d' H]; subA_normalize_in H.
+  
+  - instantiate (1 := downInv (nf i)); unfold downInv; simpl in H.
+    sep_split_in H; unfold_pures.
+    set (fc' := fun j =>
+             if Nat.eq_dec j (off * (2 * nf i + 2) - 1) then
+               (f (nf i * (off * 2) + (off * 2) - 1)%nat + f (nf i * (off * 2) + off - 1)%nat)%Z
+             else if Nat.eq_dec j (off * (2 * nf i + 1) - 1) then
+               f (nf i * (off * 2) + off * 2 - 1)
+             else f j).
+    cutrewrite (off + off = off * 2) in HP0; [|ring].
+    rewrite <-plus_assoc in HP0; cutrewrite (off + off = off * 2) in HP0; [|ring].
+    cutrewrite (off + off = off * 2) in HP1; [|ring].
+    exists off, (d * 2); exists fc';
+    sep_split; eauto.
+    + unfold_conn; simpl; autorewrite with sep; simpl; omega.
+    + unfold_conn; simpl; rewrite <-HP5; ring.
+    + rewrite Hntrd2 in HP5; pose proof (div_pow2 _ _ _ HP5) as (e1 & e2 & Hd2 & Hoff2 & He1e2).
+      rewrite Hd2; autorewrite with sep; eauto.
+      rewrite HP7, HP4, <-Nat2Z.inj_lt in l; destruct lt_dec; try omega.
+      sep_split.
+      { intros j Hj; unfold fc'.
+        destruct (Nat.eq_dec ((j + 1) mod off) 0).
+        destruct Nat.eq_dec.
+        - pose proof (HP10 (nf i * (off * 2) + off * 2 - 1)).
+          assert (Ht : nf i * (off * 2) + off * 2 - 1 < ntrd * 2).
+          { cutrewrite (nf i * (off * 2) + off * 2 - 1 = off * ( 2 * nf i + 2) - 1); [omega|f_equal; ring]. }
+          specialize (H0 Ht); clear Ht.
+          assert (off <> 0) by (rewrite Hoff2; eauto).
+          cutrewrite (nf i * (off * 2) + off * 2 - 1 + 1 =
+                      nf i * (off * 2) + off * 2) in H0; [|generalize (nf i * (off * 2)); intros; omega].
+          assert (Heq : nf i * (off * 2) + (off * 2) = (nf i + 1) * (off * 2)) by ring.
+          rewrite Heq in H0.
+          rewrite Nat.mod_mul in H0; simpl in H0; eauto; rewrite <-Heq in H0; try omega; rewrite H0.
+          clear Heq.
+        
+          pose proof (HP10 (nf i * (off * 2) + off - 1)).
+          assert (Ht : nf i * (off * 2) + off  - 1 < ntrd * 2).
+          { rewrite e0 in Hj.
+            cutrewrite (off * (2 * nf i + 2) = nf i * (off * 2) + off + off) in Hj; [|ring].
+            omega. }
+          specialize (H2 Ht).
+          cutrewrite (nf i * (off * 2) + off - 1 + 1 = off + nf i * (off * 2)) in H2; [|generalize (nf i * (off * 2)); intros; omega].
+          assert (Heq : nf i * (off * 2) + off = off + nf i * (off * 2)) by ring. 
+          rewrite Heq in H2.
+          rewrite Nat.mod_add in H2; try omega; rewrite Nat.mod_small in H2; try omega.
+          destruct Nat.eq_dec; try omega.
+          rewrite <-Heq in H2; rewrite H2.
+        
+          rewrite Nat.add_sub.
+        
+          Lemma rdiv2_inv (e n : nat) : 2 ^ rdiv2 (2 ^ e * (2 * n + 1)) = 2 ^ e.
+          Proof.
+            induction e; rewrite rdiv2_equation.
+            - rewrite pow_0_r, mult_1_l; remember (2 * n + 1); destruct n0; eauto.
+              rewrite Heqn0, mult_comm, plus_comm, Nat.mod_add; eauto.
+            - remember (2 ^ S e * (2 * n + 1)).
+              assert (n0 <> 0).
+              rewrite Heqn0; intros H; ring_simplify in H.
+              assert (2 ^ (1 + e) <> 0) by (apply Nat.pow_nonzero; eauto).
+              generalize (2 * 2 ^ (1 + e) * n) H0 H; intros; omega.
+              destruct n0; try omega.
+              rewrite Heqn0, Nat.pow_succ_r'.
+              rewrite <-mult_assoc, mult_comm, Nat.mod_mul; eauto; simpl.
+              cutrewrite (n + (n + 0) + 1 = 2 * n + 1); [|omega]; rewrite Nat.div_mul; eauto.
+          Qed.
+        
+          cutrewrite (nf i * (off * 2) + off = off * (2 * nf i + 1)); [|ring].
+          rewrite Hoff2, rdiv2_inv.
+          clear Heq.
+          assert (Heq: 2 ^ e2 * (2 * nf i + 1) - 2 ^ e2 = nf i * (2 ^ e2 * 2) + 0); [|rewrite Heq; clear Heq].
+          { rewrite mult_plus_distr_l, mult_1_r, Nat.add_sub. ring. }
+          rewrite <-sum_of_concat; f_equal.
+          rewrite e0. rewrite <-Hoff2.
+          rewrite <-Nat.add_sub_swap; try omega.
+          rewrite Nat.add_sub. 
+          rewrite mult_plus_distr_l, <-Nat.add_sub_assoc; f_equal;  [ring | omega..].
+          rewrite mult_plus_distr_l; generalize (off * (2 * nf i)); intros; omega.
+          
+        - destruct Nat.eq_dec; try omega.
+          + specialize (HP10 (nf i * (off * 2) + off * 2 - 1)).
+            assert (off <> 0).
+            { rewrite Hoff2; apply Nat.pow_nonzero; eauto. }
+            assert (nf i * (off * 2) + off * 2 - 1 < ntrd * 2).
+            { assert (nf i * (off * 2) + off * 2 - 1 < nf i * (off * 2) + off * 2) by
+                  (apply lt_minus; generalize (nf i * (off * 2)); intros; omega).
+              assert (nf i * (off * 2) + off * 2 <= d * (off * 2)).
+              { cutrewrite (nf i * (off * 2) + off * 2 = S (nf i) * (off * 2)); [|ring].
+                apply mult_le_compat_r; omega. }
+              rewrite (mult_assoc d off 2), HP5, <-Hntrd2 in H2.
+              omega. }
+
+            specialize (HP10 H1).
+            cutrewrite (nf i * (off * 2) + off * 2 - 1 + 1 = (nf i + 1) * (off * 2)) in HP10.
+            2: rewrite Nat.sub_add; [ring|generalize (nf i * (off * 2)); intros; omega].
+            rewrite Nat.mod_mul in HP10; simpl in HP10; try omega;  rewrite HP10.
+            
+            f_equal; subst j.
+            rewrite mult_plus_distr_l, Nat.sub_add; [|generalize (off * (2 * nf i)); intros; omega].
+            rewrite mult_plus_distr_r, mult_1_l, Nat.add_sub.
+            rewrite mult_1_r, Nat.add_sub; ring.
+            
+          + 
