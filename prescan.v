@@ -1788,6 +1788,64 @@ Proof.
   cutrewrite (fst (default n) = snd (default n)); tauto.
 Qed.
 
+Lemma mps_precise E1 E2 E2' q st : forall h1 h2 h1' h2' ,
+  (E1 -->p (q, E2)) st h1 ->
+  (E1 -->p (q, E2')) st h1' ->
+  pdisj h1 h2 -> pdisj h1' h2' -> phplus h1 h2 = phplus h1' h2' ->
+  h1 = h1'.
+Proof.
+  intros; unfold_conn_all.
+  destruct h1 as [h1 ?], h1' as [h1' ?]; simpl in *.
+  apply pheap_eq; extensionality x.
+  apply (f_equal (fun f => f x)) in H3; unfold phplus in H3.
+  specialize (H1 x); specialize (H2 x).
+  rewrite H, H0 in *.
+  destruct (Z.eq_dec x (edenot E1 st)).
+  destruct (h2 x) as [[? ?]|], (h2' x) as [[? ?]|]; try eauto; inversion H3; congruence.
+  eauto.
+Qed.
+
+Lemma is_array_precise E f f' st n : forall s (h1 h2 h1' h2' : pheap),
+  (is_array E n f s) st h1 ->
+  (is_array E n f' s) st h1' ->
+  pdisj h1 h2 -> pdisj h1' h2' -> phplus h1 h2 = phplus h1' h2' ->
+  h1 = h1'.
+Proof.
+  induction n; simpl; intros.
+  - apply emp_emp_ph_eq in H; apply emp_emp_ph_eq in H0; congruence.
+  - destruct H as (ph1 & ph2 & ? & ? & ? & ?).
+    destruct H0 as (ph1' & ph2' & ? & ? & ? & ?).
+    assert (ph1 = ph1').
+    { assert (pdisj ph1 (phplus ph2 h2)).
+      { apply pdisj_padd_expand; eauto. rewrite H6; eauto. }
+      assert (pdisj ph1' (phplus ph2' h2')).
+      { apply pdisj_padd_expand; eauto. rewrite H9; eauto. }
+      eapply mps_precise; [exact H | exact H0 | exact H10 | exact H11 | ..].
+      rewrite <-H6 in H1.
+      rewrite <-H9 in H2.
+      apply pdisj_padd_expand in H1; eauto.
+      apply pdisj_padd_expand in H2; eauto.
+      rewrite <-!padd_assoc; try tauto.
+      rewrite H9, H6; eauto. }
+    cut (PHeap.this h1 = PHeap.this h1').
+    { intros; destruct h1, h1'; apply pheap_eq; simpl in *; eauto. }
+    rewrite <-H6, <-H9; rewrite H10; repeat f_equal.
+    rewrite <-H9, <-H6 in H3.
+    rewrite (@phplus_comm ph1 ph2) in H3; eauto.
+    rewrite (@phplus_comm ph1' ph2') in H3; eauto.
+    rewrite <-H6, (@phplus_comm ph1 ph2) in H1; eauto.
+    apply pdisj_padd_expand in H1; eauto.
+    rewrite <-H9, (@phplus_comm ph1' ph2') in H2; eauto.
+    apply pdisj_padd_expand in H2; eauto.
+    destruct H1, H2.
+    eapply IHn.
+    eauto. eauto.
+    instantiate (1 := (phplus_pheap H11)); simpl; eauto.
+    instantiate (1 := (phplus_pheap H12)); simpl; eauto.
+    simpl.
+    repeat (rewrite <-padd_assoc; eauto).
+Qed.
+
 Theorem prescan_correct_par :
   CSLp ntrd G 
     (is_array Sum (ntrd * 2) f_ini 0)
@@ -1795,22 +1853,107 @@ Theorem prescan_correct_par :
     (Ex f, 
      !(pure
          (forall j : nat,
-          j < ntrd * 2 -> f j = sum_of 0 j f_ini) **
-      (is_array Sum (ntrd * 2) f 0))).
+          j < ntrd * 2 -> f j = sum_of 0 j f_ini)) **
+      (is_array Sum (ntrd * 2) f 0)).
 Proof.
-  eapply (@rule_par _ _ (fun n => if Nat.eq_dec n 0 then bspec n (*  *)
-                                  else if Nat.eq_dec n 1 then bspec1 n
-                                  else default ntrd) G
-                    _ _ _ _ _ _ _ _ _ _ _ _ _ typing_prescan).
+  set (Ps := MyVector.init (fun i : Fin.t ntrd => is_array Sum 2 f_ini (nf i * 2))).
+  set (Qs := MyVector.init (fun i : Fin.t ntrd =>
+          Ex f : nat -> Z,
+            !(pure
+                (forall j : nat,
+                   nf i * 2 <= j < (nf i + 1) * 2 -> f j = sum_of 0 j f_ini)) **
+             is_array Sum 2 f (nf i * 2))).
+  eapply rule_par with (Ps := Ps) (Qs := Qs) (E := G)
+         (bspec := (fun n => if Nat.eq_dec n 0 then bspec n
+                else if Nat.eq_dec n 1 then bspec1 n
+                else default ntrd)).
+  - pose proof ntrd_neq_0; destruct ntrd; eexists; eauto; omega.
   - intros i; split; intros tid; repeat destruct Nat.eq_dec;
     unfold bspec, bspec1; subst; simpl; rewrite MyVector.init_spec;
     unfold CSL.low_assn; repeat prove_low_assn; eauto. 
-    
   - intros i st; repeat destruct Nat.eq_dec; subst.
     apply bspec0_preserved.
     apply bspec1_preserved.
     apply default_wf.
-
-  - (* intros i tid; split; repeat destruct Nat.eq_dec; subst; simpl. *)
-    admit.
+  - 
     
+    Ltac sep_destruct_in H :=
+      match type of H with
+        | ((Ex _, _) _ _) => destruct H as [? H]; sep_destruct_in H
+        | _ => sep_split_in H
+      end.
+
+    Ltac prove_precise :=
+      match goal with
+        | [|- precise _] =>
+          intros h1 h2 h1' h2' s Hsat Hsat' Hdis Hdis' Heq; simpl in *;
+          sep_destruct_in Hsat; sep_destruct_in Hsat'; unfold_pures;
+          repeat match goal with
+            | [ H : s ?X = Zn _, H': s ?X = Zn _ |- _ ] => rewrite H', Nat2Z.inj_iff in H
+          end; subst;
+          try (match type of Hsat with
+            | (if ?X then _ else _) _ _ => destruct X
+          end; sep_split_in Hsat; sep_split_in Hsat')
+      end.
+    Hint Resolve is_array_precise precise_emp.
+
+    intros i tid; repeat destruct Nat.eq_dec; subst; simpl; rewrite !MyVector.init_spec; split;
+    try prove_precise; eauto; tauto.
+
+  - intros s h H; unfold Ps.
+    sep_rewrite sc_v2l.
+    rewrite (vec_to_list_init0 _ emp).
+    erewrite ls_init_eq0.
+    Focus 2.
+    { intros i iH.
+      destruct (Fin.of_nat i ntrd) as [|Hex] eqn:Heq; [|destruct Hex; omega].
+      rewrite (Fin_nat_inv Heq). reflexivity. } Unfocus.
+
+    sep_rewrite is_array_conj; try omega.
+    rewrite mult_0_r, mult_comm.
+    sep_rewrite is_array_change; [apply H|auto].
+
+  - unfold Qs; intros s h H.
+    sep_rewrite_in sc_v2l H.
+    rewrite (vec_to_list_init0 _ emp) in H.
+    erewrite ls_init_eq0 in H.
+    Focus 2.
+    { intros i iH.
+      destruct (Fin.of_nat i ntrd) as [|Hex] eqn:Heq; [|destruct Hex; omega].
+      rewrite (Fin_nat_inv Heq). reflexivity. } Unfocus.
+
+    sep_rewrite_in (ls_exists0 (fun _:nat=>0%Z) (n := ntrd)) H; destruct H as [fs H].
+    sep_rewrite_in (@ls_star ntrd) H; sep_split_in H.
+    sep_rewrite_in (@ls_pure ntrd) H; sep_split_in H.
+
+    exists (fun i => List.nth (i / 2) fs (fun _:nat=>0%Z) i).
+    sep_split.
+    + unfold_conn_in HP.
+      intros j Hj.
+
+      apply (ls_emp _ _ (j / 2)) in HP0; rewrite ls_init_spec in HP0.
+      assert (j / 2 < ntrd) by (apply Nat.div_lt_upper_bound; omega).
+      destruct lt_dec; try omega; unfold_pures.
+      rewrite <-HP0; split; try omega.
+      apply div_mult; omega.
+      rewrite Nat.mul_add_distr_r.
+      rewrite (Nat.div_mod j 2) at 1; try omega.
+      pose proof (Nat.mod_upper_bound j 2); omega.
+
+    + apply is_array_conj in H; try omega.
+      rewrite mult_0_r, mult_comm in H; apply H.
+
+
+  - intros tid; unfold Ps; rewrite MyVector.init_spec.
+    unfold CSL.low_assn; prove_low_assn.
+    reflexivity.
+
+  - intros tid; unfold Qs; rewrite MyVector.init_spec.
+    unfold CSL.low_assn.
+    repeat prove_low_assn.
+  - apply typing_prescan.
+  - intros tid; unfold Ps, Qs; rewrite !MyVector.init_spec.
+    apply prescan_correct.
+    Grab Existential Variables.
+    apply ntrd.
+Qed.
