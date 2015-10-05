@@ -204,7 +204,7 @@ Section Prescan.
         destruct H0; rewrite H0 in Hnm.
         rewrite <-plus_n_O in Hnm.
         rewrite <-mult_comm, <-mult_assoc, Nat.mul_cancel_l in Hnm; auto.
-        apply IHe in Hnm as (e1 & e2 & Hnm); exists e2, (S e1).
+         apply IHe in Hnm as (e1 & e2 & Hnm); exists e2, (S e1).
         rewrite (Nat.div_mod m 2), (Nat.div_mod n 2), H, H0; simpl; omega.
         ring_simplify in Hnm. 
         cutrewrite (4 * (n / 2) * (m / 2) + 2 * (n / 2) + 2 * (m / 2) + 1 =
@@ -846,7 +846,7 @@ Definition downsweep (i : nat) :=
   ).
   
 Definition bspec1 n :=
-  if Nat.eq_dec n 1 then
+   if Nat.eq_dec n 1 then
     (MyVector.init (fun i : Fin.t ntrd =>
        let i := nf i in
        Ex (offset d : nat) (f : nat -> Z),
@@ -1957,3 +1957,4 @@ Proof.
     Grab Existential Variables.
     apply ntrd.
 Qed.
+End Prescan.

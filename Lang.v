@@ -1027,3 +1027,21 @@ Section Substitution.
     repeat rewrite subE_assign in *; congruence.
   Qed.
 End Substitution.
+
+Section GlobalSemantics.
+  Variable ngrp : nat.
+  Variable ntrd : nat.
+  Definition g_state := (Vector.t (klist ntrd) ngrp * heap)%type.
+
+  Import VectorNotations.
+
+  Definition abort_g (gs : g_state) :=
+    exists gid : Fin.t ngrp,  abort_k ((fst gs)[@gid], (snd gs)).
+  
+  Reserved Notation "gs '==>g' gs'" (at level 40).
+  Inductive red_g : g_state -> g_state -> Prop :=
+    | redg_Seq : forall (gs1 : g_state) (gid : Fin.t ngrp) ks' gh', 
+        ((fst gs1)[@gid], (snd gs1)) ==>k (ks', gh') ->
+        gs1 ==>g (replace (fst gs1) gid ks', gh')
+  where
+    "gs ==>g gs'" := (red_g gs gs').

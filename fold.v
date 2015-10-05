@@ -138,11 +138,10 @@ Proof.
   (* the loop invariant holds before the loop *)
   hoare_forward.
   Focus 3.
-  { unfold INV. intros s h H.
+  { unfold INV; intros s h H.
     destruct ntrd_is_p2 as [e Hntrd].
     exists (ntrd), (S e), f.
-    sep_split_in H; sep_split; auto.
-    - rewrite Nat.pow_succ_r', mult_comm, Nat.div_mul; auto; unfold_conn; auto.
+    sep_split_in H; unfold_pures; sep_split; autorewrite with sep in *; auto.
     - destruct (lt_dec (nf tid) (ceil2 ntrd)); [|unfold_conn; auto].
       unfold dbl in *; destruct Nat.eq_dec; try omega.
       split; rewrite skip_sum1; try omega.
@@ -259,24 +258,19 @@ Proof.
 
       (* barrier pre holds at barrier (then) *)
       forward_barr. Focus 2.
-      { cutrewrite (2 ^ (S e) = 2 ^ e * 2); [|simpl; omega].
-        fold (2 ^ e * 2 / 2); rewrite Nat.div_mul; auto.
+      { autorewrite with sep; auto.
         simpl; rewrite MyVector.init_spec. 
         intros s h H; sep_normal_in H; sep_split_in H.
         apply ex_lift_l; exists (2 ^ e / 2); apply ex_lift_l; exists fc'.
         do 3 (sep_normal; sep_split).
-        - unfold_conn_in (HP2, HP3); simpl in HP2, HP3; rewrite HP2, HP3 in HP.
-          unfold_conn_in HP; simpl in HP; rewrite Zdiv2_div in HP; auto.
-          rewrite div_Zdiv; [apply HP | omega].
-        - unfold_conn_in HP3.
-          rewrite dbl_inv, <-HP3.
-          assert ((pure (st = 2 ^ e)) s emp_ph) by (unfold_conn; auto).
-          destruct (lt_dec _ st); [|unfold_conn; auto].
-          assert (st <> 0) by (rewrite HP3; apply Nat.pow_nonzero; auto).
-          unfold ceil2 in HP4; destruct Nat.eq_dec; [omega|]; destruct lt_dec; [|omega].
-          destruct HP4 as [Heq1 Heq2]; unfold fc'; rewrite Heq1, Heq2; destruct Nat.eq_dec; [|omega].
-          unfold dbl; destruct Nat.eq_dec; [omega|].
-          cutrewrite (0 = 0 * (st * 2)); [|auto]; apply skip_sum_double; omega.
+        - unfold_pures. autorewrite with sep in *; auto; simpl. 
+          unfold_conn; simpl; congruence.
+        - unfold_pures; unfold_conn; autorewrite with sep in *.
+          unfold fc' in *; clear fc'; subst st; rewrite ceil2_pow in HP4.
+          destruct Nat.eq_dec; try omega; destruct (lt_dec); auto.
+          destruct HP4 as [Heq1 Heq2]; rewrite Heq1, Heq2; autorewrite with sep.
+          cutrewrite (2 ^ S e = 2^e*2); [|simpl; omega].
+          cutrewrite (0 = 0 * 2 * (2^e * 2)); [|omega]; apply (skip_sum_double) ; omega.
         - rewrite dbl_inv.
           unfold_conn_all; simpl in *; omega.
         - sep_normal. 
