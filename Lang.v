@@ -1045,3 +1045,4 @@ Section GlobalSemantics.
         gs1 ==>g (replace (fst gs1) gid ks', gh')
   where
     "gs ==>g gs'" := (red_g gs gs').
+End GlobalSemantics.
