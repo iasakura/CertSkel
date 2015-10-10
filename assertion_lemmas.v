@@ -36,9 +36,9 @@ Definition Adisj (P1 P2 : assn) : assn := (nosimpl (fun (s : stack) (ph : pheap)
 Notation "P '\\//' Q" := (Adisj P Q) (at level 85, right associativity).
 Definition Apure (p : Prop) := (nosimpl (fun (s : stack) (ph : pheap) => p)).
 Notation pure p := (Apure p).
-Definition Apointsto (p : Qc) (e1 e2 : exp) := (nosimpl (fun (s : stack) (ph : pheap) =>
-  forall x, this ph x = if Z.eq_dec x (edenot e1 s) then Some (p, edenot e2 s) else None)).
-Notation "e1 '-->p' ( p ,  e2 )" := (Apointsto p e1 e2) (at level 75).
+Definition Apointsto (p : Qc) (e1 : _exp) (e2 : exp) := (nosimpl (fun (s : stack) (ph : pheap) =>
+  forall x, this ph x = if loc_eq_dec x (ledenot e1 s) then Some (p, edenot e2 s) else None)).
+Notation "e1 '-->sh' ( p ,  e2 )" := (Apointsto p e1 e2) (at level 75).
 Definition ban (P : assn) := (nosimpl (emp //\\ P)).
 Notation "!( P )" := (ban P).
 Definition eeq (x y : exp) := (nosimpl (fun s (h : pheap) => edenot x s = edenot y s)).

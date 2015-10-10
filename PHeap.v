@@ -20,7 +20,10 @@ Require Export String.
 Set Implicit Arguments.
 Unset Strict Implicit.
 
-Definition pheap' := Z -> option (Qc * Z).
+Inductive loc :=
+| SLoc : Z -> loc | GLoc : Z -> loc.
+
+Definition pheap' := loc -> option (Qc * Z).
 
 Definition is_pheap (h : pheap') : Prop :=
   forall x, match h x with
@@ -29,7 +32,7 @@ Definition is_pheap (h : pheap') : Prop :=
   end.
 Record pheap := Pheap { this :> pheap'; is_p : is_pheap this }.
 Definition pdisj (h1 h2 : pheap') :=
-  forall (x : Z), match h1 x, h2 x with
+  forall (x : loc), match h1 x, h2 x with
     | None, _ | _, None => True
     | Some (p1, v1), Some (p2, v2) =>
       v1 = v2 /\ 0 < p1 + p2 /\ p1 + p2 <= 1
@@ -46,10 +49,10 @@ Definition phplus (h1 h2 : pheap') : pheap' :=
   end.
 
 Definition full_p : Qc := 1.
-Definition emp_h : pheap' := fun (n : Z) => None.
+Definition emp_h : pheap' := fun (n : loc) => None.
 
 Definition fpdom (h : pheap') : Prop :=
-  forall (n : Z), match h n with
+  forall (n : loc), match h n with
     | None => True
     | Some (p, v) => (p = full_p)%Qc
   end.
@@ -72,18 +75,22 @@ Lemma pdisj_empty2 : forall (h : pheap), pdisj h emp_h.
   now unfold emp_h, pdisj; intros h x; destruct (this h x) as [[? ?] | ?].
 Qed.
 
-Definition ph_upd (h : pheap') (x : Z) (v : Z) : pheap' :=
-  fun (x' : Z) => if Z.eq_dec x x' then Some (full_p, v) else h x'.
+Definition loc_eq_dec (l1 l2 : loc) : {l1 = l2} + {l1 <> l2}.
+  repeat decide equality.
+Qed.
 
-Lemma ph_upd_ph (h : pheap) (x : Z) (v : Z) : is_pheap (ph_upd h x v).
+Definition ph_upd (h : pheap') (x : loc) (v : Z) : pheap' :=
+  fun (x' : loc) => if loc_eq_dec x x' then Some (full_p, v) else h x'.
+
+Lemma ph_upd_ph (h : pheap) (x : loc) (v : Z) : is_pheap (ph_upd h x v).
 Proof.
   destruct h as [h ph]; simpl.
-  unfold is_pheap, ph_upd; intros y; destruct (Z.eq_dec x y).
+  unfold is_pheap, ph_upd; intros y; destruct (loc_eq_dec x y).
   - split; unfold Qclt, Qlt, Qcle, Qle, full_p; simpl; omega.
   - specialize (ph y); eauto.
 Qed.
 
-Definition ph_upd2 (h : pheap) (x : Z) (v : Z) : pheap :=
+Definition ph_upd2 (h : pheap) (x : loc) (v : Z) : pheap :=
   @Pheap (ph_upd h x v) (ph_upd_ph h x v).
 
 Definition empty_p := 0.
@@ -105,7 +112,7 @@ Proof.
   auto using frac_contra1.
 Qed.
 
-Lemma pdisj_upd : forall (h h' : pheap) (x w v : Z), this h x = Some (full_p, w) -> 
+Lemma pdisj_upd : forall (h h' : pheap) (x : loc) (v w : Z), this h x = Some (full_p, w) -> 
   (pdisj (ph_upd h x v) h' <-> pdisj h h').
 Proof.
   destruct h as [h iph].
@@ -113,10 +120,10 @@ Proof.
   unfold pdisj, ph_upd; intros; simpl in *.
   split. 
   - intros hp x0; pose proof (hp x0); pose proof (iph x0); pose proof (iph' x0).
-    destruct (Z.eq_dec x x0), (h x0) as [[? ?] | ], (h' x0) as [[? ?] | ]; eauto.
+    destruct (loc_eq_dec x x0), (h x0) as [[? ?] | ], (h' x0) as [[? ?] | ]; eauto.
     destruct H0 as [? [? ?]],  H2 as [? ?]; exfalso; eapply (@frac_contra1 q0); eauto.
   - intros hp x0; specialize (hp x0); specialize (iph x0); specialize (iph' x0).
-    destruct (Z.eq_dec x x0); subst;
+    destruct (loc_eq_dec x x0); subst;
     destruct (h x0) as [[? ?] | ], (h' x0) as [[? ?] | ]; simpl; eauto;
     inversion H; subst.
     destruct hp as [? [? ?]], iph' as [? ?]; exfalso; eapply (@frac_contra1 q0); eauto.
@@ -126,7 +133,7 @@ Lemma phplus_comm (h1 h2 : pheap) : pdisj h1 h2 -> phplus h1 h2 = phplus h2 h1.
 Proof.
   destruct h1 as [h1 H1], h2 as [h2 H2]; simpl.
   intros hdisj; unfold is_pheap, pdisj, phplus in *; extensionality x.
-  repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end).
+  repeat (match goal with [H : forall _: loc, _ |- _] => specialize (H x) end).
   destruct (h1 x) as [[? ?] | ], (h2 x) as [[? ?] | ]; eauto. 
   destruct hdisj as [? [? ?]].
   assert (q + q0 = q0 + q) by ring; congruence.
@@ -159,13 +166,11 @@ Lemma pdisj_padd (h1 h2 h3 : pheap) :
   pdisj h2 h3 -> pdisj h1 (phplus h2 h3) -> (pdisj h1 h2) /\ (pdisj h1 h3).
 Proof.
   destruct h1 as [h1 H1], h2 as [h2 H2], h3 as [h3 H3]; simpl.
-  unfold is_pheap, pdisj, phplus in *;
-    intros disj23 disj123; split; intros x; 
-    repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end);
+  unfold is_pheap, pdisj, phplus in *; intros disj23 disj123; split; intros x;
+  repeat (match goal with [H : forall _ : loc, _ |- _] => specialize (H x) end);
     destruct (h1 x) as [[? ?] |], (h2 x) as [[? ?] |], (h3 x) as [[? ?] |];
     destruct disj23 as [? [? ?]], disj123 as [? [? ?]], H1 as [? ?], H2 as [? ?], H3 as [? ?];
     repeat split; eauto using Qcplus_comm.
-
   - apply plus_gt_0; eauto.
   - cutrewrite (q + (q0 + q1) = (q + q0) + q1) in H7; [apply (@le1_weak _ q1); eauto | ring ].
   - congruence.
@@ -178,9 +183,9 @@ Proof.
   destruct h1 as [h1 ph1], h2 as [h2 ph2], h3 as [h3 ph3]; simpl in *.
   unfold is_pheap, pdisj, phplus in *;
     intros h123 h23 x;
-    repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end).
+    repeat (match goal with [H : forall _ : loc, _ |- _] => specialize (H x) end).
   destruct (h1 x) as [[? ?] |], (h2 x) as [[? ?] |], (h3 x) as [[? ?] |],
-                                                               ph1 as [? ?], ph2 as [? ?], ph3 as [? ?], h123 as [? [? ?]], h23 as [? [? ?]]; eauto.
+           ph1 as [? ?], ph2 as [? ?], ph3 as [? ?], h123 as [? [? ?]], h23 as [? [? ?]]; eauto.
   repeat split; eauto using plus_gt_0.
   cutrewrite (q + (q0 + q1) = (q + q0) + q1) in H7; [apply (@le1_weak _ q1); eauto | ring ].
 Qed.
@@ -191,7 +196,7 @@ Proof.
   destruct h1 as [h1 ph1], h2 as [h2 ph2], h3 as [h3 ph3]; simpl in *.
   unfold is_pheap, pdisj, phplus in *;
     intros h123 h23 x;
-    repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end).
+    repeat (match goal with [H : forall _ : loc, _ |- _] => specialize (H x) end).
   destruct (h1 x) as [[? ?] |], (h2 x) as [[? ?] |], (h3 x) as [[? ?] |],
               ph1 as [? ?], ph2 as [? ?], ph3 as [? ?], h123 as [? [? ?]], h23 as [? [? ?]]; eauto.
   repeat split; eauto using plus_gt_0.
@@ -208,7 +213,7 @@ Proof.
   destruct h1 as [h1 ph1], h2 as [h2 ph2], h3 as [h3 ph3]; simpl in *.
   unfold is_pheap, pdisj, phplus in *;
     intros h123 h23 x;
-    repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end).
+    repeat (match goal with [H : forall _ : loc, _ |- _] => specialize (H x) end).
   destruct (h1 x) as [[? ?] |], (h2 x) as [[? ?] |], (h3 x) as [[? ?] |],
     ph1 as [? ?], ph2 as [? ?], ph3 as [? ?], h123 as [? [? ?]], h23 as [? [? ?]]; eauto.
   - cutrewrite (q + (q0 + q1) = q0 + (q + q1)); [ | ring].
@@ -223,7 +228,7 @@ Proof.
   destruct h1 as [h1 ph1], h2 as [h2 ph2], h3 as [h3 ph3]; simpl in *.
   unfold is_pheap, pdisj, phplus in *;
     intros h12; split; [intros H; split; intros x | intros [H1 H2] x];
-    repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end);
+    repeat (match goal with [H : forall _ : loc, _ |- _] => specialize (H x) end);
     destruct (h1 x) as [[? ?] |], (h2 x) as [[? ?] |], (h3 x) as [[? ?] |],
                 ph1 as [? ?], ph2 as [? ?], ph3 as [? ?], h12 as [? [? ?]];
     des_conj; eauto;
@@ -253,7 +258,7 @@ Proof.
   destruct h1 as [h1 ph1], h2 as [h2 ph2], h3 as [h3 ph3]; simpl in *.
   unfold is_pheap, pdisj, phplus in *;
     intros h123 h23; extensionality x;
-    repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end);
+    repeat (match goal with [H : forall _ : loc, _ |- _] => specialize (H x) end);
     destruct (h1 x) as [[? ?] |], (h2 x) as [[? ?] |], (h3 x) as [[? ?] |];
     des_conj; eauto.
   - cutrewrite (q + (q0 + q1) = q0 + (q + q1)); [congruence | ring].
@@ -268,7 +273,7 @@ Proof.
   assert (h2 = h3).
   unfold is_pheap, pdisj, phplus in *;
     extensionality x; pose proof  (equal_f heq x) as heq'; simpl in *; clear heq;
-    repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end);
+    repeat (match goal with [H : forall _ : loc, _ |- _] => specialize (H x) end);
     destruct (h1 x) as [[? ?] |], (h2 x) as [[? ?] |], (h3 x) as [[? ?] |];
     des_conj; eauto; try congruence.
   - remember (q + q0) as q0'; remember (q + q1) as q1'.
@@ -301,10 +306,10 @@ Proof.
   eapply padd_cancel; eauto.
 Qed.
 
-Definition heap := Z -> option Z.
+Definition heap := loc -> option Z.
 
 Definition ptoheap (ph : pheap') (h : heap) : Prop :=
-  forall (x : Z), match ph x with
+  forall (x : loc), match ph x with
                     | None => h x = None
                     | Some (p, v) => p = full_p /\ h x = Some v
                   end.
@@ -315,7 +320,7 @@ Proof.
   (*    destruct ph1 as [h1 ph1], ph2 as [h2 ph2]; simpl in *.*)
   intros pto1 pto2.
   unfold is_pheap, pdisj, phplus, ptoheap in *; extensionality x; simpl in *;
-  repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end);
+  repeat (match goal with [H : forall _ : loc, _ |- _] => specialize (H x) end);
   destruct (ph1 x) as [[? ?] |], (ph2 x) as [[? ?] |];
   intuition; eauto; try congruence.
 Qed.
@@ -330,7 +335,7 @@ Qed.
 Definition phplus_pheap (h1 h2 : pheap) (H : pdisj h1 h2) : pheap := Pheap (pdisj_is_pheap H).
 
 Definition htop' (h : heap) : pheap' :=
-  fun (x : Z) => 
+  fun (x : loc) => 
     match h x with
       | None => None
       | Some v => Some (full_p, v)
@@ -367,14 +372,14 @@ Proof.
   try tauto; try congruence.
 Qed.
 
-Lemma pheap_disj_eq (h1 h2 : pheap) (v v1 v2 : Z) (q1 q2 : Qc) :
+Lemma pheap_disj_eq (h1 h2 : pheap) (v : loc) (v1 v2 : Z) (q1 q2 : Qc) :
   pdisj h1 h2 -> this h1 v = Some (q1, v1) -> this h2 v = Some (q2, v2) -> v1 = v2.
 Proof.
   intros hdis h1v h2v.
   specialize (hdis v); rewrite h1v, h2v in hdis; intuition; eauto.
 Qed.
 
-Lemma pheap_disj_disj (h1 h2 : pheap) (v1 v2 v1' v2' v1'' v2'' : Z) :
+Lemma pheap_disj_disj (h1 h2 : pheap) (v1 v2 : loc) (v1' v2' v1'' v2'' : Z) :
   pdisj h1 h2 -> this h1 v1 = Some (full_p, v1') -> this h2 v2 = Some (full_p, v2') ->
   pdisj (ph_upd2 h1 v1 v1'') (ph_upd2 h2 v2 v2'').
 Proof.
@@ -391,7 +396,7 @@ Lemma emp_is_heap : is_pheap emp_h. unfold is_pheap, emp_h; eauto. Qed.
 Definition emp_ph : pheap := Pheap emp_is_heap.
 
 Lemma emp_is_emp (h : pheap) :
-  (forall v : Z, this h v = None) -> h = emp_ph.
+  (forall v : loc, this h v = None) -> h = emp_ph.
 Proof.
   destruct h as [h ?]; unfold emp_ph; intros hsat.
   assert (h = emp_h) by (extensionality x; specialize (hsat x); simpl in *; eauto).
@@ -728,7 +733,7 @@ Lemma ptoheap_phplus (ph : pheap) (h h' : heap) :
   exists h'' : heap, ptoheap ph h''.
 Proof.
   intros hdis heq.
-  set (h'' := fun x : Z => match this ph x with
+  set (h'' := fun x : loc => match this ph x with
                              | Some (_, x) => Some x
                              | None => None
                            end).
@@ -796,7 +801,7 @@ Proof.
   destruct (h1 x), (h2 x), (hF x); destruct Hdis1, Hdis2; try congruence.
 Qed.
 
-Lemma hplus_map (h1 h2 : heap) (x : Z) (v : Z) :
+Lemma hplus_map (h1 h2 : heap) (x : loc) (v : Z) :
   hdisj h1 h2 -> hplus h1 h2 x = Some v -> 
   (h1 x = Some v /\ h2 x = None) \/ (h1 x = None /\ h2 x = Some v).
 Proof.
@@ -804,9 +809,9 @@ Proof.
   try tauto; congruence.
 Qed.
 
-Definition upd A (f: Z -> A) x y a := if Z.eq_dec a x then y else f a.
+Definition upd A (f: loc -> A) x y a := if loc_eq_dec a x then y else f a.
 
-Lemma hplus_upd (h1 h2 hF : heap) (x : Z) (v : Z) :
+Lemma hplus_upd (h1 h2 hF : heap) (x : loc) (v : Z) :
   hdisj h1 hF -> hdisj h2 hF -> upd (hplus h1 hF) x (Some v) = hplus h2 hF ->
   upd h1 x (Some v) = h2 \/ (exists v', hF x = Some v').
 Proof.
@@ -814,7 +819,7 @@ Proof.
   remember (hF x) as hFx; destruct hFx; [right; eexists; eauto|].
   left; extensionality x'; specialize (Hdis1 x'); specialize (Hdis2 x');
   assert (upd (hplus h1 hF) x (Some v) x' = hplus h2 hF x') by (rewrite Heq; eauto); clear Heq;
-  unfold upd, hplus in *; destruct Hdis1, Hdis2, (Z.eq_dec x' x), (h1 x'), (h2 x'); 
+  unfold upd, hplus in *; destruct Hdis1, Hdis2, (loc_eq_dec x' x), (h1 x'), (h2 x'); 
   try congruence.
 Qed.
 
