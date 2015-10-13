@@ -1048,20 +1048,35 @@ Section Substitution.
 End Substitution.
 
 Section GlobalSemantics.
-  Variable ngrp : nat.
+  Variable nblk : nat.
   Variable ntrd : nat.
-  Definition g_state := (Vector.t (klist ntrd) ngrp * heap)%type.
+  Definition simple_heap := Z -> option Z.
+
+  Record g_state :=
+    Gs {blks : Vector.t (klist ntrd) nblk;
+        sh_hp : Vector.t simple_heap nblk;
+        gl_hp : simple_heap}.
 
   Import VectorNotations.
 
+  Definition sh_gl_heap (sh gh : simple_heap) : heap :=
+    fun (l : loc) => match l with
+      | SLoc l => sh l
+      | GLoc l => gh l
+    end.
+
+  Definition bs_of_gs (gs : g_state) (bid : Fin.t nblk) :=
+    ((blks gs)[@bid], (sh_gl_heap (sh_hp gs)[@bid] (gl_hp gs))).
+
   Definition abort_g (gs : g_state) :=
-    exists gid : Fin.t ngrp,  abort_k ((fst gs)[@gid], (snd gs)).
+    exists gid : Fin.t nblk,  abort_k (bs_of_gs gs gid).
   
   Reserved Notation "gs '==>g' gs'" (at level 40).
   Inductive red_g : g_state -> g_state -> Prop :=
-    | redg_Seq : forall (gs1 : g_state) (gid : Fin.t ngrp) ks' gh', 
-        ((fst gs1)[@gid], (snd gs1)) ==>k (ks', gh') ->
-        gs1 ==>g (replace (fst gs1) gid ks', gh')
+    | redg_Seq : forall (gs1 : g_state) (bid : Fin.t nblk) ks' gh' gh'' sh'',
+        (bs_of_gs gs1 bid)  ==>k (ks', gh') ->
+        (forall l, gh' l = (sh_gl_heap sh'' gh'') l) ->
+        gs1 ==>g Gs (replace (blks gs1) bid ks') (replace (sh_hp gs1) bid sh'') gh''
   where
     "gs ==>g gs'" := (red_g gs gs').
 End GlobalSemantics.
