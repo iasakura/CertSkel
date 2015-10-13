@@ -3,12 +3,13 @@ Require Import Qcanon.
 Require Import Coq.Relations.Relations.
 Require Import MyVector.
 Require Import List.
+Require Import PHeap.
 Require Import Lang.
 Require Import assertions.
 Set Implicit Arguments.
 Unset Strict Implicit.
 
-Require Import PHeap.
+
 Import VectorNotations.
 
 (*  Inductive assn : Set := 
@@ -482,7 +483,7 @@ Section BarrierDivergenceFreedom.
         pose proof (safe_inv' Hi3 Hi4) as hsafei.
         destruct (disj_tid tid H3) as [h_ni [eqni [h_ntid hnip]]].
         assert ((get_hs pss2)[@tid] = snd pss2[@tid]) as H'
-          by (unfold get_hs; erewrite Vector.nth_map; eauto);
+          by (unfold get_hs; erewrite Vector.nth_map; eauto).
           rewrite H' in h_ntid, hnip; clear H'.
         assert (ptoheap (phplus (snd pss2[@tid]) h_ni) h1) as hto 
           by (rewrite hnip; apply ptoheap_htop).
@@ -670,7 +671,6 @@ Section BarrierDivergenceFreedom.
       | Some (j1, c1'), Some (j2, c2') => j1 <> j2
       | _, _ => False
     end.
-
 
   Definition bdiv (ks : kstate ngroup) :=
     exists tid1 tid2 : Fin.t ngroup, 

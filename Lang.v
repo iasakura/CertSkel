@@ -18,9 +18,27 @@ Unset Strict Implicit.
 
 Require Import PHeap.
 (* Definition of Language *)
+
+Inductive loc :=
+| SLoc : Z -> loc | GLoc : Z -> loc.
+
 Inductive var := Var : Z -> var.
 Definition stack := var -> Z.
+Require Import Classes.EquivDec.
+Global Program Instance loc_eq_dec : eq_type loc.
+Next Obligation.
+  repeat decide equality.
+Defined.
+Global Program Instance Z_eq_dec : eq_type Z.
+Next Obligation.
+  apply Z_eq_dec.
+Defined.
+
+Notation heap := (heap loc).
+Notation pheap' := (gen_pheap' loc).
+Notation pheap := (gen_pheap loc).
 Definition state := (stack * heap)%type.
+Arguments eq_dec _ _ _ _ : simpl never.
 
 Inductive exp := 
 | Evar (x : var)
@@ -86,7 +104,7 @@ Fixpoint ledenot e s :=
 
 Fixpoint bdenot b s : bool := 
   match b with
-    | Beq e1 e2 => if Z.eq_dec (edenot e1 s) (edenot e2 s) then true else false
+    | Beq e1 e2 => if eq_dec (edenot e1 s) (edenot e2 s) then true else false
     | Band b1 b2 => bdenot b1 s && bdenot b2 s
     | Bnot b => negb (bdenot b s)
     | Blt e1 e2 => if Z_lt_dec (edenot e1 s) (edenot e2 s) then true else false
@@ -304,12 +322,12 @@ Module PLang.
     this ph2 = ph_upd ph1 x v.
   Proof.
     intros pd1 pd2 toh1 have1 toh2; extensionality y; unfold ph_upd.
-    destruct ph1 as [ph1 h1], ph2 as [ph2 h2], phF as [phF hF]; simpl in *.
-    destruct (loc_eq_dec x y).
+    destruct ph1 as [ph1 h1], ph2 as [ph2 h2], phF as [phF hF].
+    destruct (eq_dec x y); simpl in *.
     - rewrite <-e; clear e y.
       unfold is_pheap, pdisj, ptoheap, upd, phplus in *;
         repeat (match goal with [H : forall _ : loc, _ |- _] => specialize (H x) end).
-      destruct (loc_eq_dec x x); try tauto.
+      destruct (eq_dec x x); try congruence.
       rewrite have1 in *.
       destruct (phF x) as [[pF vF]|]; intuition.
       + apply Qcle_minus_iff in H8.
@@ -320,7 +338,7 @@ Module PLang.
         intuition; congruence.
     - unfold is_pheap, pdisj, ptoheap, upd, phplus in *;
       repeat (match goal with [H : forall _ : loc, _ |- _] => specialize (H y) end).
-      destruct (loc_eq_dec y x); [symmetry in e; tauto |].
+      destruct (eq_dec y x); autounfold in *; [symmetry in e; congruence |].
       destruct (ph1 y) as [[? ?]|], (phF y) as [[? ?]|], (ph2 y) as [[? ?]|]; intuition; 
       try congruence.
       apply Q1 in H9; apply Q1 in H11.
@@ -415,7 +433,7 @@ Module PLang.
     - inversion EQ1; inversion EQ2; clear EQ1 EQ2; subst.
       destruct hwok as [v' H].
       rewrite (padd_upd_cancel hdis1 hdis2 htoh1 H htoh2).
-      apply pdisjC; apply <-pdisj_upd; eauto.
+      apply pdisjC. rewrite pdisj_upd; eauto.
   Qed.
 
   Lemma red_s_safe' (c1 c2 : cmd) (st1 st2 : state) (pst1 : pstate) (hF : pheap) :
@@ -433,7 +451,7 @@ Module PLang.
     - subst; rewrite hst in *; unfold access_ok, write_ok in *; simpl in *.
       destruct hwok as [v' Hv'].
       exists (Pheap (ph_upd_ph (snd pst1) (ledenot e1 s) (edenot e2 s))); simpl; split.
-      + apply<- pdisj_upd; eauto.
+      + rewrite pdisj_upd; eauto.
       + assert (this hF (ledenot e1 s) = None).
         { destruct hF as [hF isphF]; 
           pose proof (hdis1 (ledenot e1 s)); pose proof (isphF (ledenot e1 s)); simpl in *.
@@ -441,10 +459,10 @@ Module PLang.
           destruct p. destruct H0 as [H1 _], H as [_ [_ H2]].
           apply frac_contra1 in H2; eauto; tauto. } 
         intros x; unfold phplus, ph_upd, upd. 
-        specialize (hto1 x); destruct (loc_eq_dec (ledenot e1 s) x).
-        * rewrite e, H in *; repeat split; unfold upd; destruct (loc_eq_dec x x); tauto.
+        specialize (hto1 x); destruct (eq_dec (ledenot e1 s) x).
+        * rewrite e, H in *; repeat split; unfold upd; destruct (eq_dec x x); try tauto.
         * unfold phplus,upd in *; destruct (this (snd pst1) x) as [[? ?]|], (this hF x) as [[? ?]|];
-          destruct (loc_eq_dec x (ledenot e1 s)); 
+          destruct (eq_dec x (ledenot e1 s)); 
           repeat split; try tauto; try congruence.
   Qed.
 
@@ -1047,10 +1065,11 @@ Section Substitution.
   Qed.
 End Substitution.
 
+Notation simple_heap := (PHeap.heap Z).
+
 Section GlobalSemantics.
   Variable nblk : nat.
   Variable ntrd : nat.
-  Definition simple_heap := Z -> option Z.
 
   Record g_state :=
     Gs {blks : Vector.t (klist ntrd) nblk;

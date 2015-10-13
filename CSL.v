@@ -3,6 +3,8 @@ Require Import Qcanon.
 Require Import MyVector.
 Require Import List.
 Require Import ZArith.
+Require Import PHeap.
+
 Require Import Lang.
 Require Import Relation_Operators.
 Require Import assertions.
@@ -12,7 +14,6 @@ Unset Strict Implicit.
 Coercion Evar : var >-> exp.
 Coercion Enum : Z >-> exp.
 
-Require Import PHeap.
 Require Import Bdiv.
 Require Import assertions.
 Section SeqCSL.
@@ -190,9 +191,9 @@ Section SeqCSL.
       { rewrite <-(phplus_eq disR), phplus_comm; eauto; simpl. 
         rewrite (phplus_comm disR), padd_left_comm; eauto; 
         [ | rewrite (phplus_comm (pdisjC disR)); eauto].
-        rewrite <-(phplus_eq disf), phplus_comm; simpl; rewrite (@phplus_comm hf ph); eauto.
+        rewrite <-(phplus_eq disf), phplus_comm; simpl; rewrite (@phplus_comm _ hf ph); eauto.
         Hint Resolve pdisjC.
-        apply pdisj_padd_expand; eauto; rewrite (@phplus_comm phR ph); eauto. }
+        apply pdisj_padd_expand; eauto; rewrite (@phplus_comm _ phR ph); eauto. }
       rewrite heqp, padd_assoc, <-(phplus_eq  disfh) in heq; eauto.
       assert (pdisj ph (phplus_pheap disfh)) as dis' by (apply pdisj_padd_comm; eauto).
       apply (hsafe _ _ dis' heq).
@@ -362,7 +363,7 @@ Section SeqCSL.
       - intros. inversion 1.
       - intros; inversion H1.
       - intros j' c' H; inversion H; subst.
-        exists ph, emp_ph; repeat split; eauto.
+        exists ph, (emp_ph loc); repeat split; eauto; auto; [simpl; auto|..].
         + intros phQ H0 hsatq.
           apply safe_skip; simpl.
           cutrewrite (phplus_pheap H0 = phQ); 
@@ -427,21 +428,21 @@ Section SeqCSL.
     [simpl; eauto | simpl; repeat split; try congruence].
     - intros hF h' hdis heq hc; inversion hc; subst; simpl in *.
       specialize (hsat (ledenot E1 s)); simpl in *.
-      destruct (loc_eq_dec (ledenot E1 s) (ledenot E1 s)) as [_ | ?]; [| try congruence].
+      destruct (eq_dec (ledenot E1 s) (ledenot E1 s)) as [_ | ?]; [| try congruence].
       rewrite <-(phplus_eq hdis) in heq; apply ptoheap_eq in heq.
       pose proof (htop_eq heq) as heq'; specialize (heq' (ledenot E1 s)).
       simpl in *; unfold phplus in *; rewrite hsat in heq'. 
       destruct (this hF (ledenot E1 s)) as [[? ?] | ]; congruence.
     - unfold access_ok; simpl in *; specialize (hsat (ledenot E1 s)).
-      destruct (loc_eq_dec (ledenot E1 s) (ledenot E1 s)) as [_ | ?]; [eexists; eauto | congruence].
+      destruct (eq_dec (ledenot E1 s) (ledenot E1 s)) as [_ | ?]; [eexists; eauto | congruence].
     - intros hF h0 c' ss' hdis heq hred. inversion hred; clear hred; subst.
       inversion EQ1; clear EQ1; subst; simpl in *.
       repeat eexists; eauto. 
       apply safe_skip; simpl.
-      apply scban_r; unfold_conn_all; simpl in *; [intros x0|];
-      repeat match goal with [ |- context [loc_eq_dec ?x ?y] ] => destruct (loc_eq_dec x y) end;
+      apply scban_r; unfold_conn_all; simpl in *; [intros x0|].
+      repeat match goal with [ |- context [eq_dec ?x ?y] ] => destruct (eq_dec x y) end;
       (try specialize (hsat x0)); subst; repeat rewrite <-hinde1 in hsat;
-      repeat match goal with [ H : context [loc_eq_dec ?x ?y] |- _ ] => destruct (loc_eq_dec x y) end;
+      repeat match goal with [ H : context [eq_dec ?x ?y] |- _ ] => destruct (eq_dec x y) end;
       try congruence.
       rewrite <-hinde2;
       unfold var_upd; destruct (var_eq_dec x x) as [|]; try congruence.
@@ -449,7 +450,7 @@ Section SeqCSL.
       pose proof (htop_eq heq); simpl in *.
       unfold phplus in H; specialize (H (ledenot E1 s0)).
       rewrite hsat in H.
-      lazymatch goal with [ H : context [loc_eq_dec ?x ?y] |- _ ] => destruct (loc_eq_dec x y) end; 
+      lazymatch goal with [ H : context [eq_dec ?x ?y] |- _ ] => destruct (eq_dec x y) end; 
         try congruence; destruct (this hF (ledenot E1 s0)) as [[? ?]|]; congruence.
   Qed.
 
@@ -461,7 +462,7 @@ Section SeqCSL.
     destruct ph1 as [ph1 isp1], ph2 as [ph2 isp2]; simpl in *.
     unfold phplus, ph_upd; extensionality y.
     specialize (isp1 y); specialize (isp2 y); specialize (hdis y).
-    destruct (loc_eq_dec x y) as [eqxy | neqxy]; subst;
+    destruct (eq_dec x y) as [eqxy | neqxy]; subst;
     destruct (ph1 y) as [[? ?]|], (ph2 y) as [[? ?]|]; eauto; try congruence.
     inversion heq; subst; 
     destruct hdis as [? [? Hc]]. apply frac_contra1 in Hc; tauto.
@@ -472,11 +473,11 @@ Section SeqCSL.
   Proof.        
     intros heq y.
     unfold ptoheap, ph_upd, upd in *; specialize (heq y).
-    destruct (loc_eq_dec x y) as [eqxy | neqxy]; subst.
-    destruct (loc_eq_dec y y) as [_ | ?]; try congruence; tauto.
+    destruct (eq_dec x y) as [eqxy | neqxy]; subst.
+    destruct (eq_dec y y) as [_ | ?]; try congruence; tauto.
     destruct (this ph y) as [[? ?]|].
-    destruct (loc_eq_dec y x); try congruence; tauto.
-    destruct (loc_eq_dec y x); try congruence; tauto.
+    destruct (eq_dec y x); try congruence; tauto.
+    destruct (eq_dec y x); try congruence; tauto.
   Qed.
 
   Theorem rule_write (E0 : loc_exp) (E1 E2 : exp) :
@@ -484,7 +485,7 @@ Section SeqCSL.
   Proof.
     unfold CSL, safe_nt; intros s ph hsat n.
     pose proof (hsat (ledenot E0 s)) as hsat'; simpl in *.
-    destruct (loc_eq_dec (ledenot E0 s) (ledenot E0 s)) as [_|?]; try congruence.
+    destruct (eq_dec (ledenot E0 s) (ledenot E0 s)) as [_|?]; try congruence.
     destruct n; [simpl; eauto| simpl; repeat split; try congruence].
     - intros hF h hdis heq hc; inversion hc; subst; simpl in *.
       rewrite <-(phplus_eq hdis) in heq; apply ptoheap_eq in heq; pose proof (htop_eq heq) as heq'.
@@ -505,10 +506,10 @@ Section SeqCSL.
         apply ph_upd_ptoheap; eauto.
       + apply safe_skip; simpl; intros x.
         unfold_conn_all; simpl in *; unfold ph_upd.
-        destruct (loc_eq_dec (ledenot E0 s0) x); subst; eauto.
-        * destruct (loc_eq_dec (ledenot E0 s0) (ledenot E0 s0)); congruence.
+        destruct (eq_dec (ledenot E0 s0) x); subst; eauto.
+        * destruct (eq_dec (ledenot E0 s0) (ledenot E0 s0)); congruence.
         * rewrite hsat; eauto.
-          destruct (loc_eq_dec x (ledenot E0 s0)); congruence.
+          destruct (eq_dec x (ledenot E0 s0)); congruence.
   Qed.
 
   Lemma safe_conseq:
@@ -600,6 +601,7 @@ Section ParCSL.
         ((forall tid : Fin.t ntrd, fst ks[@tid] = Cskip) -> 
          exists H : low_eq_l2 E ss, @sat_k ss h H Q) /\
         (forall hF : heap, hdisj h hF -> ~ abort_k (ks, hplus h hF)) /\
+        (forall hF : heap, hdisj h hF -> ~ bdiv (ks, hplus h hF)) /\
         (forall ws : Vector.t (nat * cmd) ntrd, 
            (forall tid : Fin.t ntrd, wait (fst ks[@tid]) = Some (ws[@tid])) ->
            (low_eq_l2 E ss) /\ exists b, (forall tid, fst ws[@tid] = b)) /\
@@ -654,7 +656,7 @@ Section ParCSL.
       rewrite padd_assoc in heq'; try tauto; destruct hdisF as [hdisF hd].
       cutrewrite (phplus h' (htop hF) = phplus_pheap hd) in hdisF; [|eauto].
       specialize (hsafe _ _ hdisF heq'); apply hsafe; eauto. }
-    simpl. split; [ | split; [| split] ]; eauto.
+    simpl. split; [ | split; [| split; [| split]] ]; eauto.
     - intros cskip.
       destruct h_for_bdiv as [ks1 [hs1 [ss1 [c [? [? [? [? [? [? [? ?]]]]]]]]]]].
       assert (low_eq_l2 E (get_ss_k (ks, h))) as hleq.
@@ -672,6 +674,16 @@ Section ParCSL.
         cutrewrite (snd ks[@tid] = ss[@tid]) in Hst; [|unfold ss; erewrite Vector.nth_map; eauto].
         apply (hlowQ tid _ _ _ Hst), hsafei.
         unfold cs; erewrite Vector.nth_map; eauto.
+    - intros hf H Hc.
+      Lemma bdiv_weaken {ntrd' : nat} (ks : klist ntrd) (h h' : heap) :
+        bdiv (ks, h) -> bdiv (ks, h').
+      Proof.
+        unfold bdiv; intros (tid1 & tid2 & ?); exists tid1, tid2; apply H.
+      Qed.
+      apply (@bdiv_weaken ntrd _ _ h) in Hc.
+      destruct h_for_bdiv as [ks1 [hs1 [ss1 [c [? [? [? [? [? [? [? ?]]]]]]]]]]].
+      eapply barrier_divergence_freedom in Hc; eauto.
+      apply ew.
     - intros ws Hbrr.
       cutrewrite (Vector.map (fun s => snd s) ks = get_ss_k (ks, h)); [|eauto].
       destruct h_for_bdiv as [ks1 [hs1 [ss1 [c [? [? [? [? [? [? [? ?]]]]]]]]]]].
@@ -732,7 +744,7 @@ Section ParCSL.
           { unfold hs'.
             apply ptoheap_eq in heq''0; rewrite <-heq''0.
             apply (disj_tid i) in hdis. destruct hdis as [h'1 [hdis1 [pdis1 heqh]]].
-            assert (h'1 = h'') as heq'' by (apply (@padd_cancel hs[@i]); eauto; congruence); 
+            assert (h'1 = h'') as heq'' by (apply (@padd_cancel _ hs[@i]); eauto; congruence); 
             rewrite heq'' in *; clear heq''.
             destruct (disj_upd hdis1 disjph'h'') as [? [Hcon heqh']].
             cutrewrite (phplus_pheap disjph'h'' = x); [|destruct x; apply pheap_eq]; eauto. }

@@ -20,25 +20,31 @@ Require Export String.
 Set Implicit Arguments.
 Unset Strict Implicit.
 
-Inductive loc :=
-| SLoc : Z -> loc | GLoc : Z -> loc.
+Require Import Classes.EquivDec.
 
-Definition pheap' := loc -> option (Qc * Z).
+Class eq_type A :=
+  { eq_dec : forall x y : A, {x = y} + {x <> y}}.
 
-Definition is_pheap (h : pheap') : Prop :=
+Section Loc.
+Variable loc : Type.
+Context {loc_eq_dec : eq_type loc}.
+
+Definition gen_pheap' := loc -> option (Qc * Z).
+
+Definition is_pheap (h : gen_pheap') : Prop :=
   forall x, match h x with
     | None => True
     | Some (p, v) => 0 < p /\ p <= 1
   end.
-Record pheap := Pheap { this :> pheap'; is_p : is_pheap this }.
-Definition pdisj (h1 h2 : pheap') :=
+Record gen_pheap := Pheap { this :> gen_pheap'; is_p : is_pheap this }.
+Definition pdisj (h1 h2 : gen_pheap') :=
   forall (x : loc), match h1 x, h2 x with
     | None, _ | _, None => True
     | Some (p1, v1), Some (p2, v2) =>
       v1 = v2 /\ 0 < p1 + p2 /\ p1 + p2 <= 1
   end.
 
-Definition phplus (h1 h2 : pheap') : pheap' :=
+Definition phplus (h1 h2 : gen_pheap') : gen_pheap' :=
   fun x => match h1 x with
     | None => h2 x
     | Some (p1, v1) => 
@@ -49,9 +55,9 @@ Definition phplus (h1 h2 : pheap') : pheap' :=
   end.
 
 Definition full_p : Qc := 1.
-Definition emp_h : pheap' := fun (n : loc) => None.
+Definition emp_h : gen_pheap' := fun (n : loc) => None.
 
-Definition fpdom (h : pheap') : Prop :=
+Definition fpdom (h : gen_pheap') : Prop :=
   forall (n : loc), match h n with
     | None => True
     | Some (p, v) => (p = full_p)%Qc
@@ -59,7 +65,7 @@ Definition fpdom (h : pheap') : Prop :=
 
 Lemma pdisjC : forall h1 h2, pdisj h1 h2 -> pdisj h2 h1.
 Proof. 
-  unfold pdisj, pheap'; intros h1 h2 hd x.
+  unfold pdisj, gen_pheap'; intros h1 h2 hd x.
   specialize (hd x).
   destruct (h1 x), (h2 x); try tauto.
   destruct p as [? ?], p0 as [? ?].
@@ -67,30 +73,30 @@ Proof.
   destruct hd as [? [? ?]]; repeat split; auto.
 Qed.
 
-Lemma pdisj_empty1 : forall (h : pheap), pdisj emp_h h.
+Lemma pdisj_empty1 : forall (h : gen_pheap), pdisj emp_h h.
   intros h; unfold emp_h, pdisj; simpl; eauto.
 Qed.
 
-Lemma pdisj_empty2 : forall (h : pheap), pdisj h emp_h.
+Lemma pdisj_empty2 : forall (h : gen_pheap), pdisj h emp_h.
   now unfold emp_h, pdisj; intros h x; destruct (this h x) as [[? ?] | ?].
 Qed.
 
-Definition loc_eq_dec (l1 l2 : loc) : {l1 = l2} + {l1 <> l2}.
-  repeat decide equality.
-Qed.
+(* Definition loc_eq_dec (l1 l2 : loc) : {l1 = l2} + {l1 <> l2}. *)
+(*   repeat decide equality. *)
+(* Qed. *)
 
-Definition ph_upd (h : pheap') (x : loc) (v : Z) : pheap' :=
-  fun (x' : loc) => if loc_eq_dec x x' then Some (full_p, v) else h x'.
+Definition ph_upd (h : gen_pheap') (x : loc) (v : Z) : gen_pheap' :=
+  fun (x' : loc) => if eq_dec x x' then Some (full_p, v) else h x'.
 
-Lemma ph_upd_ph (h : pheap) (x : loc) (v : Z) : is_pheap (ph_upd h x v).
+Lemma ph_upd_ph (h : gen_pheap) (x : loc) (v : Z) : is_pheap (ph_upd h x v).
 Proof.
   destruct h as [h ph]; simpl.
-  unfold is_pheap, ph_upd; intros y; destruct (loc_eq_dec x y).
+  unfold is_pheap, ph_upd; intros y; destruct (eq_dec x y).
   - split; unfold Qclt, Qlt, Qcle, Qle, full_p; simpl; omega.
   - specialize (ph y); eauto.
 Qed.
 
-Definition ph_upd2 (h : pheap) (x : loc) (v : Z) : pheap :=
+Definition ph_upd2 (h : gen_pheap) (x : loc) (v : Z) : gen_pheap :=
   @Pheap (ph_upd h x v) (ph_upd_ph h x v).
 
 Definition empty_p := 0.
@@ -112,7 +118,7 @@ Proof.
   auto using frac_contra1.
 Qed.
 
-Lemma pdisj_upd : forall (h h' : pheap) (x : loc) (v w : Z), this h x = Some (full_p, w) -> 
+Lemma pdisj_upd : forall (h h' : gen_pheap) (x : loc) (v w : Z), this h x = Some (full_p, w) -> 
   (pdisj (ph_upd h x v) h' <-> pdisj h h').
 Proof.
   destruct h as [h iph].
@@ -120,16 +126,16 @@ Proof.
   unfold pdisj, ph_upd; intros; simpl in *.
   split. 
   - intros hp x0; pose proof (hp x0); pose proof (iph x0); pose proof (iph' x0).
-    destruct (loc_eq_dec x x0), (h x0) as [[? ?] | ], (h' x0) as [[? ?] | ]; eauto.
+    destruct (eq_dec x x0), (h x0) as [[? ?] | ], (h' x0) as [[? ?] | ]; eauto.
     destruct H0 as [? [? ?]],  H2 as [? ?]; exfalso; eapply (@frac_contra1 q0); eauto.
   - intros hp x0; specialize (hp x0); specialize (iph x0); specialize (iph' x0).
-    destruct (loc_eq_dec x x0); subst;
+    destruct (eq_dec x x0); unfold "===" in *; subst;
     destruct (h x0) as [[? ?] | ], (h' x0) as [[? ?] | ]; simpl; eauto;
     inversion H; subst.
     destruct hp as [? [? ?]], iph' as [? ?]; exfalso; eapply (@frac_contra1 q0); eauto.
 Qed.
 
-Lemma phplus_comm (h1 h2 : pheap) : pdisj h1 h2 -> phplus h1 h2 = phplus h2 h1.
+Lemma phplus_comm (h1 h2 : gen_pheap) : pdisj h1 h2 -> phplus h1 h2 = phplus h2 h1.
 Proof.
   destruct h1 as [h1 H1], h2 as [h2 H2]; simpl.
   intros hdisj; unfold is_pheap, pdisj, phplus in *; extensionality x.
@@ -162,7 +168,7 @@ Proof.
   apply (Qclt_le_trans _ (p + p1) _); [apply gt_0_plus; eauto | eauto].
 Qed.
 
-Lemma pdisj_padd (h1 h2 h3 : pheap) :
+Lemma pdisj_padd (h1 h2 h3 : gen_pheap) :
   pdisj h2 h3 -> pdisj h1 (phplus h2 h3) -> (pdisj h1 h2) /\ (pdisj h1 h3).
 Proof.
   destruct h1 as [h1 H1], h2 as [h2 H2], h3 as [h3 H3]; simpl.
@@ -178,7 +184,7 @@ Proof.
   - cutrewrite (q + (q0 + q1) = (q + q1) + q0) in H7; [apply (@le1_weak _ q0); eauto | ring ].
 Qed.
 
-Lemma pdisjE1 (h1 h2 h3 : pheap) : pdisj h1 (phplus h2 h3) -> pdisj h2 h3 -> pdisj h1 h2.
+Lemma pdisjE1 (h1 h2 h3 : gen_pheap) : pdisj h1 (phplus h2 h3) -> pdisj h2 h3 -> pdisj h1 h2.
 Proof.
   destruct h1 as [h1 ph1], h2 as [h2 ph2], h3 as [h3 ph3]; simpl in *.
   unfold is_pheap, pdisj, phplus in *;
@@ -190,7 +196,7 @@ Proof.
   cutrewrite (q + (q0 + q1) = (q + q0) + q1) in H7; [apply (@le1_weak _ q1); eauto | ring ].
 Qed.
 
-Lemma pdisjE2 (h1 h2 h3 : pheap) :
+Lemma pdisjE2 (h1 h2 h3 : gen_pheap) :
   pdisj h1 (phplus h2 h3) -> pdisj h2 h3 -> pdisj h1 h3.
 Proof.
   destruct h1 as [h1 ph1], h2 as [h2 ph2], h3 as [h3 ph3]; simpl in *.
@@ -207,7 +213,7 @@ Qed.
 Ltac des_conj := 
   repeat (match goal with [H : _ /\ _ |- _] => destruct H end).
 
-Lemma pdisj_padd_comm (h1 h2 h3 : pheap) : pdisj h2 (phplus h1 h3) -> pdisj h1 h3 -> 
+Lemma pdisj_padd_comm (h1 h2 h3 : gen_pheap) : pdisj h2 (phplus h1 h3) -> pdisj h1 h3 -> 
                                            pdisj h1 (phplus h2 h3).
 Proof.
   destruct h1 as [h1 ph1], h2 as [h2 ph2], h3 as [h3 ph3]; simpl in *.
@@ -222,7 +228,7 @@ Proof.
     repeat split; eauto.
 Qed.
 
-Lemma pdisj_padd_expand (h1 h2 h3 : pheap) : 
+Lemma pdisj_padd_expand (h1 h2 h3 : gen_pheap) : 
   pdisj h1 h2 -> (pdisj (phplus h1 h2) h3 <-> (pdisj h1 (phplus h2 h3) /\ pdisj h2 h3)).
 Proof.
   destruct h1 as [h1 ph1], h2 as [h2 ph2], h3 as [h3 ph3]; simpl in *.
@@ -240,7 +246,7 @@ Proof.
   - cutrewrite (q1 + (q + q0) = q + (q0 + q1)); [eauto | ring].
 Qed.
 
-Lemma padd_assoc (h1 h2 h3 : pheap) :
+Lemma padd_assoc (h1 h2 h3 : gen_pheap) :
   pdisj h1 (phplus h2 h3) -> pdisj h2 h3 -> phplus (phplus h1 h2) h3 = phplus h1 (phplus h2 h3).
 Proof.
   destruct h1 as [h1 ph1], h2 as [h2 ph2], h3 as [h3 ph3]; simpl in *.
@@ -252,7 +258,7 @@ Proof.
   cutrewrite (q + q0 + q1 = q + (q0 + q1)); [eauto | ring].
 Qed.
 
-Lemma padd_left_comm (h1 h2 h3 : pheap) :
+Lemma padd_left_comm (h1 h2 h3 : gen_pheap) :
   pdisj h1 (phplus h2 h3) -> pdisj h2 h3 -> phplus h1 (phplus h2 h3) = phplus h2 (phplus h1 h3).
 Proof.
   destruct h1 as [h1 ph1], h2 as [h2 ph2], h3 as [h3 ph3]; simpl in *.
@@ -265,7 +271,7 @@ Proof.
   - cutrewrite (q + q0 = q0 + q); [congruence | ring].
 Qed.
 
-Lemma padd_cancel (h1 h2 h3 : pheap) :
+Lemma padd_cancel (h1 h2 h3 : gen_pheap) :
   phplus h1 h2 = phplus h1 h3 -> pdisj h1 h2 -> pdisj h1 h3 -> h2 = h3.
 Proof.
   destruct h1 as [h1 ph1], h2 as [h2 ph2], h3 as [h3 ph3]; simpl in *.
@@ -297,10 +303,11 @@ Proof.
   - subst; cutrewrite (ph2 = ph3); [eauto | apply proof_irrelevance ].
 Qed.
 
-Corollary padd_cancel2 (h1 h2 h3 : pheap) :
+Hint Resolve pdisjC.
+
+Corollary padd_cancel2 (h1 h2 h3 : gen_pheap) :
   phplus h2 h1 = phplus h3 h1 -> pdisj h2 h1 -> pdisj h3 h1 -> h2 = h3.
 Proof.
-  Hint Resolve pdisjC.
   intros.
   rewrite (@phplus_comm h2 h1), (@phplus_comm h3 h1) in H; eauto.
   eapply padd_cancel; eauto.
@@ -308,13 +315,13 @@ Qed.
 
 Definition heap := loc -> option Z.
 
-Definition ptoheap (ph : pheap') (h : heap) : Prop :=
+Definition ptoheap (ph : gen_pheap') (h : heap) : Prop :=
   forall (x : loc), match ph x with
                     | None => h x = None
                     | Some (p, v) => p = full_p /\ h x = Some v
                   end.
 
-Lemma ptoD (ph1 ph2 : pheap') (h : heap):
+Lemma ptoD (ph1 ph2 : gen_pheap') (h : heap):
   ptoheap ph1 h -> ptoheap ph2 h -> ph1 = ph2.
 Proof.
   (*    destruct ph1 as [h1 ph1], ph2 as [h2 ph2]; simpl in *.*)
@@ -325,16 +332,16 @@ Proof.
   intuition; eauto; try congruence.
 Qed.
 
-Lemma pdisj_is_pheap (h1 h2 : pheap) :
+Lemma pdisj_is_pheap (h1 h2 : gen_pheap) :
   pdisj h1 h2 -> is_pheap (phplus h1 h2).
 Proof.
   intros dis12 x; specialize (dis12 x); specialize (is_p h1 x); specialize (is_p h2 x).
   unfold phplus; destruct (this h1 x) as [[q1 v1] | ], (this h2 x) as [[q2 v2] | ]; intuition; eauto.
 Qed.
 
-Definition phplus_pheap (h1 h2 : pheap) (H : pdisj h1 h2) : pheap := Pheap (pdisj_is_pheap H).
+Definition phplus_pheap (h1 h2 : gen_pheap) (H : pdisj h1 h2) : gen_pheap := Pheap (pdisj_is_pheap H).
 
-Definition htop' (h : heap) : pheap' :=
+Definition htop' (h : heap) : gen_pheap' :=
   fun (x : loc) => 
     match h x with
       | None => None
@@ -347,7 +354,7 @@ Proof.
   unfold Qcle; unfold Qle; simpl; omega.
 Qed.
 
-Definition htop (h : heap) : pheap :=
+Definition htop (h : heap) : gen_pheap :=
   Pheap (htop_is_pheap h).
 
 Lemma ptoheap_htop (h : heap) : ptoheap (htop h) h.
@@ -355,14 +362,14 @@ Proof.
   intros x; unfold htop,htop'; simpl; destruct (h x); eauto.
 Qed.
 
-Lemma pheap_eq (ph1 ph2 : pheap') (is_p1 : is_pheap ph1) (is_p2 : is_pheap ph2) :
+Lemma pheap_eq (ph1 ph2 : gen_pheap') (is_p1 : is_pheap ph1) (is_p2 : is_pheap ph2) :
   ph1 = ph2 -> Pheap is_p1 = Pheap is_p2.
 Proof.
   destruct 1.
   cutrewrite (is_p1 = is_p2); [eauto | apply proof_irrelevance ].
 Qed.
 
-Lemma ptoheap_eq (ph : pheap) (h : heap) : ptoheap ph h -> ph = htop h.
+Lemma ptoheap_eq (ph : gen_pheap) (h : heap) : ptoheap ph h -> ph = htop h.
 Proof.
   intros ptoheap.
   unfold htop, htop' in *; destruct ph as [ph iph]; apply pheap_eq; extensionality x.
@@ -372,14 +379,14 @@ Proof.
   try tauto; try congruence.
 Qed.
 
-Lemma pheap_disj_eq (h1 h2 : pheap) (v : loc) (v1 v2 : Z) (q1 q2 : Qc) :
+Lemma pheap_disj_eq (h1 h2 : gen_pheap) (v : loc) (v1 v2 : Z) (q1 q2 : Qc) :
   pdisj h1 h2 -> this h1 v = Some (q1, v1) -> this h2 v = Some (q2, v2) -> v1 = v2.
 Proof.
   intros hdis h1v h2v.
   specialize (hdis v); rewrite h1v, h2v in hdis; intuition; eauto.
 Qed.
 
-Lemma pheap_disj_disj (h1 h2 : pheap) (v1 v2 : loc) (v1' v2' v1'' v2'' : Z) :
+Lemma pheap_disj_disj (h1 h2 : gen_pheap) (v1 v2 : loc) (v1' v2' v1'' v2'' : Z) :
   pdisj h1 h2 -> this h1 v1 = Some (full_p, v1') -> this h2 v2 = Some (full_p, v2') ->
   pdisj (ph_upd2 h1 v1 v1'') (ph_upd2 h2 v2 v2'').
 Proof.
@@ -393,9 +400,9 @@ Qed.
 Import VectorNotations.
 
 Lemma emp_is_heap : is_pheap emp_h. unfold is_pheap, emp_h; eauto. Qed.
-Definition emp_ph : pheap := Pheap emp_is_heap.
+Definition emp_ph : gen_pheap := Pheap emp_is_heap.
 
-Lemma emp_is_emp (h : pheap) :
+Lemma emp_is_emp (h : gen_pheap) :
   (forall v : loc, this h v = None) -> h = emp_ph.
 Proof.
   destruct h as [h ?]; unfold emp_ph; intros hsat.
@@ -408,12 +415,12 @@ Proof.
 Qed.
 
 
-Inductive disj_eq : forall (n : nat), Vector.t pheap n -> pheap -> Prop :=
+Inductive disj_eq : forall (n : nat), Vector.t gen_pheap n -> gen_pheap -> Prop :=
 | eq_nil  : disj_eq [] emp_ph
-| eq_cons : forall (n : nat) (hs : Vector.t pheap n) (ph : pheap) (h : pheap) (hdis : pdisj h ph),
+| eq_cons : forall (n : nat) (hs : Vector.t gen_pheap n) (ph h : gen_pheap) (hdis : pdisj h ph),
               disj_eq hs ph -> disj_eq (h :: hs) (Pheap (pdisj_is_pheap hdis)).
 
-Lemma disjeq_disj1 (n : nat) (h h' : pheap) (hs : Vector.t pheap n)
+Lemma disjeq_disj1 (n : nat) (h h' : gen_pheap) (hs : Vector.t gen_pheap n)
       (diseq : disj_eq hs h) (i : Fin.t n) :
   pdisj h' h -> pdisj h' hs[@i].
 Proof.
@@ -423,7 +430,7 @@ Proof.
   apply IHdiseq; tauto.
 Qed.
 
-Lemma disjeq_disj (n : nat) (h : pheap) (hs : Vector.t pheap n) (diseq : disj_eq hs h) 
+Lemma disjeq_disj (n : nat) (h : gen_pheap) (hs : Vector.t gen_pheap n) (diseq : disj_eq hs h) 
       (i j : Fin.t n) :
   i <> j -> pdisj (Vector.nth hs i) (Vector.nth hs j).
 Proof.
@@ -435,7 +442,7 @@ Proof.
   - apply IHdiseq. intros Hcontra; subst; tauto. 
 Qed.
 
-Lemma disj_eq_fun (n : nat) (hs : Vector.t pheap n) (h h' : pheap) :
+Lemma disj_eq_fun (n : nat) (hs : Vector.t gen_pheap n) (h h' : gen_pheap) :
   disj_eq hs h -> disj_eq hs h' -> h = h'.
 Proof.
   revert n h h' hs; induction n; intros h h' hs hdis hdis'.
@@ -447,7 +454,7 @@ Proof.
     apply pheap_eq; rewrite (IHn ph0 ph hs' H8 H3); eauto.
 Qed.
 
-Lemma disj_exclude (n : nat) (hs : Vector.t pheap n) (h h' : pheap) (i : Fin.t n) :
+Lemma disj_exclude (n : nat) (hs : Vector.t gen_pheap n) (h h' : gen_pheap) (i : Fin.t n) :
   disj_eq hs h -> disj_eq (replace hs i emp_ph) h' -> pdisj hs[@i] h' /\ this h = phplus hs[@i] h'.
 Proof.
   revert hs h h' i; induction n; 
@@ -470,7 +477,7 @@ Proof.
       rewrite <-H0; eauto.
 Qed.
 
-Lemma disj_weak (n : nat) (hs : Vector.t pheap n) (h h' h'': pheap) (i : Fin.t n) :
+Lemma disj_weak (n : nat) (hs : Vector.t gen_pheap n) (h h' h'': gen_pheap) (i : Fin.t n) :
   disj_eq hs h -> pdisj h'' h -> disj_eq (replace hs i emp_ph) h' -> pdisj h'' h'.
   revert h h' h''; generalize dependent n.
   induction n; intros hs i h h' h'' heq hdis heq'; [inversion i |].
@@ -492,7 +499,7 @@ Lemma disj_weak (n : nat) (hs : Vector.t pheap n) (h h' h'': pheap) (i : Fin.t n
     rewrite phplus_comm; eauto.
 Qed.
 
-Lemma disj_exclude_exists (n : nat) (hs : Vector.t pheap n) (h : pheap) (i : Fin.t n) :
+Lemma disj_exclude_exists (n : nat) (hs : Vector.t gen_pheap n) (h : gen_pheap) (i : Fin.t n) :
   disj_eq hs h -> exists h', disj_eq (Vector.replace hs i emp_ph) h'.
 Proof.
   revert hs h i; induction n; 
@@ -512,7 +519,7 @@ Proof.
     apply (eq_cons H2 H).
 Qed.
 
-Lemma disj_tid (n : nat) (hs : Vector.t pheap n) (h : pheap) (i : Fin.t n):
+Lemma disj_tid (n : nat) (hs : Vector.t gen_pheap n) (h : gen_pheap) (i : Fin.t n):
   disj_eq hs h -> exists h', disj_eq (Vector.replace hs i emp_ph) h' /\ 
                              pdisj hs[@i] h' /\ phplus hs[@i] h' = h.
 Proof.
@@ -522,7 +529,7 @@ Proof.
   split; destruct (disj_exclude hdeq H); eauto; try congruence.
 Qed.
 
-Lemma disj_upd (n : nat) (hs : Vector.t pheap n) (i : Fin.t n) (h hq : pheap):
+Lemma disj_upd (n : nat) (hs : Vector.t gen_pheap n) (i : Fin.t n) (h hq : gen_pheap):
   disj_eq (replace hs i emp_ph) h -> 
   pdisj hq h ->
   exists h', 
@@ -551,7 +558,7 @@ Proof.
       apply pdisjC, pdisj_padd_expand; eauto.
 Qed.
 
-Lemma disj_eq_each_disj (n : nat) (hs1 hs2 : Vector.t pheap n) (h1 h2 : pheap) :
+Lemma disj_eq_each_disj (n : nat) (hs1 hs2 : Vector.t gen_pheap n) (h1 h2 : gen_pheap) :
   disj_eq hs1 h1 -> disj_eq hs2 h2 -> pdisj h1 h2 -> 
   (forall i : Fin.t n, pdisj hs1[@i] hs2[@i]).
   revert h1 h2; generalize dependent n; induction n as [|n]; 
@@ -569,7 +576,7 @@ Lemma disj_eq_each_disj (n : nat) (hs1 hs2 : Vector.t pheap n) (h1 h2 : pheap) :
     apply pdisjE2, pdisjC in hdis; simpl in hdis; eauto; apply pdisjE2 in hdis; eauto.
 Qed.
 
-Lemma pp_pdisj1 (h1 h2 h3 h4 : pheap) (dis12 : pdisj h1 h2) (dis34 : pdisj h3 h4) :
+Lemma pp_pdisj1 (h1 h2 h3 h4 : gen_pheap) (dis12 : pdisj h1 h2) (dis34 : pdisj h3 h4) :
   pdisj (phplus_pheap dis12) (phplus_pheap dis34) ->
   pdisj h1 h3.
 Proof.
@@ -580,7 +587,7 @@ Proof.
   apply pdisjE1, pdisjC in H; simpl in H; eauto; apply pdisjE1 in H; eauto.
 Qed.
 
-Lemma pp_pdisj2 (h1 h2 h3 h4 : pheap) (dis12 : pdisj h1 h2) (dis34 : pdisj h3 h4) :
+Lemma pp_pdisj2 (h1 h2 h3 h4 : gen_pheap) (dis12 : pdisj h1 h2) (dis34 : pdisj h3 h4) :
   pdisj (phplus_pheap dis12) (phplus_pheap dis34) ->
   pdisj h2 h4.
 Proof.
@@ -591,7 +598,7 @@ Proof.
   apply pdisjE2, pdisjC in H; simpl in H; eauto; apply pdisjE2 in H; eauto.
 Qed.
 
-Lemma disj_eq_sum (n : nat) (hs1 hs2 hs' : Vector.t pheap n) (h1 h2 : pheap) (hdis : pdisj h1 h2):
+Lemma disj_eq_sum (n : nat) (hs1 hs2 hs' : Vector.t gen_pheap n) (h1 h2 : gen_pheap) (hdis : pdisj h1 h2):
   disj_eq hs1 h1 -> disj_eq hs2 h2 -> 
   (forall i, this hs'[@i] = phplus hs1[@i] hs2[@i]) ->
   disj_eq hs' (phplus_pheap hdis).
@@ -651,9 +658,9 @@ Proof.
       rewrite <-padd_left_comm; eauto.
 Qed.
 
-Lemma disj_eq_sub (n : nat) (hs hs1 hs2 : Vector.t pheap n) (h : pheap): 
+Lemma disj_eq_sub (n : nat) (hs hs1 hs2 : Vector.t gen_pheap n) (h : gen_pheap): 
   disj_eq hs h -> (forall i : Fin.t n, pdisj hs1[@i] hs2[@i] /\ phplus hs1[@i] hs2[@i] = hs[@i]) ->
-  exists (h1 h2 : pheap), 
+  exists (h1 h2 : gen_pheap), 
     disj_eq hs1 h1 /\ disj_eq hs2 h2 /\ pdisj h1 h2 /\ phplus h1 h2 = h.
 Proof.
   revert h; induction n; intros h hdis heq.
@@ -710,14 +717,14 @@ Proof.
         rewrite H7, pp12; tauto.
 Qed.    
 
-Lemma phplus_eq (h1 h2 : pheap) (disj : pdisj h1 h2) :
+Lemma phplus_eq (h1 h2 : gen_pheap) (disj : pdisj h1 h2) :
   this (phplus_pheap disj) = phplus h1 h2. 
   simpl; eauto.
 Qed.
 
-Lemma disjeq_phplus (n : nat) (hs : Vector.t pheap n) (h h' : pheap) (i : Fin.t n) :
+Lemma disjeq_phplus (n : nat) (hs : Vector.t gen_pheap n) (h h' : gen_pheap) (i : Fin.t n) :
   disj_eq hs h -> pdisj h h' ->
-  exists h'' : pheap, pdisj hs[@i] h'' /\ pdisj h'' h' /\ 
+  exists h'' : gen_pheap, pdisj hs[@i] h'' /\ pdisj h'' h' /\ 
               phplus hs[@i] h'' = h /\ pdisj hs[@i] (phplus h'' h').
 Proof.
   intros hdeq hdis.
@@ -728,7 +735,7 @@ Proof.
     rewrite hplus; eauto.
 Qed.
 
-Lemma ptoheap_phplus (ph : pheap) (h h' : heap) :
+Lemma ptoheap_phplus (ph : gen_pheap) (h h' : heap) :
   pdisj ph (htop h) -> ptoheap (phplus ph (htop h)) h' -> 
   exists h'' : heap, ptoheap ph h''.
 Proof.
@@ -751,7 +758,7 @@ Definition hdisj (h1 h2 : heap) := forall x, h1 x = None \/ h2 x = None.
 Definition hplus (h1 h2 : heap) : heap := 
   (fun x => match h1 x with None => h2 x | Some y => Some y end).
 
-Lemma ptoheap_plus (ph : pheap) (h : heap) (hF : heap) :
+Lemma ptoheap_plus (ph : gen_pheap) (h : heap) (hF : heap) :
   ptoheap ph h -> hdisj h hF -> ptoheap (phplus ph (htop hF)) (hplus h hF).
 Proof.
   intros heq hdis x.
@@ -809,7 +816,7 @@ Proof.
   try tauto; congruence.
 Qed.
 
-Definition upd A (f: loc -> A) x y a := if loc_eq_dec a x then y else f a.
+Definition upd A (f: loc -> A) x y a := if eq_dec a x then y else f a.
 
 Lemma hplus_upd (h1 h2 hF : heap) (x : loc) (v : Z) :
   hdisj h1 hF -> hdisj h2 hF -> upd (hplus h1 hF) x (Some v) = hplus h2 hF ->
@@ -819,26 +826,30 @@ Proof.
   remember (hF x) as hFx; destruct hFx; [right; eexists; eauto|].
   left; extensionality x'; specialize (Hdis1 x'); specialize (Hdis2 x');
   assert (upd (hplus h1 hF) x (Some v) x' = hplus h2 hF x') by (rewrite Heq; eauto); clear Heq;
-  unfold upd, hplus in *; destruct Hdis1, Hdis2, (loc_eq_dec x' x), (h1 x'), (h2 x'); 
+  unfold upd, hplus in *; destruct Hdis1, Hdis2, (eq_dec x' x), (h1 x'), (h2 x'); 
   try congruence.
 Qed.
 
-Lemma disj_emp1 (h : pheap) : pdisj h emp_ph.
+Lemma disj_emp1 (h : gen_pheap) : pdisj h emp_ph.
 Proof.
   intros x; destruct (this h x) as [[? ?]|]; simpl; eauto.
 Qed.
 
-Lemma disj_emp2 (h : pheap) : pdisj emp_ph h.
+Lemma disj_emp2 (h : gen_pheap) : pdisj emp_ph h.
 Proof.
   intros x; destruct (this h x) as [[? ?]|]; simpl; eauto.
 Qed.
 
-Lemma phplus_emp1 (h : pheap) : phplus emp_ph h = h.
+Lemma phplus_emp1 (h : gen_pheap) : phplus emp_ph h = h.
 Proof.
   unfold phplus; simpl; extensionality x; auto.
 Qed.
 
-Lemma phplus_emp2 (h : pheap) : phplus h emp_ph = h.
+Lemma phplus_emp2 (h : gen_pheap) : phplus h emp_ph = h.
 Proof.
   unfold phplus; simpl; extensionality x; destruct (this h x) as [[? ? ]|]; auto.
 Qed.
+
+End Loc.
+
+Hint Resolve pdisjC pdisj_padd_comm.
