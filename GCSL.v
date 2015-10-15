@@ -328,4 +328,46 @@ Section For_List_Notation.
       eapply aistar_sat; eauto.
       intros; erewrite Vector.nth_map; [|reflexivity]; auto.
 
-    - 
+    - intros hF Hdis [bid ?].
+      destruct (Hsafe bid) as (_ & Hnabort & _ & _).
+      unfold bs_of_gs in H; simpl in H.
+      
+      Lemma sh_gl_heap_hplus (h1 h2 : simple_heap) :
+        sh_gl_heap h1 h2 = hplus (as_sheap h1) (as_gheap h2).
+      Proof.
+        extensionality l; destruct l; unfold hplus; simpl; auto.
+        destruct (h1 z); auto.
+      Qed.
+
+      rewrite sh_gl_heap_hplus in H.
+      
+      Lemma hplus_assoc {loc : Type} (h1 h2 h3 : PHeap.heap loc) :
+        hplus (hplus h1 h2) h3 = hplus h1 (hplus h2 h3).
+      Proof.
+        extensionality l; unfold hplus.
+        destruct (h1 l); auto.
+      Qed.
+
+      Lemma hplus_as_gheap (h1 h2 : simple_heap) :
+        as_gheap (hplus h1 h2) = hplus (as_gheap h1) (as_gheap h2).
+      Proof.
+        extensionality x; destruct x; unfold hplus; simpl; auto.
+      Qed.        
+
+      rewrite hplus_as_gheap, <-hplus_assoc in H.
+      apply (Hnabort (as_gheap hF)).
+      
+      Lemma is_sheap_disj h1 h2 h3 :
+        is_sheap h1 -> is_gheap h2 -> is_gheap h3 ->
+        hdisj h2 h3 -> hdisj (hplus h1 h2) h3.
+      Proof.
+        intros; intros l.
+        destruct l; specialize (H z); specialize (H0 z); specialize (H1 z).
+        unfold hplus; auto.
+        unfold hplus; rewrite H; auto.
+      Qed.
+
+      apply is_sheap_disj; auto using as_sh_is_sh, as_gh_is_gh.
+      eapply disj_eq_inj; eauto using as_gh_is_gh.
+
+      
