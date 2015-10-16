@@ -355,8 +355,6 @@ Section For_List_Notation.
       Qed.        
 
       rewrite hplus_as_gheap, <-hplus_assoc in H.
-      apply (Hnabort (as_gheap hF)).
-      
       Lemma is_sheap_disj h1 h2 h3 :
         is_sheap h1 -> is_gheap h2 -> is_gheap h3 ->
         hdisj h2 h3 -> hdisj (hplus h1 h2) h3.
@@ -367,7 +365,212 @@ Section For_List_Notation.
         unfold hplus; rewrite H; auto.
       Qed.
 
-      apply is_sheap_disj; auto using as_sh_is_sh, as_gh_is_gh.
-      eapply disj_eq_inj; eauto using as_gh_is_gh.
+      Lemma as_gheap_hdisj (h1 h2 : simple_heap) :
+        hdisj h1 h2 -> hdisj (as_gheap h1) (as_gheap h2).
+      Proof.
+        intros; intros [l | l]; simpl; auto.
+      Qed.
+      
+      Lemma hdisjC {loc : Type} (h1 h2 : PHeap.heap loc) : hdisj h1 h2 -> hdisj h2 h1.
+      Proof.
+        intros; intros l; specialize (H l); tauto.
+      Qed.
+      
+      assert (Hgb_gh : is_gheap ghs[@bid]).
+      { eapply disj_eq_inj; eauto using as_gh_is_gh. }
+      
+      apply disjeq_phplus with (i := bid) (h' := htop (as_gheap hF)) in Hdeq.
+      2: apply hdisj_pdisj.
+      2: apply as_gheap_hdisj; auto.
+      destruct Hdeq as (hF' & Hdis1 & Hdis2 & Heq1 & Hdisj3).
+      erewrite Vector.nth_map in Heq1; [|reflexivity].
+      assert (exists hhF', hF' = htop hhF') as [hhF' HF']; subst.
+      { eapply htop_phplus_heap.
+        erewrite Vector.nth_map in Hdis1; [|reflexivity..].
+        apply Hdis1.
+        apply Heq1. }
+      rewrite <-hplus_phplus in Heq1; simpl in Heq1; auto.
+      rewrite <-heap_pheap_eq in Heq1.
+      rewrite <-Heq1 in H. 
+      Infix "|+|" := hplus (at level 40, left associativity).
+      assert (as_sheap (sh_hp gs)[@bid] |+| (ghs[@bid] |+| hhF') |+| as_gheap hF =
+              hplus (hplus (as_sheap (sh_hp gs)[@bid]) ghs[@bid]) (hplus hhF' (as_gheap hF))).
+      { rewrite !hplus_assoc; auto. }
+      rewrite H0 in H; apply Hnabort in H; auto.
+      erewrite Vector.nth_map in Hdisj3; [|reflexivity].
+      rewrite <-hplus_phplus in Hdisj3.
 
+      Lemma hplus_is_gheapC (h1 h2 h : heap) :
+        is_gheap h2 -> h1 |+| h = h2 -> is_gheap h.
+      Proof.
+        unfold is_gheap; intros.
+        apply (f_equal (fun f => f (SLoc x))) in H0; unfold hplus in H0; simpl.
+        specialize (H x).
+        destruct (h1 (SLoc x)), (h2 (SLoc x)); try rewrite H in *; try congruence.
+      Qed.
+      
+      Lemma hplus_is_gheap (h1 h2 : heap) :
+        is_gheap h1 -> is_gheap h2 -> is_gheap (h1 |+| h2).
+      Proof.
+        unfold is_gheap, hplus; intros; rewrite H, H0; auto.
+      Qed.
+        
+      apply is_sheap_disj; auto using as_sh_is_sh, as_gh_is_gh.
+      apply hplus_is_gheap; auto using as_sh_is_sh, as_gh_is_gh.
+      apply hplus_is_gheapC in Heq1; auto using as_gh_is_gh.
+      apply hdisj_pdisj; auto.
+      apply hdisj_pdisj; auto.
+      apply hdisj_pdisj; auto.
+      erewrite Vector.nth_map in Hdis1; [|reflexivity].
+      auto.
+      
+    - intros Hbdiv; destruct Hbdiv as [bid Hbdiv].
+      destruct (Hsafe bid) as (_ & _ & Hbdivi & _).
+      
+      Definition emp_h : heap := fun x => None.
+      Lemma emp_h_unit_r (h : heap) : h |+| emp_h = h.
+      Proof.
+        unfold hplus;  extensionality x; destruct (h x); auto.
+      Qed.
+      Lemma emp_h_disj (h : heap) : hdisj h emp_h.
+      Proof.
+        unfold hdisj; intros; destruct (h x); auto.
+      Qed.
+      specialize (Hbdivi emp_h); rewrite emp_h_unit_r in Hbdivi; auto; apply Hbdivi in Hbdiv;
+      auto using emp_h_disj.
+
+    - intros gs' hF Hdis Hred.
+      inversion Hred; subst; simpl in *; clear Hred.
+      rename H into Hred; rename H0 into Hheq.
+      unfold bs_of_gs in Hred; simpl in Hred.
+      rewrite sh_gl_heap_hplus in Hred.
+      assert (exists hb, as_gheap (gl_hp gs) = hplus ghs[@bid] hb /\
+                         hdisj ghs[@bid] hb) as (hb & Hhb & Hdishb).
+      { apply (disj_tid bid) in Hdeq as (hb & ? & ? & ?).
+        erewrite Vector.nth_map in H1, H0; [|reflexivity..].
+        assert (exists hb', hb = htop hb') as (hb' & ?); subst.
+        { simpl in H1; apply htop_phplus_heap in H1; auto. }
+        rewrite <-hdisj_pdisj in H0.
+        rewrite <-hplus_phplus in H1; simpl in H1; auto.
+        rewrite <-heap_pheap_eq in H1.
+        exists hb'; split; auto. }
+      assert (Heq : as_sheap (sh_hp gs)[@bid] |+| as_gheap (gl_hp gs |+| hF) =
+                    (as_sheap (sh_hp gs)[@bid] |+| ghs[@bid]) |+| (hb |+| as_gheap hF)).
+      { rewrite hplus_as_gheap, Hhb, !hplus_assoc; auto. }
+      rewrite Heq in Hred; clear Heq.
+      destruct (Hsafe bid) as (_ & _ & _ & _ & Hsafei); clear Hsafe.
+      
+      assert (hdisj (as_sheap (sh_hp gs)[@bid] |+| ghs[@bid]) (hb |+| as_gheap hF)).
+      { apply is_sheap_disj; auto using as_sh_is_sh, as_gh_is_gh.
+        eapply disj_eq_inj; eauto using as_sh_is_sh, as_gh_is_gh.
+        apply hplus_is_gheap; auto using as_gh_is_gh.
+        symmetry in Hhb; apply hplus_is_gheapC in Hhb; auto.
+        (* eapply disj_eq_inj; eauto using as_gh_is_gh. *)
+        apply as_gh_is_gh.
+        
+        Lemma hdisj_hplus_comm {loc : Type} (h1 h2 h3 : PHeap.heap loc) :
+          hdisj h1 h2 -> 
+          hdisj (h1 |+| h2) h3 -> hdisj h1 (h2 |+| h3).
+        Proof.
+          unfold hdisj; intros H H1 l.
+          specialize (H l); specialize (H1 l); unfold hplus in *;
+          destruct (h1 l), (h2 l), (h3 l); try now (destruct H, H1; auto; congruence).
+        Qed.
+        
+        apply hdisj_hplus_comm; eauto; rewrite <-Hhb; apply as_gheap_hdisj; eauto. }
+
+      eapply Hsafei in Hred as (h' & Hdis' & Heq' & Hsafeb); eauto.
+      assert (Heq : gh' = hplus (as_sheap sh'') (as_gheap gh'')).
+      { rewrite sh_gl_heap_hplus in Hheq; extensionality l; auto. }
+      rewrite Heq in Heq'; clear Heq.
+      
+      Lemma sh_gl_decomp (h : heap) :
+        exists hs hg, h = hs |+| hg /\ is_sheap hs /\ is_gheap hg.
+      Proof.
+        exists (fun l => match l with SLoc _ => h l | _ => None end)
+               (fun l => match l with GLoc _ => h l | _ => None end); repeat split.
+        extensionality l; destruct l; unfold hplus; simpl; auto.
+        destruct (h (SLoc z)); auto.
+      Qed.
+
+      destruct (sh_gl_decomp h') as (hs & h'' & Heq & Hiss & Hisg); subst.
+      rewrite !hplus_assoc in Heq'.
+      
+      Lemma sh_gl_eq (hs1 hs2 hg1 hg2 : heap) :
+        is_sheap hs1 -> is_sheap hs2 -> is_gheap hg1 -> is_gheap hg2 ->
+        hs1 |+| hg1 = hs2 |+| hg2 -> hs1 = hs2 /\ hg1 = hg2.
+      Proof.
+        intros Hs1 Hs2 Hg1 Hg2 Heq; split; extensionality l; apply (f_equal (fun f => f l)) in Heq;
+        destruct l as [l | l]; repeat match goal with [H : _ |- _ ] => specialize (H l) end;
+        unfold "|+|" in *;
+        repeat match goal with [H : context [match ?X with _ => _ end] |- _] => destruct X end;
+        try congruence.
+      Qed.
+
+      assert (as_gheap gh'' = h'' |+| (hb |+| as_gheap hF)).
+      { apply sh_gl_eq in Heq'; auto using as_sh_is_sh, as_gh_is_gh, hplus_is_gheap.
+        tauto.
+        repeat apply hplus_is_gheap; auto.
+        assert (is_gheap ghs[@bid]).
+        { eapply disj_eq_inj; eauto using as_gh_is_gh. }
+        symmetry in Hhb; apply hplus_is_gheapC in Hhb; auto using as_gh_is_gh.
+        apply as_gh_is_gh. }
+      rewrite <-hplus_assoc in H0.
+
+      Lemma is_gheap_as_gheap (h : heap) :
+        is_gheap h -> exists h', h = as_gheap h'.
+      Proof.
+        intros; exists (fun l => h (GLoc l)); extensionality l.
+        destruct l as [l | l]; specialize (H l); simpl; auto.
+      Qed.
+
+      apply is_gheap_as_gheap in Hisg as [hg'' ?]; subst.
+      assert (Hb : is_gheap hb).
+      { symmetry in Hhb; apply hplus_is_gheapC in Hhb; auto using as_gh_is_gh. }
+      apply is_gheap_as_gheap in Hb as [hb'' ?]; subst.
+      rewrite <-!hplus_as_gheap in H0.
+
+      Lemma as_gheap_inj h1 h2 : 
+        as_gheap h1 = as_gheap h2 -> h1 = h2.
+      Proof.
+        intros; extensionality l; apply (f_equal (fun f => f (GLoc l))) in H; auto.
+      Qed.
+
+      apply as_gheap_inj in H0.
+
+      exists (hg'' |+| hb''); repeat split; auto.
+      
+      Lemma hdisjE1 (h1 h2 h3 : heap) : hdisj (h1 |+| h2) h3 -> hdisj h1 h3.
+      Proof.
+        unfold hdisj, hplus; intros H l; specialize (H l).
+        destruct (h1 l), (h3 l); simpl in *; try congruence; auto.
+      Qed.
+
+      Lemma hdisjE2 (h1 h2 h3 : heap) : hdisj (h1 |+| h2) h3 -> hdisj h2 h3.
+      Proof.
+        unfold hdisj, hplus; intros H l; specialize (H l).
+        destruct (h1 l), (h2 l), (h3 l); simpl in *; try congruence; auto.
+        destruct H; congruence.
+      Qed.
+
+      apply hdisjE2 in Hdis'.
+
+      Lemma hdisj_as_gheap h1 h2 :
+        hdisj (as_gheap h1) (as_gheap h2) -> hdisj h1 h2.
+      Proof.
+        unfold hdisj; intros; specialize (H (GLoc x)); eauto.
+      Qed.
+
+      rewrite <-hplus_as_gheap in Hdis'; apply hdisj_as_gheap in Hdis'.
+
+      Lemma hdisj_hplus_comm' {loc : Type} (h1 h2 h3 : PHeap.heap loc) :
+        hdisj h2 h3 -> 
+        hdisj h1 (h2 |+| h3) -> hdisj (h1 |+| h2) h3.
+      Proof.
+        unfold hdisj; intros H H1  l.
+        specialize (H l); specialize (H1 l); unfold hplus in *;
+        destruct (h1 l), (h2 l), (h3 l); try now (destruct H, H1; auto; congruence).
+      Qed.
+
+      apply hdisj_hplus_comm'; eauto.
       
