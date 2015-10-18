@@ -118,8 +118,9 @@ Section For_List_Notation.
       (forall var, List.In var (List.map fst sh_decl) -> E var = Lo) ->
       safe_ng n gs Q.
   Proof.
-    induction n; simpl; auto.
-    intros gs ghs Q sdec Qs Hdeq Hsafe Hnov HQ Hsinv Hsvar Hslow; repeat split.
+    induction n; [simpl; auto|].
+    remember (safe_nk E (S n)).
+    simpl; intros gs ghs Q sdec Qs Hdeq Hsafe Hnov HQ Hsinv Hsvar Hslow; repeat split; subst.
     - intros Hskip.
       evar (P : Fin.t nblk -> Prop); assert (Hskipb : forall bid, P bid); [|unfold P in *; clear P].
       { unfold P; intros bid; destruct (Hsafe bid) as (Hskipb & _).
@@ -440,7 +441,7 @@ Section For_List_Notation.
       auto using emp_h_disj.
 
     - intros gs' hF Hdis Hred.
-      inversion Hred; subst; simpl in *; clear Hred.
+      inversion Hred; subst; simpl; clear Hred.
       rename H into Hred; rename H0 into Hheq.
       unfold bs_of_gs in Hred; simpl in Hred.
       rewrite sh_gl_heap_hplus in Hred.
@@ -458,7 +459,7 @@ Section For_List_Notation.
                     (as_sheap (sh_hp gs)[@bid] |+| ghs[@bid]) |+| (hb |+| as_gheap hF)).
       { rewrite hplus_as_gheap, Hhb, !hplus_assoc; auto. }
       rewrite Heq in Hred; clear Heq.
-      destruct (Hsafe bid) as (_ & _ & _ & _ & Hsafei); clear Hsafe.
+      destruct (Hsafe bid) as (_ & _ & _ & _ & Hsafei).
       
       assert (hdisj (as_sheap (sh_hp gs)[@bid] |+| ghs[@bid]) (hb |+| as_gheap hF)).
       { apply is_sheap_disj; auto using as_sh_is_sh, as_gh_is_gh.
@@ -478,8 +479,11 @@ Section For_List_Notation.
         Qed.
         
         apply hdisj_hplus_comm; eauto; rewrite <-Hhb; apply as_gheap_hdisj; eauto. }
-
-      eapply Hsafei in Hred as (h' & Hdis' & Heq' & Hsafeb); eauto.
+      (* prove n-safety of bid-th thread*)
+      
+      Ltac dup H name := let P := type of H in assert (name : P) by auto.
+      dup Hred Hred'.
+      eapply Hsafei in Hred' as (h' & Hdis' & Heq' & Hsafeb); eauto.
       assert (Heq : gh' = hplus (as_sheap sh'') (as_gheap gh'')).
       { rewrite sh_gl_heap_hplus in Hheq; extensionality l; auto. }
       rewrite Heq in Heq'; clear Heq.
@@ -506,7 +510,7 @@ Section For_List_Notation.
         repeat match goal with [H : context [match ?X with _ => _ end] |- _] => destruct X end;
         try congruence.
       Qed.
-
+      
       assert (as_gheap gh'' = h'' |+| (hb |+| as_gheap hF)).
       { apply sh_gl_eq in Heq'; auto using as_sh_is_sh, as_gh_is_gh, hplus_is_gheap.
         tauto.
@@ -516,61 +520,177 @@ Section For_List_Notation.
         symmetry in Hhb; apply hplus_is_gheapC in Hhb; auto using as_gh_is_gh.
         apply as_gh_is_gh. }
       rewrite <-hplus_assoc in H0.
-
+      
       Lemma is_gheap_as_gheap (h : heap) :
         is_gheap h -> exists h', h = as_gheap h'.
       Proof.
         intros; exists (fun l => h (GLoc l)); extensionality l.
         destruct l as [l | l]; specialize (H l); simpl; auto.
       Qed.
-
+      
       apply is_gheap_as_gheap in Hisg as [hg'' ?]; subst.
       assert (Hb : is_gheap hb).
       { symmetry in Hhb; apply hplus_is_gheapC in Hhb; auto using as_gh_is_gh. }
       apply is_gheap_as_gheap in Hb as [hb'' ?]; subst.
       rewrite <-!hplus_as_gheap in H0.
-
+      
       Lemma as_gheap_inj h1 h2 : 
         as_gheap h1 = as_gheap h2 -> h1 = h2.
       Proof.
         intros; extensionality l; apply (f_equal (fun f => f (GLoc l))) in H; auto.
       Qed.
-
+      
       apply as_gheap_inj in H0.
 
       exists (hg'' |+| hb''); repeat split; auto.
       
-      Lemma hdisjE1 (h1 h2 h3 : heap) : hdisj (h1 |+| h2) h3 -> hdisj h1 h3.
-      Proof.
-        unfold hdisj, hplus; intros H l; specialize (H l).
-        destruct (h1 l), (h3 l); simpl in *; try congruence; auto.
-      Qed.
+      { Lemma hdisjE1 {loc : Type} (h1 h2 h3 : PHeap.heap loc) : hdisj (h1 |+| h2) h3 -> hdisj h1 h3.
+        Proof.
+          unfold hdisj, hplus; intros H l; specialize (H l).
+          destruct (h1 l), (h3 l); simpl in *; try congruence; auto.
+        Qed.
 
-      Lemma hdisjE2 (h1 h2 h3 : heap) : hdisj (h1 |+| h2) h3 -> hdisj h2 h3.
-      Proof.
-        unfold hdisj, hplus; intros H l; specialize (H l).
-        destruct (h1 l), (h2 l), (h3 l); simpl in *; try congruence; auto.
-        destruct H; congruence.
-      Qed.
+        Lemma hdisjE2 {loc : Type} (h1 h2 h3 : PHeap.heap loc) : hdisj (h1 |+| h2) h3 -> hdisj h2 h3.
+        Proof.
+          unfold hdisj, hplus; intros H l; specialize (H l).
+          destruct (h1 l), (h2 l), (h3 l); simpl in *; try congruence; auto.
+          destruct H; congruence.
+        Qed.
 
-      apply hdisjE2 in Hdis'.
+        apply hdisjE2 in Hdis'.
 
-      Lemma hdisj_as_gheap h1 h2 :
-        hdisj (as_gheap h1) (as_gheap h2) -> hdisj h1 h2.
-      Proof.
-        unfold hdisj; intros; specialize (H (GLoc x)); eauto.
-      Qed.
+        Lemma hdisj_as_gheap h1 h2 :
+          hdisj (as_gheap h1) (as_gheap h2) -> hdisj h1 h2.
+        Proof.
+          unfold hdisj; intros; specialize (H (GLoc x)); eauto.
+        Qed.
 
-      rewrite <-hplus_as_gheap in Hdis'; apply hdisj_as_gheap in Hdis'.
+        rewrite <-hplus_as_gheap in Hdis'; apply hdisj_as_gheap in Hdis'.
 
-      Lemma hdisj_hplus_comm' {loc : Type} (h1 h2 h3 : PHeap.heap loc) :
-        hdisj h2 h3 -> 
-        hdisj h1 (h2 |+| h3) -> hdisj (h1 |+| h2) h3.
-      Proof.
-        unfold hdisj; intros H H1  l.
-        specialize (H l); specialize (H1 l); unfold hplus in *;
-        destruct (h1 l), (h2 l), (h3 l); try now (destruct H, H1; auto; congruence).
-      Qed.
+        Lemma hdisj_hplus_comm' {loc : Type} (h1 h2 h3 : PHeap.heap loc) :
+          hdisj h2 h3 -> 
+          hdisj h1 (h2 |+| h3) -> hdisj (h1 |+| h2) h3.
+        Proof.
+          unfold hdisj; intros H H1  l.
+          specialize (H l); specialize (H1 l); unfold hplus in *;
+          destruct (h1 l), (h2 l), (h3 l); try now (destruct H, H1; auto; congruence).
+        Qed.
 
-      apply hdisj_hplus_comm'; eauto.
-      
+        apply hdisj_hplus_comm'; eauto.
+        assert (exists ghb, ghs[@bid] = as_gheap ghb) as [ghb Heq].
+        { assert (is_gheap ghs[@bid]).
+          { eapply disj_eq_inj; eauto using as_gh_is_gh. }
+          apply is_gheap_as_gheap; auto. }
+        rewrite Heq, <-hplus_as_gheap in Hhb; clear Heq; apply as_gheap_inj in Hhb.
+        rewrite Hhb in Hdis; eauto using hdisjE2. }
+
+      apply (IHn _ (replace ghs bid (as_gheap hg'')) _ sdec Qs); simpl; eauto.
+      + Lemma disj_eq_update {n : nat} (hs : Vector.t pheap n) (h h' hi : pheap) (i : Fin.t n)
+              (Hdis1 : pdisj hs[@i] h') (Hdis2 : pdisj hi h') :
+          disj_eq hs h ->
+          h = phplus_pheap Hdis1 ->
+          disj_eq (replace hs i hi) (phplus_pheap Hdis2).
+        Proof.
+          intros Hdeq Heq.
+          assert (disj_eq (replace hs i (emp_ph loc)) h').
+          { apply (disj_tid i) in Hdeq as (h'' & Hdeq' & Hdis & Heq'); subst.
+            simpl in Heq'. apply padd_cancel in Heq'; eauto; subst; auto. }
+          apply (disj_upd (hq := hi)) in H; auto.
+          destruct H as (? & ? & ?); subst; eauto.
+          assert (x = phplus_pheap Hdis2); subst; eauto.
+          destruct x; apply pheap_eq; eauto.
+        Qed.
+
+        Lemma map_replace {n : nat} {T U : Type} (f : T -> U) (xs : Vector.t T n) (i : Fin.t n) (x : T) :
+          Vector.map f (replace xs i x) = replace (Vector.map f xs) i (f x).
+        Proof.
+          apply eq_nth_iff; intros; subst.
+          erewrite !nth_map; [|reflexivity].
+          rewrite !replace_nth; destruct fin_eq_dec; eauto.
+          erewrite nth_map; eauto.
+        Qed.          
+
+        rewrite map_replace.
+        assert (Hd : hdisj (as_gheap hg'') (as_gheap hb'')).
+        { eauto using hdisjE2, hdisjC, hdisjE1. }
+        rewrite hplus_as_gheap, (htop_hplus _ _ Hd).
+        assert (pdisj (Vector.map (@htop loc) ghs)[@bid] (htop (as_gheap hb''))).
+        { erewrite nth_map; [|reflexivity]; apply hdisj_pdisj; eauto. }
+        eapply (disj_eq_update _ _ _ _ _ H1); eauto.
+        apply pheap_eq; erewrite nth_map; [|reflexivity].
+        rewrite <-hplus_phplus, <-heap_pheap_eq; eauto.
+
+      + intros bid'; rewrite !replace_nth; destruct fin_eq_dec; subst; eauto.
+        * assert (Heq : as_sheap sh'' = hs); [|rewrite Heq; apply Hsafeb].
+          apply sh_gl_eq in Heq'; try tauto; eauto using as_gh_is_gh, as_sh_is_sh, hplus_is_gheap.
+        * Lemma safe_nk_weak ntrd' E' n (ks : klist ntrd') h Q m :
+            (m <= n)%nat ->
+            safe_nk E' n ks h Q -> safe_nk E' m ks h Q.
+          Proof.
+            revert ks h n; induction m; simpl in *; eauto; intros.
+            destruct n; simpl in *; eauto; intuition; try omega; repeat split; simpl in *; eauto; intros.
+            specialize (H5 hF h' ks' H4 H6).
+            destruct H5 as (h'' & ? & ? & ?); exists h''; repeat split; eauto.
+            eapply IHm; [|apply H8]; try omega.
+          Qed.
+
+          eapply safe_nk_weak; [|apply Hsafe]; try omega.
+
+      + intros; rewrite !replace_nth; destruct fin_eq_dec; eauto.
+
+        Definition dom_eq (h1 h2 : heap) := forall v, h1 v <> None <-> h2 v <> None.
+        
+        Lemma sh_presrvd C1 C2 st1 st2 :
+          ~aborts C1 st1 ->
+          C1 / st1 ==>s C2 / st2 ->
+          dom_eq (snd st1) (snd st2).
+        Proof.
+          unfold dom_eq.
+          intros Hna H; induction H; intros; (try now apply IHred; eauto);
+          split; intros; subst; eauto; try congruence.
+          apply IHred; intros Ha; [apply Hna; constructor; eauto| congruence].
+          apply IHred; intros Ha; [apply Hna; constructor; eauto| congruence].
+          unfold upd; simpl; destruct (eq_dec v (ledenot e1 s)); eauto; try congruence.
+          unfold upd in *; simpl in *; destruct (eq_dec v (ledenot e1 s)); eauto; try congruence.
+          intros Hc; simpl; apply Hna; constructor; simpl; subst; eauto.
+        Qed.
+
+        Lemma is_arr_dom_eq (h1 h2 : heap) stk e n : forall s,
+          dom_eq h1 h2 ->
+          (Ex f, is_array e n f s) stk (htop h1) ->
+          (Ex f, is_array e n f s) stk (htop h2).
+        Proof.
+          unfold dom_eq.
+          induction n; simpl; intros.
+          - destruct H0 as [f H0]; unfold_conn_all; exists f; intros x.
+            unfold htop, htop' in *; simpl in *; specialize (H x); destruct (h2 x); auto.
+            specialize (H0 x); destruct (h1 x); try tauto; try congruence.
+            destruct H; elimtype False; apply H1; congruence.
+          - destruct H0 as (f & ph1 & ph2 & ? & ? & ? & ?).
+            
+
+        Lemma sh_presrvd C1 C2 st1 st2 :
+          ~aborts C1 st1 ->
+          C1 / st1 ==>s C2 / st2 ->
+          (forall v, snd st1 v <> None <-> snd st2 v <> None).
+        
+        Lemma sh_prsrvd ntrd' (ks1 ks2 : klist ntrd') sh1 sh2 gh1 gh2 tid sdec :
+          inde (sh_spec sdec) (writes_var (fst ks1[@tid])) ->
+          sh_spec sdec  (snd ks1[@tid]) (htop sh1) ->
+          (ks1, sh1 |+| gh1) ==>k (ks2, sh2 |+| gh2) ->
+          is_sheap sh1 -> is_sheap sh2 -> is_gheap gh1 -> is_gheap gh2 ->
+          sh_spec sdec (snd ks2[@tid]) (htop sh2).
+        Proof.
+          intros Hinde Hsat Hred issh1 issh2 isgh1 isgh2.
+          inversion Hred; simpl; eauto.
+          - 
+          - clear Hred.
+            specialize (H1 tid); destruct H1 as (? & ? & ? & ? & ? & ?); subst; eauto.
+            assert (snd ks1[@tid] = snd ks2[@tid]).
+            { inversion H; inversion H0; subst.
+              destruct ss[@tid], ss'[@tid]; simpl in *; congruence. }
+            rewrite <-H2.
+            assert (sh1 |+| gh1 = sh2 |+| gh2) by congruence.
+            pose proof (sh_gl_eq sh1 sh2 gh1 gh2). 
+            destruct H6; eauto.
+            congruence.
