@@ -58,7 +58,6 @@ Fixpoint safe_ng (n : nat) (gs : g_state nblk ntrd) (Q : assn) :=
 
 Record program : Set := Pr {
   get_sh_decl : list (var * nat);
-  get_args : list var;
   get_cmd : cmd}.
 
 Section For_List_Notation.
@@ -90,17 +89,6 @@ Section For_List_Notation.
   Notation BID := (Var 1).
   Notation nf i := (nat_of_fin i).
   Notation zf i := (Z.of_nat (nf i)).
-
-  Definition CSLg (P : assn) (prog : program) (Q : assn) :=
-    forall sh gh ks, 
-      (forall tid bid, decl_sh (get_sh_decl prog) (snd ks[@bid][@tid]) sh) ->
-      (forall tid bid, fst ks[@bid][@tid] = get_cmd prog) ->
-      (forall tid bid, snd ks[@bid][@tid] TID = zf tid) ->
-      (forall tid bid, snd ks[@bid][@tid] BID = zf bid) ->
-      (exists stk,
-         (forall tid bid v, v <> TID -> v <> BID -> snd ks[@bid][@tid] v = stk v) /\
-         P stk (htop (as_gheap gh))) ->
-    forall n, safe_ng n (Gs ks (const sh nblk) gh) Q.
 
   Definition has_no_vars (P : assn) : Prop := indeP (fun (_ _ : stack) => True) P.
   
@@ -950,4 +938,94 @@ Section For_List_Notation.
         Qed.
 
         applys (@presrv_inde ntrd); eauto.
+Qed.
+
+Definition CSLg (P : assn) (prog : program) (Q : assn) :=
+  forall sh gh ks, 
+    (forall tid bid, decl_sh (get_sh_decl prog) (snd ks[@bid][@tid]) sh) ->
+    (forall tid bid, fst ks[@bid][@tid] = get_cmd prog) ->
+    (forall tid bid, snd ks[@bid][@tid] TID = zf tid) ->
+    (forall tid bid, snd ks[@bid][@tid] BID = zf bid) ->
+    (exists stks, forall tid bid v, v <> TID -> snd ks[@bid][@tid] v = stks[@bid] v) ->
+    (exists stk,
+       (forall tid bid v, v <> TID -> v <> BID -> snd ks[@bid][@tid] v = stk v) /\
+       P stk (htop (as_gheap gh))) ->
+  forall n, safe_ng n (Gs ks (Vector.const sh nblk) gh) Q.
+
+Theorem rule_grid (P : assn) Ps C Qs (Q : assn) sh_decl :
+  let sinv := sh_spec sh_decl in
+  P |= Aistar_v Ps ->
+  (forall bid,
+     CSLp ntrd E (Ps[@bid] ** sinv ** !(BID === zf bid)) 
+                 C 
+                 (sinv ** Qs[@bid])) ->
+  Aistar_v Qs |= Q ->
+  inde sinv (writes_var C) ->
+  (forall bid, inde Ps[@bid] (BID :: TID :: nil)) ->
+  (forall bid, low_assn E Ps[@bid]) ->
+  (forall bid : Fin.t nblk, has_no_vars Qs[@bid]) ->
+  (forall v : var, List.In v (map fst sh_decl) -> E v = Lo) ->
+  (E TID = Hi) ->
+  (E BID = Lo) ->
+  ~In TID (List.map fst sh_decl) ->
+  ~In BID (List.map fst sh_decl) ->
+  CSLg P (Pr sh_decl C) Q.
+Proof.
+  simpl; intros HP Htri HQ Hindsh Hindid Hlow Hnovar Hlo HtidHi HbidLo Htidsh Hbidsh; unfold CSLg; simpl.
+  introv Hdec HC HTID HBID (stkb & Hstkb) (stk & Hstk & HsatP); introv.
+
+  (* split h into heaps of each thread block *)
+  apply HP in HsatP.
+  lets (hs & Hdeq & Hsati): (>>aistar_disj HsatP); simpl in *.
+  assert (exists hs', hs = Vector.map (@htop loc) hs') as [hs' Heq] by admit; subst.
+  applys* safe_gl; simpl.
+  - intros bid; unfold CSLp in Htri.
+    assert (forall tid, fst ks[@bid][@tid] = C) by eauto.
+    assert (forall tid, snd ks[@bid][@tid] TID = zf tid) by eauto.
+    assert (Hlowl2 : low_eq_l2 E (Vector.map (fun s => snd s) ks[@bid])).
+    { apply leq_low_eq_l2; introv Hneq; unfold low_eq; introv Hlox.
+      erewrite !nth_map; [|reflexivity..].
+      rewrite !Hstkb; eauto; congruence. }
+    applys* (>> Htri Hlowl2).
+    unfold sat_k;
+    lazymatch goal with [|- context [ let (_, _) := ?X in _ ]] => destruct X as [stkr Hstkr] end; simpl.
+    Require Import assertions.
+    unfold low_eq in Hstkr.
+    sep_split.
+    + unfold_conn; simpl.
+      Lemma fin_gt0_inhabit {n : nat} : n <> 0 -> exists (i : Fin.t n), True.
+      Proof.
+        intros.
+        assert (exists n', n = S n') as [n' ?]; subst.
+        destruct n; [omega | eauto]. 
+        exists (@Fin.F1 n'); eauto.
+      Qed.
+      destruct (fin_gt0_inhabit ntrd_neq_0) as [i ?].
+      specialize (Hstkr i); rewrite <-Hstkr; eauto.
+      erewrite nth_map; [|reflexivity]; eauto.
+    + specialize (Hsati bid); erewrite nth_map in Hsati; [|reflexivity].
+      assert (Ps[@bid] stkr (htop hs'[@bid])).
+      { assert (low_assn (fun v => if var_eq_dec v BID then Hi else E v) Ps[@bid]).
+        { unfold low_assn, indeP; simpl.
+          introv Hlow12.
+          assert (Ps[@bid] s1 h <-> Ps[@bid] (var_upd s1 BID (s2 BID)) h).
+          { unfold inde in Hindid; simpl in Hindid.
+            apply Hindid; eauto. }
+          assert (Ps[@bid] (var_upd s1 BID (s2 BID)) h <-> Ps[@bid] s2 h).
+          { unfold low_assn, indeP in Hlow; simpl in Hlow.
+            apply Hlow.
+            intros x Hx; unfold var_upd; destruct var_eq_dec; try congruence.
+            apply Hlow12; destruct var_eq_dec; subst; congruence. }
+          rewrite H1, H2; split; eauto. }
+        unfold low_assn, indeP in H1; simpl in H1; applys H1; eauto.
+        intros x Hx; unfold var_upd; destruct var_eq_dec; try congruence.
+        destruct (fin_gt0_inhabit ntrd_neq_0) as [i _].
+        specialize (Hstkr i); rewrite <-Hstkr; eauto.
+        specialize (Hstk i bid); rewrite <-Hstk; eauto; try congruence.
+        erewrite Vector.nth_map; eauto. }
+
+      
+      admit.
+  - admit.
+  - admit.
 Qed.
