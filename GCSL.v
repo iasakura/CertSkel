@@ -969,9 +969,10 @@ Theorem rule_grid (P : assn) Ps C Qs (Q : assn) sh_decl :
   (E BID = Lo) ->
   ~In TID (List.map fst sh_decl) ->
   ~In BID (List.map fst sh_decl) ->
+  disjoint_list (List.map fst sh_decl) ->
   CSLg P (Pr sh_decl C) Q.
 Proof.
-  simpl; intros HP Htri HQ Hindsh Hindid Hlow Hnovar Hlo HtidHi HbidLo Htidsh Hbidsh; unfold CSLg; simpl.
+  simpl; intros HP Htri HQ Hindsh Hindid Hlow Hnovar Hlo HtidHi HbidLo Htidsh Hbidsh Hdisvars; unfold CSLg; simpl.
   introv Hdec HC HTID HBID (stkb & Hstkb) (stk & Hstk & HsatP); introv.
 
   (* split h into heaps of each thread block *)
@@ -992,7 +993,8 @@ Proof.
     Require Import assertions.
     unfold low_eq in Hstkr.
     sep_split.
-    + unfold_conn; simpl.
+    { (* BID === bid *)
+      unfold_conn; simpl.
       Lemma fin_gt0_inhabit {n : nat} : n <> 0 -> exists (i : Fin.t n), True.
       Proof.
         intros.
@@ -1002,30 +1004,160 @@ Proof.
       Qed.
       destruct (fin_gt0_inhabit ntrd_neq_0) as [i ?].
       specialize (Hstkr i); rewrite <-Hstkr; eauto.
-      erewrite nth_map; [|reflexivity]; eauto.
-    + specialize (Hsati bid); erewrite nth_map in Hsati; [|reflexivity].
-      assert (Ps[@bid] stkr (htop hs'[@bid])).
-      { assert (low_assn (fun v => if var_eq_dec v BID then Hi else E v) Ps[@bid]).
-        { unfold low_assn, indeP; simpl.
-          introv Hlow12.
-          assert (Ps[@bid] s1 h <-> Ps[@bid] (var_upd s1 BID (s2 BID)) h).
-          { unfold inde in Hindid; simpl in Hindid.
-            apply Hindid; eauto. }
-          assert (Ps[@bid] (var_upd s1 BID (s2 BID)) h <-> Ps[@bid] s2 h).
-          { unfold low_assn, indeP in Hlow; simpl in Hlow.
-            apply Hlow.
+      erewrite nth_map; [|reflexivity]; eauto. }
+    specialize (Hsati bid); erewrite nth_map in Hsati; [|reflexivity].
+    assert (Ps[@bid] stkr (htop hs'[@bid])).
+    { assert (low_assn (fun v => if var_eq_dec v BID then Hi else E v) Ps[@bid]).
+      { unfold low_assn, indeP; simpl.
+        introv Hlow12.
+        assert (Ps[@bid] s1 h <-> Ps[@bid] (var_upd s1 BID (s2 BID)) h).
+        { unfold inde in Hindid; simpl in Hindid.
+          apply Hindid; eauto. }
+        assert (Ps[@bid] (var_upd s1 BID (s2 BID)) h <-> Ps[@bid] s2 h).
+        { unfold low_assn, indeP in Hlow; simpl in Hlow.
+          apply Hlow.
             intros x Hx; unfold var_upd; destruct var_eq_dec; try congruence.
             apply Hlow12; destruct var_eq_dec; subst; congruence. }
-          rewrite H1, H2; split; eauto. }
-        unfold low_assn, indeP in H1; simpl in H1; applys H1; eauto.
-        intros x Hx; unfold var_upd; destruct var_eq_dec; try congruence.
-        destruct (fin_gt0_inhabit ntrd_neq_0) as [i _].
-        specialize (Hstkr i); rewrite <-Hstkr; eauto.
-        specialize (Hstk i bid); rewrite <-Hstk; eauto; try congruence.
-        erewrite Vector.nth_map; eauto. }
+        rewrite H1, H2; split; eauto. }
+      unfold low_assn, indeP in H1; simpl in H1; applys H1; eauto.
+      intros x Hx; unfold var_upd; destruct var_eq_dec; try congruence.
+      destruct (fin_gt0_inhabit ntrd_neq_0) as [i _].
+      specialize (Hstkr i); rewrite <-Hstkr; eauto.
+      specialize (Hstk i bid); rewrite <-Hstk; eauto; try congruence.
+      erewrite Vector.nth_map; eauto. }
+    rewrite Vector.const_nth.
 
-      
-      admit.
-  - admit.
-  - admit.
+    Lemma decl_sh_spec sdecs stk h :
+      disjoint_list (List.map fst sdecs) ->
+      decl_sh sdecs stk h ->
+      sh_spec sdecs stk (htop (as_sheap h)).
+    Proof.
+      intros Hdisj; induction 1; simpl.
+      - unfold_conn; unfold htop, htop', as_sheap; simpl; intros [|]; eauto.
+      - set (ph1' := fun l =>
+                       match l with
+                         | SLoc l => 
+                           if Z_range_dec loc l (loc + Z.of_nat len) then Some (1%Qc, 0%Z) else None
+                         | GLoc _ => None
+                       end).
+        assert (Hph1 : is_pheap ph1').
+        { intros x; unfold ph1'; destruct x as [l | l]; [destruct Z_range_dec|]; eauto.
+          split; cbv; congruence. }
+        set (ph1 := Pheap Hph1 : pheap).
+        assert (forall l, (loc <= l < loc + Z.of_nat len)%Z -> sh l = None).
+        { intros; assert (exists i, i < len /\ (l = loc + Z.of_nat i)%Z) as [i [? Heq]].
+          { exists (Z.to_nat (l - loc)).
+            assert (l - loc < Z.of_nat len)%Z by omega.
+            split.
+            - rewrite Z2Nat.inj_lt in H2; try omega.
+              rewrite Nat2Z.id in H2; eauto.
+            - rewrite Z2Nat.id; omega. }
+          rewrite Heq, H0; eauto. }
+
+        assert (pdisj ph1 (htop (as_sheap sh))).
+        { simpl; unfold ph1', htop'; intros [l | l]; simpl; eauto.
+          destruct Z_range_dec; eauto.
+          rewrite H1; eauto. }
+        assert (Heq : phplus ph1 (htop (as_sheap sh)) = 
+                      (htop (as_sheap
+                               (fun l : Z =>
+                                  if Z_range_dec loc l (loc + Z.of_nat len) then Some 0%Z else sh l)))).
+        { unfold phplus, htop, htop'; simpl; unfold ph1', as_sheap; extensionality l.
+          destruct l as [l | l]; simpl; eauto.
+          destruct Z_range_dec.
+          rewrite H1; eauto.
+          destruct (sh l); eauto. }
+        
+        exists ph1 (htop (as_sheap sh)); repeat split; eauto.
+        
+        Lemma is_array_inde v n f s:
+          indeP (fun s1 s2 => s1 v = s2 v) (is_array (Sh v) n f s).
+        Proof.
+          intros s1 s2 h H; split; revert s h; induction n; simpl in *; eauto;
+          intros s h (ph1 & ph2 & H1 & H2 & Hdis & Heq); exists ph1 ph2; repeat split; eauto;
+          unfold_conn_all; simpl in *; [rewrite <-H | rewrite H]; eauto.
+        Qed.          
+
+        Focus 2.
+        { assert (low_eq (fun v => if in_dec var_eq_dec v (map fst ds) then Lo else Hi)
+                       stk (fun v' => if var_eq_dec v' v then loc else stk v')).
+          { intros v' Hlo; destruct var_eq_dec; eauto.
+            destruct in_dec; try congruence; subst v'.
+            simpl in Hdisj; tauto. }
+          applys* sh_spec_inde.
+          applys* IHdecl_sh.
+          simpl in Hdisj; jauto.
+          simpl; intros; destruct in_dec; tauto. } Unfocus.
+        exists (fun _ : nat => 0%Z).
+
+        Lemma sh_is_array_sat v len s (stk : stack) loc :
+          let h := fun l => match l with
+                              | SLoc l0 => 
+                                if Z_range_dec (Z.of_nat s + loc) l0 (Z.of_nat s + loc + Z.of_nat len)
+                                then Some (1%Qc, 0%Z) else None
+                              | GLoc _ => None end in
+          forall (H: is_pheap h),
+            stk v = loc ->
+            is_array (Sh v) len (fun _:nat => 0%Z) s stk (Pheap H).
+        Proof.
+          revert s; induction len; [simpl|]; intros.
+          - unfold_conn; simpl; intros [l | l]; [destruct Z_range_dec; try omega|]; eauto.
+          - Arguments Z.of_nat _ : simpl never.
+            simpl.
+            set (ph1 := fun l => match l with
+                         | SLoc l => 
+                           if Z.eq_dec l (Z.of_nat s + loc) then Some (1%Qc, 0%Z) else None
+                         | GLoc _ => None end).
+            set (ph2 := fun l => match l with
+                         | SLoc l => 
+                           if Z_range_dec (Z.of_nat (S s) + loc) l (Z.of_nat (S s) + loc + Z.of_nat len)
+                           then Some (1%Qc, 0%Z) else None
+                         | GLoc _ => None end).
+            assert (is_pheap ph1).
+            { unfold ph1; intros [l|l]; [destruct Z.eq_dec|]; eauto; cbv; split; congruence. }
+            assert (is_pheap ph2).
+            { unfold ph2; intros [l|l]; [destruct Z_range_dec|]; eauto; cbv; split; congruence. }
+            assert (pdisj ph1 ph2).
+            { intros [l|l]; unfold ph1, ph2; eauto.
+              destruct Z.eq_dec; [destruct Z_range_dec|]; eauto.
+              rewrite Nat2Z.inj_succ in a; omega. }
+            assert (h = phplus ph1 ph2).
+            { unfold ph1, ph2; extensionality l; destruct l as [l | l]; eauto.
+              Arguments Z.of_nat n : simpl never.
+              Arguments Z.add _ _ : simpl never.
+              unfold phplus; simpl; (do 2 destruct Z_range_dec); destruct Z_eq_dec; 
+              rewrite !Nat2Z.inj_succ in *; try omega; eauto. }
+            exists (Pheap H1) (Pheap H2); repeat split; simpl; eauto.
+            unfold_conn; intros [l | l]; simpl; eauto.
+            destruct Z.eq_dec, (eq_dec (SLoc _)); try congruence.
+            rewrite e, H0 in n; exploit n; [f_equal; omega | tauto].
+            inversion e.
+            rewrite H6, H0 in n; exploit n; [f_equal; omega|tauto].
+        Qed.
+        eapply (sh_is_array_sat _ _ 0).
+        
+        destruct var_eq_dec; congruence.
+    Qed.
+    destruct (fin_gt0_inhabit ntrd_neq_0) as [i _].
+    lets Hsh : (>> decl_sh_spec Hdisvars (Hdec i bid)).
+
+    assert (sh_spec sh_decl stkr (htop (as_sheap sh))).
+    { applys sh_spec_inde; eauto.
+      unfold low_eq; intros x HElo; specialize (Hstkr i x); erewrite nth_map in Hstkr; [|reflexivity].
+      apply Hstkr; eauto. }
+    assert (is_gheap hs'[@bid]).
+    { applys disj_eq_inj; eauto using as_gh_is_gh. }
+    assert (pdisj (htop hs'[@bid]) (htop (as_sheap sh))).
+    { rewrite <-hdisj_pdisj.
+      apply hdisjC, sh_gh_disj; eauto using as_sh_is_sh. }
+    
+    exists (htop hs'[@bid]) (htop (as_sheap sh)); repeat split; eauto.
+    simpl; rewrite hplus_phplus.
+    rewrite phplus_comm; eauto.
+    apply hdisj_pdisj; eauto.
+  - introv.
+    apply decl_sh_spec; eauto.
+    rewrite Vector.const_nth; eauto.
+  - intros.
+    rewrite HC; eauto.
 Qed.
