@@ -8,6 +8,7 @@ Require Import CSL.
 Require Import PHeap.
 Require Import array_dist.
 Require Import MyList.
+Require Import LibTactics.
 Open Scope exp_scope.
 Open Scope bexp_scope.
 
@@ -20,8 +21,8 @@ Section independent_prover.
   Proof.
     intros Hp Hq; inde_simpl.
     unfold_conn; split; intros (ph1 & ph2 & Hp' & Hq' & Hdis' & Heq).
-    exists ph1, ph2; repeat split; [apply Hp | apply Hq | idtac..]; auto.
-    exists ph1, ph2; repeat split; [apply<-Hp | apply<-Hq | idtac..]; eauto.
+    exists ph1 ph2; repeat split; [apply Hp | apply Hq | idtac..]; auto.
+    exists ph1 ph2; repeat split; [apply<-Hp | apply<-Hq | idtac..]; eauto.
   Qed.
 
   Lemma inde_pure (P : assn) (vs : list var) : inde P vs -> inde !(P) vs.
@@ -48,8 +49,8 @@ Section independent_prover.
     destruct H'; [left; apply <-Hp | right; apply <-Hq]; eauto.
   Qed.
 
-  Lemma inde_pointto (E E' : exp) (q : Qc) (vs : list var) :
-    List.Forall (indeE E) vs -> List.Forall (indeE E') vs ->
+  Lemma inde_pointto (E : loc_exp) (E' : exp) (q : Qc) (vs : list var) :
+    List.Forall (indelE E) vs -> List.Forall (indeE E') vs ->
     inde (E -->p (q, E')) vs.
   Proof.
     intros Hp Hq; inde_simpl.
@@ -105,32 +106,34 @@ Section independent_prover.
   Qed.
   
   Lemma inde_distribute nt arr l f dist (i : nat) (vs : list var) : forall s,
-    List.Forall (indeE arr) vs  ->
+    List.Forall (indelE arr) vs  ->
     inde (List.nth i (distribute nt arr l f dist s) emp) vs.
   Proof.
     induction l; intros; simpl.
     - simpl_nth. destruct (Compare_dec.leb _ _); inde_simpl; simpl; try tauto.
     - apply inde_nth_add_nth.
       + apply inde_pointto; auto; rewrite List.Forall_forall in *; intros;
-        unfold indeE in *; simpl; intros; auto.
-          rewrite (H _ H0 _ v); auto.
+        unfold indeE, indelE in *; simpl; intros; auto.
+        exploit H; eauto; intros Heq.
+        destruct arr; simpl in *; inversion Heq; rewrite H2; reflexivity.
       + apply IHl; auto.
   Qed.      
 
   Lemma inde_is_array len arr f vs : forall s,
-    List.Forall (indeE arr) vs ->
+    List.Forall (indelE arr) vs ->
     inde (is_array arr len f s) vs.
   Proof.
     induction len; intros; simpl.
     - unfold inde; intros; cbv; tauto.
     - apply inde_sconj; [apply inde_pointto|]; eauto.
-      rewrite List.Forall_forall in *; intros. unfold indeE in *; simpl in *; intros.
-      rewrite <-H; eauto.
+      rewrite List.Forall_forall in *; intros. unfold indeE, indelE in *; simpl in *; intros.
+      destruct arr; simpl in *;
+      [exploit H; [eauto | intros Heq; inversion Heq as [Heq']; rewrite Heq'; reflexivity]..].
       apply List.Forall_forall; unfold indeE; intros; simpl; reflexivity.
   Qed.
 End independent_prover.
 
-Ltac prove_indeE := unfold indeE, var_upd in *; intros; simpl; auto.
+Ltac prove_indeE := unfold indeE, indelE, var_upd in *; intros; simpl; auto.
 Ltac prove_indeB := unfold indeB, var_upd in *; intros; simpl; auto.
 
 Ltac prove_inde :=
@@ -150,11 +153,12 @@ Ltac prove_inde :=
   end.
 
 Section subA_simpl.
-  Lemma subA_pointto (X : var) (E1 E2 E  : exp) (q : Qc) s h : (subA X E (E1 -->p (q, E2))) s h ->
-                                                     (subE X E E1 -->p (q, subE X E E2)) s h.
+  Lemma subA_pointto (X : var) (E1 : loc_exp) (E2 E  : exp) (q : Qc) s h : 
+    (subA X E (E1 -->p (q, E2))) s h ->
+    (sublE X E E1 -->p (q, subE X E E2)) s h.
   Proof.
     intros; unfold subA' in *; unfold_conn_all; simpl in *;
-    repeat rewrite <-subE_assign in *; auto.
+    repeat rewrite <-subE_assign, sublE_assign in *; auto.
   Qed.
 
   Lemma subA_sconj (P Q : assn) (X : var) (E : exp) s h :
@@ -191,7 +195,7 @@ Section subA_simpl.
 
   Lemma distribute_subA nt arr l f dist (i : nat) x e : forall s,
     subA x e (List.nth i (distribute nt arr l f dist s) emp) |=
-    List.nth i (distribute nt (subE x e arr) l f dist s) emp.
+    List.nth i (distribute nt (sublE x e arr) l f dist s) emp.
   Proof.
     induction l; [unfold subA'|]; intros s st hp H; simpl in *.
     - simpl_nth; destruct (Compare_dec.leb _ _); auto;
@@ -202,19 +206,20 @@ Section subA_simpl.
           destruct (EqNat.beq_nat _ _); intuition.
           apply subA_sconj in H.
           revert st hp H; apply scRw; intros st hp H.
-          apply subA_pointto in H; auto.
-          apply IHl in H; auto.
+          apply subA_pointto in H; simpl in H. 
+          destruct arr; eauto.
+          applys* IHl.
         * rewrite List.nth_overflow in *; [|rewrite add_nth_length, distribute_length..]; auto.
       + rewrite add_nth_overflow in *; (try rewrite distribute_length); auto.
   Qed.      
 
-  Lemma subA_is_array (arr : exp) (len : nat) (f : nat -> Z) x e: forall s,
-    subA x e (is_array arr len f s) |= is_array (subE x e arr) len f s.
+  Lemma subA_is_array (arr : loc_exp) (len : nat) (f : nat -> Z) x e: forall s,
+    subA x e (is_array arr len f s) |= is_array (sublE x e arr) len f s.
   Proof.
     induction len; simpl; intros s stc h H.
     - apply H.
     - apply subA_sconj in H; revert h H; apply scRw_stack; intros h H; eauto.
-      apply subA_pointto in H; apply H.
+      apply subA_pointto in H; destruct arr; apply H.
   Qed.
 End subA_simpl.
 
@@ -418,7 +423,7 @@ Proof.
   eapply rule_if;
   eapply Hforward; unfold Apure; unfold bexp_to_assn in *;
   [eapply Hbackward; [apply H |] | | eapply Hbackward; [apply H0 |] |];
-   try (intros; destruct H1; exists h, emp_ph; repeat split; auto); intros; unfold_conn; tauto.
+  try(intros; destruct H1; exists h (@emp_ph loc); repeat split; auto using disj_emp1); intros; unfold_conn; tauto.
 Qed.
 
 Definition WhileI (I : assn) (b : bexp) (c : cmd) := nosimpl (Cwhile b c).
@@ -431,9 +436,9 @@ Proof.
   repeat split; intuition.
   - eexists; eauto.
   - destruct (H3 hF h0 c' ss' H4 H6 H7) as (? & ? & ? & ? & ? & ?).
-    exists x0, x1; intuition.
+    exists x0 x1; intuition.
   - destruct (H5 j c' H4) as (? & ? & ? & ? & ? & ? ).
-    exists x0, x1; intuition.
+    exists x0 x1; intuition.
 Qed.  
     
 Lemma rule_ex {T : Type} (P : T -> assn) Q ntrd bspec tid C:

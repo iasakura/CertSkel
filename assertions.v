@@ -245,19 +245,28 @@ Ltac search_match P Q k :=
     | _ => k false
   end.
 
+Ltac simplify_loc :=
+  lazymatch goal with
+    | [|- GLoc _ = GLoc _] => f_equal
+    | [|- SLoc _ = SLoc _] => f_equal
+    | _ => idtac
+  end.
+
 Ltac find_enough_resource E H :=
   match goal with _ => idtac end;
   match type of H with ?P => idtac "debug" P end;
   match type of H with
     | ((?E0 -->p (_, ?E1)) ?s ?h) => 
       let Hf := fresh in
-      assert (Hf : ((E0 === E) s emp_ph)) by (unfold_conn_all; simpl in *; unfold lt in *;
-                                         first [congruence | omega | eauto with zarith]);
+      assert (Hf : ((E0 ===l E) s (emp_ph loc))) by
+          (unfold_conn_all; simpl in *; unfold lt in *; simplify_loc;
+           first [congruence | omega | eauto with zarith]);
       apply (mapsto_rewrite1 Hf) in H
     | ((?E0 -->p (_, ?E1) ** _) ?s _) =>
       let Hf := fresh in
-      assert (Hf : (E0 === E) s emp_ph) by (unfold_conn_all; simpl in *; unfold lt in *;
-                                                 first [congruence | omega | eauto with zarith]);
+      assert (Hf : (E0 ===l E) s (emp_ph loc)) by
+          (unfold_conn_all; simpl in *; unfold lt in *; simplify_loc;
+           first [congruence | omega | eauto with zarith]);
       let hf := fresh in let Hf' := fresh in 
       idtac "found: " E0 E;
       eapply scRw_stack in H;
@@ -283,12 +292,12 @@ Ltac search_addr E0 E1 H :=
   match type of H with
     | (?E0' -->p (_, ?E1')) ?s ?h =>
       let Hf := fresh in
-      assert (Hf : ((E1' === E1) s emp_ph)) by (unfold_conn_all; simpl in *; unfold lt in *;
+      assert (Hf : ((E1' === E1) s (emp_ph loc))) by (unfold_conn_all; simpl in *; unfold lt in *;
                                            first [congruence | omega | eauto with earith]);
       apply (mapsto_rewrite2 Hf) in H
     | ((?E0' -->p (_, ?E1') ** _) ?s _) =>
       let Hf := fresh in
-      assert (Hf : (E1' === E1) s emp_ph) by (unfold_conn_all; simpl in *; unfold lt in *;
+      assert (Hf : (E1' === E1) s (emp_ph loc)) by (unfold_conn_all; simpl in *; unfold lt in *;
                                            first [congruence | omega | eauto with earith]);
       let hf := fresh in let Hf' := fresh in 
       eapply scRw_stack in H;
@@ -337,7 +346,7 @@ Ltac sep_cancel :=
                                intros ? ? |
                                exact H ]
       end)
-    | [ H : ?P ?s emp_ph, H' : emp ?s ?h |- !(?P) ?s ?h ] =>
+    | [ H : ?P ?s (emp_ph loc), H' : emp ?s ?h |- !(?P) ?s ?h ] =>
       eapply pure_emp; eauto
     | _ => sep_cancel2
   end.
@@ -346,7 +355,7 @@ Ltac sep_combine_in H :=
   repeat match type of H with
     | ?P ?s ?h =>
       match goal with
-        | [ H' : ?Q ?s emp_ph |- _ ] =>
+        | [ H' : ?Q ?s (emp_ph loc) |- _ ] =>
           apply (scban_l H') in H; sep_lift_in H 1; clear H'
       end
   end.
