@@ -31,25 +31,25 @@ Proof.
 Qed.
 
 Lemma sep_rewrite_var (v : var) (E : exp) (P : assn) s h:
-  (v === E) s emp_ph -> P s h -> subA v E P s h.
+  (v === E) s (emp_ph loc) -> P s h -> subA v E P s h.
 Proof.
   unfold eeq, ban, subA'; simpl; intros.
   assert (Heq: var_upd s v (edenot E s) = s); [|rewrite Heq; auto].
   extensionality v'; unfold var_upd; rewrite <-H; destruct var_eq_dec; congruence.
 Qed.
 
-Lemma mps_eq1 (E1 E1' E2  : exp) (q : Qc) :
+Lemma mps_eq1 (E1 E1' : loc_exp) (E2  : exp) (q : Qc) :
   forall s,
-    (E1 === E1') s emp_ph ->
+    (E1 ===l E1') s (emp_ph loc) ->
     s ||= E1 -->p (q, E2) <=> E1' -->p (q, E2).
 Proof.
   intros s H1 h; split; intros; eapply mapsto_rewrite1; eauto;
   unfold_conn_all; simpl in *; auto.
 Qed.
 
-Lemma mps_eq2 (E1 E2 E2'  : exp) (q : Qc) :
+Lemma mps_eq2 (E1 : loc_exp) (E2 E2'  : exp) (q : Qc) :
   forall s,
-    (E2 === E2') s emp_ph ->
+    (E2 === E2') s (emp_ph loc) ->
     s ||= E1 -->p (q, E2) <=> E1 -->p (q, E2').
 Proof.
   intros s H1 h; split; intros; eapply mapsto_rewrite2; eauto;
@@ -108,6 +108,6 @@ Ltac bexp H :=
 
 Ltac subst_expr E :=
   repeat lazymatch goal with
-    | [H : (Enum E === _) _ emp_ph |- _] => try (unfold_conn_in H; simpl in H; rewrite H in *; clear H)
-    | [H : pure (E = _) _ emp_ph |- _] => try (unfold_conn_in H; rewrite H in *; clear H)
+    | [H : (Enum E === _) _ (emp_ph loc) |- _] => try (unfold_conn_in H; simpl in H; rewrite H in *; clear H)
+    | [H : pure (E = _) _ (emp_ph loc) |- _] => try (unfold_conn_in H; rewrite H in *; clear H)
 end.

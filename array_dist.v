@@ -24,17 +24,25 @@ Fixpoint add_nth (n : nat) (t : assn) (xss : list assn) :=
 
 Require Import Lang.
 Require Import Qcanon.
-Fixpoint is_array (e : exp) (n : nat) (f : nat -> Z) (s : nat) :=
+
+Definition loc_offset (e : loc_exp) (off : exp) :=
+  match e with
+    | Sh e => Sh (e + off)
+    | Gl e => Gl (e + off)
+  end%exp.
+Notation "le +o e" := (loc_offset le e) (at level 50, left associativity).
+
+Fixpoint is_array (e : loc_exp) (n : nat) (f : nat -> Z) (s : nat) :=
   match n with
     | 0 => Aemp
-    | S n' => e + Enum (Z.of_nat s) -->p (1%Qc, Enum (f s)) **
+    | S n' => e +o Enum (Z.of_nat s) -->p (1%Qc, Enum (f s)) **
                        is_array e n' f (S s)
   end.
 
-Fixpoint distribute (d : nat) (e : exp) (n : nat) (f : nat -> Z) (dist : nat -> nat) (s : nat) :=
+Fixpoint distribute (d : nat) (e : loc_exp) (n : nat) (f : nat -> Z) (dist : nat -> nat) (s : nat) :=
   match n with
     | O => nseq d emp
-    | S n => add_nth (dist s) (e + Enum (Z.of_nat s) -->p (1%Qc, Enum (f s))) (distribute d e n f dist (S s))
+    | S n => add_nth (dist s) (e +o Enum (Z.of_nat s) -->p (1%Qc, Enum (f s))) (distribute d e n f dist (S s))
   end.
 
 Open Scope nat_scope.
@@ -57,7 +65,7 @@ Proof.
   rewrite IHn; omega.
 Qed.
 
-Lemma distribute_length (d : nat) (e : exp) (n : nat) (f : nat -> Z) (dist : nat -> nat) :
+Lemma distribute_length (d : nat) (e : loc_exp) (n : nat) (f : nat -> Z) (dist : nat -> nat) :
   forall i, length (distribute d e n f dist i) = d.
 Proof.
   induction n; simpl; intros.
@@ -67,7 +75,7 @@ Qed.
 
 Notation Enum' x := (Enum (Z.of_nat x)).
 
-Lemma distribute_correct (d : nat) (e : exp) (n : nat) (f : nat -> Z) (dist : nat -> nat) :
+Lemma distribute_correct (d : nat) (e : loc_exp) (n : nat) (f : nat -> Z) (dist : nat -> nat) :
   forall s, (forall x, dist x < d) ->
   forall st, st ||= is_array e n f s <=> conj_xs (distribute d e n f dist s).
 Proof.
@@ -81,11 +89,11 @@ Definition nt_step (nt n : nat) := n mod nt.
 Definition nt_dist_nth (i : nat) e n f nt (s : nat) :=
   nth i (distribute nt e n f (nt_step nt)s ) emp.
 
-Definition skip_array_body (e : exp) (nt : nat) (f : nat -> exp) (Hnt0 : nt <> 0) :
+Definition skip_array_body (e : loc_exp) (nt : nat) (f : nat -> exp) (Hnt0 : nt <> 0) :
   forall x, (forall y, y < x -> nat -> assn) -> nat -> assn.
   refine (fun rest rec x =>
             match ltb 0 (rest - x) as b return ltb 0 (rest - x) = b -> assn with 
-              | true => fun Heq => (e + Enum' x -->p (1%Qc, f x)) ** rec (rest - nt) _ (x + nt)
+              | true => fun Heq => (e +o Enum' x -->p (1%Qc, f x)) ** rec (rest - nt) _ (x + nt)
               | false => fun _ => emp
             end eq_refl); abstract (apply ltb_lt in Heq; omega).
 Defined.
@@ -94,9 +102,9 @@ Definition skip_array nt e f (Hnt0 : nt <> 0) : nat -> nat -> assn :=
   Fix lt_wf (fun _ => nat -> assn) (skip_array_body e f Hnt0).
 
 Lemma three_neq_0 : 3 <> 0. auto. Defined.
-Goal skip_array (Enum 0) (fun i => Enum' i) three_neq_0 10 3 = 
-((Enum 0 + Enum' 0 -->p (1%Qc, Enum' 0)) **
-                                         (Enum 0 + Enum' 2 -->p (1%Qc, Enum' 2))).
+Goal skip_array (Sh (Enum 0)) (fun i => Enum' i) three_neq_0 10 3 = 
+((Sh (Enum 0) +o Enum' 0 -->p (1%Qc, Enum' 0)) **
+ (Sh (Enum 0) +o Enum' 2 -->p (1%Qc, Enum' 2))).
 Proof.
   unfold skip_array, Fix, skip_array_body. simpl.
 Abort.
@@ -132,7 +140,7 @@ Lemma nth_dist_next i e f nt (Hnt0 : nt <> 0) dist : forall next s n,
   dist (s + next) = i -> next < n ->
   (forall j, j < next -> dist (s + j) <> i) ->
   forall st, st ||= nth i (distribute nt e n f dist s) emp <=> 
-              (e + Enum' (s + next) -->p (1%Qc, Enum (f (s + next)))) **
+              (e +o Enum' (s + next) -->p (1%Qc, Enum (f (s + next)))) **
               nth i (distribute nt e (n - S next) f dist (S (s + next))) emp.
 Proof.
   induction next; intros s n Hint Hdistnt Hdnx Hnxn Hltnx stc.
@@ -195,7 +203,7 @@ Hint Resolve nt_step_ok.
 Lemma skip_arr_unfold i e f n nt (Hnt0 : nt <> 0) : forall s, 
   i < nt -> 0 < n ->
   forall stc, stc ||= nth i (distribute nt e n f (nt_step nt) (s * nt + i)) emp <=>
-                  ((e + Enum' (s * nt + i) -->p (1,  Enum (f (s * nt + i)))) **
+                  ((e +o Enum' (s * nt + i) -->p (1,  Enum (f (s * nt + i)))) **
                    nth i (distribute nt e (n - nt) f (nt_step nt) (S s * nt + i)) emp).
 Proof.
   intros s Hint Hn0 stc.
@@ -223,7 +231,7 @@ Qed.
 Lemma skip_arr_unfold' i e f n nt (Hnt0 : nt <> 0) : forall s, 
   i < nt -> i < n ->
   forall stc, stc ||= nth i (distribute nt e n f (nt_step nt) (s * nt)) emp <=>
-   ((e + Enum' (s * nt + i) -->p (1,  Enum (f (s * nt + i)))) **
+   ((e +o Enum' (s * nt + i) -->p (1,  Enum (f (s * nt + i)))) **
     nth i (distribute nt e (n - nt) f (nt_step nt) (S s * nt)) emp).
 Proof.
   intros s Hint Hn0.
@@ -252,7 +260,7 @@ Lemma distribute_snoc i e f nt (Hnt : nt <> 0) dist : forall n s,
   i < nt ->
   (forall i, dist i < nt) ->
   forall stc, stc ||= nth i (distribute nt e (S n) f dist s) emp <=>
-  nth i (add_nth (dist (s + n)) (e + Enum' (s + n) -->p (1%Qc, Enum (f (s + n))))
+  nth i (add_nth (dist (s + n)) (e +o Enum' (s + n) -->p (1%Qc, Enum (f (s + n))))
            (distribute nt e n f dist s)) emp.
 Proof.
   induction n; intros s Hit Hdist; [simpl|].
@@ -287,7 +295,7 @@ Lemma nth_dist_snoc i e f nt (Hnt0 : nt <> 0) dist : forall next n s,
   (forall j, j < next -> dist (s + n + j) <> i) ->
   forall stc, stc ||= 
   nth i (distribute nt e n f dist s) emp ** 
-  (e + Enum' (s + n + next) -->p (1%Qc, Enum (f (s + n + next))))
+  (e +o Enum' (s + n + next) -->p (1%Qc, Enum (f (s + n + next))))
   <=> nth i (distribute nt e (S (n + next)) f dist s) emp.
 Proof.
   induction next; intros n s Hint Hdist Hdisti Hj stc.
@@ -360,7 +368,7 @@ Lemma skip_arr_fold i e f n nt (Hnt0 : nt <> 0) : forall s,
   i < nt -> 0 < n ->
   forall stc, stc ||=
   nth i (distribute nt e (s * nt + i) f (nt_step nt) 0) emp **
-   (e + Enum' (s * nt + i) -->p (1,  Enum (f (s * nt + i)))) <=>
+   (e +o Enum' (s * nt + i) -->p (1,  Enum (f (s * nt + i)))) <=>
     nth i (distribute nt e (S s * nt + i) f (nt_step nt) 0) emp.
 Proof.
   intros s Hint Hn0 stc.
@@ -385,7 +393,7 @@ Lemma skip_arr_fold' i e f nt (Hnt0 : nt <> 0) : forall s,
   i < nt -> 
   forall stc, stc ||=
   nth i (distribute nt e (s * nt) f (nt_step nt) 0) emp **
-   (e + Enum' (s * nt + i) -->p (1,  Enum (f (s * nt + i)))) <=>
+   (e +o Enum' (s * nt + i) -->p (1,  Enum (f (s * nt + i)))) <=>
     nth i (distribute nt e (S s * nt) f (nt_step nt) 0) emp.
 Proof.
   intros s Hint stc.

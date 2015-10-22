@@ -62,9 +62,9 @@ Definition INV i :=
             else True)) **
     !(pure (s <= ntrd)) **
     (if Nat.eq_dec s 0 then
-       nth i (distribute 1 ARR (ntrd * 2) fc (nt_step 1) 0) emp
+       nth i (distribute 1 (Gl ARR) (ntrd * 2) fc (nt_step 1) 0) emp
      else
-       nth i (distribute s ARR (ntrd * 2) fc (nt_step s) 0) emp).
+       nth i (distribute s (Gl ARR) (ntrd * 2) fc (nt_step s) 0) emp).
 
 Open Scope bexp_scope.
 
@@ -72,9 +72,9 @@ Definition fold_ker' :=
   St ::= Enum' ntrd ;;
   Cwhile ( Enum' 0 < St ) (
     If ( Evar TID < St ) (
-      T1 ::= [ ARR + TID ] ;;
-      T2 ::= [ ARR + TID + St ] ;;
-      [ ARR + TID ] ::= T1 + T2
+      T1 ::= [ Gl ARR +o TID ] ;;
+      T2 ::= [ Gl ARR +o (TID + St) ] ;;
+      [ Gl ARR +o TID ] ::= T1 + T2
     ) (SKIP) ;;
     St ::= St >>1 ;;
     Cbarrier 0
@@ -84,9 +84,9 @@ Definition fold_ker (i : nat) :=
   St ::= Enum' ntrd ;;
   WhileI (INV i) ( Enum' 0 < St ) (
     If ( Evar TID < St ) (
-      T1 ::= [ ARR + TID ] ;;
-      T2 ::= [ ARR + TID + St ] ;;
-      [ ARR + TID ] ::= T1 + T2
+      T1 ::= [ Gl ARR +o TID ] ;;
+      T2 ::= [ Gl ARR +o (TID + St) ] ;;
+      [ Gl ARR +o TID ] ::= T1 + T2
     ) (SKIP) ;;
     St ::= St >>1 ;;
     Cbarrier 0
@@ -99,7 +99,7 @@ Definition binv0 : Vector.t assn ntrd * Vector.t assn ntrd :=
      !(St === Enum' s) **
       let tid := nat_of_fin i in
       !(pure (if lt_dec tid (dbl s) then fc tid = skip_sum (dbl s) 0 (ntrd * 2) f tid else True)) **
-      nth tid (distribute (dbl s) ARR (ntrd * 2) fc (nt_step (dbl s)) 0) emp **
+      nth tid (distribute (dbl s) (Gl ARR) (ntrd * 2) fc (nt_step (dbl s)) 0) emp **
       !(pure (dbl s <= ntrd))),
    MyVector.init (fun i => 
    let tid := nat_of_fin i in
@@ -110,17 +110,17 @@ Definition binv0 : Vector.t assn ntrd * Vector.t assn ntrd :=
                 fc tid = skip_sum (dbl s) 0 (ntrd * 2) f tid /\
                 fc (tid + s) = skip_sum (dbl s) 0 (ntrd * 2) f (tid + s)
               else True)) **
-      nth tid (distribute (ceil2 s) ARR (ntrd * 2) fc (nt_step (ceil2 s)) 0) emp **
+      nth tid (distribute (ceil2 s) (Gl ARR) (ntrd * 2) fc (nt_step (ceil2 s)) 0) emp **
       !(pure (dbl s <= ntrd)))).
 
 Arguments div _ _ : simpl never.
 Theorem fold_ker_correct (tid : Fin.t ntrd) : 
   CSL (fun i => match i with O => binv0 | _ => default ntrd end) tid
-  (nth (nat_of_fin tid) (distribute ntrd ARR (ntrd * 2) f (nt_step ntrd) 0) emp **
+  (nth (nat_of_fin tid) (distribute ntrd (Gl ARR) (ntrd * 2) f (nt_step ntrd) 0) emp **
    !(TID === Z_of_fin tid))
   (fold_ker (nat_of_fin tid))
   (Ex fc,
-     nth (nat_of_fin tid) (distribute 1 ARR (ntrd * 2) fc (nt_step 1) 0) emp **
+     nth (nat_of_fin tid) (distribute 1 (Gl ARR) (ntrd * 2) fc (nt_step 1) 0) emp **
      !(pure (if Nat.eq_dec (nf tid) 0 then (fc 0 = sum_of 0 (ntrd * 2) f) else True))).
 Proof.
   (* introduction *)
@@ -187,6 +187,22 @@ Proof.
     (* execute second read command *)
     eapply rule_seq.
     { rewrite Nat2Z.inj_add.
+
+      (* eapply Hbackward. *)
+      (* Focus 2.  *)
+      (*   intros s ? Hf. *)
+      (*   sep_normal_in Hf. *)
+      (*   sep_split_in Hf. *)
+      (*   assert ((Gl ARR +o (Z.of_nat st + Z_of_fin tid) ===l Gl ARR +o (TID + St)) s (emp_ph loc)). *)
+      (*   unfold_conn_all; simpl in *. *)
+      (*   f_equal. omega. *)
+      (*   find_enough_resource (Gl ARR +o (TID + St)) Hf. *)
+      (*   sep_combine_in Hf; *)
+      (*   exact Hf. *)
+      (* eapply Hforward; [ *)
+      (*   eapply rule_frame; *)
+      (*   [eapply rule_read; idtac "ok!!!"; prove_indeE | prove_inde] | prove_inde ]. *)
+      
       hoare_forward. 
       intros ? ? H; exact H. }
     
@@ -226,7 +242,7 @@ Proof.
     + (* fold skip array *)
       eapply Hbackward. Focus 2.
       { intros s h H; sep_split_in H.
-        assert ((T1 + T2 === (fc (nf (tid)) + fc (st + nf tid)%nat)%Z) s emp_ph) by
+        assert ((T1 + T2 === (fc (nf (tid)) + fc (st + nf tid)%nat)%Z) s (emp_ph loc)) by
             (unfold_conn_all; simpl in *; omega).
         fold (2 ^ S (S e) / 2) in *.
         assert (Hst : st = 2 ^ (S e) / 2) by (unfold_conn_in HP6; auto).
@@ -236,21 +252,21 @@ Proof.
 
         assert (nf tid < st)
           by (unfold_conn_all; simpl in *; destruct (Z_lt_dec (s TID) x); (congruence||omega)).
-        sep_rewrite_in (@nth_dist_change (nat_of_fin tid) ARR fc fc') H;
+        sep_rewrite_in (@nth_dist_change (nat_of_fin tid) (Gl ARR) fc fc') H;
           try now (subst; auto || unfold_conn_all; simpl in *; omega).
         2 : rewrite <-!plus_n_O; intros; unfold fc'; destruct Nat.eq_dec; auto; omega.
         cutrewrite (st + (st + 0) = 2 * st) in H; [|omega].
-        assert (((ARR + TID)%exp + x === ARR + Z.of_nat (1 * st + nf tid)) s emp_ph).
-        { unfold_conn_all; simpl; rewrite !Nat2Z.inj_add, Z.add_0_r; simpl in*; omega. }
-        sep_rewrite_in (@mps_eq1 ((ARR + TID)%exp + x)) H; [|exact H2].
+        assert ((Gl (ARR + (TID + x)) ===l Gl ARR +o Z.of_nat (1 * st + nf tid))%exp s (emp_ph loc)).
+        { unfold_conn_all; simpl; simplify_loc; rewrite !Nat2Z.inj_add, Z.add_0_r; simpl in*; omega. }
+        sep_rewrite_in (@mps_eq1 (Gl (ARR + (TID + x)))%exp ) H; [|exact H2].
         cutrewrite (fc (nf tid) + fc (st + nf tid)%nat = fc' (0 * st + nf tid)%nat)%Z in H; [|].
         2: unfold fc'; destruct Nat.eq_dec; unfold_conn_all; simpl in *; [f_equal; f_equal; omega| omega].
         cutrewrite (fc (st + nf tid)%nat = fc' (1 * st + nf tid)%nat)%Z in H; [|].
         2: unfold fc'; destruct Nat.eq_dec; unfold_conn_all; simpl in *; [omega|f_equal; omega].
         sep_rewrite_in_r skip_arr_unfold' H; (omega || auto).
         2: unfold_conn_in HP8; omega.
-        assert (((ARR + TID)%exp === ARR + Z.of_nat (0 * st + nf tid)) s emp_ph).
-        { unfold_conn_all; simpl in *. omega. }
+        assert ((Gl (ARR + TID)%exp ===l Gl ARR +o Z.of_nat (0 * st + nf tid)) s (emp_ph loc)).
+        { unfold_conn_all; simpl in *; simplify_loc; omega. }
         sep_rewrite_in mps_eq1 H; [|exact H3].
         sep_rewrite_in_r skip_arr_unfold' H; (omega || auto).
         clear HP0 HP1 HP2 H0.
@@ -283,7 +299,7 @@ Proof.
       apply ex_lift_l_in in H; destruct H as (s0 & H).
       apply ex_lift_l_in in H; destruct H as (fc' & H); sep_split_in H.
       exists (2 ^ e / 2), e, fc'.
-      assert ((St === Z.of_nat (2 ^ e / 2)) s emp_ph).
+      assert ((St === Z.of_nat (2 ^ e / 2)) s (emp_ph loc)).
       { unfold_conn_in (HP, HP2, HP3); simpl in HP2, HP3; rewrite HP2, HP3 in HP; simpl in HP.
         rewrite Zdiv2_div in HP. rewrite div_Zdiv; auto. }
       assert (s0 = 2 ^ e / 2).
@@ -308,7 +324,7 @@ Proof.
         assert (Hsh : emp s h); [|apply Hsh].
         { destruct (Nat.eq_dec st 0); subst; simpl in H; [omega|].
           rewrite nth_overflow in H; [|rewrite distribute_length; omega]; auto. } }
-      assert (pure (st <= nf tid) s emp_ph) by (unfold_pures; unfold_conn; omega).
+      assert (pure (st <= nf tid) s (emp_ph loc)) by (unfold_pures; unfold_conn; omega).
       sep_combine_in H; sep_normal_in H; exact H. } Unfocus.
     
     (* update s *)

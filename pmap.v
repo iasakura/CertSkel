@@ -17,14 +17,14 @@ Local Close Scope exp_scope.
 
 Definition inv (i : nat) :=
   Ex ix, !(I === Enum' (ix * ntrd + i)) ** !(Apure (ix * ntrd + i < len + ntrd)%nat) **
-     nth i (distribute ntrd ARR (ix * ntrd) (fun i => f i + 1)%Z (nt_step ntrd) 0) emp **
-     nth i (distribute ntrd ARR (len - (ix * ntrd)) (fun i => f i) (nt_step ntrd) (ix * ntrd)) emp.
+     nth i (distribute ntrd (Gl ARR) (ix * ntrd) (fun i => f i + 1)%Z (nt_step ntrd) 0) emp **
+     nth i (distribute ntrd (Gl ARR) (len - (ix * ntrd)) (fun i => f i) (nt_step ntrd) (ix * ntrd)) emp.
 
 Definition map_ker (i : nat) :=
   I ::= TID%Z;;
   WhileI  (inv i) (I < Z.of_nat len) (
-    X ::= [ARR + I] ;;
-    [ARR + I] ::= X + 1%Z ;;
+    X ::= [Gl ARR +o I] ;;
+    [Gl ARR +o I] ::= X + 1%Z ;;
     I ::= I + Z.of_nat ntrd%Z
   )%exp.
 
@@ -33,8 +33,8 @@ Hypothesis ntrd_neq0 : ntrd <> 0.
 
 Ltac unfold_pures :=
   repeat lazymatch goal with
-   | [H : (bexp_to_assn _) ?s emp_ph |- _] => bexp H
-   | [H : _ ?s emp_ph |- _ ] => unfold_conn_in H; simpl in H
+   | [H : (bexp_to_assn _) ?s (emp_ph loc) |- _] => bexp H
+   | [H : _ ?s (emp_ph loc) |- _ ] => unfold_conn_in H; simpl in H
 end.
 
 Ltac sep_rewrite lem :=
@@ -49,10 +49,10 @@ Ltac sep_rewrite_r lem :=
 Hint Rewrite Nat2Z.inj_add Nat2Z.inj_mul Nat2Z.inj_succ div_Zdiv : sep.
 Lemma map_correct :
   CSL (fun n => default ntrd) tid
-  (List.nth (nat_of_fin tid) (distribute ntrd ARR len f (nt_step ntrd) 0) emp **
+  (List.nth (nat_of_fin tid) (distribute ntrd (Gl ARR) len f (nt_step ntrd) 0) emp **
    !(TID === Z_of_fin tid))
   (map_ker (nat_of_fin tid))
-  (List.nth (nat_of_fin tid) (distribute ntrd ARR len (fun x => f x + 1)%Z (nt_step ntrd) 0) emp).
+  (List.nth (nat_of_fin tid) (distribute ntrd (Gl ARR) len (fun x => f x + 1)%Z (nt_step ntrd) 0) emp).
 Proof.
   assert (Htid : nat_of_fin tid < ntrd) by (destruct (Fin.to_nat _); simpl in *; auto).
   unfold map_ker.
@@ -64,8 +64,9 @@ Proof.
   { unfold inv; eapply Hbackward.
     Focus 2.
     { intros s h H; apply ex_lift_l_in in H as [x H]; sep_split_in H.
-      change_in H; [unfold_pures|].
-      sep_rewrite_in skip_arr_unfold' H; [|try omega..].
+      change_in H; [unfold_pures|]. 
+
+      sep_rewrite_in skip_arr_unfold' H; [|try omega..]. 
       2: rewrite HP0 in l; apply Nat2Z.inj_lt in l; omega.
       apply H. sep_combine_in H. ex_intro x H. simpl in H. exact H. } Unfocus.
     
@@ -76,8 +77,8 @@ Proof.
       intros s h H.
       sep_split_in H.
       change_in H.
-      assert ((ARR + (Z.of_nat x * Z.of_nat ntrd + Z_of_fin tid)%Z === ARR + I)%exp s emp_ph).
-      unfold_pures; unfold_conn; simpl; omega.
+      assert ((Gl ARR +o (Z.of_nat x * Z.of_nat ntrd + Z_of_fin tid)%Z ===l Gl ARR +o I)%exp s (emp_ph loc)).
+      unfold_pures; unfold_conn; simpl; f_equal; omega.
       sep_rewrite_in (mps_eq1) H; [|exact H0]. exact H.
       sep_combine_in H; exact H.
       hoare_forward; try (apply inde_distribute; auto; repeat (constructor; prove_indeE)).

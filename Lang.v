@@ -18,9 +18,27 @@ Unset Strict Implicit.
 
 Require Import PHeap.
 (* Definition of Language *)
+
+Inductive loc :=
+| SLoc : Z -> loc | GLoc : Z -> loc.
+
 Inductive var := Var : Z -> var.
 Definition stack := var -> Z.
+Require Import Classes.EquivDec.
+Global Program Instance loc_eq_dec : eq_type loc.
+Next Obligation.
+  repeat decide equality.
+Defined.
+Global Program Instance Z_eq_dec : eq_type Z.
+Next Obligation.
+  apply Z_eq_dec.
+Defined.
+
+Notation heap := (heap loc).
+Notation pheap' := (gen_pheap' loc).
+Notation pheap := (gen_pheap loc).
 Definition state := (stack * heap)%type.
+Arguments eq_dec _ _ _ _ : simpl never.
 
 Inductive exp := 
 | Evar (x : var)
@@ -36,11 +54,14 @@ Inductive bexp :=
 | Band (b1: bexp) (b2: bexp)
 | Bnot (b: bexp).
 
+Inductive loc_exp :=
+| Sh : exp -> loc_exp | Gl : exp -> loc_exp.
+
 Inductive cmd : Set :=
 | Cskip
 | Cassign (x: var) (e: exp)
-| Cread (x: var) (e: exp)
-| Cwrite (e1: exp) (e2: exp)
+| Cread (x: var) (e: loc_exp)
+| Cwrite (e1: loc_exp) (e2: exp)
 | Cseq (c1: cmd) (c2: cmd)
 | Cif (b: bexp) (c1: cmd) (c2: cmd)
 | Cwhile (b: bexp) (c: cmd)
@@ -75,9 +96,15 @@ Fixpoint edenot e s :=
     | Ediv2 e1 => Z.div2 (edenot e1 s)
   end%Z.
 
+Fixpoint ledenot e s :=
+  match e with
+    | Sh e => SLoc (edenot e s)
+    | Gl e => GLoc (edenot e s)
+  end%Z.
+
 Fixpoint bdenot b s : bool := 
   match b with
-    | Beq e1 e2 => if Z.eq_dec (edenot e1 s) (edenot e2 s) then true else false
+    | Beq e1 e2 => if eq_dec (edenot e1 s) (edenot e2 s) then true else false
     | Band b1 b2 => bdenot b1 s && bdenot b2 s
     | Bnot b => negb (bdenot b s)
     | Blt e1 e2 => if Z_lt_dec (edenot e1 s) (edenot e2 s) then true else false
@@ -110,12 +137,12 @@ Inductive red: cmd -> state -> cmd  -> state -> Prop :=
                 (x ::= e) / ss ==>s Cskip / ss'
 | red_Read: forall x e ss ss' s h v
                    (EQ1: ss = (s, h))
-                   (RD: h (edenot e s) = Some v)
+                   (RD: h (ledenot e s) = Some v)
                    (EQ2: ss' = (var_upd s x v, h)),
               (x ::= [e]) / ss ==>s Cskip / ss'
 | red_Write: forall e1 e2 ss ss' s h
                     (EQ1: ss = (s, h))
-                    (EQ2: ss' = (s, upd h (edenot e1 s) (Some (edenot e2 s)))),
+                    (EQ2: ss' = (s, upd h (ledenot e1 s) (Some (edenot e2 s)))),
                (Cwrite e1 e2) / ss ==>s Cskip / ss'
                               where  "c '/' st  '==>s'  c' '/' st' " := (red c st c' st').
 
@@ -144,8 +171,8 @@ Fixpoint accesses (c : cmd) (s : stack) :=
   match c with
     | Cskip => None
     | x ::= e => None
-    | x ::= [e] => Some (edenot e s)
-    | [e] ::= e' => Some (edenot e s)
+    | x ::= [e] => Some (ledenot e s)
+    | [e] ::= e' => Some (ledenot e s)
     | c1 ;; c2 => accesses c1 s
     | (Cif b c1 c2) => None
     | (Cwhile b c) => None
@@ -157,7 +184,7 @@ Fixpoint writes (c : cmd) (s : stack) :=
     | Cskip => None
     | (x ::= e) => None
     | (x ::= [e]) => None
-    | ([e] ::= e') => Some (edenot e s)
+    | ([e] ::= e') => Some (ledenot e s)
     | (c1 ;; c2) => writes c1 s
     | (Cif b c1 c2) => None
     | (Cwhile b c) => None
@@ -167,10 +194,10 @@ Fixpoint writes (c : cmd) (s : stack) :=
 Inductive aborts : cmd -> state -> Prop := 
 | aborts_Seq : forall (c1 c2 : cmd) (ss : state) (A: aborts c1 ss), aborts (Cseq c1 c2) ss
 | aborts_Read: forall x e ss
-                      (NIN: snd ss (edenot e (fst ss)) = None),
+                      (NIN: snd ss (ledenot e (fst ss)) = None),
                  aborts (Cread x e) ss
 | aborts_Write: forall e1 e2 ss
-                       (NIN: snd ss (edenot e1 (fst ss)) = None),
+                       (NIN: snd ss (ledenot e1 (fst ss)) = None),
                   aborts (Cwrite e1 e2) ss.
 
 Fixpoint barriers c :=
@@ -216,12 +243,12 @@ Proof.
   - apply (@red_Write _ _ _ _ s1 h1); eauto.
     destruct ss as [sx hx], ss' as [sx' hx'].
     repeat match goal with | [ H : (_, _) = (_, _) |- _ ] => inversion H; clear H end; subst.
-    cut (s2 = s1 /\ h2 = upd h1 (edenot e1 s1) (Some (edenot e2 s1))); 
+    cut (s2 = s1 /\ h2 = upd h1 (ledenot e1 s1) (Some (edenot e2 s1))); 
       [intros [? ?]; subst; eauto|].
     split; [congruence|].
     rewrite <-H6; rewrite H7 in H5.
     destruct (hplus_upd hdis1 hdis2 H5) as [? | [hFx ?]]; eauto.
-    contradict naborts; constructor; simpl; destruct (hdis1 (edenot e1 s1)); congruence.
+    contradict naborts; constructor; simpl; destruct (hdis1 (ledenot e1 s1)); congruence.
 Qed.
 
 Fixpoint disjoint_list A (l : list A) :=
@@ -289,18 +316,18 @@ Module PLang.
     eapply padd_cancel2; eauto.
   Qed.
 
-  Lemma padd_upd_cancel (ph1 ph2 phF : pheap) (h : heap) (x v v': Z) :
+  Lemma padd_upd_cancel (ph1 ph2 phF : pheap) (h : heap) (x : loc) (v v': Z) :
     pdisj ph1 phF -> pdisj ph2 phF -> ptoheap (phplus ph1 phF) h ->
     this ph1 x = Some (full_p, v') -> ptoheap (phplus ph2 phF) (upd h x (Some v)) -> 
     this ph2 = ph_upd ph1 x v.
   Proof.
     intros pd1 pd2 toh1 have1 toh2; extensionality y; unfold ph_upd.
-    destruct ph1 as [ph1 h1], ph2 as [ph2 h2], phF as [phF hF]; simpl in *.
-    destruct (Z.eq_dec x y).
+    destruct ph1 as [ph1 h1], ph2 as [ph2 h2], phF as [phF hF].
+    destruct (eq_dec x y); simpl in *.
     - rewrite <-e; clear e y.
       unfold is_pheap, pdisj, ptoheap, upd, phplus in *;
-        repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end).
-      destruct (Z.eq_dec x x); try tauto.
+        repeat (match goal with [H : forall _ : loc, _ |- _] => specialize (H x) end).
+      destruct (eq_dec x x); try congruence.
       rewrite have1 in *.
       destruct (phF x) as [[pF vF]|]; intuition.
       + apply Qcle_minus_iff in H8.
@@ -310,8 +337,8 @@ Module PLang.
       + destruct (ph2 x) as [[p2 v2]|]; try congruence.
         intuition; congruence.
     - unfold is_pheap, pdisj, ptoheap, upd, phplus in *;
-      repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H y) end).
-      destruct (Z.eq_dec y x); [symmetry in e; tauto |].
+      repeat (match goal with [H : forall _ : loc, _ |- _] => specialize (H y) end).
+      destruct (eq_dec y x); autounfold in *; [symmetry in e; congruence |].
       destruct (ph1 y) as [[? ?]|], (phF y) as [[? ?]|], (ph2 y) as [[? ?]|]; intuition; 
       try congruence.
       apply Q1 in H9; apply Q1 in H11.
@@ -358,7 +385,7 @@ Module PLang.
     - inversion red2; subst;
       repeat (match goal with [H : (_, _) = (_, _) |- _ ] => inversion H; subst; clear H end).
       unfold access_ok in *; simpl in *.
-      remember (edenot e s0) as vad.
+      remember (ledenot e s0) as vad.
       assert (ph1' = ph2) by (eapply phplus_cancel_toheap; eauto).
       assert (ph2' = ph2) by (eapply phplus_cancel_toheap; eauto).
       cutrewrite (v = v0); [split; congruence |].
@@ -367,7 +394,7 @@ Module PLang.
       clear Heqvad; subst.
       destruct aok1 as [[q va] Hv].
       unfold pdisj, ptoheap in *.
-      repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H vad) end).
+      repeat (match goal with [H : forall _ : loc, _ |- _] => specialize (H vad) end).
       unfold phplus in *.
       rewrite Hv in *.
       destruct (this phF1 vad) as [[? ?] | ], (this phF2 vad) as [[? ?] | ]; intuition; try congruence.
@@ -379,7 +406,7 @@ Module PLang.
       subst. rewrite H8 in *.
       unfold write_ok in *; simpl in *.
       destruct wok1 as [v1' H1], wok2 as [v2' H2].
-      remember (edenot e1 s) as addr. clear Heqaddr.
+      remember (ledenot e1 s) as addr. clear Heqaddr.
       remember (edenot e2 s) as v. clear Heqv.
       assert (this ph1' = ph_upd ph2 addr v) by eapply (padd_upd_cancel dis1 dis1' to1 H1 to1').
       assert (this ph2' = ph_upd ph2 addr v) by eapply (padd_upd_cancel dis2 dis2' to2 H2 to2').
@@ -406,7 +433,7 @@ Module PLang.
     - inversion EQ1; inversion EQ2; clear EQ1 EQ2; subst.
       destruct hwok as [v' H].
       rewrite (padd_upd_cancel hdis1 hdis2 htoh1 H htoh2).
-      apply pdisjC; apply <-pdisj_upd; eauto.
+      apply pdisjC. rewrite pdisj_upd; eauto.
   Qed.
 
   Lemma red_s_safe' (c1 c2 : cmd) (st1 st2 : state) (pst1 : pstate) (hF : pheap) :
@@ -423,19 +450,19 @@ Module PLang.
     - eapply IHred1; eauto.
     - subst; rewrite hst in *; unfold access_ok, write_ok in *; simpl in *.
       destruct hwok as [v' Hv'].
-      exists (Pheap (ph_upd_ph (snd pst1) (edenot e1 s) (edenot e2 s))); simpl; split.
-      + apply<- pdisj_upd; eauto.
-      + assert (this hF (edenot e1 s) = None).
+      exists (Pheap (ph_upd_ph (snd pst1) (ledenot e1 s) (edenot e2 s))); simpl; split.
+      + rewrite pdisj_upd; eauto.
+      + assert (this hF (ledenot e1 s) = None).
         { destruct hF as [hF isphF]; 
-          pose proof (hdis1 (edenot e1 s)); pose proof (isphF (edenot e1 s)); simpl in *.
-          rewrite Hv' in H. destruct (hF (edenot e1 s)); eauto.
+          pose proof (hdis1 (ledenot e1 s)); pose proof (isphF (ledenot e1 s)); simpl in *.
+          rewrite Hv' in H. destruct (hF (ledenot e1 s)); eauto.
           destruct p. destruct H0 as [H1 _], H as [_ [_ H2]].
           apply frac_contra1 in H2; eauto; tauto. } 
         intros x; unfold phplus, ph_upd, upd. 
-        specialize (hto1 x); destruct (Z.eq_dec (edenot e1 s) x).
-        * rewrite e, H in *; repeat split; unfold upd; destruct (Z.eq_dec x x); tauto.
+        specialize (hto1 x); destruct (eq_dec (ledenot e1 s) x).
+        * rewrite e, H in *; repeat split; unfold upd; destruct (eq_dec x x); try tauto.
         * unfold phplus,upd in *; destruct (this (snd pst1) x) as [[? ?]|], (this hF x) as [[? ?]|];
-          destruct (Z.eq_dec x (edenot e1 s)); 
+          destruct (eq_dec x (ledenot e1 s)); 
           repeat split; try tauto; try congruence.
   Qed.
 
@@ -483,14 +510,14 @@ Module BigStep.
   | eval_Assign : forall (x : var) (e : exp) (st st' : pstate) s h,
                     (st = (s, h)) -> (st' = (var_upd s x (edenot e s), h)) ->
                     (x ::= e) / st || None / st'
-  | eval_Read : forall (x : var) (e : exp) (v : Z) (st st' : pstate) (s : stack) (h : pheap) (q : Qc),
-                  (st = (s, h)) -> (this h (edenot e s) = Some (q, v)) ->
+  | eval_Read : forall (x : var) (e : loc_exp) (v : Z) (st st' : pstate) (s : stack) (h : pheap) (q : Qc),
+                  (st = (s, h)) -> (this h (ledenot e s) = Some (q, v)) ->
                   (st' = (var_upd s x v, h)) ->
                   (x ::= [e]) / st || None / st'
-  | eval_Write : forall (e1 e2 : exp) (ss ss' : pstate) (s : stack) (h : pheap) (v : Z),
+  | eval_Write : forall (e1 : loc_exp) (e2 : exp) (ss ss' : pstate) (s : stack) (h : pheap) (v : Z),
                    (ss = (s, h)) ->
-                   this h (edenot e1 s) = Some (1, v) ->
-                   (ss' = (s, ph_upd2 h (edenot e1 s) (edenot e2 s))) ->
+                   this h (ledenot e1 s) = Some (1, v) ->
+                   (ss' = (s, ph_upd2 h (ledenot e1 s) (edenot e2 s))) ->
                    (Cwrite e1 e2) / ss || None / ss'
   | eval_Barrier : forall ss j,
                      (Cbarrier j) / ss || Some (j, Cskip) / ss
@@ -517,19 +544,19 @@ Module BigStep.
     - unfold access_ok in *; simpl in *; destruct aok as [[q v'] h].
       eapply eval_Read; eauto.
       inversion IH; subst.
-      unfold ptoheap, phplus in to; specialize (to (edenot e s0)); rewrite h in to;
-      destruct (this phF (edenot e s0)) as [[? ?] |]; destruct to as [? H'];
+      unfold ptoheap, phplus in to; specialize (to (ledenot e s0)); rewrite h in to;
+      destruct (this phF (ledenot e s0)) as [[? ?] |]; destruct to as [? H'];
       rewrite H' in *; inversion RD; eauto.
     - unfold write_ok in *; simpl in *; destruct wok as [v' h];
       eapply eval_Write; eauto.
       inversion IH; subst; eauto.
-      cutrewrite (ph' = ph_upd2 ph (edenot e1 s0) (edenot e2 s0)); eauto.
-      assert (this ph' = this (ph_upd2 ph (edenot e1 s0) (edenot e2 s0))) by 
+      cutrewrite (ph' = ph_upd2 ph (ledenot e1 s0) (edenot e2 s0)); eauto.
+      assert (this ph' = this (ph_upd2 ph (ledenot e1 s0) (edenot e2 s0))) by 
           (eapply padd_upd_cancel; eauto).
       destruct ph'; simpl in H.
       unfold ph_upd2.
       symmetry in H; destruct H.
-      cutrewrite (is_p = ph_upd_ph ph (edenot e1 s0) (edenot e2 s0)); 
+      cutrewrite (is_p = ph_upd_ph ph (ledenot e1 s0) (edenot e2 s0)); 
         [ eauto | apply proof_irrelevance ].
   Qed.
 
@@ -704,15 +731,19 @@ Section NonInter.
               typing_exp e1 ty1 -> typing_exp e2 ty2 ->
               typing_bexp (Blt e1 e2) (join ty1 ty2).
 
+  Inductive typing_lexp : loc_exp -> type -> Prop :=
+  | ty_sloc : forall e ty, typing_exp e ty -> typing_lexp (Sh e) ty
+  | ty_gloc : forall e ty, typing_exp e ty -> typing_lexp (Gl e) ty.
+
   Inductive typing_cmd : cmd -> type -> Prop :=
   | ty_skip : forall (pc : type), typing_cmd Cskip pc
   | ty_assign : forall (v : var) (e : exp) (pc ty : type),
                   typing_exp e ty -> le_type (join ty pc) (g v) = true ->
                   typing_cmd (v ::= e) pc
-  | ty_read : forall (v : var) (e : exp) (pc ty : type),
-                typing_exp e ty -> le_type (join ty pc) (g v) = true ->
+  | ty_read : forall (v : var) (e : loc_exp) (pc ty : type),
+                typing_lexp e ty -> le_type (join ty pc) (g v) = true ->
                 typing_cmd (v ::= [e]) pc
-  | ty_write : forall (e1 e2 : exp) (pc : type),
+  | ty_write : forall (e1 : loc_exp) (e2 : exp) (pc : type),
                  typing_cmd ([e1] ::= e2) pc
   | ty_seq : forall (c1 c2 : cmd) (pc : type),
                typing_cmd c1 pc -> typing_cmd c2 pc ->
@@ -746,6 +777,12 @@ Section NonInter.
     - inversion hty; rewrite IHe; eauto. 
   Qed.
 
+  Lemma low_eq_eq_lexp (e : loc_exp) (s1 s2 : stack) :
+    low_eq s1 s2 -> typing_lexp e Lo -> ledenot e s1 = ledenot e s2.
+  Proof.
+    intros; destruct e; simpl; f_equal; inversion H0; auto using low_eq_eq_exp.
+  Qed.
+  
   Lemma low_eq_eq_bexp (be : bexp) (s1 s2 : stack) :
     low_eq s1 s2 -> typing_bexp be Lo -> bdenot be s1 = bdenot be s2.
   Proof.
@@ -908,7 +945,7 @@ Section NonInter.
         destruct ty, (g x); unfold le_type in *; simpl in *; inversion H4; intuition eauto.
       + intros y hlo; pose proof ((proj1 hcomp) y hlo); unfold var_upd; destruct (var_eq_dec y x); eauto; subst.
         destruct ty, (g x); simpl in H4; inversion H4; inversion hlo; eauto.
-        assert (edenot e s = edenot e s0) by (apply low_eq_eq_exp; intuition eauto).
+        assert (ledenot e s = ledenot e s0) by (apply low_eq_eq_lexp; intuition eauto).
         rewrite H1 in *.
         eapply pheap_disj_eq; intuition eauto.
     - inversion ev2; subst; simpl in *; repeat split; intuition eauto.
@@ -998,6 +1035,11 @@ Section Substitution.
       | Esub e1 e2 => Esub (subE x e e1) (subE x e e2)
       | Ediv2 e1 => Ediv2 (subE x e e1)
     end.
+  Definition sublE x e e0 := 
+    match e0 with 
+      | Sh e0 => Sh (subE x e e0)
+      | Gl e0 => Gl (subE x e e0)
+    end.
   (* b[x/e]*)
   Fixpoint subB x e b :=
     match b with
@@ -1016,6 +1058,12 @@ Section Substitution.
            end; try congruence; eauto; f_equal; eauto.
   Qed.
 
+  Lemma sublE_assign : forall (x : var) (e : exp) (e' : loc_exp) (s : stack),
+    ledenot (sublE x e e') s = ledenot e' (var_upd s x (edenot e s)).
+  Proof.
+    intros; induction e'; simpl; eauto; rewrite subE_assign; eauto.
+  Qed.
+
   Lemma subB_assign : forall (x : var) (e : exp) (b : bexp) (s : stack),
     bdenot (subB x e b) s = bdenot b (var_upd s x (edenot e s)).
   Proof.
@@ -1028,21 +1076,37 @@ Section Substitution.
   Qed.
 End Substitution.
 
+Notation simple_heap := (PHeap.heap Z).
+
 Section GlobalSemantics.
-  Variable ngrp : nat.
+  Variable nblk : nat.
   Variable ntrd : nat.
-  Definition g_state := (Vector.t (klist ntrd) ngrp * heap)%type.
+
+  Record g_state :=
+    Gs {blks : Vector.t (klist ntrd) nblk;
+        sh_hp : Vector.t simple_heap nblk;
+        gl_hp : simple_heap}.
 
   Import VectorNotations.
 
+  Definition sh_gl_heap (sh gh : simple_heap) : heap :=
+    fun (l : loc) => match l with
+      | SLoc l => sh l
+      | GLoc l => gh l
+    end.
+
+  Definition bs_of_gs (gs : g_state) (bid : Fin.t nblk) :=
+    ((blks gs)[@bid], (sh_gl_heap (sh_hp gs)[@bid] (gl_hp gs))).
+
   Definition abort_g (gs : g_state) :=
-    exists gid : Fin.t ngrp,  abort_k ((fst gs)[@gid], (snd gs)).
+    exists gid : Fin.t nblk,  abort_k (bs_of_gs gs gid).
   
   Reserved Notation "gs '==>g' gs'" (at level 40).
   Inductive red_g : g_state -> g_state -> Prop :=
-    | redg_Seq : forall (gs1 : g_state) (gid : Fin.t ngrp) ks' gh', 
-        ((fst gs1)[@gid], (snd gs1)) ==>k (ks', gh') ->
-        gs1 ==>g (replace (fst gs1) gid ks', gh')
+    | redg_Seq : forall (gs1 : g_state) (bid : Fin.t nblk) ks' gh' gh'' sh'',
+        (bs_of_gs gs1 bid)  ==>k (ks', gh') ->
+        (forall l, gh' l = (sh_gl_heap sh'' gh'') l) ->
+        gs1 ==>g Gs (replace (blks gs1) bid ks') (replace (sh_hp gs1) bid sh'') gh''
   where
     "gs ==>g gs'" := (red_g gs gs').
 End GlobalSemantics.

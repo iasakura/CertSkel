@@ -66,8 +66,8 @@ Section Prescan.
   Infix "-C" := (Esub) (at level 50, left associativity).
   Infix "<C" := (Blt) (at level 70).
 
-  Notation leftC ARR := (ARR +C Offset *C (Enum 2 *C Tid +C Enum 1) -C Enum 1).
-  Notation rightC ARR := (ARR +C Offset *C (Enum 2 *C Tid +C Enum 2) -C Enum 1).
+  Notation leftC ARR := (ARR +o (Offset *C (Enum 2 *C Tid +C Enum 1) -C Enum 1)).
+  Notation rightC ARR := (ARR +o (Offset *C (Enum 2 *C Tid +C Enum 2) -C Enum 1)).
 
   Notation Zn := Z.of_nat.
 
@@ -103,7 +103,7 @@ Section Prescan.
        !(pure (forall i, i < ntrd * 2 ->
                  f i = let m := min (2 ^ rdiv2 (i + 1)) offset in
                        sum_of (i + 1 - m) m f_ini)) **
-        (is_array Sum (Nat.max 2 offset) f (i * (Nat.max 2 offset)))
+        (is_array (Gl Sum) (Nat.max 2 offset) f (i * (Nat.max 2 offset)))
      else
        emp.
 
@@ -119,7 +119,7 @@ Section Prescan.
               !(pure (forall i, i < ntrd * 2 ->
                                 f i = let m := min (2 ^ rdiv2 (i + 1)) offset in
                                       sum_of (i + 1 - m) m f_ini)) **
-            is_array Sum (Nat.max 2 offset) f ((nf i) * (Nat.max 2 offset))
+            is_array (Gl Sum) (Nat.max 2 offset) f ((nf i) * (Nat.max 2 offset))
          else emp),
        MyVector.init (fun i : Fin.t ntrd => 
          Ex (offset d : nat) (f : nat -> Z), 
@@ -131,7 +131,7 @@ Section Prescan.
              !(pure (forall i, i < ntrd * 2 ->
                                f i = let m := min (2 ^ rdiv2 (i + 1)) offset in
                                      sum_of (i + 1 - m) m f_ini)) **
-              is_array Sum (offset * 2) f ((nf i) * offset * 2)
+              is_array (Gl Sum) (offset * 2) f ((nf i) * offset * 2)
            else emp))
     else default ntrd.
 
@@ -141,9 +141,9 @@ Section Prescan.
     WhileI (upInv i) (0%Z <C D) (
       Cbarrier 0 ;;
       Cif (Tid <C D) (
-        Tmp1 ::= [leftC Sum] ;;
-        Tmp2 ::= [rightC Sum] ;;
-        [rightC Sum] ::= Tmp1 +C Tmp2
+        Tmp1 ::= [leftC (Gl Sum)] ;;
+        Tmp2 ::= [rightC (Gl Sum)] ;;
+        [rightC (Gl Sum)] ::= Tmp1 +C Tmp2
       ) (Cskip) ;;
       Offset ::= Offset *C 2%Z ;;
     D ::= D>>1
@@ -171,7 +171,7 @@ Section Prescan.
     forall stc, 
       stc ||= is_array Arr len f s <=>
           is_array Arr len' f s **
-          (Arr +C (Zn (len' + s))%Z -->p (1, f (len' + s))) **
+          (Arr +o (Zn (len' + s))%Z -->p (1, f (len' + s))) **
           is_array Arr (len - len' - 1) f (S (len' + s)).
   Proof.
     induction len'; intros s len Hlen stc.
@@ -235,7 +235,7 @@ Section Prescan.
     forall stc, 
       stc ||= is_array Arr len f s <=>
           is_array Arr (len - 1) f s **
-          (Arr +C (Zn (s + len - 1)) -->p (1, f (s + len - 1))).
+          (Arr +o (Zn (s + len - 1)) -->p (1, f (s + len - 1))).
   Proof.
     induction len; intros s Hlen stc; try omega.
     destruct len.
@@ -251,13 +251,13 @@ Section Prescan.
 
   Lemma upsweep_correct (i : Fin.t ntrd) :
     CSL bspec i 
-        (is_array Sum 2 f_ini (nf i * 2) ** !(Tid === Zn (nf i)))
+        (is_array (Gl Sum) 2 f_ini (nf i * 2) ** !(Tid === Zn (nf i)))
         (upsweep (nf i))
         (Ex f, 
            (if Nat.eq_dec (nf i) 0 then 
               !(pure (forall i, i < ntrd * 2 ->
                                 f i = let m := 2 ^ rdiv2 (i + 1) in sum_of (i + 1 - m) m f_ini)) ** 
-               is_array Sum (ntrd * 2) f 0
+               is_array (Gl Sum) (ntrd * 2) f 0
             else emp) ** !(Tid === Zn (nf i)) ** !(Offset === Zn (ntrd * 2))).
   Proof.
     pose proof ntrd_neq_0 as ntrd_neq_0.
@@ -325,14 +325,16 @@ Section Prescan.
 
         autorewrite with sep in H;
           [|cutrewrite (1 = 1 * 1); [|auto]; apply Nat.mul_le_mono; omega..].
-        assert ((Sum +C (Zn offset * (Zn 2 * Zn (nf i) + Zn 1) - Zn 1)%Z ===
-                 Sum +C Zn offset *C (2 *C Zn (nf i) +C 1) -C 1) s emp_ph)%Z.
-        { unfold_conn; simpl. omega. }
+        assert ((Gl Sum +o ((Zn offset * (Zn 2 * Zn (nf i) + Zn 1) - Zn 1))%Z ===l
+                 Gl Sum +o (Zn offset *C (2 *C Zn (nf i) +C 1) -C 1)) s (emp_ph loc))%Z.
+        Arguments Z.sub _ _ : simpl never.
+        Arguments Z.of_nat _  : simpl never.
+        Arguments Z.mul _ _ : simpl never.
+        { unfold_conn; simpl; simplify_loc; omega. }
         sep_rewrite_in (mps_eq1) H; [|apply H0].
-        assert ((Sum +C (Zn offset * (Zn 2 * Zn (nf i) + Zn 2) - Zn 1)%Z ===
-                 Sum +C (Offset *C (2 *C Tid +C 2) -C 1)) s emp_ph)%Z.
-        { Arguments Z.mul _ _ : simpl never.
-          unfold_conn. simpl.  repeat f_equal; auto. }
+        assert ((Gl Sum +o (Zn offset * (Zn 2 * Zn (nf i) + Zn 2) - Zn 1)%Z ===l
+                 Gl Sum +o (Offset *C (2 *C Tid +C 2) -C 1)) s (emp_ph loc))%Z.
+        { unfold_conn. simpl.  repeat f_equal; auto. }
         sep_normal_in H. sep_lift_in H 4.
         sep_rewrite_in (mps_eq1) H; [|apply H1].
         exact H. }
@@ -376,9 +378,11 @@ Section Prescan.
       destruct ntrd_is_p2 as [e ntrd_2e]; rewrite ntrd_2e in H0; 
       pose proof (div_pow2 _ _ _ H0) as (e1 & e2 & Hdo).
       destruct e1; destruct Hdo; subst; [simpl; unfold div; simpl|].
-      left; split; eauto; simpl in H0; omega.
+      left; split; eauto; simpl in H0; rewrite <-H0; ring.
       autorewrite with sep; auto.
-      rewrite pow_succ_r in H0; try omega; rewrite <-H0; right; ring.
+      rewrite pow_succ_r in H0; try omega. rewrite <-H0; right; ring.
+      Arguments Z.of_nat _  : simpl nomatch.
+      omega.
     - unfold_conn; intros ix Hix; unfold fc' in *.
       destruct Nat.eq_dec; rewrite !HP9; try omega.
       + assert (offset <> 0) by (destruct offset; destruct HP6; omega).
@@ -442,20 +446,20 @@ Section Prescan.
       rewrite !mult_plus_distr_l, mult_1_r, minus_Sn_m in H; [|destruct offset; try omega; generalize (S offset * nf i); intros; try omega].
       simpl in H; rewrite <-minus_n_O in H; cutrewrite (offset * nf i + offset * nf i = offset * nf i * 2) in H; [|omega].
       rewrite (mult_comm (nf i) offset) in H.
-      assert (Heq1 : ((Sum +C Zn offset *C (2%Z *C Tid +C 2%Z)) -C 1%Z ===
-                                                                   Sum +C Zn (offset * nf i * 2 + offset + offset - 1)) s emp_ph).
+      assert (Heq1 : (Gl Sum +o ((Zn offset *C (2%Z *C Tid +C 2%Z)) -C 1%Z) ===l
+                      Gl Sum +o Zn (offset * nf i * 2 + offset + offset - 1)) s (emp_ph loc)).
       { unfold_conn; repeat autorewrite with sep; [|destruct offset; try omega; generalize (S offset * nf i * 2); intros; omega]; simpl.
         rewrite HP7. rewrite Z.add_sub_assoc. 
-        ring_simplify. reflexivity. }
+        simplify_loc; ring_simplify. reflexivity. }
       sep_rewrite_in mps_eq1 H; [|exact Heq1]; clear Heq1.
-      assert (Heq1 : ((Sum +C Zn offset *C (2%Z *C Tid +C 1%Z)) -C 1%Z ===
-                                                                   Sum +C Zn (offset * nf i * 2 + offset - 1)) s emp_ph).
+      assert (Heq1 : (Gl Sum +o (Zn offset *C (2%Z *C Tid +C 1%Z) -C 1%Z) ===l
+                      Gl Sum +o Zn (offset * nf i * 2 + offset - 1)) s (emp_ph loc)).
       { unfold_conn; repeat autorewrite with sep; [|destruct offset; try omega; generalize (S offset * nf i * 2); intros; omega]; simpl.
-        rewrite HP7; ring_simplify; reflexivity. }
+        rewrite HP7; simplify_loc; ring_simplify; reflexivity. }
       sep_lift_in H 1; sep_rewrite_in mps_eq1 H; [|exact Heq1]; clear Heq1.
       (* sep_lift_in H 2. sep_lift_in H 3. sep_lift_in H 3. *)
       
-      Lemma is_array_change (e : exp) (f1 f2 : nat -> Z) n :
+      Lemma is_array_change (e : loc_exp) (f1 f2 : nat -> Z) n :
         forall s, (forall x, x < n -> f1 (x + s) = f2(x + s)) ->
                   forall stc,
                     stc ||= is_array e n f1 s <=> is_array e n f2 s.
@@ -474,21 +478,21 @@ Section Prescan.
       rewrite <-Nat.add_sub_swap; try omega. 
       2: destruct offset; try omega; generalize (S offset * nf i * 2); intros; try omega.
       rewrite Nat.add_sub; ring.
-      sep_rewrite_in (is_array_change Sum fc fc') H.
+      sep_rewrite_in (is_array_change (Gl Sum) fc fc') H.
       Focus 2.
       { intros x Hx; unfold fc'; destruct Nat.eq_dec; auto.
         cutrewrite (x + offset * nf i * 2 + 1 = x + 1 + nf i * (offset * 2)) in e; [|ring].
         rewrite Nat.mod_add, <-Nat.div_exact in e; try omega.
         destruct ((x + 1) / (offset * 2)); rewrite (mult_comm (offset * 2)) in e; simpl in e; try omega.
         generalize (n * (offset * 2)) e; intros; omega. } Unfocus.
-      sep_rewrite_in (is_array_change Sum fc fc') H.
+      sep_rewrite_in (is_array_change (Gl Sum) fc fc') H.
       Focus 2.
       { intros x Hx; unfold fc'; destruct Nat.eq_dec; auto.
         cutrewrite (x + (offset * nf i * 2 + offset) + 1 = offset + x + 1 + nf i * (offset * 2)) in e; [|ring].
         rewrite Nat.mod_add, <-Nat.div_exact in e; try omega.
         destruct ((offset + x + 1) / (offset * 2)); rewrite (mult_comm (offset * 2)) in e; simpl in e; try omega.
         generalize (n * (offset * 2)) e; intros; omega. } Unfocus.
-      assert (Heq : (Tmp1 +C Tmp2 === fc' (offset * nf i * 2 + offset + offset - 1)) s emp_ph).
+      assert (Heq : (Tmp1 +C Tmp2 === fc' (offset * nf i * 2 + offset + offset - 1)) s (emp_ph loc)).
       { unfold_conn; simpl; rewrite HP1, HP2; unfold fc'.
         cutrewrite (offset * nf i * 2 + offset + offset - 1 + 1 = 
                     (nf i + 1) * (offset * 2)).
@@ -645,7 +649,7 @@ Section Prescan.
     
     Lemma vars_eq0 s (E : exp) len (f : nat -> nat) :
       len <> 0 ->
-      conj_xs (ls_init 0 len (fun i => (E === Zn (f i)))) s emp_ph -> 
+      conj_xs (ls_init 0 len (fun i => (E === Zn (f i)))) s (emp_ph loc) -> 
       exists v, forall i, i < len -> f i = v.
     Proof.
       intros Hlen Hconj; exists (f 0); intros i Hil; destruct i; simpl; auto.
@@ -761,7 +765,7 @@ Section Prescan.
         rewrite Nat.max_l in *; try omega.
         rewrite Nat.min_r in H; try omega.
 
-        Lemma is_array_conj (e : exp) (n m : nat) (f : nat -> nat -> Z) :
+        Lemma is_array_conj (e : loc_exp) (n m : nat) (f : nat -> nat -> Z) :
           m <> 0 ->
           forall s stc,
             stc ||= conj_xs (ls_init s n (fun i => is_array e m (f i) (i * m))) <=>
@@ -828,7 +832,7 @@ Definition downInv (i : nat) :=
              f j = sum_of 0 ((j + 1) - offset) f_ini
            else
              f j = (let m := 2 ^ rdiv2 (j + 1) in sum_of (j + 1 - m) m f_ini))) **
-        (is_array Sum (offset * p) f (i * (offset * p)))
+        (is_array (Gl Sum) (offset * p) f (i * (offset * p)))
      else emp).
 
 Definition downsweep (i : nat) :=
@@ -837,10 +841,10 @@ Definition downsweep (i : nat) :=
     Offset ::= Offset >>1 ;;
     Cbarrier 1 ;;
     Cif (Tid <C D) (
-      Tmp1 ::= [leftC Sum] ;;
-      Tmp2 ::= [rightC Sum] ;;
-      [leftC Sum] ::= Tmp2 ;;
-      [rightC Sum] ::= Tmp1 +C Tmp2
+      Tmp1 ::= [leftC (Gl Sum)] ;;
+      Tmp2 ::= [rightC (Gl Sum)] ;;
+      [leftC (Gl Sum)] ::= Tmp2 ;;
+      [rightC (Gl Sum)] ::= Tmp1 +C Tmp2
     ) (Cskip) ;;
     D ::= D *C 2%Z
   ).
@@ -862,7 +866,7 @@ Definition bspec1 n :=
                   f j = sum_of 0 (j + 1 - (offset * 2)) f_ini
                 else
                   f j = (let m := 2 ^ rdiv2 (j + 1) in sum_of (j + 1 - m) m f_ini))) **
-              (is_array Sum (offset * 2 * p) f (i * (offset * 2 * p)) )
+              (is_array (Gl Sum) (offset * 2 * p) f (i * (offset * 2 * p)) )
            else emp)),
      MyVector.init (fun i : Fin.t ntrd =>
        let i := nf i in
@@ -878,7 +882,7 @@ Definition bspec1 n :=
                   f j = sum_of 0 (j + 1 - (offset * 2)) f_ini
                 else
                   f j = (let m := 2 ^ rdiv2 (j + 1) in sum_of (j + 1 - m) m f_ini))) **
-              (is_array Sum (offset * 2) f  (i * (offset * 2)))
+              (is_array (Gl Sum) (offset * 2) f  (i * (offset * 2)))
            else emp)))
   else default ntrd.
 
@@ -892,14 +896,14 @@ Lemma downsweep_correct (i : Fin.t ntrd) :
                      i0 < ntrd * 2 ->
                      if Nat.eq_dec i0 (ntrd * 2 - 1) then f i0 = 0%Z
                      else f i0 = (let m := 2 ^ rdiv2 (i0 + 1) in sum_of (i0 + 1 - m) m f_ini))) **
-               is_array Sum (ntrd * 2) f 0
+               is_array (Gl Sum) (ntrd * 2) f 0
            else emp)) **
        !(Tid === Zn (nf i)))
       (downsweep (nf i))
       (Ex f : nat -> Z,
          !(pure
              (forall j : nat, (nf i * 2) <= j < (nf i + 1) * 2 -> f j = sum_of 0 j f_ini)) **
-          (is_array Sum 2 f ((nf i) * 2) )).
+          (is_array (Gl Sum) 2 f ((nf i) * 2) )).
 Proof.
   pose proof ntrd_neq_0 as ntrd_neq_0.
   destruct ntrd_is_p2 as [en Hntrd2].
@@ -961,7 +965,7 @@ Proof.
   { intros s h H;
     apply ex_lift_l; exists (offset / 2); apply ex_lift_l; exists d; apply ex_lift_l; exists f.
     sep_split_in H.
-    assert (pure (d * (offset / 2) = ntrd) s emp_ph).
+    assert (pure (d * (offset / 2) = ntrd) s (emp_ph loc)).
     { unfold_pures; unfold_conn.
       rewrite <-Nat.divide_div_mul_exact; eauto.
       rewrite HP3, Nat.div_mul; eauto.
@@ -1017,16 +1021,16 @@ Proof.
       sep_rewrite_in is_array_unfold' H; try omega.
       sep_normal_in H; sep_lift_in H 2.
       sep_rewrite_in is_array_unfold' H; try omega.
-      assert (Heq : (Sum +C Zn (nf i * (off + off) + off + off - 1) ===
-                     Sum +C Offset *C (2%Z *C Tid +C 2%Z) -C 1%Z) s emp_ph).
+      assert (Heq : (Gl Sum +o (Zn (nf i * (off + off) + off + off - 1)) ===l
+                     Gl Sum +o (Offset *C (2%Z *C Tid +C 2%Z) -C 1%Z)) s (emp_ph loc)).
       { unfold_conn; simpl; autorewrite with sep; try ring.
-        simpl; rewrite HP, HP3, Z.add_sub_assoc. unfold lt; ring.
+        simpl; rewrite HP, HP3, Z.add_sub_assoc. simplify_loc; unfold lt; ring.
         generalize (nf i * (off + off)); intros; omega. }
       sep_rewrite_in mps_eq1 H; [|exact Heq]. clear Heq.
-      assert (Heq : (Sum +C Zn (nf i * (off + off) + off - 1) ===
-                     Sum +C Offset *C (2%Z *C Tid +C 1%Z) -C 1%Z) s emp_ph).
+      assert (Heq : (Gl Sum +o (Zn (nf i * (off + off) + off - 1)) ===l
+                     Gl Sum +o (Offset *C (2%Z *C Tid +C 1%Z) -C 1%Z)) s (emp_ph loc)).
       { unfold_conn; simpl; autorewrite with sep; try ring.
-        simpl; rewrite HP, HP3. unfold lt; ring.
+        simpl; rewrite HP, HP3. unfold lt; simplify_loc; ring.
         generalize (nf i * (off + off)); intros; omega. }
       sep_lift_in H 3.
       sep_rewrite_in mps_eq1 H; [|exact Heq]. clear Heq.
@@ -1222,16 +1226,16 @@ Proof.
         sep_normal; sep_lift 2.
         sep_rewrite is_array_unfold'; try omega.
         sep_normal.
-        assert (Heq : (Sum +C Zn (nf i * (off + off) + off + off - 1) ===
-                       Sum +C Offset *C (2%Z *C Tid +C 2%Z) -C 1%Z) s emp_ph).
+        assert (Heq : (Gl Sum +o Zn (nf i * (off + off) + off + off - 1) ===l
+                       Gl Sum +o (Offset *C (2%Z *C Tid +C 2%Z) -C 1%Z)) s (emp_ph loc)).
         { unfold_conn; simpl; autorewrite with sep; try ring.
-          simpl; rewrite HP2, HP6. unfold lt; ring.
+          simpl; rewrite HP2, HP6. unfold lt; simplify_loc; ring.
           generalize (nf i * (off + off)); intros; omega. }
         sep_rewrite mps_eq1; [|exact Heq]. clear Heq.
-        assert (Heq : (Sum +C Zn (nf i * (off + off) + off - 1) ===
-                       Sum +C Offset *C (2%Z *C Tid +C 1%Z) -C 1%Z) s emp_ph).
+        assert (Heq : (Gl Sum +o Zn (nf i * (off + off) + off - 1) ===l
+                       Gl Sum +o (Offset *C (2%Z *C Tid +C 1%Z) -C 1%Z)) s (emp_ph loc)).
         { unfold_conn; simpl; autorewrite with sep; try ring.
-          simpl; rewrite HP2, HP6. unfold lt; ring.
+          simpl; rewrite HP2, HP6. unfold lt; simplify_loc; ring.
           generalize (nf i * (off + off)); intros; omega. }
         sep_lift 3.
         sep_rewrite mps_eq1; [|exact Heq]. clear Heq.
@@ -1256,7 +1260,7 @@ Proof.
           [| f_equal; ring].
         destruct Nat.eq_dec; try omega.
 
-        sep_rewrite_r (@is_array_change Sum f).
+        sep_rewrite_r (@is_array_change (Gl Sum) f).
         
         Focus 2.
         { intros x0 Hx0.
@@ -1277,13 +1281,15 @@ Proof.
         destruct Nat.eq_dec; try omega.
         sep_cancel.
 
-        sep_rewrite_r (@is_array_change Sum f).
+        sep_rewrite_r (@is_array_change (Gl Sum) f).
         exact H0.
 
         intros x0 Hx0.
         cutrewrite (off * (2 * nf i + 2) - 1 = nf i * (off + off) + off + off - 1); [|f_equal; ring].
         rewrite <-Nat.add_sub_assoc; try omega.
         rewrite (plus_comm x0 (nf i * (off + off))).
+        Require Import LibTactics.
+        clears.
         destruct Nat.eq_dec; try omega.
         destruct Nat.eq_dec; eauto.
         cutrewrite (nf i * (off + off) = off * (2 * nf i)) in e3; [|ring].
@@ -1296,7 +1302,7 @@ Proof.
     sep_split_in H.
     simpl in *. unfold_pures.
     unfold downInv.
-    exists off, (d * 2), f.
+    exists off (d * 2) f.
     sep_split; try now (eauto; unfold_conn; simpl; eauto).
     
     + unfold_conn; simpl; autorewrite with sep; eauto.
@@ -1443,7 +1449,7 @@ Proof.
       assert (j / (offset * 2) = 0) by (rewrite Nat.div_small; omega).
       rewrite H4; apply HP6.
     + sep_normal; sep_normal_in H.
-      rewrite mult_1_r in H; sep_rewrite_r (is_array_change Sum (nth 0 fcs (fun _ : nat => 0%Z))); eauto.
+      rewrite mult_1_r in H; sep_rewrite_r (is_array_change (Gl Sum) (nth 0 fcs (fun _ : nat => 0%Z))); eauto.
       intros x Hx; rewrite plus_0_r, Nat.div_small; try omega.
   - unfold fc'. autorewrite with sep in *; try omega; sep_split.
     + apply ls_emp'; rewrite init_length; intros i Hi.
@@ -1487,22 +1493,22 @@ Definition prescan :=
     Cwhile (0%Z <C D) (
       BARRIER  (0);;
       Cif (Tid <C D) (
-        Tmp1 ::=  [Sum +C Offset *C (2%Z *C Tid +C 1%Z) -C 1%Z];;
-        Tmp2 ::=  [Sum +C Offset *C (2%Z *C Tid +C 2%Z) -C 1%Z];;
-        [Sum +C Offset *C (2%Z *C Tid +C 2%Z) -C 1%Z]::=Tmp1 +C Tmp2)
+        Tmp1 ::=  [leftC (Gl Sum)] ;;
+        Tmp2 ::=  [rightC (Gl Sum)] ;;
+        [rightC (Gl Sum)]::=Tmp1 +C Tmp2)
         (SKIP) ;;
       Offset ::= Offset *C 2%Z;;
       D ::= D >>1)) ;;
-  Cif (Tid ==C 0%Z) ([ Sum +C (Zn (ntrd * 2 - 1)) ] ::= 0%Z ) (SKIP) ;;
+  Cif (Tid ==C 0%Z) ([ Gl Sum +o (Zn (ntrd * 2 - 1)) ] ::= 0%Z ) (SKIP) ;;
   ( D ::= 1%Z;;
     Cwhile (D <C Zn (ntrd * 2)) (
       Offset ::= Offset >>1;;
       BARRIER  (1);;
       Cif (Tid <C D) (
-        Tmp1 ::=  [Sum +C Offset *C (2%Z *C Tid +C 1%Z) -C 1%Z];;
-        Tmp2 ::=  [Sum +C Offset *C (2%Z *C Tid +C 2%Z) -C 1%Z];;
-        [Sum +C Offset *C (2%Z *C Tid +C 1%Z) -C 1%Z]::=Tmp2;;
-        [Sum +C Offset *C (2%Z *C Tid +C 2%Z) -C 1%Z]::=Tmp1 +C Tmp2)
+        Tmp1 ::=  [leftC (Gl Sum)];;
+        Tmp2 ::=  [rightC (Gl Sum)];;
+        [leftC (Gl Sum)]::=Tmp2;;
+        [rightC (Gl Sum)]::=Tmp1 +C Tmp2)
         (SKIP) ;;
       D ::= D *C 2%Z)).
 
@@ -1561,14 +1567,14 @@ Proof.
   end; repeat split; eauto.
   - intros.
     destruct (H4 hF h0 c' ss' H6 H7 H8) as (h' & ph' & ? & ? & ? & ?).
-    exists h', ph'; repeat split; eauto.
+    exists h' ph'; repeat split; eauto.
     eapply IHn; eauto.
     apply Forall_forall; rewrite Forall_forall in H0.
     intros; apply H0.
     eapply barriers_step0 in H8; eauto.
   - intros.
     destruct (H5 j c' H6) as (phP & ph' & ? & ? & ? & ?).
-    exists phP, ph'; repeat split; eauto.
+    exists phP ph'; repeat split; eauto.
     + unfold pre_j in *.
       rewrite Forall_forall in H0; erewrite <-H0; eauto.
       eapply wait_barriers1; eauto.
@@ -1594,13 +1600,13 @@ Lemma prescan_correct (i : Fin.t ntrd) :
   CSL (fun n => if Nat.eq_dec n 0 then bspec n
                 else if Nat.eq_dec n 1 then bspec1 n
                 else default ntrd) i
-      (is_array Sum 2 f_ini (nf i * 2) ** !(Tid === Zn (nf i)))
+      (is_array (Gl Sum) 2 f_ini (nf i * 2) ** !(Tid === Zn (nf i)))
       prescan
       (Ex f : nat -> Z,
       !(pure
           (forall j : nat,
              nf i * 2 <= j < (nf i + 1) * 2 -> f j = sum_of 0 j f_ini)) **
-       is_array Sum 2 f (nf i * 2)).
+       is_array (Gl Sum) 2 f (nf i * 2)).
 Proof.
   unfold prescan.
   eapply rule_seq.
@@ -1688,16 +1694,16 @@ Proof.
 Qed.
 
 Lemma low_assn_mp G E1 E2 q :
-  typing_exp G E1 Lo ->
+  typing_lexp G E1 Lo ->
   typing_exp G E2 Lo ->
   low_assn G (E1 -->p (q, E2)).
 Proof.
   intros H1 H2 s1 s2 h Hl.
   simpl; unfold_conn; split; simpl; intros H.
-  erewrite (@low_eq_eq_exp G E1), (@low_eq_eq_exp G E2); eauto.
+  erewrite (@low_eq_eq_lexp G E1), (@low_eq_eq_exp G E2); eauto.
   apply low_eq_sym; auto.
   apply low_eq_sym; auto.
-  erewrite (@low_eq_eq_exp G E1), (@low_eq_eq_exp G E2); eauto.
+  erewrite (@low_eq_eq_lexp G E1), (@low_eq_eq_exp G E2); eauto.
 Qed.
 
 Lemma low_assn_star G P Q : 
@@ -1706,21 +1712,22 @@ Lemma low_assn_star G P Q :
 Proof.
   intros HP HQ; unfold "**"; intros s1 s2 h Hl; simpl.
   specialize (HP s1 s2); specialize (HQ s1 s2); simpl in *.
-  split; intros (ph1 & ph2 & H); exists ph1, ph2.
+  split; intros (ph1 & ph2 & H); exists ph1 ph2.
   rewrite HP, HQ in H; [exact H|auto..].
   rewrite HP, HQ; [exact H|auto..].
 Qed.
 
 Lemma low_assn_is_array G E n f : forall s,
-  G E = Lo ->
+  typing_lexp G E Lo ->
   CSL.low_assn G (is_array E n f s).
 Proof.
   induction n; simpl in *; intros s He.
   - apply low_assn_emp.
   - apply low_assn_star.
     apply low_assn_mp.
-    cutrewrite (Lo = join Lo Lo); [|reflexivity].
-    repeat constructor; auto.
+    destruct E;
+      [constructor; cutrewrite (Lo = join Lo Lo); [|reflexivity];
+       repeat constructor; inversion He; eauto..].
     constructor.
     apply IHn; auto.
 Qed.
@@ -1800,9 +1807,8 @@ Proof.
   apply (f_equal (fun f => f x)) in H3; unfold phplus in H3.
   specialize (H1 x); specialize (H2 x).
   rewrite H, H0 in *.
-  destruct (Z.eq_dec x (edenot E1 st)).
+  destruct (eq_dec x (ledenot E1 st)); eauto.
   destruct (h2 x) as [[? ?]|], (h2' x) as [[? ?]|]; try eauto; inversion H3; congruence.
-  eauto.
 Qed.
 
 Lemma is_array_precise E f f' st n : forall s (h1 h2 h1' h2' : pheap),
@@ -1831,11 +1837,11 @@ Proof.
     { intros; destruct h1, h1'; apply pheap_eq; simpl in *; eauto. }
     rewrite <-H6, <-H9; rewrite H10; repeat f_equal.
     rewrite <-H9, <-H6 in H3.
-    rewrite (@phplus_comm ph1 ph2) in H3; eauto.
-    rewrite (@phplus_comm ph1' ph2') in H3; eauto.
-    rewrite <-H6, (@phplus_comm ph1 ph2) in H1; eauto.
+    rewrite (@phplus_comm _ ph1 ph2) in H3; eauto.
+    rewrite (@phplus_comm _ ph1' ph2') in H3; eauto.
+    rewrite <-H6, (@phplus_comm _ ph1 ph2) in H1; eauto.
     apply pdisj_padd_expand in H1; eauto.
-    rewrite <-H9, (@phplus_comm ph1' ph2') in H2; eauto.
+    rewrite <-H9, (@phplus_comm _ ph1' ph2') in H2; eauto.
     apply pdisj_padd_expand in H2; eauto.
     destruct H1, H2.
     eapply IHn.
@@ -1848,29 +1854,30 @@ Qed.
 
 Theorem prescan_correct_par :
   CSLp ntrd G 
-    (is_array Sum (ntrd * 2) f_ini 0)
+    (is_array (Gl Sum) (ntrd * 2) f_ini 0)
     prescan
     (Ex f, 
      !(pure
          (forall j : nat,
           j < ntrd * 2 -> f j = sum_of 0 j f_ini)) **
-      (is_array Sum (ntrd * 2) f 0)).
+      (is_array (Gl Sum) (ntrd * 2) f 0)).
 Proof.
-  set (Ps := MyVector.init (fun i : Fin.t ntrd => is_array Sum 2 f_ini (nf i * 2))).
+  set (Ps := MyVector.init (fun i : Fin.t ntrd => is_array (Gl Sum) 2 f_ini (nf i * 2))).
   set (Qs := MyVector.init (fun i : Fin.t ntrd =>
           Ex f : nat -> Z,
             !(pure
                 (forall j : nat,
                    nf i * 2 <= j < (nf i + 1) * 2 -> f j = sum_of 0 j f_ini)) **
-             is_array Sum 2 f (nf i * 2))).
+             is_array (Gl Sum) 2 f (nf i * 2))).
   eapply rule_par with (Ps := Ps) (Qs := Qs) (E := G)
          (bspec := (fun n => if Nat.eq_dec n 0 then bspec n
                 else if Nat.eq_dec n 1 then bspec1 n
                 else default ntrd)).
   - pose proof ntrd_neq_0; destruct ntrd; eexists; eauto; omega.
-  - intros i; split; intros tid; repeat destruct Nat.eq_dec;
+  - Hint Constructors typing_lexp.
+    intros i; split; intros tid; repeat destruct Nat.eq_dec;
     unfold bspec, bspec1; subst; simpl; rewrite MyVector.init_spec;
-    unfold CSL.low_assn; repeat prove_low_assn; eauto. 
+    unfold CSL.low_assn; repeat prove_low_assn; eauto.
   - intros i st; repeat destruct Nat.eq_dec; subst.
     apply bspec0_preserved.
     apply bspec1_preserved.
@@ -1945,12 +1952,11 @@ Proof.
 
 
   - intros tid; unfold Ps; rewrite MyVector.init_spec.
-    unfold CSL.low_assn; prove_low_assn.
-    reflexivity.
+    unfold CSL.low_assn; prove_low_assn; eauto.
 
   - intros tid; unfold Qs; rewrite MyVector.init_spec.
     unfold CSL.low_assn.
-    repeat prove_low_assn.
+    repeat prove_low_assn; eauto.
   - apply typing_prescan.
   - intros tid; unfold Ps, Qs; rewrite !MyVector.init_spec.
     apply prescan_correct.
