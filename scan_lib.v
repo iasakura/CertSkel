@@ -265,8 +265,8 @@ Qed.
 
 Ltac unfold_pures :=
   repeat lazymatch goal with
-    | [H : (bexp_to_assn _) ?s emp_ph |- _] => bexp H
-    | [H : _ ?s emp_ph |- _ ] => unfold_conn_in H; simpl in H
+    | [H : (bexp_to_assn _) ?s (emp_ph loc) |- _] => bexp H
+    | [H : _ ?s (emp_ph loc) |- _ ] => unfold_conn_in H; simpl in H
   end.
   
 Import Vector.VectorNotations.
@@ -353,14 +353,14 @@ Proof.
 Qed.
 
 Lemma pure_emp_in (P : assn) (s : stack) (h : pheap) :
-  !(P) s h -> P s emp_ph /\ emp s h.
+  !(P) s h -> P s (emp_ph loc) /\ emp s h.
 Proof.
   unfold_conn; simpl; destruct 1.
   apply emp_emp_ph_eq in H; subst; split; auto.
 Qed.
 
 Lemma phplus_emp (ph1 ph2 : pheap) :
-  phplus ph1 ph2 = emp_ph -> ph1 = emp_ph /\ ph2 = emp_ph.
+  phplus ph1 ph2 = (emp_ph loc) -> ph1 = (emp_ph loc) /\ ph2 = (emp_ph loc).
 Proof.
   destruct ph1 as [ph1 ?], ph2 as [ph2 ?]; unfold emp_ph; simpl; intros H.
   split; apply pheap_eq; extensionality x; apply (f_equal (fun f => f x)) in H;
@@ -369,12 +369,12 @@ Proof.
 Qed.
 
 Lemma emp_star (P Q : assn) s:
-  (P ** Q) s emp_ph <-> P s emp_ph /\ Q s emp_ph.
+  (P ** Q) s (emp_ph loc) <-> P s (emp_ph loc) /\ Q s (emp_ph loc).
 Proof.
   unfold_conn; split; intros.
   - destruct H as (? & ? & ? & ? & ? & ?).
     apply phplus_emp in H2 as [? ?]; subst; tauto.
-  - exists emp_ph emp_ph; repeat split; tauto.
+  - exists (emp_ph loc) (emp_ph loc); repeat split; tauto.
 Qed.      
 
 Lemma pure_star (P Q : assn) : forall s, s ||= !(P ** Q) <=> !(P) ** !(Q).
@@ -405,7 +405,7 @@ Proof.
 Qed.
 
 Lemma vs_emp {n : nat} (P : Vector.t assn n) s i : 
-  Bdiv.Aistar_v P s emp_ph -> P[@i] s emp_ph.
+  Bdiv.Aistar_v P s (emp_ph loc) -> P[@i] s (emp_ph loc).
 Proof.
   induction n; intros; [inversion i|].
   dependent destruction i; dependent destruction P; simpl in *; apply emp_star in H as [H1 H2]; auto.
@@ -554,7 +554,7 @@ Qed.
 Definition TrueP (s : stack) (h : pheap) := True.
 
 Lemma ls_emp (P : list assn) s : forall i,
-  conj_xs P s emp_ph -> (nth i P TrueP) s emp_ph.
+  conj_xs P s (emp_ph loc) -> (nth i P TrueP) s (emp_ph loc).
 Proof.
   induction P; intros; destruct i; simpl in *; unfold TrueP; auto.
   apply emp_star in H; tauto.
@@ -562,7 +562,7 @@ Proof.
 Qed.
 
 Lemma ls_emp' (P : list assn) s :
-  (forall i, i < length P -> (nth i P TrueP) s emp_ph) -> conj_xs P s emp_ph.
+  (forall i, i < length P -> (nth i P TrueP) s (emp_ph loc)) -> conj_xs P s (emp_ph loc).
 Proof.
   induction P; intros; simpl; [apply emp_emp_ph|].
   apply emp_star; split.

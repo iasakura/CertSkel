@@ -978,7 +978,7 @@ Proof.
   (* split h into heaps of each thread block *)
   apply HP in HsatP.
   lets (hs & Hdeq & Hsati): (>>aistar_disj HsatP); simpl in *.
-  assert (exists hs', hs = Vector.map (@htop loc) hs') as [hs' Heq] by admit; subst.
+   assert (exists hs', hs = Vector.map (@htop loc) hs') as [hs' Heq] by admit; subst.
   applys* safe_gl; simpl.
   - intros bid; unfold CSLp in Htri.
     assert (forall tid, fst ks[@bid][@tid] = C) by eauto.
@@ -1161,3 +1161,6 @@ Proof.
   - intros.
     rewrite HC; eauto.
 Qed.
+
+End For_List_Notation.
+End GlobalCSL.

@@ -1035,6 +1035,11 @@ Section Substitution.
       | Esub e1 e2 => Esub (subE x e e1) (subE x e e2)
       | Ediv2 e1 => Ediv2 (subE x e e1)
     end.
+  Definition sublE x e e0 := 
+    match e0 with 
+      | Sh e0 => Sh (subE x e e0)
+      | Gl e0 => Gl (subE x e e0)
+    end.
   (* b[x/e]*)
   Fixpoint subB x e b :=
     match b with
@@ -1051,6 +1056,12 @@ Section Substitution.
     repeat match goal with [ |- context[if var_eq_dec ?x ?y then _ else _]] => 
                            destruct (var_eq_dec x y) 
            end; try congruence; eauto; f_equal; eauto.
+  Qed.
+
+  Lemma sublE_assign : forall (x : var) (e : exp) (e' : loc_exp) (s : stack),
+    ledenot (sublE x e e') s = ledenot e' (var_upd s x (edenot e s)).
+  Proof.
+    intros; induction e'; simpl; eauto; rewrite subE_assign; eauto.
   Qed.
 
   Lemma subB_assign : forall (x : var) (e : exp) (b : bexp) (s : stack),

@@ -107,7 +107,7 @@ End Sep_lift_in_test.
 
 Section Sep_split_in_test.
   Example sep_split_in_test5 (P Q R S : assn) s h :
-    (((P ** emp ** !(Q)) ** !(S)) ** R) s h ->(P ** R) s h /\ Q s emp_ph /\ S s emp_ph.
+    (((P ** emp ** !(Q)) ** !(S)) ** R) s h ->(P ** R) s h /\ Q s (emp_ph loc) /\ S s (emp_ph loc).
   Proof.
     intros H; sep_normal_in H. sep_split_in H. auto.
   Qed.
@@ -179,13 +179,13 @@ End Sep_cancel_test.
 
 Section VCG_test.
   Import Qcanon.
-  Example find_test (tx ty : Z) (X Y : exp) s h (H : (X -->p(1%Qc, Enum tx) ** (Y -->p(1%Qc, Enum ty))) s h) : (X -->p(1%Qc, Enum tx) ** (Y -->p(1%Qc, Enum ty))) s h.
+  Example find_test (tx ty : Z) (X Y : loc_exp) s h (H : (X -->p(1%Qc, Enum tx) ** (Y -->p(1%Qc, Enum ty))) s h) : (X -->p(1%Qc, Enum tx) ** (Y -->p(1%Qc, Enum ty))) s h.
   Proof.
     find_enough_resource X H.
     exact H.
   Qed.
   
-  Example sep_cancel_test (tx ty : Z) (X Y U V : exp) s h :
+  Example sep_cancel_test (tx ty : Z) (X Y : loc_exp)  (U V : exp) s h :
     (X -->p(1%Qc, U) ** (Y -->p(1%Qc, V)) ** !(Enum tx === U) ** !(Enum ty === V)) s h ->
     (X -->p(1%Qc, Enum tx) ** (Y -->p(1%Qc, Enum ty))) s h.
   Proof.
@@ -198,9 +198,11 @@ Section VCG_test.
   Open Scope bexp_scope.
   Require Import CSL.
   
-  Example for_seminor (P : assn) (i : Z) (x a : var) :
-    (a +  x -->p (1%Qc, 3%Z)) ** P ** !(x === i) |=
-    P ** (a + i -->p (1%Qc, 3%Z)) ** !(x === i).
+  Require Import array_dist.
+
+  Example for_seminor (P : assn) (i : Z) (a : var) (x : var) :
+    (Gl a +o x -->p (1%Qc, 3%Z)) ** P ** !(x === i) |=
+    P ** (Gl a +o i -->p (1%Qc, 3%Z)) ** !(x === i).
   Proof.
     intros ? ? ?.
     sep_split_in H.
@@ -240,8 +242,8 @@ Section subA_test.
     intros H; subA_normalize_in H; auto.
   Qed.
 
-  Example subA_test5 (E1 E2 : exp) (q : Qc) (X : var) (E : exp) s h :
-    subA X E (E1 -->p (q, E2)) s h -> (subE X E E1 -->p (q, subE X E E2)) s h.
+  Example subA_test5 (E1 : loc_exp) (E2 : exp) (q : Qc) (X : var) (E : exp) s h :
+    subA X E (E1 -->p (q, E2)) s h -> (sublE X E E1 -->p (q, subE X E E2)) s h.
   Proof.
     intros H; subA_normalize_in H; auto.
   Qed.
@@ -269,26 +271,26 @@ Section Swap.
   Open Scope exp_scope.
   Open Scope bexp_scope.
 
-  Definition X := Var 2.
-  Definition Y := Var 3.
+  Definition X := ((Var 2)).
+  Definition Y := ((Var 3)).
   Definition T := Var 4.
   Definition U := Var 5.
 
   Definition swap :=
-    T ::= [X] ;;
-    U ::= [Y] ;;
-    [X] ::= U ;;
-    [Y] ::= T.
+    T ::= [Gl X] ;;
+    U ::= [Gl Y] ;;
+    [Gl X] ::= U ;;
+    [Gl Y] ::= T.
 
   Lemma swap_spec (tid : Fin.t ntrd) (tx ty : Z) : 
     CSL bspec tid
-       (X -->p(1%Qc, tx) ** (Y -->p(1%Qc, ty))) 
+       (Gl X -->p(1%Qc, tx) ** (Gl Y -->p(1%Qc, ty))) 
        swap
-       (X -->p(1%Qc, ty) ** (Y -->p(1%Qc, tx))).
+       (Gl X -->p(1%Qc, ty) ** (Gl Y -->p(1%Qc, tx))).
   Proof.
     unfold swap.
     repeat (hoare_forward || (eapply rule_seq; [hoare_forward; intros ? ? H'; exact H' |])).
-    intros ? ? ?.
+    intros ? ? H.
     sep_normal_in H. sep_split_in H. sep_normal. sep_split. 
     repeat sep_cancel2.
   Qed.
