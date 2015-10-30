@@ -1,4 +1,4 @@
-Require Export Lang CSL PHeap.
+Require Export Lang CSL GCSL PHeap.
 Require Export assertion_lemmas assertions VCG array_dist sep_tacs.
 Require Export Qcanon List MyList ZArith NPeano Arith.
 Close Scope Qc_scope.
@@ -33,3 +33,9 @@ Ltac ex_intros vs H :=
     | (?v, ?vs) => ex_intro v H; ex_intros vs H
   end.
 
+Infix "+C" := (Eplus) (at level 50, left associativity).
+Infix "*C" := (Emult) (at level 40, left associativity).
+Infix "-C" := (Esub) (at level 50, left associativity).
+Infix "<C" := (Blt) (at level 70).
+
+Notation Zn := Z.of_nat.

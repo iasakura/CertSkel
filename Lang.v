@@ -55,7 +55,9 @@ Inductive bexp :=
 | Bnot (b: bexp).
 
 Inductive loc_exp :=
-| Sh : exp -> loc_exp | Gl : exp -> loc_exp.
+| Sh : exp -> loc_exp
+| Gl : exp -> loc_exp
+| loc_offset : loc_exp -> exp -> loc_exp.
 
 Inductive cmd : Set :=
 | Cskip
@@ -100,6 +102,11 @@ Fixpoint ledenot e s :=
   match e with
     | Sh e => SLoc (edenot e s)
     | Gl e => GLoc (edenot e s)
+    | loc_offset e e' =>
+      match ledenot e s with
+        | SLoc lv => SLoc (lv + edenot e' s)
+        | GLoc lv => GLoc (lv + edenot e' s)
+      end
   end%Z.
 
 Fixpoint bdenot b s : bool := 
@@ -733,7 +740,9 @@ Section NonInter.
 
   Inductive typing_lexp : loc_exp -> type -> Prop :=
   | ty_sloc : forall e ty, typing_exp e ty -> typing_lexp (Sh e) ty
-  | ty_gloc : forall e ty, typing_exp e ty -> typing_lexp (Gl e) ty.
+  | ty_gloc : forall e ty, typing_exp e ty -> typing_lexp (Gl e) ty
+  | ty_offset : forall e e' ty1 ty2, typing_lexp e ty1 -> typing_exp e' ty2 ->
+                                     typing_lexp (loc_offset e e') (join ty1 ty2).
 
   Inductive typing_cmd : cmd -> type -> Prop :=
   | ty_skip : forall (pc : type), typing_cmd Cskip pc
@@ -780,7 +789,9 @@ Section NonInter.
   Lemma low_eq_eq_lexp (e : loc_exp) (s1 s2 : stack) :
     low_eq s1 s2 -> typing_lexp e Lo -> ledenot e s1 = ledenot e s2.
   Proof.
-    intros; destruct e; simpl; f_equal; inversion H0; auto using low_eq_eq_exp.
+    intros; induction e; simpl; f_equal; inversion H0; auto using low_eq_eq_exp.
+    destruct ty1, ty2; inversion H3.
+    erewrite IHe, low_eq_eq_exp; eauto.
   Qed.
   
   Lemma low_eq_eq_bexp (be : bexp) (s1 s2 : stack) :
@@ -1035,10 +1046,11 @@ Section Substitution.
       | Esub e1 e2 => Esub (subE x e e1) (subE x e e2)
       | Ediv2 e1 => Ediv2 (subE x e e1)
     end.
-  Definition sublE x e e0 := 
+  Fixpoint sublE x e e0 := 
     match e0 with 
       | Sh e0 => Sh (subE x e e0)
       | Gl e0 => Gl (subE x e e0)
+      | loc_offset e1 e2 => loc_offset (sublE x e e1) (subE x e e2) 
     end.
   (* b[x/e]*)
   Fixpoint subB x e b :=
@@ -1062,6 +1074,7 @@ Section Substitution.
     ledenot (sublE x e e') s = ledenot e' (var_upd s x (edenot e s)).
   Proof.
     intros; induction e'; simpl; eauto; rewrite subE_assign; eauto.
+    rewrite IHe'; auto.
   Qed.
 
   Lemma subB_assign : forall (x : var) (e : exp) (b : bexp) (s : stack),

@@ -61,15 +61,8 @@ Section Prescan.
   Notation Tmp1 := (Var 6).
   Notation Tmp2 := (Var 7).
 
-  Infix "+C" := (Eplus) (at level 50, left associativity).
-  Infix "*C" := (Emult) (at level 40, left associativity).
-  Infix "-C" := (Esub) (at level 50, left associativity).
-  Infix "<C" := (Blt) (at level 70).
-
   Notation leftC ARR := (ARR +o (Offset *C (Enum 2 *C Tid +C Enum 1) -C Enum 1)).
   Notation rightC ARR := (ARR +o (Offset *C (Enum 2 *C Tid +C Enum 2) -C Enum 1)).
-
-  Notation Zn := Z.of_nat.
 
   Variable f_ini : nat -> Z.
   Variable ntrd : nat.

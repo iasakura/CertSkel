@@ -256,9 +256,9 @@ Proof.
           try now (subst; auto || unfold_conn_all; simpl in *; omega).
         2 : rewrite <-!plus_n_O; intros; unfold fc'; destruct Nat.eq_dec; auto; omega.
         cutrewrite (st + (st + 0) = 2 * st) in H; [|omega].
-        assert ((Gl (ARR + (TID + x)) ===l Gl ARR +o Z.of_nat (1 * st + nf tid))%exp s (emp_ph loc)).
+        assert ((Gl ARR +o (TID + x) ===l Gl ARR +o Z.of_nat (1 * st + nf tid))%exp s (emp_ph loc)).
         { unfold_conn_all; simpl; simplify_loc; rewrite !Nat2Z.inj_add, Z.add_0_r; simpl in*; omega. }
-        sep_rewrite_in (@mps_eq1 (Gl (ARR + (TID + x)))%exp ) H; [|exact H2].
+        sep_rewrite_in (@mps_eq1 (Gl ARR +o (TID + x))%exp ) H; [|exact H2].
         cutrewrite (fc (nf tid) + fc (st + nf tid)%nat = fc' (0 * st + nf tid)%nat)%Z in H; [|].
         2: unfold fc'; destruct Nat.eq_dec; unfold_conn_all; simpl in *; [f_equal; f_equal; omega| omega].
         cutrewrite (fc (st + nf tid)%nat = fc' (1 * st + nf tid)%nat)%Z in H; [|].

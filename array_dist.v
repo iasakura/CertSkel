@@ -25,11 +25,6 @@ Fixpoint add_nth (n : nat) (t : assn) (xss : list assn) :=
 Require Import Lang.
 Require Import Qcanon.
 
-Definition loc_offset (e : loc_exp) (off : exp) :=
-  match e with
-    | Sh e => Sh (e + off)
-    | Gl e => Gl (e + off)
-  end%exp.
 Notation "le +o e" := (loc_offset le e) (at level 50, left associativity).
 
 Fixpoint is_array (e : loc_exp) (n : nat) (f : nat -> Z) (s : nat) :=
