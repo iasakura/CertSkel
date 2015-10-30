@@ -198,6 +198,7 @@ Proof.
        rewrite <-minus_n_O, nth_nseq; destruct leb; sep_normal; sep_cancel. }
 Qed.
 
+(* delete arguments of map_ker *)
 Definition map' : cmd.
   pose (map_ker 0) as map'; unfold map_ker, WhileI in map'; exact map'.
 Defined.
