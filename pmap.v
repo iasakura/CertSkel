@@ -1,4 +1,6 @@
 Require Import GPUCSL.
+Require Import scan_lib.
+
 Section Map.
 Local Notation TID := (Var 0).
 Local Notation BID := (Var 1).
@@ -198,11 +200,225 @@ Proof.
        rewrite <-minus_n_O, nth_nseq; destruct leb; sep_normal; sep_cancel. }
 Qed.
 
+Require Import Bdiv.
+Local Notation init := MyVector.init.
+Definition bth_pre (b : Fin.t nblk) (arr : val) :=
+  !(ARR === arr) **
+  Aistar_v (init (fun i : Fin.t ntrd =>
+    skip_arr (Gl arr) 0 len nt_gr f (nf i + nf b * ntrd))).
+
+Definition tr_pres (b : Fin.t nblk) (arr : val) := init (fun i : Fin.t ntrd =>
+  !(ARR === arr) ** 
+  skip_arr (Gl arr) 0 len nt_gr f (nf i + nf b * ntrd) **
+  !(BID === zf b)).
+
+Definition bth_post (b : Fin.t nblk) (arr : val) := 
+  Aistar_v (init (fun i : Fin.t ntrd =>
+    skip_arr (Gl arr) 0 len nt_gr (fun v => f v + 1)%Z (nf i + nf b * ntrd))).
+
+Definition tr_posts (b : Fin.t nblk) (arr : val) := (init (fun i : Fin.t ntrd =>
+  skip_arr (Gl arr) 0 len nt_gr (fun v => f v + 1)%Z (nf i + nf b * ntrd))).
+
+Definition E : env := fun v =>
+  if var_eq_dec v BID then Lo
+  else if var_eq_dec v ARR then Lo
+  else Hi.  
+
 (* delete arguments of map_ker *)
 Definition map' : cmd.
-  pose (map_ker 0) as map'; unfold map_ker, WhileI in map'; exact map'.
+  pose (map_ker 0 0%Z) as map'; unfold map_ker, WhileI in map'; exact map'.
 Defined.
 
-Definition block_pre := distribute nblk 
+Definition bspec : (barrier_spec ntrd) := fun i => (default ntrd).
 
+Lemma precise_false : precise (fun _ _ => False).
+Proof.
+  unfold precise; intros; tauto.
+Qed.
+
+Lemma map_correct_b (b : Fin.t nblk) (arr : val) : 
+  CSLp ntrd E (bth_pre b arr ** !(BID === zf b)) map' (bth_post b arr).
+Proof.
+  applys (>> rule_par bspec (tr_pres b arr) (tr_posts b arr)); try first [omega | nia | eauto].
+  - destruct ntrd; eexists; try omega; eauto.
+  - unfold bspec; split; intros; unfold default; simpl; rewrite MyVector.init_spec;
+    unfold CSL.low_assn, low_assn, indeP; tauto.
+  - split; unfold bspec, default; simpl; rewrite MyVector.init_spec;
+    apply precise_false.
+  - unfold bth_pre, tr_pres; intros.
+    sep_split_in H.
+    (* simplify the conclusion *)
+    apply sc_v2l.
+    rewrite (vec_to_list_init0 _ emp).
+    erewrite ls_init_eq0.
+    Focus 2.
+    { intros i Hi.
+      destruct (Fin.of_nat i ntrd) as [|Hex] eqn:Heq; [|destruct Hex; omega].
+      rewrite (Fin_nat_inv Heq). reflexivity. } Unfocus.
+    repeat sep_rewrite (@ls_star ntrd).
+    repeat sep_rewrite (@ls_pure ntrd); sep_split.
+    (* crush conditions for variables *)
+    apply ls_emp'; rewrite init_length; intros; rewrite ls_init_spec.
+    unfold TrueP; destruct lt_dec; eauto.
+    apply ls_emp'; rewrite init_length; intros; rewrite ls_init_spec.
+    unfold TrueP; destruct lt_dec; eauto.
+    
+    (* simplify the hypothesis *)
+    apply sc_v2l in H.
+    rewrite (vec_to_list_init0 _ emp) in H.
+    erewrite ls_init_eq0 in H.
+    Focus 2.
+    { intros i Hi.
+      destruct (Fin.of_nat i ntrd) as [|Hex] eqn:Heq; [|destruct Hex; omega].
+      rewrite (Fin_nat_inv Heq). reflexivity. } Unfocus.
+    eauto.
+
+  - intros; unfold tr_pres; rewrite MyVector.init_spec.
+    unfold CSL.low_assn.
+    Hint Constructors typing_exp.
+    repeat prove_low_assn; eauto.
+    apply low_assn_skip_arr.
+    constructor; eauto.
+  - intros; unfold CSL.low_assn, tr_posts; rewrite MyVector.init_spec.
+    apply low_assn_skip_arr.
+    constructor; eauto.
+  - repeat econstructor.
+  - unfold tr_pres, tr_posts; intros; rewrite !MyVector.init_spec.
+    unfold bspec, skip_arr.
+    eapply Hbackward.
+    eapply Hforward.
+    apply map_correct.
+    intros.
+    apply H.
+    intros; sep_normal_in H; sep_normal; sep_cancel.
+
+    (* hmm.. *)
+    Grab Existential Variables.
+    apply Lo.
+    apply Lo.
+    apply Lo.
+    apply Lo.
+    apply 0.
+    apply Lo.
+Qed.
+
+Definition bl_pres (arr : val) : Vector.t assn nblk :=
+  init (fun b : Fin.t nblk => (bth_pre b arr)).
+Definition bl_posts (arr : val) : Vector.t assn nblk :=
+  init (fun b : Fin.t nblk => (bth_post b arr)).
+
+Lemma CSLp_backward (P' P : assn) n E C Q : 
+  CSLp n E P C Q -> (P' |= P) -> CSLp n E P' C Q.
+Proof.
+  unfold CSLp; intros Hcsl Hp; intros.
+  exploit Hcsl.
+  eauto.
+  eauto.
+  unfold sat_k in *.
+  instantiate (1:=h).
+  instantiate (1:=leqks).
+  destruct low_eq_repr.
+  apply Hp; eauto.
+  intros; eauto.
+Qed.  
+
+Lemma safe_gl_forward n m E ks h (Q Q' : assn) : 
+  @safe_nk n E m ks h Q -> 
+  (Q |= Q') ->
+  @safe_nk n E m ks h Q'.
+Proof.
+  revert h ks; induction m; simpl; intros h ks Hsafe Hq; eauto.
+  simpl in Hsafe; destructs Hsafe.
+  repeat split; eauto.
+  - intros; unfold sat_k in *.
+    exploit H; eauto.
+    intros [x ?]; exists x.
+    destruct low_eq_repr; apply Hq; eauto.
+  - exploit H2; eauto.
+    intros; jauto.
+  - exploit H2; eauto.
+    intros; jauto.
+  - intros; exploit H3; eauto.
+    intros (h'' & ? & ? & ?); exists h''; repeat split; eauto.
+Qed.  
+
+Lemma CSLp_forward P n E C (Q Q' : assn) : 
+  CSLp n E P C Q -> (Q |= Q') -> CSLp n E P C Q'.
+Proof.
+  unfold CSLp; intros; applys safe_gl_forward; eauto.
+Qed.
+
+Theorem map_correct_g (arr : val) :
+  CSLg ntrd nblk ntrd_neq0 nblk_neq0
+    (!(ARR === arr) ** 
+     is_array (Gl arr) len f 0)
+    (Pr nil map')
+    (is_array (Gl arr) len (fun v => f v + 1)%Z 0).
+Proof.
+  applys (>> rule_grid E (bl_pres arr) (bl_posts arr)).
+  - intros s h H.
+    unfold bl_pres, bth_pre.
+    sep_split_in H; eauto.
+    
+    (* simplifying the conclusion *)
+    apply sc_v2l.
+    rewrite (vec_to_list_init0 _ emp).
+    erewrite ls_init_eq0.
+    Focus 2.
+    { intros i Hi.
+      destruct (Fin.of_nat i nblk) as [|Hex] eqn:Heq; [|destruct Hex; omega].
+      rewrite (Fin_nat_inv Heq).
+      reflexivity. } Unfocus.
+    repeat sep_rewrite (@ls_star nblk).
+    repeat sep_rewrite (@ls_pure nblk); sep_split.
+    apply ls_emp'; rewrite init_length; intros; rewrite ls_init_spec.
+    destruct lt_dec; eauto.
+    tauto.
+    applys (>> equiv_from_nth emp).
+    Focus 2.
+    { intros i Hi stk.
+      instantiate (1 := (ls_init 0 nblk
+        (fun i0 : nat =>
+           conj_xs
+             (ls_init 0 ntrd
+                (fun i1 =>
+                   skip_arr (Gl arr) 0 len nt_gr f (i1 + i0 * ntrd)))))).
+      rewrite !ls_init_spec; destruct lt_dec.
+      rewrite sc_v2l.
+      rewrite (vec_to_list_init0 _ emp).
+      erewrite ls_init_eq0.
+      Focus 2.
+      { intros j Hj.
+        destruct (Fin.of_nat j ntrd) as [|Hex] eqn:Heq; [|destruct Hex; omega].
+        simpl.
+        rewrite (Fin_nat_inv Heq).
+        reflexivity. } Unfocus.
+      reflexivity.
+      reflexivity. } Unfocus.
+    rewrite !init_length; eauto.
+    admit.
+  - unfold bl_pres, bl_posts; intros.
+    rewrite !MyVector.init_spec.
+    eapply CSLp_backward.
+    eapply CSLp_forward.
+    apply (map_correct_b bid arr).
+    intros; simpl; sep_normal; eauto.
+    intros; simpl in *; sep_normal_in H; eauto.
+  - admit.
+  - prove_inde.
+  - intros; unfold bl_pres, bth_pre.
+    rewrite MyVector.init_spec.
+    admit.
+  - admit.
+  - intros.
+    unfold has_no_vars.
+    admit.
+  - simpl; tauto.
+  - unfold E; eauto.
+  - unfold E; eauto.
+  - eauto.
+  - eauto.
+  - simpl; eauto.
+Qed.
+    
 End Map.
