@@ -644,7 +644,6 @@ Proof.
   sep_rewrite IHn; sep_rewrite emp_unit_l; auto.
 Qed.
 
-
 Lemma low_assn_emp G : low_assn G emp.
 Proof.
   intros s1 s2 h Hl; split; intros H; exact H.
@@ -779,4 +778,152 @@ Ltac prove_low_assn :=
     | [|- low_assn _ emp ] => apply low_assn_emp
     | [|- low_assn _ (is_array _ _ _ _ _ _) ] => apply low_assn_is_array
     | _ => now (unfold low_assn, indeP; intros; tauto)
+  end.
+
+Lemma has_no_vars_emp : has_no_vars emp.
+Proof.
+  intros s1 s2 h Hl; split; intros H; exact H.
+Qed.
+
+Fixpoint has_no_vars_E (e : exp) :=
+  match e with
+    | Evar _ => False
+    | Enum _ => True
+    | (e1 +C e2) | (e1 *C e2) | (e1 -C e2) => has_no_vars_E e1 /\ has_no_vars_E e2
+    | (e1 >>1) => has_no_vars_E e1
+  end.
+
+Lemma has_no_vars_E_correct (e : exp) s1 s2 :
+  has_no_vars_E e ->
+  edenot e s1 = edenot e s2.
+Proof.
+  induction e; simpl; try tauto; 
+  try now (destruct 1; intros; erewrite IHe1, IHe2; eauto).
+  intros; erewrite IHe; eauto.
+Qed.
+
+Fixpoint has_no_vars_lE (e : loc_exp) :=
+  match e with
+    | Sh e | Gl e => has_no_vars_E e
+    | (e1 +o e2) => has_no_vars_lE e1 /\ has_no_vars_E e2
+  end.
+
+Lemma has_no_vars_lE_correct (e : loc_exp) s1 s2:
+  has_no_vars_lE e ->
+  ledenot e s1 = ledenot e s2.
+Proof.
+  induction e; simpl; intros;
+  try f_equal; eauto using has_no_vars_E_correct.
+  destruct H as [H1 H2]; erewrite (IHe); eauto.
+  destruct (ledenot e s2); do 2 f_equal; eauto using has_no_vars_E_correct.
+Qed.
+
+Lemma has_no_vars_mp E1 E2 q :
+  has_no_vars_lE E1 ->
+  has_no_vars_E E2 ->
+  has_no_vars (E1 -->p (q, E2)).
+Proof.
+  intros H1 H2 s1 s2 h Hl.
+  simpl; unfold_conn; split; simpl; intros H;
+  erewrite has_no_vars_lE_correct, has_no_vars_E_correct; eauto.
+Qed.
+
+Lemma has_no_vars_star P Q : 
+  has_no_vars P -> has_no_vars Q ->
+  has_no_vars (P ** Q).
+Proof.
+  intros HP HQ; unfold "**"; intros s1 s2 h Hl; simpl.
+  specialize (HP s1 s2); specialize (HQ s1 s2); simpl in *.
+  split; intros (ph1 & ph2 & H); exists ph1 ph2.
+  rewrite HP, HQ in H; [exact H|auto..].
+  rewrite HP, HQ; [exact H|auto..].
+Qed.
+
+Lemma has_no_vars_is_array E n f : forall s,
+  has_no_vars_lE E ->
+  has_no_vars (is_array E n f s).
+Proof.
+  induction n; simpl in *; intros s He.
+  - apply has_no_vars_emp.
+  - apply has_no_vars_star.
+    apply has_no_vars_mp; simpl; eauto.
+    apply IHn; auto.
+Qed.
+
+Lemma has_no_vars_ex {T : Type} (P : T -> assn) :
+  (forall x, has_no_vars (P x)) ->
+  has_no_vars (Ex x, P x).
+Proof.
+  unfold has_no_vars, indeP.
+  intros Hl s1 s2 h Hlow; simpl.
+  split; intros [x H]; exists x; simpl in *.
+  rewrite Hl; eauto.
+  apply <-Hl; eauto.
+Qed.
+
+Lemma has_no_vars_pure P :
+  has_no_vars (pure P).
+Proof.
+  intros s1 s2 h Hlow; simpl. unfold Apure; split; auto.
+Qed.
+
+Lemma has_no_vars_ban P :
+  has_no_vars P ->
+  has_no_vars !(P).
+Proof.
+  intros Hl s1 s2 h Hlow; simpl.
+  unfold ban, "//\\"; intros.
+  unfold has_no_vars, indeP in Hl; simpl in Hl.
+  rewrite Hl; eauto.
+  split; intros H; exact H.
+Qed.
+
+Lemma has_no_vars_eeq E1 E2:
+  has_no_vars_E E1 ->
+  has_no_vars_E E2 ->
+  has_no_vars (E1 === E2).
+Proof.
+  intros H1 H2; unfold_conn; intros s1 s2 h Hlow; simpl.
+  erewrite (@has_no_vars_E_correct E1); eauto.
+  erewrite (@has_no_vars_E_correct E2); eauto.
+  split; intros H; eauto.
+Qed.
+
+Lemma has_no_vars_skip_arr E n skip f_ini i : forall st,
+  has_no_vars_lE E ->
+  has_no_vars (skip_arr E st n skip f_ini i).
+Proof.
+  assert (skip = 0 \/ skip <> 0) as [|] by omega.
+  - subst; unfold skip_arr; induction n; simpl in *; intros s He.
+    destruct i; apply has_no_vars_emp.
+    unfold nt_step; simpl.
+    rewrite nth_overflow; [apply has_no_vars_emp|].
+    assert (length (distribute 0 E n f_ini (fun _ : nat => 0) (S s)) = 0).
+    { rewrite distribute_length; eauto. }
+    lazymatch goal with [|- context [match ?X with _ => _ end]] => destruct X end;
+      simpl in *; try omega.
+  - unfold skip_arr; induction n; simpl in *; intros s He.
+    + rewrite nth_nseq; destruct leb; apply has_no_vars_emp.
+    + assert (i < skip \/ skip <= i) as [|] by omega.
+      rewrite nth_add_nth; [|try rewrite distribute_length; unfold nt_step; eauto..].
+      destruct beq_nat; eauto.
+      apply has_no_vars_star; eauto.
+      apply has_no_vars_mp; simpl; eauto.
+      rewrite nth_overflow; eauto.
+      apply has_no_vars_emp.
+      rewrite add_nth_length, distribute_length; eauto.
+Qed.
+
+Ltac has_no_vars_assn :=
+  match goal with
+    | [|- has_no_vars (Ex _, _) ] => apply has_no_vars_ex; intros
+    | [|- has_no_vars (_ ** _) ] => apply has_no_vars_star
+    | [|- has_no_vars ( !(_) ) ] => apply has_no_vars_ban
+    | [|- has_no_vars ( _ === _) ] => apply has_no_vars_eeq
+    | [|- has_no_vars (pure _) ] => apply has_no_vars_pure
+    | [|- has_no_vars (if ?X then _ else _) ] => destruct X
+    | [|- has_no_vars (is_array _ _ _ _) ] => apply has_no_vars_is_array
+    | [|- has_no_vars emp ] => apply has_no_vars_emp
+    | [|- has_no_vars (is_array _ _ _ _ _ _) ] => apply has_no_vars_is_array
+    | _ => now (unfold has_no_vars, indeP; intros; tauto)
   end.

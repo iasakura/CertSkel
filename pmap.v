@@ -18,7 +18,7 @@ Variable f : nat -> Z.
 
 Local Close Scope exp_scope.
 
-Local Notation nt_gr := (ntrd * nblk).
+Local Notation nt_gr := (nblk * ntrd).
 
 Definition inv (i : nat) (arr : Z) :=
   Ex ix, 
@@ -67,11 +67,11 @@ Qed.
 
 Require Import Psatz.
 
-Lemma id_lt_nt_gr i j n m : i < n -> j < m -> i + j * n < n * m.
+Lemma id_lt_nt_gr i j n m : i < n -> j < m -> i + j * n < m * n.
 Proof.
   intros.
   assert (i + j * n < n + j * n) by omega.
-  assert (n + j * n <= n * m) by nia.
+  assert (n + j * n <= m * n) by nia.
   omega.
 Qed.
 
@@ -104,7 +104,7 @@ Proof.
       change_in H.
       { unfold_pures.
         sep_rewrite_in skip_arr_unfold' H; [|try first [omega | eauto]..]. 
-      2: zify; omega.
+      2: nia.
       apply H. } 
       sep_combine_in H. ex_intro x H. simpl in H. exact H. } Unfocus.
     
@@ -115,9 +115,9 @@ Proof.
       { intros s h H.
         sep_split_in H.
         change_in H.
-        { assert ((Gl ARR +o (Zn x * (Zn ntrd * Zn nblk) + (zf tid + zf bid * Zn ntrd))%Z ===l
+        { assert ((Gl ARR +o (Zn x * (Zn nblk * Zn ntrd) + (zf tid + zf bid * Zn ntrd))%Z ===l
                   Gl ARR +o I)%exp s (emp_ph loc)).
-          { unfold_pures; unfold_conn; simpl; f_equal; omega. }
+          { unfold_pures; unfold_conn; simpl; f_equal; nia. }
           sep_rewrite_in (mps_eq1) H; [|exact H0]. exact H. }
           sep_combine_in H; exact H. } Unfocus.
       hoare_forward; try (apply inde_distribute; auto; repeat (constructor; prove_indeE)).
@@ -204,8 +204,8 @@ Require Import Bdiv.
 Local Notation init := MyVector.init.
 Definition bth_pre (b : Fin.t nblk) (arr : val) :=
   !(ARR === arr) **
-  Aistar_v (init (fun i : Fin.t ntrd =>
-    skip_arr (Gl arr) 0 len nt_gr f (nf i + nf b * ntrd))).
+  conj_xs (ls_init 0 ntrd (fun i =>
+    skip_arr (Gl arr) 0 len nt_gr f (i + nf b * ntrd))).
 
 Definition tr_pres (b : Fin.t nblk) (arr : val) := init (fun i : Fin.t ntrd =>
   !(ARR === arr) ** 
@@ -213,8 +213,8 @@ Definition tr_pres (b : Fin.t nblk) (arr : val) := init (fun i : Fin.t ntrd =>
   !(BID === zf b)).
 
 Definition bth_post (b : Fin.t nblk) (arr : val) := 
-  Aistar_v (init (fun i : Fin.t ntrd =>
-    skip_arr (Gl arr) 0 len nt_gr (fun v => f v + 1)%Z (nf i + nf b * ntrd))).
+  conj_xs (ls_init 0 ntrd (fun i  =>
+    skip_arr (Gl arr) 0 len nt_gr (fun v => f v + 1)%Z (i + nf b * ntrd))).
 
 Definition tr_posts (b : Fin.t nblk) (arr : val) := (init (fun i : Fin.t ntrd =>
   skip_arr (Gl arr) 0 len nt_gr (fun v => f v + 1)%Z (nf i + nf b * ntrd))).
@@ -264,6 +264,15 @@ Proof.
     unfold TrueP; destruct lt_dec; eauto.
     
     (* simplify the hypothesis *)
+    apply H.
+    (* rewrite (vec_to_list_init0 _ emp) in H. *)
+    (* erewrite ls_init_eq0 in H. *)
+    (* Focus 2. *)
+    (* { intros i Hi. *)
+    (*   destruct (Fin.of_nat i ntrd) as [|Hex] eqn:Heq; [|destruct Hex; omega]. *)
+    (*   rewrite (Fin_nat_inv Heq). reflexivity. } Unfocus. *)
+    (* eauto. *)
+  - unfold tr_posts, bth_post; intros s h H.
     apply sc_v2l in H.
     rewrite (vec_to_list_init0 _ emp) in H.
     erewrite ls_init_eq0 in H.
@@ -271,8 +280,7 @@ Proof.
     { intros i Hi.
       destruct (Fin.of_nat i ntrd) as [|Hex] eqn:Heq; [|destruct Hex; omega].
       rewrite (Fin_nat_inv Heq). reflexivity. } Unfocus.
-    eauto.
-
+    apply H.
   - intros; unfold tr_pres; rewrite MyVector.init_spec.
     unfold CSL.low_assn.
     Hint Constructors typing_exp.
@@ -371,32 +379,88 @@ Proof.
       reflexivity. } Unfocus.
     repeat sep_rewrite (@ls_star nblk).
     repeat sep_rewrite (@ls_pure nblk); sep_split.
-    apply ls_emp'; rewrite init_length; intros; rewrite ls_init_spec.
-    destruct lt_dec; eauto.
-    tauto.
-    applys (>> equiv_from_nth emp).
-    Focus 2.
-    { intros i Hi stk.
-      instantiate (1 := (ls_init 0 nblk
-        (fun i0 : nat =>
-           conj_xs
-             (ls_init 0 ntrd
-                (fun i1 =>
-                   skip_arr (Gl arr) 0 len nt_gr f (i1 + i0 * ntrd)))))).
-      rewrite !ls_init_spec; destruct lt_dec.
-      rewrite sc_v2l.
-      rewrite (vec_to_list_init0 _ emp).
-      erewrite ls_init_eq0.
-      Focus 2.
-      { intros j Hj.
-        destruct (Fin.of_nat j ntrd) as [|Hex] eqn:Heq; [|destruct Hex; omega].
-        simpl.
-        rewrite (Fin_nat_inv Heq).
-        reflexivity. } Unfocus.
+    { apply ls_emp'; rewrite init_length; intros; rewrite ls_init_spec.
+      destruct lt_dec; eauto.
+      tauto. }
+    (* applys (>> equiv_from_nth emp). *)
+    (* Focus 2. *)
+    (* { intros i Hi stk. *)
+    (*   instantiate (1 := (ls_init 0 nblk *)
+    (*     (fun i0 : nat => *)
+    (*        conj_xs *)
+    (*          (ls_init 0 ntrd *)
+    (*             (fun i1 => *)
+    (*                skip_arr (Gl arr) 0 len nt_gr f (i1 + i0 * ntrd)))))). *)
+    (*   rewrite !ls_init_spec; destruct lt_dec. *)
+    (*   rewrite sc_v2l. *)
+    (*   rewrite (vec_to_list_init0 _ emp). *)
+    (*   erewrite ls_init_eq0. *)
+    (*   Focus 2. *)
+    (*   { intros j Hj. *)
+    (*     destruct (Fin.of_nat j ntrd) as [|Hex] eqn:Heq; [|destruct Hex; omega]. *)
+    (*     simpl. *)
+    (*     rewrite (Fin_nat_inv Heq). *)
+    (*     reflexivity. } Unfocus. *)
+    (*   reflexivity. *)
+    (*   reflexivity. } Unfocus. *)
+    (* rewrite !init_length; eauto. *)
+    Lemma conj_xs_init_flatten l1 l2 f_ini :
+      forall s stk,
+        stk ||=
+          conj_xs (ls_init s l1 (fun i =>
+            conj_xs (ls_init 0 l2 (fun j => f_ini (j + i * l2))))) <=>
+          conj_xs (ls_init (s * l2) (l1 * l2) (fun i => f_ini i)).
+    Proof.
+      induction l1; simpl; [reflexivity|].
+      introv.
+      Lemma ls_init_app {T : Type} l1 l2 (f_ini : nat -> T) :
+        forall s, 
+          ls_init s (l1 + l2) f_ini = ls_init s l1 f_ini ++ ls_init (s + l1) l2 f_ini.
+      Proof.
+        induction l1; simpl.
+        - introv; rewrite <-plus_n_O; reflexivity.
+        - introv; f_equal.
+          rewrite IHl1; do 2 f_equal; ring.
+      Qed.
+      rewrite ls_init_app, conj_xs_app.
+      apply star_proper.
+      eapply equiv_from_nth; rewrite !init_length; eauto.
+      - intros i Hi stk'; repeat rewrite (@ls_init_spec _ _ _ emp); destruct lt_dec.
+        cutrewrite (0 + i + s * l2 = s * l2 + i); [|ring]; reflexivity.
+        reflexivity.
+      - rewrite IHl1.
+        cutrewrite (S s * l2 = s * l2 + l2); [|ring]; reflexivity.
+    Qed.
+    Lemma conj_xs_init_flatten0 l1 l2 f_ini :
+      forall stk,
+        stk ||=
+          conj_xs (ls_init 0 l1 (fun i =>
+            conj_xs (ls_init 0 l2 (fun j => f_ini (j + i * l2))))) <=>
+          conj_xs (ls_init 0 (l1 * l2) (fun i => f_ini i)).      
+    Proof.
+      cutrewrite (0 = 0 * l2); [|omega].
+      introv; rewrite <-conj_xs_init_flatten.
       reflexivity.
-      reflexivity. } Unfocus.
-    rewrite !init_length; eauto.
-    admit.
+    Qed.
+    Lemma is_array_skip_arr E n m len' f_ini :
+      n <> 0 -> m <> 0 ->
+      forall stk, stk ||= 
+        is_array E len' f_ini 0 <=>
+        conj_xs (ls_init 0 n (fun i =>
+          conj_xs (ls_init 0 m (fun j =>
+            skip_arr E 0 len' (n * m) f_ini (j + i * m))))).
+    Proof.
+      intros.
+      rewrite conj_xs_init_flatten0.
+      lets Heq: (>>distribute_correct (n * m) (nt_step (n * m))); rewrite Heq; clear Heq.
+      2: unfold nt_step; intros; apply Nat.mod_upper_bound; nia.
+      eapply (@equiv_from_nth emp).
+      rewrite init_length, distribute_length; ring.
+      rewrite distribute_length; intros i Hi stk'.
+      rewrite ls_init_spec; destruct lt_dec; try omega.
+      reflexivity.
+    Qed.
+    apply is_array_skip_arr; eauto.
   - unfold bl_pres, bl_posts; intros.
     rewrite !MyVector.init_spec.
     eapply CSLp_backward.
@@ -404,15 +468,66 @@ Proof.
     apply (map_correct_b bid arr).
     intros; simpl; sep_normal; eauto.
     intros; simpl in *; sep_normal_in H; eauto.
-  - admit.
+  - unfold bl_posts, bth_post.
+    intros s h H.
+    apply sc_v2l in H.
+    rewrite (vec_to_list_init0 _ emp) in H.
+    erewrite ls_init_eq0 in H.
+    Focus 2.
+    { intros i Hi.
+      destruct (Fin.of_nat i nblk) as [|Hex] eqn:Heq; [|destruct Hex; omega].
+      rewrite (Fin_nat_inv Heq).
+      reflexivity. } Unfocus.
+    apply is_array_skip_arr in H; eauto.
   - prove_inde.
   - intros; unfold bl_pres, bth_pre.
     rewrite MyVector.init_spec.
-    admit.
-  - admit.
+    Lemma inde_conj_xs assns vs :
+      (forall i, i < length assns -> inde (nth i assns emp) vs) ->
+      inde (conj_xs assns) vs.
+    Proof.
+      induction assns; simpl; try omega.
+      - intros; unfold_conn; unfold inde; eauto; simpl; tauto.
+      - intros H.
+        apply inde_sconj; eauto.
+        + specialize (H 0); simpl in H; apply H; omega.
+        + apply IHassns; intros i Hi; specialize (H (S i)); simpl in H; apply H; omega.
+    Qed.
+    prove_inde.
+    apply inde_conj_xs; rewrite init_length; intros.
+    rewrite ls_init_spec; destruct lt_dec; prove_inde.
+    apply inde_distribute; prove_indeE.
+  - intros bid; unfold bl_pres, bth_pre; rewrite MyVector.init_spec.
+    Hint Constructors typing_exp typing_lexp.
+    repeat prove_low_assn; eauto.
+    Lemma low_assn_conj_xs assns E :
+      (forall i, i < length assns -> low_assn E (nth i assns emp)) ->
+      low_assn E (conj_xs assns) .
+    Proof.
+      induction assns; simpl; intros; repeat prove_low_assn.
+      specialize (H 0); apply H; omega.
+      apply IHassns; intros i; specialize (H (S i)); intros; apply H; omega.
+    Qed.
+    apply low_assn_conj_xs; rewrite init_length; intros.
+    rewrite ls_init_spec; destruct lt_dec.
+    apply low_assn_skip_arr; eauto.
+    prove_low_assn.
   - intros.
-    unfold has_no_vars.
-    admit.
+    unfold bl_posts, bth_post.
+    rewrite MyVector.init_spec.
+    Lemma has_no_vars_conj_xs assns :
+      (forall i, i < length assns -> has_no_vars (nth i assns emp)) ->
+      has_no_vars (conj_xs assns).
+    Proof.
+      induction assns; simpl; intros; repeat has_no_vars_assn.
+      apply (H 0); omega.
+      apply IHassns; intros i; specialize (H (S i)); simpl in *.
+      intros; apply H; omega.
+    Qed.
+    apply has_no_vars_conj_xs.
+    rewrite init_length; intros; rewrite ls_init_spec.
+    repeat has_no_vars_assn.
+    apply has_no_vars_skip_arr; simpl; eauto.
   - simpl; tauto.
   - unfold E; eauto.
   - unfold E; eauto.
@@ -421,4 +536,5 @@ Proof.
   - simpl; eauto.
 Qed.
     
-End Map.
+End Map
+.
