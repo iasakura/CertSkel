@@ -61,15 +61,8 @@ Section Prescan.
   Notation Tmp1 := (Var 6).
   Notation Tmp2 := (Var 7).
 
-  Infix "+C" := (Eplus) (at level 50, left associativity).
-  Infix "*C" := (Emult) (at level 40, left associativity).
-  Infix "-C" := (Esub) (at level 50, left associativity).
-  Infix "<C" := (Blt) (at level 70).
-
   Notation leftC ARR := (ARR +o (Offset *C (Enum 2 *C Tid +C Enum 1) -C Enum 1)).
   Notation rightC ARR := (ARR +o (Offset *C (Enum 2 *C Tid +C Enum 2) -C Enum 1)).
-
-  Notation Zn := Z.of_nat.
 
   Variable f_ini : nat -> Z.
   Variable ntrd : nat.
@@ -1687,106 +1680,6 @@ Proof.
   Grab Existential Variables.
   apply Lo.
 Qed.
-
-Lemma low_assn_emp G : low_assn G emp.
-Proof.
-  intros s1 s2 h Hl; split; intros H; exact H.
-Qed.
-
-Lemma low_assn_mp G E1 E2 q :
-  typing_lexp G E1 Lo ->
-  typing_exp G E2 Lo ->
-  low_assn G (E1 -->p (q, E2)).
-Proof.
-  intros H1 H2 s1 s2 h Hl.
-  simpl; unfold_conn; split; simpl; intros H.
-  erewrite (@low_eq_eq_lexp G E1), (@low_eq_eq_exp G E2); eauto.
-  apply low_eq_sym; auto.
-  apply low_eq_sym; auto.
-  erewrite (@low_eq_eq_lexp G E1), (@low_eq_eq_exp G E2); eauto.
-Qed.
-
-Lemma low_assn_star G P Q : 
-  low_assn G P -> low_assn G Q ->
-  low_assn G (P ** Q).
-Proof.
-  intros HP HQ; unfold "**"; intros s1 s2 h Hl; simpl.
-  specialize (HP s1 s2); specialize (HQ s1 s2); simpl in *.
-  split; intros (ph1 & ph2 & H); exists ph1 ph2.
-  rewrite HP, HQ in H; [exact H|auto..].
-  rewrite HP, HQ; [exact H|auto..].
-Qed.
-
-Lemma low_assn_is_array G E n f : forall s,
-  typing_lexp G E Lo ->
-  CSL.low_assn G (is_array E n f s).
-Proof.
-  induction n; simpl in *; intros s He.
-  - apply low_assn_emp.
-  - apply low_assn_star.
-    apply low_assn_mp.
-    destruct E;
-      [constructor; cutrewrite (Lo = join Lo Lo); [|reflexivity];
-       repeat constructor; inversion He; eauto..].
-    constructor.
-    apply IHn; auto.
-Qed.
-
-Lemma low_assn_ex {T : Type} G (P : T -> assn) :
-  (forall x, low_assn G (P x)) ->
-  low_assn G (Ex x, P x).
-Proof.
-  unfold low_assn, indeP.
-  intros Hl s1 s2 h Hlow; simpl.
-  split; intros [x H]; exists x; simpl in *.
-  rewrite Hl.
-  exact H.
-  apply low_eq_sym; eauto.
-  rewrite Hl.
-  exact H.
-  eauto.
-Qed.
-
-Lemma low_assn_pure G P :
-  low_assn G (pure P).
-Proof.
-  intros s1 s2 h Hlow; simpl. unfold Apure; split; auto.
-Qed.
-
-Lemma low_assn_ban G P :
-  low_assn G P ->
-  low_assn G !(P).
-Proof.
-  intros Hl s1 s2 h Hlow; simpl.
-  unfold ban, "//\\"; intros.
-  unfold low_assn, indeP in Hl; simpl in Hl.
-  rewrite Hl; eauto.
-  split; intros H; exact H.
-Qed.
-
-Lemma low_assn_eeq E1 E2 G:
-  typing_exp G E1 Lo ->
-  typing_exp G E2 Lo ->
-  low_assn G (E1 === E2).
-Proof.
-  intros H1 H2; unfold_conn; intros s1 s2 h Hlow; simpl.
-  erewrite (@low_eq_eq_exp G E1); eauto.
-  erewrite (@low_eq_eq_exp G E2); eauto.
-  split; auto.
-Qed.
-
-Ltac prove_low_assn :=
-  match goal with
-    | [|- low_assn _ (Ex _, _) ] => apply low_assn_ex; intros
-    | [|- low_assn _ (_ ** _) ] => apply low_assn_star
-    | [|- low_assn _ ( !(_) ) ] => apply low_assn_ban
-    | [|- low_assn _ ( _ === _) ] => apply low_assn_eeq
-    | [|- low_assn _ (pure _) ] => apply low_assn_pure
-    | [|- low_assn _ (if ?X then _ else _) ] => destruct X
-    | [|- low_assn _ (is_array _ _ _ _) ] => apply low_assn_is_array
-    | [|- low_assn _ emp ] => apply low_assn_emp
-    | _ => now (unfold low_assn, indeP; intros; tauto)
-  end.
 Hint Constructors typing_exp.
 
 Lemma default_wf n (s : stack) (h : pheap) : 
