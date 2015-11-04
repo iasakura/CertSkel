@@ -165,6 +165,32 @@ Section Low_eq.
   Qed.
 End Low_eq.
 
+Definition pkstate (n : nat) := (klist n * pheap)%type.
+
+Reserved Notation "pks1 ==>kp pks2" (at level 40).
+Inductive red_pk (ntrd : nat) : pkstate ntrd -> pkstate ntrd -> Prop :=
+  redk_Seq : forall (ks : pkstate ntrd) (ss : klist ntrd) 
+                    (c c' : cmd) (st st' : pstate) (s s' : stack) 
+                    (h h' : pheap) (i : kidx ntrd),
+             ks = (ss, h) ->
+             ss[@i] = (c, s) ->
+             c / st ==>p  c' / st' ->
+             st = (s, h) ->
+             st' = (s', h') ->
+             red_pk ks (replace ss i (c', s'), h')
+| redk_Barrier : forall (ks ks' : pkstate ntrd) (ss ss' : klist ntrd)
+                   (h : pheap) (j : nat),
+                 ks = (ss, h) ->
+                 ks' = (ss', h) ->
+                 (forall i : kidx ntrd,
+                  exists (c : cmd) (s : stack) (c' : cmd),
+                    ss[@i] = (c, s) /\
+                    wait c = Some (j, c') /\ ss'[@i] = (c', s)) ->
+                 red_pk ks ks'.
+  
+Definition red_pk_multi {n : nat} := clos_refl_trans_1n _ (@red_pk n).
+Notation "pks1 ==>kp* pks2" := (red_pk_multi pks1 pks2) (at level 40).
+
 Section Barrier.
   Variable ngroup : nat.
   Definition barrier_spec := nat -> (Vector.t assn ngroup * Vector.t assn ngroup)%type.
@@ -395,10 +421,28 @@ Section BarrierDivergenceFreedom.
   Qed.
   Require Import LibTactics.
 
-  Lemma safe_red_p (c1 c2 : cmd) (st1 st2 : pstate) (pst1 : pstate) (hF : pheap) (tid : Fin.t ngroup):
+  Lemma safe_red_sp (c1 c2 : cmd) (st1 st2 : state) (pst1 : pstate) (hF : pheap) (tid : Fin.t ngroup) n q:
+    c1 / st1 ==>s c2 / st2 -> 
+    fst st1 = fst pst1 ->
+    safe_nt tid (S n) c1 (fst pst1) (snd pst1) q ->
+    pdisj (snd pst1) hF -> ptoheap (phplus (snd pst1) hF) (snd st1) ->
+    exists pst2, 
+      c1 / pst1 ==>p c2 / pst2 /\
+      fst pst2 = fst st2 /\
+      pdisj (snd pst2) hF /\
+      ptoheap (phplus (snd pst2) hF) (snd st2).
+  Proof.
+    intros red_s heq hsafe hdis1 hto1;
+    destruct hsafe as [_ [ha [haok [hwok _]]]].
+    destruct (red_s_safe red_s (eq_sym heq) hdis1 hto1 haok hwok) as [ph [? [? ?]]].
+    eauto.
+  Qed.
+
+  Lemma safe_red_p (c1 c2 : cmd) (st1 st2 : pstate) (pst1 : pstate)
+        (hF : pheap) (tid : Fin.t ngroup) (n : nat) (q : assn) :
     c1 / st1 ==>p c2 / st2 -> 
     fst st1 = fst pst1 ->
-    safe_aux tid c1 (fst pst1) (snd pst1) ->
+    safe_nt tid (S n) c1 (fst pst1) (snd pst1) q ->
     pdisj (snd pst1) hF -> phplus (snd pst1) hF = snd st1 ->
     exists pst2, 
       c1 / pst1 ==>p c2 / pst2 /\
@@ -406,8 +450,8 @@ Section BarrierDivergenceFreedom.
       pdisj (snd pst2) hF /\
       phplus (snd pst2) hF = snd st2.
   Proof.
-    intros red_s heq hsafe hdis1 hto1; destruct hsafe as [? hsafe]; 
-    destruct (hsafe 1%nat) as [_ [ha [haok [hwok (Hstep & _)]]]].
+    intros red_s heq hsafe hdis1 hto1;
+    destruct hsafe as [_ [ha [haok [hwok (Hstep & _)]]]].
     inversion red_s; subst; eauto; simpl in *.
     assert (Hdis : pdisj hF phF).
     { rewrite <-hto1 in H5; apply pdisjC, pdisjE2, pdisjC in H5; eauto. }
@@ -446,32 +490,6 @@ Section BarrierDivergenceFreedom.
     apply clos_rt1n_rt in H1. apply clos_rt1n_rt in H2. apply clos_rt_rt1n.
     eapply rt_trans; eauto.
   Qed.
-
-  Definition pkstate (n : nat) := (klist n * pheap)%type.
-
-  Reserved Notation "pks1 ==>kp pks2" (at level 40).
-  Inductive red_pk (ntrd : nat) : pkstate ntrd -> pkstate ntrd -> Prop :=
-    redk_Seq : forall (ks : pkstate ntrd) (ss : klist ntrd) 
-                      (c c' : cmd) (st st' : pstate) (s s' : stack) 
-                      (h h' : pheap) (i : kidx ntrd),
-               ks = (ss, h) ->
-               ss[@i] = (c, s) ->
-               c / st ==>p  c' / st' ->
-               st = (s, h) ->
-               st' = (s', h') ->
-               red_pk ks (replace ss i (c', s'), h')
-  | redk_Barrier : forall (ks ks' : pkstate ntrd) (ss ss' : klist ntrd)
-                     (h : pheap) (j : nat),
-                   ks = (ss, h) ->
-                   ks' = (ss', h) ->
-                   (forall i : kidx ntrd,
-                    exists (c : cmd) (s : stack) (c' : cmd),
-                      ss[@i] = (c, s) /\
-                      wait c = Some (j, c') /\ ss'[@i] = (c', s)) ->
-                   red_pk ks ks'.
-    
-  Definition red_pk_multi {n : nat} := clos_refl_trans_1n _ (@red_pk n).
-  Notation "pks1 ==>kp* pks2" := (red_pk_multi pks1 pks2) (at level 40).
 
   Lemma step_inv (ks1 ks2 : pkstate ngroup) (red_k : (ks1 ==>kp* ks2))
         (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) :
@@ -522,7 +540,8 @@ Section BarrierDivergenceFreedom.
           rewrite H' in h_ntid, hnip; clear H'.
         (* assert ((phplus (snd pss2[@tid]) h_ni) = h1) as hto  *)
         (*   by (rewrite hnip; apply ptoheap_htop). *)
-        lets (pst2 & seq & tred & tdisj & tto): (>> safe_red_p red'  hsafei h_ntid); eauto.
+        destruct hsafei as [? hsafei].
+        lets (pst2 & seq & tred & tdisj & tto): (>> safe_red_p red' (hsafei 1) h_ntid); eauto.
         destruct (disj_upd eqni h_ntid) as [hq [hdeq_q  heq_q]].
         exists pss' (replace pss2 tid pst2) c' (replace cs tid c2) h'.
         repeat split; eauto.
