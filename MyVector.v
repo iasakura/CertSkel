@@ -158,4 +158,32 @@ Section FusionLemmas.
     induction n; [rewrite (vinv0 vs); simpl; eauto|].
     destruct (vinvS vs) as [x [vs' ?]]; subst; simpl; rewrite IHn0; eauto.
   Qed.
+  
+
+  Lemma replace_nth {A : Type} (i j : Fin.t n) (v : Vector.t A n) (x : A): 
+    (replace v i x)[@j] = if fin_eq_dec i j then x else v[@j].
+  Proof.
+    revert v; induction n; [inversion i | ]; intros v.
+    destruct (finvS i) as [? | [i' ?]]; subst;
+    destruct (finvS j) as [? | [j' ?]]; subst;
+    destruct (vinvS v) as [t [v' ?]]; subst; simpl; eauto.
+    destruct (fin_eq_dec Fin.F1 Fin.F1) as [h|h]; [eauto | congruence].
+    destruct (fin_eq_dec Fin.F1 (Fin.FS j')) as [h|h]; [inversion h|eauto].
+    destruct (fin_eq_dec (Fin.FS i') Fin.F1) as [h|h]; [inversion h|eauto].
+    rewrite IHn0; destruct (fin_eq_dec i' j') as [h|h];
+    [subst; destruct (fin_eq_dec (Fin.FS j') (Fin.FS j')); eauto; try congruence|
+     destruct (fin_eq_dec (Fin.FS i') (Fin.FS j')); eauto].
+    inversion e. apply inj_pair2 in H0; subst; congruence.
+  Qed.
+
+  Lemma map_replace (f : T -> U) (xs : Vector.t T n) (i : Fin.t n) (x : T) :
+    Vector.map f (replace xs i x) = replace (Vector.map f xs) i (f x).
+  Proof.
+    apply eq_nth_iff; intros; subst.
+    erewrite !nth_map; [|reflexivity].
+    (repeat rewrite replace_nth); destruct fin_eq_dec; eauto.
+    
+    erewrite nth_map; eauto.
+  Qed.          
 End FusionLemmas.
+

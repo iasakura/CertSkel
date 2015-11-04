@@ -590,15 +590,6 @@ Section For_List_Notation.
           destruct x; apply pheap_eq; eauto.
         Qed.
 
-        Lemma map_replace {n : nat} {T U : Type} (f : T -> U) (xs : Vector.t T n) (i : Fin.t n) (x : T) :
-          Vector.map f (replace xs i x) = replace (Vector.map f xs) i (f x).
-        Proof.
-          apply eq_nth_iff; intros; subst.
-          erewrite !nth_map; [|reflexivity].
-          rewrite !replace_nth; destruct fin_eq_dec; eauto.
-          erewrite nth_map; eauto.
-        Qed.          
-
         rewrite map_replace.
         assert (Hd : hdisj (as_gheap hg'') (as_gheap hb'')).
         { eauto using hdisjE2, hdisjC, hdisjE1. }
