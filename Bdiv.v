@@ -352,8 +352,8 @@ Section BarrierDivergenceFreedom.
   Definition Vt := Vector.t.
   Import Vector.VectorNotations.
   
-  Definition get_ss_k (ks : kstate ngroup) := Vector.map (fun x => snd x) (fst ks).
-  Definition get_cs_k (ks : kstate ngroup) := Vector.map (fun x => fst x) (fst ks).
+  Definition get_ss_k {T : Type} (ks : klist ngroup * T) := Vector.map (fun x => snd x) (fst ks).
+  Definition get_cs_k {T : Type} (ks : klist ngroup * T) := Vector.map (fun x => fst x) (fst ks).
 
   Lemma safe_inv' (tid : Fin.t ngroup) (c c' : cmd) (ps ps' : pstate) : 
     (safe_aux tid c (fst ps) (snd ps)) -> (c / ps ==>p* c' / ps') ->
@@ -393,21 +393,24 @@ Section BarrierDivergenceFreedom.
       assert (ph' = snd ps') as Heq by (subst; eauto); rewrite Heq; clear Heq.    
     apply safe_inv'.
   Qed.
-
-  Lemma safe_red_p (c1 c2 : cmd) (st1 st2 : state) (pst1 : pstate) (hF : pheap) (tid : Fin.t ngroup):
-    c1 / st1 ==>s c2 / st2 -> 
+  Require Import LibTactics.
+  Lemma safe_red_p (c1 c2 : cmd) (st1 st2 : pstate) (pst1 : pstate) (hF : pheap) (tid : Fin.t ngroup):
+    c1 / st1 ==>p c2 / st2 -> 
     fst st1 = fst pst1 ->
     safe_aux tid c1 (fst pst1) (snd pst1) ->
-    pdisj (snd pst1) hF -> ptoheap (phplus (snd pst1) hF) (snd st1) ->
+    pdisj (snd pst1) hF -> phplus (snd pst1) hF = snd st1 ->
     exists pst2, 
       c1 / pst1 ==>p c2 / pst2 /\
       fst pst2 = fst st2 /\
       pdisj (snd pst2) hF /\
-      ptoheap (phplus (snd pst2) hF) (snd st2).
+      phplus (snd pst2) hF = snd st2.
   Proof.
     intros red_s heq hsafe hdis1 hto1; destruct hsafe as [? hsafe]; 
     destruct (hsafe 1%nat) as [_ [ha [haok [hwok _]]]].
-    destruct (red_s_safe red_s (eq_sym heq) hdis1 hto1 haok hwok) as [ph [? [? ?]]].
+    inversion red_s; subst; eauto; simpl in *.
+
+    lets H: (red_s_safe H7 (eq_sym heq) hdis1); simpl in *.
+    
     eauto.
   Qed.
 
@@ -437,18 +440,44 @@ Section BarrierDivergenceFreedom.
     apply clos_rt1n_rt in H1. apply clos_rt1n_rt in H2. apply clos_rt_rt1n.
     eapply rt_trans; eauto.
   Qed.
+
+  Definition pkstate (n : nat) := (klist n * pheap)%type.
+
+  Reserved Notation "pks1 ==>kp pks2" (at level 40).
+  Inductive red_pk (ntrd : nat) : pkstate ntrd -> pkstate ntrd -> Prop :=
+    redk_Seq : forall (ks : pkstate ntrd) (ss : klist ntrd) 
+                      (c c' : cmd) (st st' : pstate) (s s' : stack) 
+                      (h h' : pheap) (i : kidx ntrd),
+               ks = (ss, h) ->
+               ss[@i] = (c, s) ->
+               c / st ==>p  c' / st' ->
+               st = (s, h) ->
+               st' = (s', h') ->
+               red_pk ks (replace ss i (c', s'), h')
+  | redk_Barrier : forall (ks ks' : pkstate ntrd) (ss ss' : klist ntrd)
+                     (h : pheap) (j : nat),
+                   ks = (ss, h) ->
+                   ks' = (ss', h) ->
+                   (forall i : kidx ntrd,
+                    exists (c : cmd) (s : stack) (c' : cmd),
+                      ss[@i] = (c, s) /\
+                      wait c = Some (j, c') /\ ss'[@i] = (c', s)) ->
+                   red_pk ks ks'.
     
-  Lemma step_inv (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2))
+  Definition red_pk_multi {n : nat} := clos_refl_trans_1n _ (@red_pk n).
+  Notation "pks1 ==>kp* pks2" := (red_pk_multi pks1 pks2) (at level 40).
+
+  Lemma step_inv (ks1 ks2 : pkstate ngroup) (red_k : (ks1 ==>kp* ks2))
         (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) :
     (exists ty : type, typing_cmd env c ty) ->
-    disj_eq hs1 (htop (snd ks1)) ->
+    disj_eq hs1 (snd ks1) ->
     ss1 = get_ss_k ks1 -> low_eq_l2 env ss1 ->
     (forall tid : Fin.t ngroup, (get_cs_k ks1)[@tid] = c) -> 
     (forall tid : Fin.t ngroup, safe_aux tid c (ss1[@tid]) (hs1[@tid])) ->
     exists (pss' : Vector.t pstate ngroup) (pss2 : Vector.t pstate ngroup) (c' : cmd) 
            (cs : Vector.t cmd ngroup) (h' : pheap), 
       disj_eq (get_hs pss') h' /\  low_eq_l2 env (get_ss pss') /\
-      disj_eq (get_hs pss2) (htop (snd ks2)) /\ 
+      disj_eq (get_hs pss2) (snd ks2) /\ 
       (exists ty : type, typing_cmd env c' ty) /\
       (forall tid : Fin.t ngroup, 
          cs[@tid] = (get_cs_k ks2)[@tid] /\
@@ -462,7 +491,7 @@ Section BarrierDivergenceFreedom.
     Hint Unfold low_eq_l2 get_hs get_ss.
     Hint Rewrite map_map2 map2_fst' map2_snd'.
     - remember (Vector.map2 (fun s h => (s, h)) ss1 hs1) as pss'.
-      exists pss', pss', c, (Vector.const c ngroup), (htop (snd ks1)).
+      exists pss', pss', c, (Vector.const c ngroup), (snd ks1).
       subst; repeat split; autounfold; autorewrite with core; eauto.
       + rewrite const_nth; pose proof (hc tid); eauto.
       + assert ((Vector.map2 (fun (s : stack) h => (s, h)) (get_ss_k ks1) hs1)[@tid] = 
@@ -485,15 +514,14 @@ Section BarrierDivergenceFreedom.
         assert ((get_hs pss2)[@tid] = snd pss2[@tid]) as H'
           by (unfold get_hs; erewrite Vector.nth_map; eauto).
           rewrite H' in h_ntid, hnip; clear H'.
-        assert (ptoheap (phplus (snd pss2[@tid]) h_ni) h1) as hto 
-          by (rewrite hnip; apply ptoheap_htop).
-        destruct (safe_red_p red' eq_refl hsafei h_ntid hto) as [pst2 [seq [tred [tdisj tto]]]].
-        destruct (disj_upd eqni tdisj) as [hq [hdeq_q  heq_q]].
-        exists pss', (replace pss2 tid pst2), c', (replace cs tid c2), h'.
+        (* assert ((phplus (snd pss2[@tid]) h_ni) = h1) as hto  *)
+        (*   by (rewrite hnip; apply ptoheap_htop). *)
+        (* destruct (safe_red_p red' eq_refl hsafei h_ntid hto) as [pst2 [seq [tred [tdisj tto]]]]. *)
+        destruct (disj_upd eqni h_ntid) as [hq [hdeq_q  heq_q]].
+        exists pss', (replace pss2 tid pss2[@tid]), c', (replace cs tid c2), h'.
         repeat split; eauto.
-
-         + rewrite heq_q in tto; simpl in tto.
-          assert (get_hs (replace pss2 tid pst2) = replace (get_hs pss2) tid (snd pst2)) as Ht.
+        + (* rewrite heq_q in tto; simpl in tto. *)
+          assert (get_hs (replace pss2 tid pss2[@tid]) = replace (get_hs pss2) tid (snd pss2[@tid])) as Ht.
           { apply eq_nth_iff; intros p1 p2 peq; rewrite peq. 
             unfold get_hs; erewrite Vector.nth_map; eauto.
             repeat rewrite replace_nth. destruct (fin_eq_dec tid p2); eauto.
