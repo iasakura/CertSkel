@@ -135,14 +135,14 @@ Proof.
     destruct hp as [? [? ?]], iph' as [? ?]; exfalso; eapply (@frac_contra1 q0); eauto.
 Qed.
 
-Lemma phplus_comm (h1 h2 : gen_pheap) : pdisj h1 h2 -> phplus h1 h2 = phplus h2 h1.
+Lemma phplus_comm (h1 h2 : gen_pheap') : pdisj h1 h2 ->phplus h1 h2 = phplus h2 h1.
 Proof.
-  destruct h1 as [h1 H1], h2 as [h2 H2]; simpl.
-  intros hdisj; unfold is_pheap, pdisj, phplus in *; extensionality x.
+  (* destruct h1 as [h1 H1], h2 as [h2 H2]; simpl. *)
+  intros hdisj;unfold is_pheap, pdisj, phplus in *; extensionality x.
   repeat (match goal with [H : forall _: loc, _ |- _] => specialize (H x) end).
   destruct (h1 x) as [[? ?] | ], (h2 x) as [[? ?] | ]; eauto. 
-  destruct hdisj as [? [? ?]].
-  assert (q + q0 = q0 + q) by ring; congruence.
+  (* destruct hdisj as [? [? ?]]. *)
+  assert (q + q0 = q0 + q) by ring; destruct hdisj; congruence.
 Qed.
 
 Lemma plus_gt_0 : forall p1 p2 : Qc, 0 < p1 -> 0 < p2 -> 0 < p1 + p2.
@@ -246,15 +246,18 @@ Proof.
   - cutrewrite (q1 + (q + q0) = q + (q0 + q1)); [eauto | ring].
 Qed.
 
-Lemma padd_assoc (h1 h2 h3 : gen_pheap) :
-  pdisj h1 (phplus h2 h3) -> pdisj h2 h3 -> phplus (phplus h1 h2) h3 = phplus h1 (phplus h2 h3).
+Lemma padd_assoc (h1 h2 h3 : gen_pheap') :
+  (* pdisj h1 (phplus h2 h3) -> pdisj h2 h3 ->  *)phplus (phplus h1 h2) h3 = phplus h1 (phplus h2 h3).
 Proof.
-  destruct h1 as [h1 ph1], h2 as [h2 ph2], h3 as [h3 ph3]; simpl in *.
-  unfold is_pheap, pdisj, phplus in *;
-    intros h123 h23; extensionality x;
-    repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end);
-    destruct (h1 x) as [[? ?] |], (h2 x) as [[? ?] |], (h3 x) as [[? ?] |];
-    des_conj; eauto.
+  (* destruct h1 as [h1 ph1], h2 as [h2 ph2], h3 as [h3 ph3]; simpl in *. *)
+  (* unfold is_pheap, pdisj, phplus in *; *)
+  (*   intros h123 h23; extensionality x; *)
+  (*   repeat (match goal with [H : forall _ : Z, _ |- _] => specialize (H x) end); *)
+  (*   destruct (h1 x) as [[? ?] |], (h2 x) as [[? ?] |], (h3 x) as [[? ?] |]; *)
+  (*   des_conj; eauto. *)
+  (* cutrewrite (q + q0 + q1 = q + (q0 + q1)); [eauto | ring]. *)
+  extensionality l; unfold phplus; simpl.
+  destruct (h1 l) as [[? ?] |], (h2 l) as [[? ?] |], (h3 l) as [[? ?] |]; eauto.
   cutrewrite (q + q0 + q1 = q + (q0 + q1)); [eauto | ring].
 Qed.
 
@@ -369,11 +372,11 @@ Proof.
   cutrewrite (is_p1 = is_p2); [eauto | apply proof_irrelevance ].
 Qed.
 
-Lemma ptoheap_eq (ph : gen_pheap) (h : heap) : ptoheap ph h -> ph = htop h.
+Lemma ptoheap_eq (ph : gen_pheap') (h : heap) : ptoheap ph h -> ph = htop h.
 Proof.
   intros ptoheap.
-  unfold htop, htop' in *; destruct ph as [ph iph]; apply pheap_eq; extensionality x.
-  specialize (ptoheap x); simpl in *; specialize (iph x).
+  unfold htop, htop' in *; (*destruct ph as [ph iph]; apply pheap_eq;*) extensionality x.
+  specialize (ptoheap x); simpl in *(* ; specialize (iph x) *).
   simpl in *; destruct (ph x) as [[? ?]|], (h x) as [? |];
   repeat match goal with [H : _ /\ _ |- _ ] => destruct H end;
   try tauto; try congruence.
@@ -655,7 +658,7 @@ Proof.
       cutrewrite (phplus ph ph0 = this {| this := phplus ph ph0;
                                           is_p := pdisj_is_pheap dph12 |}); [|simpl; eauto].
       rewrite <-padd_assoc; simpl; f_equal; eauto.
-      rewrite <-padd_left_comm; eauto.
+      (* rewrite <-padd_left_comm; eauto. *)
 Qed.
 
 Lemma disj_eq_sub (n : nat) (hs hs1 hs2 : Vector.t gen_pheap n) (h : gen_pheap): 
@@ -703,18 +706,19 @@ Proof.
       repeat split; try econstructor; try tauto.
     + cutrewrite (this (phplus_pheap (h1:=ph1) (h2:=h1) (pdisjC (h1:=h1) (h2:=ph1) dis1)) =
                   phplus ph1 h1); [|eauto].
-      rewrite padd_assoc; [simpl| apply (pdisj_padd_expand _ (pdisjC dis1))| ]; try tauto.
-      destruct IH as [? [? [dis12 pp12]]].
+      rewrite padd_assoc. (* ;  [simpl| apply (pdisj_padd_expand _ (pdisjC dis1))| ];try tauto. *)
+      destruct IH as [? [? [dis12 pp12]]]. simpl.
       rewrite (phplus_comm (pdisjC dis2)). 
-      rewrite<-padd_assoc; [| rewrite (@phplus_comm h2 ph2); try tauto| apply ( dis2)].
-      cutrewrite (phplus h1 h2 = phplus_pheap dis12); [|eauto]. 
+      (* rewrite<-padd_assoc; [| rewrite (@phplus_comm h2 ph2); try tauto| apply ( dis2)]. *)
+      rewrite <-(padd_assoc h1).
+      (* cutrewrite (phplus h1 h2 = phplus_pheap dis12); [|eauto].  *)
       assert (pdisj ph2 (phplus_pheap (h1:=h1) (h2:=h2) dis12)).
       { destruct (heq (Fin.F1)) as [? ?]; simpl in *; rewrite <-H6 in hdis0.
         apply pdisjC,pdisjE2,pdisjC in hdis0; try eauto; rewrite pp12; eauto. }
       rewrite (@phplus_comm _ ph2), <-padd_assoc; eauto.
-      * simpl; rewrite pp12; destruct (heq (Fin.F1)) as [? ?]; simpl in *; congruence.
-      * apply pdisj_padd_expand; destruct (heq Fin.F1); simpl in *; try tauto.
-        rewrite H7, pp12; tauto.
+      simpl; rewrite pp12; destruct (heq (Fin.F1)) as [? ?]; simpl in *; congruence.
+      (* * apply pdisj_padd_expand; destruct (heq Fin.F1); simpl in *; try tauto. *)
+      (*   rewrite H7, pp12; tauto. *)
 Qed.    
 
 Lemma phplus_eq (h1 h2 : gen_pheap) (disj : pdisj h1 h2) :

@@ -165,6 +165,32 @@ Section Low_eq.
   Qed.
 End Low_eq.
 
+Definition pkstate (n : nat) := (klist n * pheap)%type.
+
+Reserved Notation "pks1 ==>kp pks2" (at level 40).
+Inductive red_pk (ntrd : nat) : pkstate ntrd -> pkstate ntrd -> Prop :=
+  redk_Seq : forall (ks : pkstate ntrd) (ss : klist ntrd) 
+                    (c c' : cmd) (st st' : pstate) (s s' : stack) 
+                    (h h' : pheap) (i : kidx ntrd),
+             ks = (ss, h) ->
+             ss[@i] = (c, s) ->
+             c / st ==>p  c' / st' ->
+             st = (s, h) ->
+             st' = (s', h') ->
+             red_pk ks (replace ss i (c', s'), h')
+| redk_Barrier : forall (ks ks' : pkstate ntrd) (ss ss' : klist ntrd)
+                   (h : pheap) (j : nat),
+                 ks = (ss, h) ->
+                 ks' = (ss', h) ->
+                 (forall i : kidx ntrd,
+                  exists (c : cmd) (s : stack) (c' : cmd),
+                    ss[@i] = (c, s) /\
+                    wait c = Some (j, c') /\ ss'[@i] = (c', s)) ->
+                 red_pk ks ks'.
+  
+Definition red_pk_multi {n : nat} := clos_refl_trans_1n _ (@red_pk n).
+Notation "pks1 ==>kp* pks2" := (red_pk_multi pks1 pks2) (at level 40).
+
 Section Barrier.
   Variable ngroup : nat.
   Definition barrier_spec := nat -> (Vector.t assn ngroup * Vector.t assn ngroup)%type.
@@ -352,8 +378,8 @@ Section BarrierDivergenceFreedom.
   Definition Vt := Vector.t.
   Import Vector.VectorNotations.
   
-  Definition get_ss_k (ks : kstate ngroup) := Vector.map (fun x => snd x) (fst ks).
-  Definition get_cs_k (ks : kstate ngroup) := Vector.map (fun x => fst x) (fst ks).
+  Definition get_ss_k {T : Type} (ks : klist ngroup * T) := Vector.map (fun x => snd x) (fst ks).
+  Definition get_cs_k {T : Type} (ks : klist ngroup * T) := Vector.map (fun x => fst x) (fst ks).
 
   Lemma safe_inv' (tid : Fin.t ngroup) (c c' : cmd) (ps ps' : pstate) : 
     (safe_aux tid c (fst ps) (snd ps)) -> (c / ps ==>p* c' / ps') ->
@@ -393,11 +419,12 @@ Section BarrierDivergenceFreedom.
       assert (ph' = snd ps') as Heq by (subst; eauto); rewrite Heq; clear Heq.    
     apply safe_inv'.
   Qed.
+  Require Import LibTactics.
 
-  Lemma safe_red_p (c1 c2 : cmd) (st1 st2 : state) (pst1 : pstate) (hF : pheap) (tid : Fin.t ngroup):
+  Lemma safe_red_sp (c1 c2 : cmd) (st1 st2 : state) (pst1 : pstate) (hF : pheap) (tid : Fin.t ngroup) n q:
     c1 / st1 ==>s c2 / st2 -> 
     fst st1 = fst pst1 ->
-    safe_aux tid c1 (fst pst1) (snd pst1) ->
+    safe_nt tid (S n) c1 (fst pst1) (snd pst1) q ->
     pdisj (snd pst1) hF -> ptoheap (phplus (snd pst1) hF) (snd st1) ->
     exists pst2, 
       c1 / pst1 ==>p c2 / pst2 /\
@@ -405,26 +432,52 @@ Section BarrierDivergenceFreedom.
       pdisj (snd pst2) hF /\
       ptoheap (phplus (snd pst2) hF) (snd st2).
   Proof.
-    intros red_s heq hsafe hdis1 hto1; destruct hsafe as [? hsafe]; 
-    destruct (hsafe 1%nat) as [_ [ha [haok [hwok _]]]].
+    intros red_s heq hsafe hdis1 hto1;
+    destruct hsafe as [_ [ha [haok [hwok _]]]].
     destruct (red_s_safe red_s (eq_sym heq) hdis1 hto1 haok hwok) as [ph [? [? ?]]].
     eauto.
   Qed.
 
-  Lemma replace_nth (T : Type) (n : nat) (i j : Fin.t n) (v : Vector.t T n) (x : T) : 
-    (replace v i x)[@j] = if fin_eq_dec i j then x else v[@j].
+  Lemma safe_red_p (c1 c2 : cmd) (st1 st2 : pstate) (pst1 : pstate)
+        (hF : pheap) (tid : Fin.t ngroup) (n : nat) (q : assn) :
+    c1 / st1 ==>p c2 / st2 -> 
+    fst st1 = fst pst1 ->
+    safe_nt tid (S n) c1 (fst pst1) (snd pst1) q ->
+    pdisj (snd pst1) hF -> phplus (snd pst1) hF = snd st1 ->
+    exists pst2, 
+      c1 / pst1 ==>p c2 / pst2 /\
+      fst pst2 = fst st2 /\
+      pdisj (snd pst2) hF /\
+      phplus (snd pst2) hF = snd st2.
   Proof.
-    revert v; induction n; [inversion i | ]; intros v.
-    destruct (finvS i) as [? | [i' ?]]; subst;
-    destruct (finvS j) as [? | [j' ?]]; subst;
-    destruct (vinvS v) as [t [v' ?]]; subst; simpl; eauto.
-    destruct (fin_eq_dec Fin.F1 Fin.F1) as [h|h]; [eauto | congruence].
-    destruct (fin_eq_dec Fin.F1 (Fin.FS j')) as [h|h]; [inversion h|eauto].
-    destruct (fin_eq_dec (Fin.FS i') Fin.F1) as [h|h]; [inversion h|eauto].
-    rewrite IHn; destruct (fin_eq_dec i' j') as [h|h];
-    [subst; destruct (fin_eq_dec (Fin.FS j') (Fin.FS j')); eauto; try congruence|
-     destruct (fin_eq_dec (Fin.FS i') (Fin.FS j')); eauto].
-    inversion e. apply inj_pair2 in H0; subst; congruence.
+    intros red_s heq hsafe hdis1 hto1;
+    destruct hsafe as [_ [ha [haok [hwok (Hstep & _)]]]].
+    inversion red_s; subst; eauto; simpl in *.
+    assert (Hdis : pdisj hF phF).
+    { rewrite <-hto1 in H5; apply pdisjC, pdisjE2, pdisjC in H5; eauto. }
+    exploit (Hstep (phplus_pheap Hdis) h1 c2 (s2, h2)); simpl; eauto.
+    - apply pdisj_padd_expand; eauto.
+      rewrite hto1; eauto.
+    - rewrite <-padd_assoc; eauto.
+      rewrite hto1; eauto.
+      (* apply pdisj_padd_expand; eauto. *)
+      (* rewrite hto1; eauto. *)
+    - rewrite <-heq; eauto.
+    - intros (h' & ph' & ? & ? & ? &  _); exists (s2, ph'); repeat split; simpl; eauto.
+      eapply (@redp_ster c1 c2 (s1, h1) (s2, h2) pst1 (s2, ph') (fst pst1) s2 (snd pst1) ph' (phplus_pheap Hdis) h1 h2); eauto; try congruence.
+      + destruct pst1; eauto.
+      + rewrite <-hto1 in H5; apply pdisj_padd_expand; eauto.
+      + simpl; rewrite <-padd_assoc; eauto.
+        rewrite hto1; eauto.
+        (* apply pdisj_padd_expand; eauto; rewrite hto1; eauto. *)
+      + simpl; subst; eauto.
+      + eauto using pdisjE1.
+      + subst h'; lets Heq: (>> ptoD H1 H9).
+        rewrite <-padd_assoc in Heq; eauto.
+        assert (pdisj ph' hF) by eauto using pdisjE1.
+        assert (phplus ph' hF = phplus_pheap H) by eauto.
+        rewrite H2 in Heq; apply padd_cancel2 in Heq; simpl in *; subst; eauto.
+        apply pdisj_padd_expand; eauto.
   Qed.
 
   Lemma red_p_step (c1 c2 c3 : cmd) (pst1 pst2 pst3 : pstate) : 
@@ -437,19 +490,19 @@ Section BarrierDivergenceFreedom.
     apply clos_rt1n_rt in H1. apply clos_rt1n_rt in H2. apply clos_rt_rt1n.
     eapply rt_trans; eauto.
   Qed.
-    
-  Lemma step_inv (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2))
+
+  Lemma step_inv (ks1 ks2 : pkstate ngroup) (red_k : (ks1 ==>kp* ks2))
         (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) :
-    (exists ty : type, typing_cmd env c ty) ->
-    disj_eq hs1 (htop (snd ks1)) ->
+    (exists (ty : type), typing_cmd env c ty) ->
+    disj_eq hs1 (snd ks1) ->
     ss1 = get_ss_k ks1 -> low_eq_l2 env ss1 ->
     (forall tid : Fin.t ngroup, (get_cs_k ks1)[@tid] = c) -> 
     (forall tid : Fin.t ngroup, safe_aux tid c (ss1[@tid]) (hs1[@tid])) ->
     exists (pss' : Vector.t pstate ngroup) (pss2 : Vector.t pstate ngroup) (c' : cmd) 
            (cs : Vector.t cmd ngroup) (h' : pheap), 
       disj_eq (get_hs pss') h' /\  low_eq_l2 env (get_ss pss') /\
-      disj_eq (get_hs pss2) (htop (snd ks2)) /\ 
-      (exists ty : type, typing_cmd env c' ty) /\
+      disj_eq (get_hs pss2) (snd ks2) /\ 
+      (exists (ty : type), typing_cmd env c' ty) /\
       (forall tid : Fin.t ngroup, 
          cs[@tid] = (get_cs_k ks2)[@tid] /\
          (get_ss pss2)[@tid] = (get_ss_k ks2)[@tid] /\
@@ -462,7 +515,7 @@ Section BarrierDivergenceFreedom.
     Hint Unfold low_eq_l2 get_hs get_ss.
     Hint Rewrite map_map2 map2_fst' map2_snd'.
     - remember (Vector.map2 (fun s h => (s, h)) ss1 hs1) as pss'.
-      exists pss', pss', c, (Vector.const c ngroup), (htop (snd ks1)).
+      exists pss' pss' c (Vector.const c ngroup) (snd ks1).
       subst; repeat split; autounfold; autorewrite with core; eauto.
       + rewrite const_nth; pose proof (hc tid); eauto.
       + assert ((Vector.map2 (fun (s : stack) h => (s, h)) (get_ss_k ks1) hs1)[@tid] = 
@@ -485,21 +538,25 @@ Section BarrierDivergenceFreedom.
         assert ((get_hs pss2)[@tid] = snd pss2[@tid]) as H'
           by (unfold get_hs; erewrite Vector.nth_map; eauto).
           rewrite H' in h_ntid, hnip; clear H'.
-        assert (ptoheap (phplus (snd pss2[@tid]) h_ni) h1) as hto 
-          by (rewrite hnip; apply ptoheap_htop).
-        destruct (safe_red_p red' eq_refl hsafei h_ntid hto) as [pst2 [seq [tred [tdisj tto]]]].
-        destruct (disj_upd eqni tdisj) as [hq [hdeq_q  heq_q]].
-        exists pss', (replace pss2 tid pst2), c', (replace cs tid c2), h'.
+        (* assert ((phplus (snd pss2[@tid]) h_ni) = h1) as hto  *)
+        (*   by (rewrite hnip; apply ptoheap_htop). *)
+        destruct hsafei as [? hsafei].
+        lets (pst2 & seq & tred & tdisj & tto): (>> safe_red_p red' (hsafei 1) h_ntid); eauto.
+        destruct (disj_upd eqni h_ntid) as [hq [hdeq_q  heq_q]].
+        exists pss' (replace pss2 tid pst2) c' (replace cs tid c2) h'.
         repeat split; eauto.
-
-         + rewrite heq_q in tto; simpl in tto.
-          assert (get_hs (replace pss2 tid pst2) = replace (get_hs pss2) tid (snd pst2)) as Ht.
+        + (* rewrite heq_q in tto; simpl in tto. *)
+          assert (get_hs (replace pss2 tid pss2[@tid]) = replace (get_hs pss2) tid (snd pss2[@tid])) as Ht.
           { apply eq_nth_iff; intros p1 p2 peq; rewrite peq. 
             unfold get_hs; erewrite Vector.nth_map; eauto.
             repeat rewrite replace_nth. destruct (fin_eq_dec tid p2); eauto.
             erewrite Vector.nth_map; eauto. }
-          rewrite Ht.
-          cutrewrite (htop h2 = hq); [eauto | symmetry; apply ptoheap_eq; eauto].
+          lets (h2' & Hdeq2' & Heq): (>>disj_upd eqni tdisj).
+          simpl in *.
+          cutrewrite (h2 = h2'); eauto.
+          unfold get_hs in *.
+          rewrite map_replace; eauto.
+          destruct h2, h2'; apply pheap_eq; simpl in *; congruence.
         + unfold get_cs_k; simpl; erewrite Vector.nth_map, !replace_nth; eauto.
           destruct (fin_eq_dec tid tid0); simpl; eauto.
           destruct (H5 tid0) as [Hc _]; unfold get_cs_k in Hc; erewrite Vector.nth_map in Hc; eauto.
@@ -529,7 +586,7 @@ Section BarrierDivergenceFreedom.
         { intros tid; destruct (Hbrr tid) as [cp [s [cq' [H1 [H2 H3]]]]]. specialize (heqss' tid).
           rewrite heqss' in H1; destruct ss2[@tid]; inversion H1; inversion H2; inversion H3; 
           subst; eauto. }
-        assert (forall tid, exists phP phF : pheap, 
+        assert (forall tid, exists (phP phF : pheap), 
                   pdisj phP phF /\ phplus phP phF = snd pss2[@tid] /\ 
                   sat (fst pss2[@tid], phP) (pre_j tid j)) as hpre.
         { intros tid; specialize (hsafe2 tid); destruct hsafe2 as [q hsafe2];
@@ -569,7 +626,7 @@ Section BarrierDivergenceFreedom.
           destruct (H tid1) as [_ [_ [_ hred1]]], (H tid2) as [_ [_ [_ hred2]]].
           eapply (fun x => non_interference_p2 hty' x hred1 hred2 (cswait tid1) (cswait tid2)).
           apply pss'compat; eauto. }
-        assert (exists phQs : Vector.t pheap ngroup, 
+        assert (exists (phQs : Vector.t pheap ngroup), 
                   disj_eq phQs hP /\ 
                   forall tid : Fin.t ngroup, 
                     pdisj phQs[@tid] phFs[@tid] /\ 
@@ -611,13 +668,13 @@ Section BarrierDivergenceFreedom.
         assert (forall tid, pdisj phQs[@tid] phFs[@tid]) as hiddis by (intros tid; specialize (hid tid); tauto).
         set (phs := init (fun (tid : Fin.t ngroup) => phplus_pheap (hiddis tid))).
         set (pssq := Vector.map2 (fun x y => (fst x, y)) pss2 phs).
-        exists pssq, pssq, c'', (Vector.const c'' ngroup), (htop h).
+        exists pssq pssq c'' (Vector.const c'' ngroup) h.
         Hint Unfold low_eq_l2 get_hs get_ss.
         Hint Rewrite map_map2 map2_fst' map2_snd' init_spec.
         unfold pssq, phs.
         repeat split; eauto.
-        - autounfold; autorewrite with core; 
-          cutrewrite (htop h = phplus_pheap hdispf); [| apply pheap_eq; eauto].
+        - autounfold; autorewrite with core.
+          cutrewrite (h = phplus_pheap hdispf); [| destruct h; apply pheap_eq; eauto].
           apply (disj_eq_sum hdispf hdisq HhF).
           intros i; rewrite init_spec; eauto.
         - unfold get_ss.
@@ -630,7 +687,7 @@ Section BarrierDivergenceFreedom.
           unfold get_ss; apply Vector.eq_nth_iff; intros i1 i2 ?; subst.
           erewrite !Vector.nth_map; eauto; erewrite Vector.nth_map2; eauto; rewrite init_spec; eauto.
         - autounfold; autorewrite with core; 
-          cutrewrite (htop h = phplus_pheap hdispf); [| apply pheap_eq; eauto].
+          cutrewrite (h = phplus_pheap hdispf); [| destruct h; apply pheap_eq; eauto].
           apply (disj_eq_sum hdispf hdisq HhF).
           intros i; rewrite init_spec; eauto.
         - assert (forall tid, c' / pss'[@tid] || Some (j, fst ss2[@tid]) / pss2[@tid]).
@@ -672,18 +729,18 @@ Section BarrierDivergenceFreedom.
       | _, _ => False
     end.
 
-  Definition bdiv (ks : kstate ngroup) :=
-    exists tid1 tid2 : Fin.t ngroup, 
+  Definition bdiv (ks : pkstate ngroup) :=
+    exists (tid1 tid2 : Fin.t ngroup), 
       let c1 := (get_cs_k ks)[@tid1] in
       let c2 := (get_cs_k ks)[@tid2] in
       (exists j1 c1', wait c1 = Some (j1, c1') /\ c2 = Cskip) \/ 
       (exists j2 c2', c1 = Cskip                /\ wait c2 = Some (j2, c2')) \/ 
       diverge (wait c1) (wait c2).
 
-  Lemma when_stop (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2))
+  Lemma when_stop (ks1 ks2 : pkstate ngroup) (red_k : (ks1 ==>kp* ks2))
         (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) :
-    (exists ty : type, typing_cmd env c ty) ->
-    disj_eq hs1 (htop (snd ks1)) ->
+    (exists (ty : type), typing_cmd env c ty) ->
+    disj_eq hs1 ((snd ks1)) ->
     ss1 = get_ss_k ks1 -> low_eq_l2 env ss1 ->
     (forall tid : Fin.t ngroup, (get_cs_k ks1)[@tid] = c) -> 
     (forall tid : Fin.t ngroup, safe_aux tid c (ss1[@tid]) (hs1[@tid])) ->
@@ -716,11 +773,11 @@ Section BarrierDivergenceFreedom.
       rewrite <-heq1, <-heq2; unfold get_ss; erewrite !Vector.nth_map; eauto.
   Qed.
 
-  Lemma when_barrier (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2))
+  Lemma when_barrier (ks1 ks2 : pkstate ngroup) (red_k : (ks1 ==>kp* ks2))
         (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) 
         (ws : Vector.t (nat * cmd) ngroup):
-    (exists ty : type, typing_cmd env c ty) ->
-    disj_eq hs1 (htop (snd ks1)) ->
+    (exists (ty : type), typing_cmd env c ty) ->
+    disj_eq hs1 (snd ks1) ->
     ss1 = get_ss_k ks1 -> low_eq_l2 env ss1 ->
     (forall tid : Fin.t ngroup, (get_cs_k ks1)[@tid] = c) -> 
     (forall tid : Fin.t ngroup, safe_aux tid c (ss1[@tid]) (hs1[@tid])) ->
@@ -755,7 +812,7 @@ Section BarrierDivergenceFreedom.
     - apply leq_low_eq_l2; intros tid1 tid2 hneq; specialize (hleq tid1 tid2 hneq).
       destruct (Htid tid1) as [_ [heq1 _]], (Htid tid2) as [_ [heq2 _]];
         rewrite <-heq1, <-heq2; unfold get_ss; erewrite !Vector.nth_map; eauto.
-    - assert (exists b : nat, forall tid : Fin.t ngroup, (Vector.map (fst (B:=cmd)) ws) [@tid] = b)
+    - assert (exists (b : nat), forall tid : Fin.t ngroup, (Vector.map (fst (B:=cmd)) ws) [@tid] = b)
         as [b H'].
       { apply (vector_eq2_ex 0%nat); intros i j neq.
         destruct  (Hcomp i j neq) as [? ?]; 
@@ -763,10 +820,10 @@ Section BarrierDivergenceFreedom.
       exists b. intros tid; specialize (H' tid); erewrite Vector.nth_map in H'; eauto.
   Qed.
   
-  Theorem barrier_divergence_freedom  (ks1 ks2 : kstate ngroup) (red_k : (ks1 ==>k* ks2))
+  Theorem barrier_divergence_freedom  (ks1 ks2 : pkstate ngroup) (red_k : (ks1 ==>kp* ks2))
           (hs1 : Vector.t pheap ngroup) (ss1 : Vector.t stack ngroup) (c : cmd) :
-    (exists ty : type, typing_cmd env c ty) ->
-    disj_eq hs1 (htop (snd ks1)) ->
+    (exists (ty : type), typing_cmd env c ty) ->
+    disj_eq hs1 (snd ks1) ->
     ss1 = get_ss_k ks1 -> low_eq_l2 env ss1 ->
     (forall tid : Fin.t ngroup, (get_cs_k ks1)[@tid] = c) -> 
     (forall tid : Fin.t ngroup, safe_aux tid c (ss1[@tid]) (hs1[@tid])) ->
@@ -798,3 +855,5 @@ Section BarrierDivergenceFreedom.
           as [? [? ?]]; congruence).
   Qed.
 End BarrierDivergenceFreedom.
+
+

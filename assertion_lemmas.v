@@ -251,7 +251,7 @@ Proof.
   exists ph3, ph1; repeat split; auto.
   apply pdisj_padd_expand; auto.
   rewrite <-padd_assoc; auto.
-  apply pdisj_padd_expand; auto.
+  (* apply pdisj_padd_expand; auto. *)
 Qed.
 
 Lemma scRw_stack (s : stack) (P Q P' Q' : assn) :
