@@ -698,11 +698,11 @@ Section ParCSL.
         apply (hlowQ tid _ _ _ Hst), hsafei.
         unfold cs; erewrite Vector.nth_map; eauto.
     - intros Hc.
-      (* Lemma bdiv_weaken {ntrd' : nat} (ks : klist ntrd) (h h' : heap) : *)
-      (*   bdiv (ks, h) -> bdiv (ks, h'). *)
-      (* Proof. *)
-      (*   unfold bdiv; intros (tid1 & tid2 & ?); exists tid1 tid2; apply H. *)
-      (* Qed. *)
+      Lemma bdiv_weaken {ntrd' : nat} (ks : klist ntrd) (h h' : pheap) :
+        bdiv (ks, h) -> bdiv (ks, h').
+      Proof.
+        unfold bdiv; intros (tid1 & tid2 & ?); exists tid1 tid2; apply H.
+      Qed.
       destruct h_for_bdiv as (ks1 & ph_ini & hs1 & c & ty & H).
       (* apply (@bdiv_weaken ntrd _ _ h') in Hc. *)
       eapply barrier_divergence_freedom in Hc; destructs H; unfold get_cs_k, get_ss_k in *; simpl in *; eauto.
