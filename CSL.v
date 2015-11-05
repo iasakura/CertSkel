@@ -206,7 +206,7 @@ Section SeqCSL.
       { apply pdisj_padd_expand in hdis; eauto; tauto. }
       assert (phplus (phplus ph phR) hF = phplus ph (phplus phR hF)).
       { apply padd_assoc; eauto.
-        apply pdisjC in hdis; apply pdisjE2 in hdis; eauto. }
+        (* apply pdisjC in hdis; apply pdisjE2 in hdis; eauto.  *)}
       destruct hsafe as [_ [_ [_ [_ [hsafe _]]]]].
       apply pdisjC in hdis; apply pdisjE2 in hdis; apply pdisjC in hdis.
       rewrite H, <- (phplus_eq hdis) in heq.
@@ -228,7 +228,7 @@ Section SeqCSL.
       exists phP (phplus_pheap hdis'R); repeat split; eauto; simpl.
       apply pdisj_padd_expand; eauto; rewrite <-heqP' in disR; eauto.
       rewrite <- heqP', padd_assoc; eauto.
-      apply pdisj_padd_expand; eauto; rewrite <-heqP' in disR; eauto.
+      (* apply pdisj_padd_expand; eauto; rewrite <-heqP' in disR; eauto. *)
       intros phQ H0 Hsatq.
       assert (pdisj phQ ph') by (apply pdisjE1 in H0; eauto).
       specialize (Hq phQ H1 Hsatq).
@@ -662,8 +662,8 @@ Section ParCSL.
         rewrite hph; eauto.
       - simpl.
         rewrite <-padd_assoc, hph; eauto.
-        apply pdisj_padd_expand; eauto.
-        rewrite hph; eauto. }
+        (* apply pdisj_padd_expand; eauto. *)
+        (* rewrite hph; eauto. *) }
     (* assert (ptoheap (phplus hs[@tid] h') ph). *)
     (* {  *)
     (*   by (rewrite hph; apply ptoheap_htop). *)

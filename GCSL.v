@@ -548,7 +548,9 @@ Section For_List_Notation.
       destruct (Hsafe bid) as (_ & _ & _ & _ & Hsafei).
       assert (HdisbF : pdisj hb hF).
       { rewrite <-Heqr in Hdis; apply pdisjC, pdisjE2, pdisjC in Hdis; eauto. }
+      
       lets (ph'' & Hdis'' & Heq'' & Hsafe''): (>> Hsafei (phplus_pheap (as_gheap_pdisj _ _ HdisbF)) Hred).
+      (* disjointness *)
       { apply pdisj_padd_expand; eauto; split; eauto.
         apply sh_gh_disj; eauto.
         apply phplus_is_gheap; eauto.
@@ -556,6 +558,7 @@ Section For_List_Notation.
         apply pdisj_padd_expand; eauto.
         simpl; rewrite <-phplus_as_gheap, Heqr; eauto.
         apply as_gheap_pdisj; eauto. }
+      (* equality: sh_gl_pheap shs[@bid] ghs[@bid] |+|p (hb |+| hF) = shs[@bid] |+| h *)
       { apply eq_ptoheap.
         unfold sh_gl_pheap.
         cutrewrite (this (phplus_pheap (sh_gl_is_ph shs[@bid] ghs[@bid])) =
@@ -583,16 +586,16 @@ Section For_List_Notation.
         (* 残り *)
         apply pdisj_padd_expand; eauto.
         rewrite Heqr; eauto.
-        apply pdisj_padd_expand; eauto.
-        rewrite Heqr; eauto.
-        apply sh_gh_disj; eauto.
-        repeat apply phplus_is_gheap; eauto.
-        simpl.
-        rewrite <-phplus_as_gheap; eauto.
-        cutrewrite (phplus hb hF = phplus_pheap HdisbF); auto.
-        apply as_gheap_pdisj.
-        apply pdisj_padd_expand; eauto.
-        rewrite Heqr; eauto. }
+        (* apply pdisj_padd_expand; eauto. *)
+        (* rewrite Heqr; eauto. *)
+        (* apply sh_gh_disj; eauto. *)
+        (* repeat apply phplus_is_gheap; eauto. *)
+        (* simpl. *)
+        (* rewrite <-phplus_as_gheap; eauto. *)
+        (* cutrewrite (phplus hb hF = phplus_pheap HdisbF); auto. *)
+        (* apply as_gheap_pdisj. *)
+        (* apply pdisj_padd_expand; eauto. *)
+        (* rewrite Heqr; eauto. *) }
       
         assert (Heq : as_sheap shs[@bid] |+| as_npgheap h =
                       (as_sheap (sh_hp gs)[@bid] |+| ghs[@bid]) |+| (hb |+| as_gheap hF)).
