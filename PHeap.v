@@ -372,11 +372,11 @@ Proof.
   cutrewrite (is_p1 = is_p2); [eauto | apply proof_irrelevance ].
 Qed.
 
-Lemma ptoheap_eq (ph : gen_pheap) (h : heap) : ptoheap ph h -> ph = htop h.
+Lemma ptoheap_eq (ph : gen_pheap') (h : heap) : ptoheap ph h -> ph = htop h.
 Proof.
   intros ptoheap.
-  unfold htop, htop' in *; destruct ph as [ph iph]; apply pheap_eq; extensionality x.
-  specialize (ptoheap x); simpl in *; specialize (iph x).
+  unfold htop, htop' in *; (*destruct ph as [ph iph]; apply pheap_eq;*) extensionality x.
+  specialize (ptoheap x); simpl in *(* ; specialize (iph x) *).
   simpl in *; destruct (ph x) as [[? ?]|], (h x) as [? |];
   repeat match goal with [H : _ /\ _ |- _ ] => destruct H end;
   try tauto; try congruence.

@@ -413,12 +413,12 @@ Section SeqCSL.
   Definition indelE (Exp : loc_exp) (x : var) :=
     forall s v, ledenot Exp s = ledenot Exp (var_upd s x v).
 
-  Lemma htop_eq (h : heap) (ph : pheap) :
-    ph = htop h -> forall x, h x = match this ph x with | Some (_, x) => Some x | None => None end.
+  Lemma htop_eq (h : heap) (ph : pheap') :
+    ph = htop h -> forall x, h x = match ph x with | Some (_, x) => Some x | None => None end.
   Proof.
     intros heq x.
-    destruct ph as [ph ?]; unfold htop in heq; inversion heq; simpl in *.
-    rewrite H0; unfold htop'; destruct (h x); eauto.
+    (*destruct ph as [ph ?];  *) unfold htop, htop' in *; inversion heq; simpl in *.
+    (* rewrite H; unfold htop';  *)destruct (h x); eauto.
   Qed.
 
   Theorem rule_read (x : var) (E1 : loc_exp) (E2 : exp) (p : Qc) :
