@@ -6,84 +6,68 @@ Require Import scan_lib.
 Section Fold.
 
 (* Var *)
-Notation I := (Var 1).
-Notation St := (Var 2).
-Notation T1 := (Var 3).
-Notation T2 := (Var 4).
-Notation ARR := (Var 5).
-
-(* Definition skip_sum_body (f : nat -> Z)  (skip : nat) (Hskip : skip <> 0)  : *)
-(*   forall (len : nat) *)
-(*     (rec : forall len', len' < len -> nat -> Z) *)
-(*     (s : nat), Z. *)
-(*   refine ( *)
-(*   fun len rec s =>  *)
-(*     match len as l0 return l0 = len -> Z with *)
-(*       | O => fun _ => 0 *)
-(*       | _ => fun _ => f s + rec (len - skip)%nat _ (s + skip)%nat *)
-(*     end eq_refl)%Z. *)
-(*   abstract omega. *)
-(* Defined. *)
-
-(* Definition skip_sum' (skip : nat) (len : nat) (f : nat -> Z) (s : nat): Z. *)
-(*   refine (match skip as skip' return skip' = skip -> Z with *)
-(*     | O => fun _ => 0%Z *)
-(*     | S _ => fun H => Fix lt_wf (fun _ => nat -> Z) (@skip_sum_body f skip _) len s *)
-(*   end eq_refl). *)
-(*   abstract omega. *)
-(* Defined. *)
-(* (* Variable myadd : Z -> Z -> Z. *) *)
-(* (* Infix "+?" := myadd (at level 30). *) *)
-(* Lemma Fix_eq_ok f skip (Hskip : skip <> 0) : *)
-(*   forall (len : nat) (F G : forall len' : nat, len' < len -> nat -> Z), *)
-(*   (forall (len' : nat) (p : len' < len), F len' p = G len' p) -> *)
-(*   skip_sum_body f Hskip F = skip_sum_body f Hskip G. *)
-(* Proof. *)
-(*   intros; unfold skip_sum_body. *)
-(*   assert (F = G) by (do 2 let x := fresh in extensionality x; auto). *)
-(*   rewrite !H0; auto. *)
-(* Qed. *)
+Notation TID := (Var 0).
+Notation BID := (Var 1).
+Notation I := (Var 2).
+Notation St := (Var 3).
+Notation T1 := (Var 4).
+Notation T2 := (Var 5).
+Notation ARR := (Var 6).
+Notation SARR := (Var 7).
 
 Definition If (b : bexp) (c : cmd) := Cif b c.
 
 Variable ntrd : nat.
+Variable nblk : nat.
+Notation nt_gr := (nblk * ntrd).
+Variable len : nat.
 Hypothesis ntrd_neq_0 : ntrd <> 0.
 Hypothesis ntrd_is_p2 : exists e : nat, ntrd = 2 ^ e.
+Hypothesis nblk_neq_0 : nblk <> 0.
 
 Variable f : nat -> Z.
 
-Definition INV i :=
+Notation f_ss := (skip_sum nt_gr 0 len f).
+
+Definition INV2 i :=
   Ex (s e : nat) fc,
     !(TID === Enum' i) **
     !(St === Enum' s) **
     !(pure (s = (2 ^ e / 2))) **
-    !(pure (if lt_dec i (ceil2 s) then fc i = skip_sum (dbl s) 0 (ntrd * 2) f i /\
-                                       fc (i + s) = skip_sum (dbl s) 0 (ntrd * 2) f (i + s)
+    !(pure (if lt_dec i (ceil2 s) then
+              fc i = skip_sum (dbl s) 0 (ntrd * 2) f_ss i /\
+              fc (i + s) = skip_sum (dbl s) 0 (ntrd * 2) f_ss (i + s)
             else True)) **
     !(pure (s <= ntrd)) **
     (if Nat.eq_dec s 0 then
-       nth i (distribute 1 (Gl ARR) (ntrd * 2) fc (nt_step 1) 0) emp
+       nth i (distribute 1 (Sh ARR) (ntrd * 2) fc (nt_step 1) 0) emp
      else
-       nth i (distribute s (Gl ARR) (ntrd * 2) fc (nt_step s) 0) emp).
+       nth i (distribute s (Sh ARR) (ntrd * 2) fc (nt_step s) 0) emp).
+
+Definition INV1 tid :=
+  Ex (ix : nat),
+    !(TID === Enum' tid) **
+    !(I === Enum' (ix * nt_gr + tid)) **
+    !(Apure (ix * nt_gr + tid < len + nt_gr)%nat) **
+    !(T2 === skip_sum nt_gr 0 (ix * nt_gr) f tid) **
+    skip_arr (Gl ARR) 0 len nt_gr f tid **
+    (Ex v, Sh SARR +o Enum' tid -->p (1%Qc, v)).
 
 Open Scope bexp_scope.
 
-Definition fold_ker' :=
-  St ::= Enum' ntrd ;;
-  Cwhile ( Enum' 0 < St ) (
-    If ( Evar TID < St ) (
-      T1 ::= [ Gl ARR +o TID ] ;;
-      T2 ::= [ Gl ARR +o (TID + St) ] ;;
-      [ Gl ARR +o TID ] ::= T1 + T2
-    ) (SKIP) ;;
-    St ::= St >>1 ;;
-    Cbarrier 0
-  )%exp.
 Close Scope bexp_scope.
 Definition fold_ker (i : nat) :=
+  I ::= (TID +C BID *C Z.of_nat ntrd) ;;
+  T2 ::= [ Gl ARR +o I ] ;;
+  I ::= I +C Z.of_nat ntrd *C Z.of_nat nblk ;;
+  WhileI (INV1 i) ( I <C Z.of_nat len ) (
+    T1 ::= [ Sh SARR +o I ] ;;
+    T2 ::= T1 +C T2
+  )%exp;;
+  Cbarrier 0;;
   St ::= Enum' ntrd ;;
-  WhileI (INV i) ( Enum' 0 < St ) (
-    If ( Evar TID < St ) (
+  WhileI (INV2 i) ( Enum' 0 < St ) (
+    If ( Evar TID <C St ) (
       T1 ::= [ Gl ARR +o TID ] ;;
       T2 ::= [ Gl ARR +o (TID + St) ] ;;
       [ Gl ARR +o TID ] ::= T1 + T2
@@ -91,6 +75,8 @@ Definition fold_ker (i : nat) :=
     St ::= St >>1 ;;
     Cbarrier 0
   )%exp.
+
+Definition fold_ker' : cmd := fold_ker 0.
 
 Definition binv0 : Vector.t assn ntrd * Vector.t assn ntrd :=
   (MyVector.init (fun i : Fin.t ntrd =>
@@ -113,14 +99,20 @@ Definition binv0 : Vector.t assn ntrd * Vector.t assn ntrd :=
       nth tid (distribute (ceil2 s) (Gl ARR) (ntrd * 2) fc (nt_step (ceil2 s)) 0) emp **
       !(pure (dbl s <= ntrd)))).
 
+
+
 Arguments div _ _ : simpl never.
-Theorem fold_ker_correct (tid : Fin.t ntrd) : 
+Theorem fold_ker_correct (tid : Fin.t ntrd) (bid : Fin.t nblk) : 
   CSL (fun i => match i with O => binv0 | _ => default ntrd end) tid
-  (nth (nat_of_fin tid) (distribute ntrd (Gl ARR) (ntrd * 2) f (nt_step ntrd) 0) emp **
-   !(TID === Z_of_fin tid))
+  (Ex f',
+   skip_arr (Sh SARR) 0 (ntrd * 2) ntrd  f' (nf tid) **
+   skip_arr (Gl ARR ) 0 len        nt_gr f  (nf tid + nf bid * ntrd) **
+   !(TID === Z_of_fin tid) **
+   !(BID === Z_of_fin bid))
   (fold_ker (nat_of_fin tid))
   (Ex fc,
      nth (nat_of_fin tid) (distribute 1 (Gl ARR) (ntrd * 2) fc (nt_step 1) 0) emp **
+     skip_arr (Gl ARR ) 0 len        nt_gr f (nf tid + nf bid * ntrd) **
      !(pure (if Nat.eq_dec (nf tid) 0 then (fc 0 = sum_of 0 (ntrd * 2) f) else True))).
 Proof.
   (* introduction *)
