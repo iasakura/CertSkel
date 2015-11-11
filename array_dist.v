@@ -455,7 +455,7 @@ Proof.
     split; intros H'; sep_normal; sep_normal_in H'; sep_cancel.
 Qed.
 
-Lemma skip_arr_nth' nt f e i tid :
+Lemma skip_arr_nth' i nt f e tid :
   forall n,
   0 < nt -> tid < nt ->
   nt * i + tid < n ->

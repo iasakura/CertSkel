@@ -35,38 +35,40 @@ Definition INV2 i :=
     !(St === Enum' s) **
     !(pure (s = (2 ^ e / 2))) **
     !(pure (if lt_dec i (ceil2 s) then
-              fc i = skip_sum (dbl s) 0 (ntrd * 2) f_ss i /\
-              fc (i + s) = skip_sum (dbl s) 0 (ntrd * 2) f_ss (i + s)
+              fc i = skip_sum (dbl s) 0 ntrd f_ss i /\
+              fc (i + s) = skip_sum (dbl s) 0 ntrd f_ss (i + s)
             else True)) **
-    !(pure (s <= ntrd)) **
+    !(pure (s <= ntrd / 2)) **
     (if Nat.eq_dec s 0 then
-       nth i (distribute 1 (Sh ARR) (ntrd * 2) fc (nt_step 1) 0) emp
+       nth i (distribute 1 (Sh SARR) ntrd fc (nt_step 1) 0) emp
      else
-       nth i (distribute s (Sh ARR) (ntrd * 2) fc (nt_step s) 0) emp).
+       nth i (distribute s (Sh SARR) ntrd fc (nt_step s) 0) emp).
 
-Definition INV1 tid :=
-  Ex (ix : nat),
-    !(TID === Enum' tid) **
-    !(I === Enum' (ix * nt_gr + tid)) **
-    !(Apure (ix * nt_gr + tid < len + nt_gr)%nat) **
-    !(T2 === skip_sum nt_gr 0 (ix * nt_gr) f tid) **
-    skip_arr (Gl ARR) 0 len nt_gr f tid **
-    (Ex v, Sh SARR +o Enum' tid -->p (1%Qc, v)).
+Definition INV1 tid1 tid2 :=
+  Ex (ix : nat) (v : Z),
+    !(TID === Enum' tid1) **
+    !(I === Enum' (ix * nt_gr + tid2)) **
+    !(Apure (ix * nt_gr + tid2 < len + nt_gr)%nat) **
+    !(T2 === skip_sum nt_gr 0 (ix * nt_gr) f tid2) **
+    skip_arr (Gl ARR) 0 len nt_gr f tid2 **
+    (Sh SARR +o Enum' tid1 -->p (1%Qc, v)).
 
 Open Scope bexp_scope.
 
 Close Scope bexp_scope.
-Definition fold_ker (i : nat) :=
+Definition fold_ker (i1 i2 : nat) :=
   I ::= (TID +C BID *C Z.of_nat ntrd) ;;
   T2 ::= [ Gl ARR +o I ] ;;
   I ::= I +C Z.of_nat ntrd *C Z.of_nat nblk ;;
-  WhileI (INV1 i) ( I <C Z.of_nat len ) (
+  WhileI (INV1 i1 i2) ( I <C Z.of_nat len ) (
     T1 ::= [ Gl ARR +o I ] ;;
-    T2 ::= T1 +C T2
+    T2 ::= T1 +C T2 ;;
+    I ::= Z.of_nat ntrd *C Z.of_nat nblk + I
   )%exp;;
+  [ Sh SARR +o TID ] ::= T2 ;;
   Cbarrier 0;;
-  St ::= Enum' ntrd ;;
-  WhileI (INV2 i) ( Enum' 0 < St ) (
+  St ::= Enum' ntrd >>1;;
+  WhileI (INV2 i1) ( Enum' 0 < St ) (
     If ( Evar TID <C St ) (
       T1 ::= [ Gl ARR +o TID ] ;;
       T2 ::= [ Gl ARR +o (TID + St) ] ;;
@@ -76,28 +78,36 @@ Definition fold_ker (i : nat) :=
     Cbarrier 0
   )%exp.
 
-Definition fold_ker' : cmd := fold_ker 0.
+Definition fold_ker' : cmd := fold_ker 0 0.
 
-Definition binv0 : Vector.t assn ntrd * Vector.t assn ntrd :=
+Definition binv0 (bid : Fin.t nblk) : Vector.t assn ntrd * Vector.t assn ntrd :=
+  (MyVector.init (fun i : Fin.t ntrd =>
+   let tid := nf i in 
+   (Sh SARR +o Zn tid -->p (1%Qc, f_ss (tid + nf bid * ntrd)))),
+   MyVector.init (fun i : Fin.t ntrd =>
+   let tid := nf i in
+   nth tid (distribute (ceil2 (ntrd /2)) (Sh SARR) ntrd f_ss (nt_step (ceil2 (ntrd / 2))) 0) emp)).
+   
+Definition binv1 : Vector.t assn ntrd * Vector.t assn ntrd :=
   (MyVector.init (fun i : Fin.t ntrd =>
    let tid := nat_of_fin i in
    Ex s fc,
      !(St === Enum' s) **
       let tid := nat_of_fin i in
-      !(pure (if lt_dec tid (dbl s) then fc tid = skip_sum (dbl s) 0 (ntrd * 2) f tid else True)) **
-      nth tid (distribute (dbl s) (Gl ARR) (ntrd * 2) fc (nt_step (dbl s)) 0) emp **
-      !(pure (dbl s <= ntrd))),
+      !(pure (if lt_dec tid (dbl s) then fc tid = skip_sum (dbl s) 0 ntrd f tid else True)) **
+      nth tid (distribute (dbl s) (Gl ARR) ntrd fc (nt_step (dbl s)) 0) emp **
+      !(pure (dbl s <= ntrd / 2))),
    MyVector.init (fun i => 
    let tid := nat_of_fin i in
    Ex s fc, 
      !(St === Enum' s) **
       let tid := nat_of_fin i in
       !(pure (if lt_dec tid (ceil2 s) then
-                fc tid = skip_sum (dbl s) 0 (ntrd * 2) f tid /\
-                fc (tid + s) = skip_sum (dbl s) 0 (ntrd * 2) f (tid + s)
+                fc tid = skip_sum (dbl s) 0 ntrd f tid /\
+                fc (tid + s) = skip_sum (dbl s) 0 ntrd f (tid + s)
               else True)) **
-      nth tid (distribute (ceil2 s) (Gl ARR) (ntrd * 2) fc (nt_step (ceil2 s)) 0) emp **
-      !(pure (dbl s <= ntrd)))).
+      nth tid (distribute (ceil2 s) (Gl ARR) ntrd fc (nt_step (ceil2 s)) 0) emp **
+      !(pure (dbl s <= ntrd / 2)))).
 
 Arguments div _ _ : simpl never.
 Lemma nf_lt (n : nat) (i : Fin.t n) : nf i < n.
@@ -124,13 +134,13 @@ Hint Resolve nt_gr_neq_0 id_lt_nt_gr nf_lt.
 
 Theorem fold_ker_correct (tid : Fin.t ntrd) (bid : Fin.t nblk) :
   nt_gr <= len ->
-  CSL (fun i => match i with O => binv0 | _ => default ntrd end) tid
-  (Ex f',
-   skip_arr (Sh SARR) 0 (ntrd * 2) ntrd  f' (nf tid) **
+  CSL (fun i => match i with O => binv0 bid | _ => default ntrd end) tid
+  (Ex  (v : Z),
+   (Sh SARR +o Z_of_fin tid -->p (1, v)) **
    skip_arr (Gl ARR ) 0 len        nt_gr f  (nf tid + nf bid * ntrd) **
    !(TID === Z_of_fin tid) **
    !(BID === Z_of_fin bid))
-  (fold_ker (nat_of_fin tid))
+  (fold_ker (nf tid) (nf tid + nf bid * ntrd))
   (Ex fc,
      nth (nat_of_fin tid) (distribute 1 (Gl ARR) (ntrd * 2) fc (nt_step 1) 0) emp **
      skip_arr (Gl ARR ) 0 len        nt_gr f (nf tid + nf bid * ntrd) **
@@ -140,7 +150,7 @@ Proof.
   unfold fold_ker, skip_arr.
   pose proof (nf_lt tid) as nf_lt.
   assert (Hnt_gr : nf tid + nf bid * ntrd < nt_gr) by eauto.
-  hoare_forward.
+  repeat hoare_forward.
   eapply rule_seq.
   { hoare_forward.
     intros ? ? [v H].
@@ -172,23 +182,81 @@ Proof.
 
   eapply rule_seq.
   { repeat hoare_forward; unfold INV1, skip_arr.
-    - eapply rule_seq.
-      { eapply Hbackward.
-        Focus 2. { 
+    - { eapply Hbackward.
+        Focus 2. {
         intros s h H.
         apply ex_lift_l_in in H; destruct H as [ix H].
+        apply ex_lift_l_in in H; destruct H as [v H].
         sep_split_in H.
         change_in H.
         { unfold_pures.
+          Require Import LibTactics.
+          sep_rewrite_in (@skip_arr_nth' ix) H; [|first [now eauto | omega | nia]..].
+          exact H. }
+        assert (Heq : ((Gl ARR +o Zn (ix * nt_gr + (nf tid + nf bid * ntrd))) ===l
+                       (Gl ARR +o I)) s (emp_ph loc)).
+        { unfold_pures; unfold_conn; simpl; f_equal; nia. }
+        sep_rewrite_in mps_eq1 H; [clear Heq|exact Heq].
+        sep_combine_in H. ex_intro ix H. ex_intro v H. exact H. } Unfocus.
+      repeat hoare_forward.
+      eapply rule_seq.
+      { hoare_forward; intros ? ? H; exact H. }
+      eapply rule_seq.
+      { hoare_forward; intros ? ? [v H]. subA_normalize_in H. simpl in H. ex_intro v H; exact H. }
+      repeat hoare_forward. intros ? ? [v H].
+      subA_normalize_in H. simpl in H.
+      sep_normal_in H; sep_split_in H.
+      unfold_pures. subst v.
+      exists (S x2) x1.
+      sep_split; eauto.
+      - unfold_conn; simpl; nia.
+      - unfold_conn; simpl. nia.
+      - unfold_conn; simpl. admit.
+      - sep_rewrite (@skip_arr_nth' x2); [|first [now eauto | omega | nia]..].
+        sep_normal; sep_normal_in H.
+        repeat sep_cancel. }
+    - intros ? ? H; exact H.
+    - intros s h H; sep_normal_in H; sep_split_in H; unfold_pures. subst x0.
+      exists 1 x.
+      sep_split; eauto.
+      + unfold_conn; simpl. nia.
+      + unfold_conn; simpl. nia.
+      + unfold_conn; simpl. admit.
+      + assert (Heq : 0 = 0 * nt_gr) by auto; rewrite Heq; clear Heq.
+        sep_rewrite skip_arr_unfold'; try nia.
+        simpl.
+        rewrite Nat2Z.inj_add, Nat2Z.inj_mul.
+        sep_normal. repeat sep_cancel. }
 
-          
-          
+  eapply rule_seq.
+  { eapply Hbackward.
+    Focus 2. {
+    intros ? ? H.
+    apply ex_lift_l_in in H; destruct H as [ix H].
+    apply ex_lift_l_in in H; destruct H as [v H].
+    sep_normal_in H.
+    ex_intro v H. ex_intro ix H. simpl in H. exact H. } Unfocus.
+    repeat hoare_forward.
+    intros ? ? H. ex_intro x0 H. exact H. }
 
+  hoare_forward.
+  eapply rule_seq.
+  { forward_barr.
+    intros s h H; exact H.
+    intros s h H. simpl. rewrite MyVector.init_spec.
+    sep_split_in H.
+    assert (Heq : skip_sum nt_gr 0 (x0 * nt_gr) f (nf tid + nf bid * ntrd) =
+                  f_ss (nf tid + nf bid * ntrd)) by admit.
+    rewrite Heq in HP2.
+    change_in H.
+    { clear HP0 HP1 HP2 HP3.
+      sep_combine_in H. exact H. }
+    sep_cancel. }
 
   (* introduction *)
   unfold fold_ker.
-  assert (Htid : nat_of_fin tid < ntrd) by (destruct (Fin.to_nat tid); simpl in *; try omega).
-  remember (ntrd * 2) eqn:Hntrd2.
+  (* assert (Htid : nat_of_fin tid < ntrd) by (destruct (Fin.to_nat tid); simpl in *; try omega). *)
+  (* remember (ntrd * 2) eqn:Hntrd2. *)
 
   (* exec the 1st command *)
   eapply rule_seq.
@@ -200,15 +268,33 @@ Proof.
   (* the loop invariant holds before the loop *)
   hoare_forward.
   Focus 3.
-  { unfold INV; intros s h H.
+  { unfold INV2; intros s h H.
     destruct ntrd_is_p2 as [e Hntrd].
-    exists (ntrd), (S e), f.
+    exists (ntrd / 2) e f_ss.
     sep_split_in H; unfold_pures; sep_split; autorewrite with sep in *; auto.
-    - destruct (lt_dec (nf tid) (ceil2 ntrd)); [|unfold_conn; auto].
+    - unfold_conn; simpl; subst; eauto.
+    - destruct (lt_dec (nf tid) (ceil2 (ntrd / 2))); [|unfold_conn; auto].
       unfold dbl in *; destruct Nat.eq_dec; try omega.
-      split; rewrite skip_sum1; try omega.
+      + assert (ntrd = 1).
+        { destruct ntrd as [|[|?]]; try omega.
+          cutrewrite (S (S n) = n + 1 * 2) in e0; [|omega].
+          rewrite Nat.div_add in e0; omega. }
+        clear Hntrd; subst ntrd.
+        rewrite !skip_sum1; try omega; split; eauto.
+      + cutrewrite (ntrd / 2 * 2 = ntrd).
+        rewrite !skip_sum1; try omega.
+        split; eauto.
+        unfold ceil2 in l. destruct Nat.eq_dec; try omega.
+        assert (ntrd / 2 * 2 <= ntrd) by (apply div_mult; omega).
+        omega.
+        lets (_ & Heq): (>>Nat.div_exact ntrd 2); try omega.
+        destruct e; [subst; cbv in n; omega|].
+        rewrite Heq at 2; try ring.
+        rewrite Hntrd.
+        cutrewrite (2 ^ S e = 2 ^ e * 2); [|simpl; omega].
+        rewrite Nat.mod_mul; eauto.
     - red; auto.
-    - destruct (Nat.eq_dec _ _); [omega | congruence]. } Unfocus.
+    - unfold ceil2 in *. destruct (Nat.eq_dec _ _). [omega | congruence]. } Unfocus.
 
   (* make the precondition normal form *)
   eapply Hbackward.
