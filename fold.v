@@ -61,7 +61,7 @@ Definition fold_ker (i : nat) :=
   T2 ::= [ Gl ARR +o I ] ;;
   I ::= I +C Z.of_nat ntrd *C Z.of_nat nblk ;;
   WhileI (INV1 i) ( I <C Z.of_nat len ) (
-    T1 ::= [ Sh SARR +o I ] ;;
+    T1 ::= [ Gl ARR +o I ] ;;
     T2 ::= T1 +C T2
   )%exp;;
   Cbarrier 0;;
@@ -99,10 +99,31 @@ Definition binv0 : Vector.t assn ntrd * Vector.t assn ntrd :=
       nth tid (distribute (ceil2 s) (Gl ARR) (ntrd * 2) fc (nt_step (ceil2 s)) 0) emp **
       !(pure (dbl s <= ntrd)))).
 
-
-
 Arguments div _ _ : simpl never.
-Theorem fold_ker_correct (tid : Fin.t ntrd) (bid : Fin.t nblk) : 
+Lemma nf_lt (n : nat) (i : Fin.t n) : nf i < n.
+  destruct Fin.to_nat; simpl; eauto.
+Qed.
+
+Require Import Psatz.
+
+Lemma id_lt_nt_gr i j n m : i < n -> j < m -> i + j * n < m * n.
+Proof.
+  intros.
+  assert (i + j * n < n + j * n) by omega.
+  assert (n + j * n <= m * n) by nia.
+  omega.
+Qed.
+
+Lemma nt_gr_neq_0 : nt_gr <> 0.
+Proof.
+  apply Nat.neq_mul_0; tauto.
+Qed.
+
+Hint Resolve nf_lt.
+Hint Resolve nt_gr_neq_0 id_lt_nt_gr nf_lt.
+
+Theorem fold_ker_correct (tid : Fin.t ntrd) (bid : Fin.t nblk) :
+  nt_gr <= len ->
   CSL (fun i => match i with O => binv0 | _ => default ntrd end) tid
   (Ex f',
    skip_arr (Sh SARR) 0 (ntrd * 2) ntrd  f' (nf tid) **
@@ -115,6 +136,55 @@ Theorem fold_ker_correct (tid : Fin.t ntrd) (bid : Fin.t nblk) :
      skip_arr (Gl ARR ) 0 len        nt_gr f (nf tid + nf bid * ntrd) **
      !(pure (if Nat.eq_dec (nf tid) 0 then (fc 0 = sum_of 0 (ntrd * 2) f) else True))).
 Proof.
+  intros Hnlen.
+  unfold fold_ker, skip_arr.
+  pose proof (nf_lt tid) as nf_lt.
+  assert (Hnt_gr : nf tid + nf bid * ntrd < nt_gr) by eauto.
+  hoare_forward.
+  eapply rule_seq.
+  { hoare_forward.
+    intros ? ? [v H].
+    unfold skip_arr in *. subA_normalize_in H. simpl in H. exact H. }
+
+  eapply rule_seq.
+  { repeat hoare_forward.
+    eapply Hbackward.
+    Focus 2. {
+      intros s h H.
+      sep_split_in H.
+      change_in H.
+      { unfold_pures.
+        sep_lift_in H 1.
+        assert (Heq : 0 = 0 * nt_gr) by auto.
+        rewrite Heq in H at 1; clear Heq.
+        sep_rewrite_in skip_arr_unfold' H; [|try first [now eauto | nia]..].
+        exact H. }
+      assert (Heq : (Gl ARR +o Zn (0 * nt_gr + (nf tid + nf bid * ntrd)) ===l
+                     Gl ARR +o I) s (emp_ph loc)).
+      { unfold_pures. unfold_conn; simpl; f_equal. nia. }
+      sep_rewrite_in mps_eq1 H; [|exact Heq]; clear Heq.
+      sep_combine_in H; exact H. } Unfocus.
+    hoare_forward. simpl. intros ? ? H; exact H. }
+
+  eapply rule_seq.
+  { hoare_forward. intros ? ? [v H]. subA_normalize_in H. simpl in H.
+    ex_intro v H; exact H. }
+
+  eapply rule_seq.
+  { repeat hoare_forward; unfold INV1, skip_arr.
+    - eapply rule_seq.
+      { eapply Hbackward.
+        Focus 2. { 
+        intros s h H.
+        apply ex_lift_l_in in H; destruct H as [ix H].
+        sep_split_in H.
+        change_in H.
+        { unfold_pures.
+
+          
+          
+
+
   (* introduction *)
   unfold fold_ker.
   assert (Htid : nat_of_fin tid < ntrd) by (destruct (Fin.to_nat tid); simpl in *; try omega).

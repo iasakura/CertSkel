@@ -422,3 +422,50 @@ Proof.
   - apply IHn; auto.
     intros j ?; rewrite <-plus_n_Sm; simpl; apply (Hf (S j)); omega.
 Qed.
+
+Require Import LibTactics.
+Require Import Psatz.
+
+Lemma skip_arr_nth nt f e i tid :
+  forall n st,
+  0 < nt -> tid < nt ->
+  nt * i + tid < n ->
+  forall stc, stc ||=
+    nth tid (distribute nt e n f (nt_step nt) (st * nt)) emp <=>
+    nth tid (distribute nt e (nt * i) f (nt_step nt) (st * nt)) emp **
+    (e +o Enum' ((st + i) * nt + tid) -->p (1, Enum (f ((st + i) * nt + tid)))) **
+    nth tid (distribute nt e (n - nt * S i) f (nt_step nt) (nt * S (st + i))) emp.
+Proof.
+  induction i; intros n st Hnt Htidnt Hlt stc.
+  - rewrite mult_0_r; simpl.
+    rewrite skip_arr_unfold'; try nia.
+    simpl.
+    rewrite mult_1_r, <-plus_n_O, mult_succ_r.
+    cutrewrite (nt * st + nt = nt + st * nt); [|ring].
+    rewrite nth_nseq; destruct leb; split; intros H; sep_normal; sep_normal_in H; repeat sep_cancel.
+  - assert (tid < n) by nia.
+    rewrite skip_arr_unfold'; try omega.
+    assert (tid < nt * S i) by nia.
+    rewrite (@skip_arr_unfold' tid e _ (nt * S i)); try omega.
+    assert ( nt * i + tid < n - nt) by nia.
+    rewrite IHi; try omega.
+    cutrewrite (nt * S i - nt = nt * i); [|nia].
+    cutrewrite (n - nt * S (S i) = n - nt - nt * S i); [|nia].
+    cutrewrite (st + S i = S st + i); [|nia].
+    split; intros H'; sep_normal; sep_normal_in H'; sep_cancel.
+Qed.
+
+Lemma skip_arr_nth' nt f e i tid :
+  forall n,
+  0 < nt -> tid < nt ->
+  nt * i + tid < n ->
+  forall stc, stc ||=
+    nth tid (distribute nt e n f (nt_step nt) 0) emp <=>
+    nth tid (distribute nt e (nt * i) f (nt_step nt) 0) emp **
+    (e +o Enum' (i * nt + tid) -->p (1, Enum (f (i * nt + tid)))) **
+    nth tid (distribute nt e (n - nt * S i) f (nt_step nt) (nt * S i)) emp.
+Proof.
+  intros.
+  lets H': (>>skip_arr_nth nt f e i tid n 0).
+  simpl in H'; apply H'; try omega.
+Qed.

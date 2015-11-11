@@ -11,6 +11,7 @@ Require Import MyList.
 Require Import LibTactics.
 Open Scope exp_scope.
 Open Scope bexp_scope.
+(* Require Import scan_lib. *)
 
 Section independent_prover.
   Ltac inde_simpl :=
@@ -211,7 +212,15 @@ Section subA_simpl.
           applys* IHl.
         * rewrite List.nth_overflow in *; [|rewrite add_nth_length, distribute_length..]; auto.
       + rewrite add_nth_overflow in *; (try rewrite distribute_length); auto.
-  Qed.      
+  Qed.
+
+  (* Lemma skip_arr_subA x e arr st len skip f_ini i : *)
+  (*   subA x e (skip_arr arr st len skip f_ini i) |= *)
+  (*   skip_arr (sublE x e arr) st len skip f_ini i. *)
+  (* Proof. *)
+  (*   unfold skip_arr. *)
+  (*   apply distribute_subA. *)
+  (* Qed. *)
 
   Lemma subA_is_array (arr : loc_exp) (len : nat) (f : nat -> Z) x e: forall s,
     subA x e (is_array arr len f s) |= is_array (sublE x e arr) len f s.
@@ -292,6 +301,7 @@ Ltac subA_normalize_in H :=
     | subA _ _ emp _ _ => apply subA_emp in H
     | subA _ _ (bexp_to_assn ?b) _ _ => apply subA_bexp_to_assn in H
     | subA _ _ (List.nth _ (distribute _ _ _ _ _ _) _) _ _ => apply distribute_subA in H; auto
+    (* | subA _ _ (skip_arr _ _ _ _ _) _ _ => apply distribute_subA in H; auto *)
     | subA _ _ (is_array _ _ _ _) _ _ => apply subA_is_array in H; auto
     | subA _ _ (if _ then _ else _) _ _ =>
       apply subA_if_dec in H; eapply if_mono in H;
