@@ -29,16 +29,19 @@ Hypothesis nblk_neq_0 : nblk <> 0.
 Variable f : nat -> Z.
 
 Notation f_ss := (skip_sum nt_gr 0 len f).
+Notation f_ss' bid := (fun i => f_ss (i + bid * ntrd)). 
 
-Definition INV2 i b :=
+Definition INV2 i b arr out :=
   Ex (s e : nat) fc,
+    !(ARR === arr) **
+    !(OUT === out) **
     !(TID === Enum' i) **
     !(BID === Enum' b) **
     !(St === Enum' s) **
     !(pure (s = (2 ^ e / 2))) **
     !(pure (if lt_dec i (ceil2 s) then
-              fc i = skip_sum (dbl s) 0 ntrd f_ss i /\
-              fc (i + s) = skip_sum (dbl s) 0 ntrd f_ss (i + s)
+              fc i = skip_sum (dbl s) 0 ntrd (f_ss' b) i /\
+              fc (i + s) = skip_sum (dbl s) 0 ntrd (f_ss' b) (i + s)
             else True)) **
     !(pure (s <= ntrd / 2)) **
     (if Nat.eq_dec s 0 then
@@ -46,24 +49,26 @@ Definition INV2 i b :=
      else
        nth i (distribute s (Sh SARR) ntrd fc (nt_step s) 0) emp).
 
-Definition INV1 i b :=
+Definition INV1 i b arr out :=
   Ex (ix : nat) (v : Z),
+    !(ARR === arr) **
+    !(OUT === out) **
     !(TID === Enum' i) **
     !(BID === Enum' b) **
     !(I === Enum' (ix * nt_gr + (i + b * ntrd))) **
     !(Apure (ix * nt_gr + (i + b * ntrd) < len + nt_gr)%nat) **
     !(T2 === skip_sum nt_gr 0 (ix * nt_gr) f (i + b * ntrd)) **
-    skip_arr (Gl ARR) 0 len nt_gr f (i + b * ntrd) **
+    skip_arr (Gl arr) 0 len nt_gr f (i + b * ntrd) **
     (Sh SARR +o Enum' i -->p (1%Qc, v)).
 
 Open Scope bexp_scope.
 
 Close Scope bexp_scope.
-Definition fold_ker (i b : nat) := (
+Definition fold_ker (i b : nat) (arr out : val) := (
   I ::= (TID +C BID *C Z.of_nat ntrd) ;;
   T2 ::= [ Gl ARR +o I ] ;;
   I ::= I +C Z.of_nat ntrd *C Z.of_nat nblk ;;
-  WhileI (INV1 i b) ( I <C Z.of_nat len ) (
+  WhileI (INV1 i b arr out) ( I <C Z.of_nat len ) (
     T1 ::= [ Gl ARR +o I ] ;;
     T2 ::= T1 +C T2 ;;
     I ::= Z.of_nat ntrd *C Z.of_nat nblk + I
@@ -71,7 +76,7 @@ Definition fold_ker (i b : nat) := (
   [ Sh SARR +o TID ] ::= T2 ;;
   Cbarrier 0;;
   St ::= Enum' ntrd >>1;;
-  WhileI (INV2 i b) ( Enum' 0 < St ) (
+  WhileI (INV2 i b arr out) ( Enum' 0 < St ) (
     If ( Evar TID <C St ) (
       T1 ::= [ Sh SARR +o TID ] ;;
       T2 ::= [ Sh SARR +o (TID + St) ] ;;
@@ -85,7 +90,7 @@ Definition fold_ker (i b : nat) := (
     [ Gl OUT +o BID ] ::= T1
   ) SKIP)%exp.
 
-Definition fold_ker' : cmd := fold_ker 0 0.
+Definition fold_ker' : cmd := fold_ker 0 0 0%Z 0%Z.
 
 Definition binv0 (bid : Fin.t nblk) : Vector.t assn ntrd * Vector.t assn ntrd :=
   (MyVector.init (fun i : Fin.t ntrd =>
@@ -93,7 +98,7 @@ Definition binv0 (bid : Fin.t nblk) : Vector.t assn ntrd * Vector.t assn ntrd :=
    (Sh SARR +o Zn tid -->p (1%Qc, f_ss (tid + nf bid * ntrd)))),
    MyVector.init (fun i : Fin.t ntrd =>
    let tid := nf i in
-   nth tid (distribute (ceil2 (ntrd /2)) (Sh SARR) ntrd f_ss (nt_step (ceil2 (ntrd / 2))) 0) emp)).
+   nth tid (distribute (ceil2 (ntrd /2)) (Sh SARR) ntrd (f_ss' (nf bid)) (nt_step (ceil2 (ntrd / 2))) 0) emp)).
    
 Definition binv1 (b : Fin.t nblk) : Vector.t assn ntrd * Vector.t assn ntrd :=
   (MyVector.init (fun i : Fin.t ntrd =>
@@ -102,7 +107,7 @@ Definition binv1 (b : Fin.t nblk) : Vector.t assn ntrd * Vector.t assn ntrd :=
      !(St === Enum' s) **
      !(pure (s = (2 ^ e / 2))) **
      let tid := nat_of_fin i in
-     !(pure (if lt_dec tid (dbl s) then fc tid = skip_sum (dbl s) 0 ntrd f_ss tid else True)) **
+     !(pure (if lt_dec tid (dbl s) then fc tid = skip_sum (dbl s) 0 ntrd (f_ss' (nf b)) tid else True)) **
      nth tid (distribute (dbl s) (Sh SARR) ntrd fc (nt_step (dbl s)) 0) emp **
      !(pure (s <= ntrd / 2)) **
      !(BID === Enum' (nf b))),
@@ -113,8 +118,8 @@ Definition binv1 (b : Fin.t nblk) : Vector.t assn ntrd * Vector.t assn ntrd :=
      !(pure (s = (2 ^ e / 2))) **
      let tid := nat_of_fin i in
      !(pure (if lt_dec tid (ceil2 s) then
-               fc tid = skip_sum (dbl s) 0 ntrd f_ss tid /\
-               fc (tid + s) = skip_sum (dbl s) 0 ntrd f_ss (tid + s)
+               fc tid = skip_sum (dbl s) 0 ntrd (f_ss' (nf b))  tid /\
+               fc (tid + s) = skip_sum (dbl s) 0 ntrd (f_ss' (nf b)) (tid + s)
              else True)) **
      nth tid (distribute (ceil2 s) (Sh SARR) ntrd fc (nt_step (ceil2 s)) 0) emp **
      !(pure (s <= ntrd / 2)) **
@@ -160,21 +165,23 @@ Qed.
 Definition binv bid i :=
   if Nat.eq_dec i 0 then binv0 bid else if Nat.eq_dec i 1 then binv1 bid else default ntrd.
 
-Theorem fold_ker_correct (tid : Fin.t ntrd) (bid : Fin.t nblk) :
+Theorem fold_ker_correct (tid : Fin.t ntrd) (bid : Fin.t nblk) (arr out : val) :
   nt_gr <= len ->
   CSL (binv bid) tid
   (Ex  (v1 v2 : Z),
-   (Sh SARR +o Z_of_fin tid -->p (1, v1)) **
-   skip_arr (Gl ARR ) 0 len        nt_gr f  (nf tid + nf bid * ntrd) **
-   (if Nat.eq_dec (nf tid) 0 then (Gl OUT +o Z_of_fin bid -->p (1, v2)) else emp) **
-   !(TID === Z_of_fin tid) **
-   !(BID === Z_of_fin bid))
-  (fold_ker (nf tid) (nf bid))
+     !(ARR === arr) **
+     !(OUT === out) **
+     (Sh SARR +o Z_of_fin tid -->p (1, v1)) **
+     skip_arr (Gl arr) 0 len        nt_gr f  (nf tid + nf bid * ntrd) **
+     (if Nat.eq_dec (nf tid) 0 then (Gl out +o Z_of_fin bid -->p (1, v2)) else emp) **
+     !(TID === Z_of_fin tid) **
+     !(BID === Z_of_fin bid))
+  (fold_ker (nf tid) (nf bid) arr out)
   (Ex fc,
-     skip_arr (Gl ARR ) 0 len        nt_gr f (nf tid + nf bid * ntrd) **
+     skip_arr (Gl arr) 0 len nt_gr f (nf tid + nf bid * ntrd) **
      if Nat.eq_dec (nf tid) 0 then
        nth (nat_of_fin tid) (distribute 1 (Sh SARR) ntrd fc (nt_step 1) 0) emp **
-       (Gl OUT +o Z_of_fin bid -->p (1, sum_of 0 ntrd f_ss))
+       (Gl out +o Z_of_fin bid -->p (1, sum_of 0 ntrd (f_ss' (nf bid))))
      else emp).
 Proof.
   intros Hnlen.
@@ -200,8 +207,8 @@ Proof.
         rewrite Heq in H at 1; clear Heq.
         sep_rewrite_in skip_arr_unfold' H; [|try first [now eauto | nia]..].
         exact H. }
-      assert (Heq : (Gl ARR +o Zn (0 * nt_gr + (nf tid + nf bid * ntrd)) ===l
-                     Gl ARR +o I) s (emp_ph loc)).
+      assert (Heq : (Gl arr +o Zn (0 * nt_gr + (nf tid + nf bid * ntrd)) ===l
+                     Gl arr +o I) s (emp_ph loc)).
       { unfold_pures. unfold_conn; simpl; f_equal. nia. }
       sep_rewrite_in mps_eq1 H; [|exact Heq]; clear Heq.
       sep_combine_in H; exact H. } Unfocus.
@@ -213,7 +220,7 @@ Proof.
 
   hoare_forward.
   eapply Hbackward.
-  Focus 2. { intros ? ? H. sep_normal_in H. sep_lift_in H 7. exact H. } Unfocus.
+  Focus 2. { intros ? ? H. sep_normal_in H. sep_lift_in H 9. exact H. } Unfocus.
   eapply rule_seq.
   apply rule_frame'.
   2: prove_inde.
@@ -229,8 +236,8 @@ Proof.
           Require Import LibTactics.
           sep_rewrite_in (@skip_arr_nth' ix) H; [|first [now eauto | omega | nia]..].
           exact H. }
-        assert (Heq : ((Gl ARR +o Zn (ix * nt_gr + (nf tid + nf bid * ntrd))) ===l
-                       (Gl ARR +o I)) s (emp_ph loc)).
+        assert (Heq : ((Gl arr +o Zn (ix * nt_gr + (nf tid + nf bid * ntrd))) ===l
+                       (Gl arr +o I)) s (emp_ph loc)).
         { unfold_pures; unfold_conn; simpl; f_equal; nia. }
         sep_rewrite_in mps_eq1 H; [clear Heq|exact Heq].
         sep_combine_in H. ex_intro ix H. ex_intro v H. exact H. } Unfocus.
@@ -394,11 +401,11 @@ Proof.
         { apply (@mod_le x2); eauto; try omega; nia. }
         rewrite plus_comm, Nat.mod_add, (Nat.mod_small (nf tid + nf bid * ntrd)) in H5; try omega.
     }
-        rewrite Heq in HP4.
-        change_in H.
-        { clear HP HP2 HP3 HP4; 
-          sep_combine_in H. exact H. }
-        sep_cancel. }
+    rewrite Heq in *.
+    change_in H.
+    { clear HP HP4 HP5 HP6; 
+      sep_combine_in H. exact H. }
+    sep_cancel. }
     
   (* introduction *)
   (* assert (Htid : nat_of_fin tid < ntrd) by (destruct (Fin.to_nat tid); simpl in *; try omega). *)
@@ -416,7 +423,7 @@ Proof.
   eapply Hbackward.
   Focus 2. {
     intros ? ? H. sep_normal_in H.
-    sep_lift_in H 3.
+    sep_lift_in H 5.
     exact H.
   } Unfocus.
   apply rule_frame'.
@@ -425,7 +432,7 @@ Proof.
   eapply Hbackward.
   Focus 2. {
     intros ? ? H. sep_normal_in H.
-    sep_lift_in H 3.
+    sep_lift_in H 5.
     exact H.
   } Unfocus.
   apply rule_frame'.
@@ -436,7 +443,7 @@ Proof.
   Focus 3.
   { unfold INV2; intros s h H.
     destruct ntrd_is_p2 as [e Hntrd].
-    exists (ntrd / 2) e f_ss.
+    exists (ntrd / 2) e (f_ss' (nf bid)).
     sep_split_in H; unfold_pures; sep_split; autorewrite with sep in *; auto.
     - unfold_conn; simpl; subst; eauto.
     - destruct (lt_dec (nf tid) (ceil2 (ntrd / 2))); [|unfold_conn; auto].
@@ -545,7 +552,7 @@ Proof.
 
     (* the barrier instruction *)
     hoare_forward.
-    instantiate (1 := INV2 (nf tid) (nf bid)).
+    instantiate (1 := INV2 (nf tid) (nf bid) arr out).
     set (fc' := (fun i => if Nat.eq_dec i (nf tid) then (fc i + fc (i + st)%nat)%Z else fc i)).
     destruct e as [|e].
 
@@ -553,8 +560,8 @@ Proof.
       forward_barr. Focus 2.
       { simpl; rewrite MyVector.init_spec.
         intros s h H; sep_normal_in H; sep_split_in H.
-        unfold_conn_in (HP3, HP5, HP6); simpl in HP3, HP5, HP6.
-        assert (FalseP s h) by (subst; simpl in HP3; congruence). 
+        unfold_pures; unfold div in *; simpl in *.
+        assert (FalseP s h) by omega.
         instantiate (1 := FalseP). destruct H0. } Unfocus.
       intros; unfold_conn; repeat destruct H; tauto.
 
@@ -566,7 +573,7 @@ Proof.
         apply ex_lift_l. exists (st / 2).
         apply ex_lift_l. exists e.
         apply ex_lift_l. exists fc'.
-        instantiate (1 := !(TID === Zn (nf tid))).
+        instantiate (1 := !(TID === Zn (nf tid)) ** !(ARR === arr) ** !(OUT === out)).
         sep_normal; sep_split_in H; sep_split; eauto.
         - unfold_pures.
           autorewrite with sep in *; eauto. unfold_conn; simpl. congruence.
@@ -575,7 +582,7 @@ Proof.
           autorewrite with sep in *.
           destruct lt_dec; eauto.
           destruct Nat.eq_dec; try congruence.
-          destruct HP8 as [Heq Heq']; rewrite Heq, Heq'; clear Heq Heq'.
+          destruct HP10 as [Heq Heq']; rewrite Heq, Heq'; clear Heq Heq'.
           cutrewrite (2 ^ S e = 2 ^ e * 2); [|simpl; omega].
           lets Heq: (>>skip_sum_double (2 ^ e) (nf tid) ntrd 0); eauto.
         - unfold_pures; unfold fc'; unfold_conn; simpl; subst st.
@@ -603,7 +610,7 @@ Proof.
           sep_normal.
           unfold fc'.
           destruct Nat.eq_dec; try omega.
-          destruct Nat.eq_dec; try omega.
+          destruct Nat.eq_dec; try omega. 
           sep_cancel.
           cutrewrite (0 * st + nf tid + st = st + nf tid); [|ring].
           sep_cancel.
@@ -736,7 +743,7 @@ Proof.
       apply ex_lift_l; exists (e - 1).
       apply ex_lift_l; exists fc.
       sep_rewrite_in_r emp_unit_r H; sep_split_in H.
-      instantiate (1 := !(TID === Zn (nf tid))).
+      instantiate (1 := !(TID === Zn (nf tid)) ** !(ARR === arr) ** !(OUT === out)).
       sep_normal; sep_split;
       try now (unfold_conn_all; simpl in *; autorewrite with sep in *; auto).
       - rewrite <-H0; unfold_pures; autorewrite with sep in *; auto.
@@ -767,7 +774,7 @@ Proof.
         (* sep_combine_in H; sep_cancel; exact H. *) } Unfocus.
 
     (* loop invariant is preserved *)
-    instantiate (1 := INV2 (nf tid) (nf bid)); unfold INV2; intros; apply ex_lift_l_in in H; destruct H as [s0 H].
+    instantiate (1 := INV2 (nf tid) (nf bid) arr out); unfold INV2; intros; apply ex_lift_l_in in H; destruct H as [s0 H].
     apply ex_lift_l_in in H; destruct H as [e0 H].
     apply ex_lift_l_in in H; destruct H as [fc' H].
     sep_split_in H.
@@ -812,14 +819,14 @@ Proof.
           assert (Heq : nf tid = 0); [|rewrite Heq in *].
           { unfold_pures; nia. }
           unfold ceil2 in *; simpl in *.
-          rewrite skip_sum_sum in HP5.
+          rewrite skip_sum_sum in HP7.
           lets unf: (>>(@skip_arr_unfold') 0 ntrd 1 0); eauto.
           simpl in unf.
           sep_rewrite_in unf H; eauto; clear unf.
-          destruct HP5 as [Heq' _]; rewrite Heq' in H.
+          destruct HP7 as [Heq' _]; rewrite Heq' in H.
           assert (pure (nf tid = 0) s (emp_ph loc)) by (unfold_conn; auto).
-          assert (pure (fc' 0 = sum_of 0 ntrd f_ss) s (emp_ph loc)) by (unfold_conn; auto).
-          clear HP3 HP4 HP6; sep_combine_in H.
+          assert (pure (fc' 0 = sum_of 0 ntrd (f_ss' (nf bid))) s (emp_ph loc)) by (unfold_conn; auto).
+          clear HP5 HP6 HP8; sep_combine_in H.
           ex_intro fc' H; exact H. } Unfocus.
         repeat hoare_forward.
         eapply rule_seq.
@@ -836,7 +843,7 @@ Proof.
         lets unf: (>>(@skip_arr_unfold') 0 ntrd 1 0); eauto.
         simpl in unf.
         sep_rewrite unf; eauto; clear unf.
-        rewrite HP5.
+        rewrite HP7.
         sep_normal; repeat sep_cancel.
       * unfold INV2 in *; sep_split_in H.
         sep_lift_in H 3.
@@ -853,159 +860,294 @@ Proof.
         rewrite nth_overflow in H0; sep_normal_in H0; eauto.
         rewrite distribute_length; nia.
 Qed.
+Import ListNotations.
+Definition hi_list := TID :: I :: T1 :: T2 :: nil.
   
-Definition ty_env_fold (v : var) :=
-  if var_eq_dec v TID then Hi
-  else if var_eq_dec v T1 then Hi
-  else if var_eq_dec v T2 then Hi
-  else Lo.
+Definition ty_env_fold (v : var) := if in_dec var_eq_dec v hi_list then Hi else Lo.
+
+Hint Constructors typing_cmd typing_exp typing_lexp typing_bexp.
 
 Lemma typing_fold : typing_cmd ty_env_fold fold_ker' Lo.
 Proof.
-  repeat constructor.
-  econstructor.
-  instantiate (1:=Lo); constructor.
-  reflexivity.
-  repeat econstructor.
-  instantiate (1:=Lo); reflexivity.
+  unfold fold_ker', fold_ker.
+  (repeat econstructor); try reflexivity.
+  repeat instantiate (1 := Lo); reflexivity.
+  repeat instantiate (1 := Lo); reflexivity.
+  repeat instantiate (1 := Lo); reflexivity.
   constructor.
+  repeat instantiate (1 := Hi); reflexivity.
+  Grab Existential Variables.
+  apply Lo.
+  apply Lo.
+  apply Lo.
 Qed.
 
-
-Lemma barrier_wf : Bdiv.Aistar_v (fst binv0) |= Bdiv.Aistar_v (snd binv0).
+Lemma barrier_wf bid : Bdiv.Aistar_v (fst (binv bid 1)) |= Bdiv.Aistar_v (snd (binv bid 1)).
 Proof.
   simpl; intros s h H.
-  apply sc_v2l in H.
-  rewrite (vec_to_list_init0 _ emp) in H.
-  erewrite ls_init_eq0 in H.
-  Focus 2.
-  { intros i iH.
-    destruct (Fin.of_nat i ntrd) as [|Hex] eqn:Heq; [|destruct Hex; omega].
-    rewrite (Fin_nat_inv Heq). reflexivity. } Unfocus.
-  apply sc_v2l.
-  rewrite (vec_to_list_init0 _ emp).
-  erewrite ls_init_eq0.
-  Focus 2.
-  { intros i iH.
-    destruct (Fin.of_nat i ntrd) as [|Hex] eqn:Heq; [|destruct Hex; omega].
-    rewrite (Fin_nat_inv Heq). reflexivity. } Unfocus.
 
-  sep_rewrite_in (ls_exists0 0 (n := ntrd)) H; auto; destruct H as [vs H].
-  sep_split_in H.
-  sep_rewrite_in (ls_exists0 (fun _ : nat => 0%Z) (n:=ntrd)) H; auto; destruct H as [fs H].
-  sep_split_in H.
+  Ltac default T :=
+    lazymatch T with
+      | nat => constr:(0)
+      | Z => constr:(0%Z)
+      | ?T1 -> ?T2 => let t := default T2 in constr:(fun _ : T1 => t)
+    end.
 
-  repeat sep_rewrite_in (@ls_star ntrd) H.
+  Ltac ex_elim H :=
+    lazymatch type of H with
+      | conj_xs (ls_init _ _ (fun _ : nat => Ex _ : ?T, _)) _ _ =>
+        let t := default T in
+        sep_rewrite_in (@ls_exists0 _ t) H
+    end.
 
-  repeat sep_rewrite_in (@ls_pure ntrd) H; sep_split_in H.
-  
-  assert (exists s0, forall i, i < ntrd -> nth i vs 0 = s0) as [s0 Hs0].
-  { destruct vs as [|s0 vs]; [cbv in HP; omega|].
-    exists s0; intros i.
-    destruct i; simpl; auto.
-    pose proof (@ls_emp _ _ 0 HP1); rewrite ls_init_spec in H0; destruct lt_dec; try omega.
-    pose proof (@ls_emp _ _ (S i) HP1); rewrite ls_init_spec in H1; destruct lt_dec; try omega.
-    unfold_conn_all; simpl in *.
-    assert (Z.of_nat s0 = Z.of_nat (nth i vs 0)) by congruence.
-    apply Nat2Z.inj in H2; congruence. }
-  pose proof (@ls_emp _ _ 0 HP3) as Hs0ntrd; rewrite ls_init_spec in Hs0ntrd;
-  destruct lt_dec; unfold_conn_in Hs0ntrd; try omega.
-  rewrite Hs0 in Hs0ntrd; try omega.
-  
-  erewrite ls_init_eq0 in H; [|intros; rewrite Hs0; auto; reflexivity].
-  erewrite ls_init_eq0 in HP2; [|intros; rewrite Hs0; auto; reflexivity].
-  erewrite ls_init_eq0 in HP3; [|intros; rewrite Hs0; auto; reflexivity].
-  sep_rewrite (ls_exists0 0 (n:= ntrd)); auto; exists vs.
-  sep_split; auto.
-  sep_rewrite (ls_exists0 (fun _:nat => 0%Z) (n:=ntrd)); auto.
-  set (fcc := fun i : nat =>
-         (nth (i mod (dbl s0)) fs (fun _:nat=>0%Z)) i).
+  Ltac istar_simplify_in H :=
+    apply sc_v2l in H; rewrite (vec_to_list_init0 _ emp) in H; erewrite ls_init_eq0 in H;
+    [|let i := fresh "i" in
+      let Hi := fresh in
+      let Hex := fresh in
+      let Heq := fresh in
+      intros i Hi;
+      lazymatch goal with
+        [|- match ?X with inleft _ => _ | inright _ => _ end = _] =>
+        destruct X as [|Hex] eqn:Heq; [|destruct Hex; omega]
+      end;
+      rewrite (Fin_nat_inv Heq); reflexivity];
+    match goal with _ => idtac end;
+    (repeat (let vs := fresh "vs" in
+            ex_elim H; destruct H as [vs H]; sep_split_in H));
+    (repeat sep_rewrite_in (@ls_star) H);
+    (repeat sep_rewrite_in (@ls_pure) H; sep_split_in H).
+ 
+
+  Ltac istar_simplify :=
+    apply sc_v2l; rewrite (vec_to_list_init0 _ emp); erewrite ls_init_eq0;
+    [|let i := fresh "i" in
+      let Hi := fresh in
+      let Hex := fresh in
+      let Heq := fresh in
+      intros i Hi;
+      lazymatch goal with
+        [|- match ?X with inleft _ => _ | inright _ => _ end = _] =>
+        destruct X as [|Hex] eqn:Heq; [|destruct Hex; omega]
+      end;
+      rewrite (Fin_nat_inv Heq); reflexivity];
+    match goal with _ => idtac end.
+
+  istar_simplify_in H.
+  istar_simplify.
+  sep_rewrite (@ls_exists0 _ 0); exists vs; sep_split; eauto.
+  sep_rewrite (@ls_exists0 _ 0); exists vs0; sep_split; eauto.
+
+  Lemma conj_xs_var (va : var) n (vs : nat -> nat) stk : forall st,
+    conj_xs (ls_init st n (fun i => va === Zn (vs i))) stk (emp_ph loc) ->
+    forall i, i < n -> vs (st + i) = Z.to_nat (stk va).
+  Proof.
+    induction n; simpl; intros st Hsat i Hi; try omega.
+    destruct Hsat as (? & ? & Hsat1 & Hsat2 & ? & ?); unfold_conn_in Hsat1; simpl in Hsat1.
+    destruct i.
+    - rewrite <-plus_n_O; eauto.
+      rewrite Hsat1, Nat2Z.id; eauto.
+    - apply phplus_emp in H0; destruct H0; subst.
+      rewrite <-Nat.add_succ_comm; apply IHn; eauto; omega.
+  Qed.
+  lets Hst: (conj_xs_var HP2).
+  set (fcc := fun i : nat => (nth (i mod (dbl (Z.to_nat (s St)))) vs1 (fun _:nat=>0%Z)) i).
+  sep_rewrite (@ls_exists0 _ (fun _ : nat=> 0%Z)).
   exists (nseq ntrd fcc); sep_split; [rewrite length_nseq; reflexivity|].
-  (repeat sep_rewrite (@ls_star ntrd)). 
-  repeat sep_rewrite (@ls_pure ntrd).
-  repeat sep_split; auto.
+  
+  repeat sep_rewrite (@ls_star); repeat sep_rewrite (@ls_pure); sep_split; eauto.
+  - apply ls_emp'; rewrite init_length; intros i Hi.
+    rewrite ls_init_spec; destruct lt_dec; [|omega].
+    lets H': (>>(@ls_emp) i HP4).
+    rewrite ls_init_spec in H'; destruct lt_dec; [|omega].
+    simpl in *.
+    rewrite Hst in *; try omega.
+    destruct (Z.to_nat (s St)); unfold dbl, ceil2 in *; [simpl in *|].
+    destruct lt_dec; try tauto.
+    + unfold fcc; rewrite nth_nseq.
+      destruct (leb ntrd i) eqn:Heq; [apply leb_iff in Heq; omega|].
+      rewrite <-plus_n_O.
+      assert (i = 0) by omega; subst; eauto.
+      split; eauto.
+    + remember (S n) as n'.
+      destruct Nat.eq_dec; try omega.
+      unfold fcc; rewrite nth_nseq.
+      destruct (leb ntrd i) eqn:Heq; [apply leb_iff in Heq; omega|].
+      destruct (lt_dec i n'); [|unfold_conn; eauto].
+      rewrite !Nat.mod_small; try omega.
+      split.
+      * destruct lt_dec; try omega.
+        apply H'.
+      * lets Hstl: (>>ls_emp i HP5); rewrite ls_init_spec in Hstl; destruct (lt_dec i ntrd); try omega.
+        rewrite Hst in Hstl; try omega.
+        assert (n' + n' <= ntrd).
+        { pose proof (@div_mult ntrd 2).
+          unfold_pures; nia. }
+        lets H'': (>>ls_emp (i + n') HP4); rewrite ls_init_spec in H''; try omega.
+        rewrite Hst in H''; try omega.
+        destruct (lt_dec (i + n') ntrd); try omega.
+        simpl in H''; destruct Nat.eq_dec; try omega.
+        destruct (lt_dec (i + n') (n' * 2)); try omega.
+        apply H''. 
+  - Ltac rewrite_body lem tac :=
+      erewrite ls_init_eq0; [|intros ? ?; rewrite lem; try tac; reflexivity ].
+    Ltac rewrite_body_in lem tac H :=
+      erewrite ls_init_eq0 in H; [|intros ? ?; rewrite lem; try tac; reflexivity ].
+    simpl in Hst.
+    rewrite_body Hst omega.
+    rewrite_body_in Hst omega H.
+    
 
-  apply ls_emp'; intros i Hi; rewrite init_length in Hi.
-  rewrite ls_init_spec; destruct lt_dec; try omega; simpl.
-  rewrite Hs0; auto; destruct lt_dec; [|cbv; auto].
-  rewrite nth_nseq; destruct (leb ntrd i) eqn:Heq; try (apply leb_iff in Heq; omega).
-  unfold fcc.
 
-  pose proof (ceil2_dbl s0).
-  repeat (rewrite Nat.mod_small; [|omega]).
-  split.
-  pose proof (@ls_emp _ _ i HP2); rewrite ls_init_spec in H1.
-  destruct (lt_dec i ntrd); try omega.
-  destruct (lt_dec (0 + i) (dbl s0)); try omega.
-  apply H1.
-  pose proof (@ls_emp _ _ 0 HP3); rewrite ls_init_spec in H1; destruct lt_dec; unfold_conn_in H1; try omega.
-  pose proof (@ls_emp _ _ (i + s0) HP2); rewrite ls_init_spec in H2.
-  destruct (lt_dec (i + s0) ntrd); try omega.
-  destruct (lt_dec (0 + (i + s0)) (dbl s0)); try omega.
-  apply H2.
-  erewrite ls_init_eq0; [|intros; rewrite Hs0; auto; reflexivity]; auto.
-  
-  rewrite <-(firstn_skipn (dbl s0) (ls_init _ _ _)) in H.
-  rewrite firstn_init, skipn_init in H.
-  rewrite Nat.min_l in H; auto; rewrite <-plus_n_O in *; auto.
-  
-  apply conj_xs_app in H.
-  lazymatch type of H with
-    | ((_ ** conj_xs (ls_init ?b ?n ?P)) _ _) =>
-      evar (fc : nat -> assn); 
-      sep_rewrite_in (@ls_init_eq' _ P fc n b) H; unfold fc in *
-  end.
-  2: intros i Hi; simpl; rewrite nth_overflow; [|rewrite distribute_length; omega].
-  2: instantiate (1 := fun _ => emp); reflexivity.
-  
+  (* erewrite ls_init_eq0 in H. *)
+  (* Focus 2. *)
+  (* { intros i iH. *)
+  (*   destruct (Fin.of_nat i ntrd) as [|Hex] eqn:Heq; [|destruct Hex; omega]. *)
+  (*   rewrite (Fin_nat_inv Heq). reflexivity. } Unfocus. *)
+  (* apply sc_v2l. *)
+  (* rewrite (vec_to_list_init0 _ emp). *)
+  (* erewrite ls_init_eq0. *)
+  (* Focus 2. *)
+  (* { intros i iH. *)
+  (*   destruct (Fin.of_nat i ntrd) as [|Hex] eqn:Heq; [|destruct Hex; omega]. *)
+  (*   rewrite (Fin_nat_inv Heq). reflexivity. } Unfocus. *)
 
-  sep_rewrite_in init_emp_emp H; sep_normal_in H.
-  
-  erewrite ls_init_eq0.
-  2: intros i Hi; rewrite nth_nseq; destruct (leb ntrd i) eqn:Heq;
-    try ((apply leb_iff in Heq || apply leb_iff_conv in Heq); omega).
-  2: reflexivity.
-  
+  (* sep_rewrite_in (ls_exists0 0 (n := ntrd)) H; auto; destruct H as [vs H]. *)
+  (* sep_split_in H. *)
+  (* sep_rewrite_in (ls_exists0 (fun _ : nat => 0%Z) (n:=ntrd)) H; auto; destruct H as [fs H]. *)
+  (* sep_split_in H. *)
 
-  sep_rewrite_in equiv_from_nth H.
-  Focus 3.
-  { rewrite init_length; intros i Hi stc; rewrite ls_init_spec at 1.
-    destruct (lt_dec i (dbl s0)); try omega.
-    simpl.
-    rewrite nth_dist_change; [|auto..|].
-    Focus 2.
-    { unfold nt_step; instantiate (1 := fcc); intros j Hj Hnt.
-      rewrite <-plus_n_O in *.
-      unfold fcc; rewrite Hnt; auto. } Unfocus.
-    reflexivity. } Unfocus.
-  2: rewrite init_length, distribute_length; auto.
-  
-  apply distribute_correct in H; auto.
+  (* repeat sep_rewrite_in (@ls_star ntrd) H. *)
 
-  rewrite <-(firstn_skipn (ceil2 s0) (ls_init _ _ _)).
-  rewrite firstn_init, skipn_init.
-  rewrite Nat.min_l; auto; try omega.
-  2 : pose proof (ceil2_dbl s0); omega.
+  (* repeat sep_rewrite_in (@ls_pure ntrd) H; sep_split_in H. *)
   
-  apply conj_xs_app. clear fc.
-  lazymatch goal with
-    | [|- ((_ ** conj_xs (ls_init ?b ?n ?P)) _ _)] =>
+  (* assert (exists s0, forall i, i < ntrd -> nth i vs 0 = s0) as [s0 Hs0]. *)
+  (* { destruct vs as [|s0 vs]; [cbv in HP; omega|]. *)
+  (*   exists s0; intros i. *)
+  (*   destruct i; simpl; auto. *)
+  (*   pose proof (@ls_emp _ _ 0 HP1); rewrite ls_init_spec in H0; destruct lt_dec; try omega. *)
+  (*   pose proof (@ls_emp _ _ (S i) HP1); rewrite ls_init_spec in H1; destruct lt_dec; try omega. *)
+  (*   unfold_conn_all; simpl in *. *)
+  (*   assert (Z.of_nat s0 = Z.of_nat (nth i vs 0)) by congruence. *)
+  (*   apply Nat2Z.inj in H2; congruence. } *)
+  (* pose proof (@ls_emp _ _ 0 HP3) as Hs0ntrd; rewrite ls_init_spec in Hs0ntrd; *)
+  (* destruct lt_dec; unfold_conn_in Hs0ntrd; try omega. *)
+  (* rewrite Hs0 in Hs0ntrd; try omega. *)
+  
+  (* erewrite ls_init_eq0 in H; [|intros; rewrite Hs0; auto; reflexivity]. *)
+  (* erewrite ls_init_eq0 in HP2; [|intros; rewrite Hs0; auto; reflexivity]. *)
+  (* erewrite ls_init_eq0 in HP3; [|intros; rewrite Hs0; auto; reflexivity]. *)
+  (* sep_rewrite (ls_exists0 0 (n:= ntrd)); auto; exists vs. *)
+  (* sep_split; auto. *)
+  (* sep_rewrite (ls_exists0 (fun _:nat => 0%Z) (n:=ntrd)); auto. *)
+  (* set (fcc := fun i : nat => *)
+  (*        (nth (i mod (dbl s0)) fs (fun _:nat=>0%Z)) i). *)
+  (* exists (nseq ntrd fcc); sep_split; [rewrite length_nseq; reflexivity|]. *)
+  (* (repeat sep_rewrite (@ls_star ntrd)).  *)
+  (* repeat sep_rewrite (@ls_pure ntrd). *)
+  (* repeat sep_split; auto. *)
+
+  (* apply ls_emp'; intros i Hi; rewrite init_length in Hi. *)
+  (* rewrite ls_init_spec; destruct lt_dec; try omega; simpl. *)
+  (* rewrite Hs0; auto; destruct lt_dec; [|cbv; auto]. *)
+  (* rewrite nth_nseq; destruct (leb ntrd i) eqn:Heq; try (apply leb_iff in Heq; omega). *)
+  (* unfold fcc. *)
+
+  (* pose proof (ceil2_dbl s0). *)
+  (* repeat (rewrite Nat.mod_small; [|omega]). *)
+  (* split. *)
+  (* pose proof (@ls_emp _ _ i HP2); rewrite ls_init_spec in H1. *)
+  (* destruct (lt_dec i ntrd); try omega. *)
+  (* destruct (lt_dec (0 + i) (dbl s0)); try omega. *)
+  (* apply H1. *)
+  (* pose proof (@ls_emp _ _ 0 HP3); rewrite ls_init_spec in H1; destruct lt_dec; unfold_conn_in H1; try omega. *)
+  (* pose proof (@ls_emp _ _ (i + s0) HP2); rewrite ls_init_spec in H2. *)
+  (* destruct (lt_dec (i + s0) ntrd); try omega. *)
+  (* destruct (lt_dec (0 + (i + s0)) (dbl s0)); try omega. *)
+  (* apply H2. *)
+  (* erewrite ls_init_eq0; [|intros; rewrite Hs0; auto; reflexivity]; auto. *)
+
+
+  assert (dbl (Z.to_nat (s St)) <= ntrd).
+  { rewrite <-(Hst 0); unfold dbl; try omega.
+    destruct (Nat.eq_dec (nth 0 vs 0) 0); try omega.
+    lets Hst': (>>ls_emp 0 HP5); rewrite ls_init_spec in Hst'; destruct lt_dec; try omega; simpl in Hst'.
+    lets: (@div_mult ntrd 2); unfold_pures; try omega. }
+
+  Lemma distribute_correct' nt m e l fs dist s:
+    m <> 0 ->
+    m <= nt ->
+    (forall i, dist i < m) ->
+    forall stk, 
+    stk ||= conj_xs (ls_init 0 nt (fun i => nth i (distribute m e l (fs i) dist s) emp)) <=>
+            is_array e l (fun i => (fs (dist i) i)) s.
+  Proof.
+    intros Hm0 Hmnt Hdis stk.
+    rewrite <-(firstn_skipn m (ls_init _ _ _)).
+    rewrite firstn_init, skipn_init.
+    rewrite Nat.min_l, <-plus_n_O; auto.
+
+    rewrite conj_xs_app.
+    lazymatch goal with
+    | [|- context [((_ ** conj_xs (ls_init ?b ?n ?P)))] ] =>
       evar (fc : nat -> assn); 
       sep_rewrite (@ls_init_eq' _ P fc n b); unfold fc in *
-  end.
-  2: intros i Hi; simpl; rewrite nth_overflow; [|rewrite distribute_length, Hs0; omega ].
-  2: instantiate (1 := fun _ => emp); reflexivity.
-  sep_rewrite init_emp_emp; sep_normal.
+    end.
+    2: intros i Hi; simpl; rewrite nth_overflow; [|rewrite distribute_length; omega].
+    2: instantiate (1 := fun _ => emp); reflexivity.
 
+    rewrite (init_emp_emp (nt - m) m), emp_unit_r.
   
-  sep_rewrite equiv_from_nth.
-  Focus 3.
-  { rewrite init_length. intros i Hi stc; rewrite ls_init_spec at 1.
-    destruct (lt_dec i); try omega.
-    simpl; rewrite Hs0. reflexivity.
-    auto.
-    pose proof (ceil2_dbl s0). omega. } Unfocus.
-  2: rewrite distribute_length, init_length; auto.
-  apply distribute_correct; auto.
+    (* erewrite ls_init_eq0. *)
+    (* 2: intros i Hi; rewrite nth_nseq; destruct (leb ntrd i) eqn:Heq; *)
+    (* try ((apply leb_iff in Heq || apply leb_iff_conv in Heq); omega). *)
+    (* 2: reflexivity. *)
+
+    rewrite equiv_from_nth.
+    symmetry. apply distribute_correct; auto.
+    rewrite init_length, distribute_length; reflexivity.
+    rewrite init_length; intros i Hi stc; rewrite ls_init_spec.
+    destruct (lt_dec i m); try omega.
+    simpl.
+    rewrite nth_dist_change; [reflexivity|auto..].
+    intros j Hj <-; auto. 
+  Qed.
+  assert (ceil2 (Z.to_nat (s St)) <= ntrd).
+  { lets: (ceil2_dbl (Z.to_nat (s St))); omega. }
+  
+  apply distribute_correct' in H; auto.
+  apply distribute_correct'; auto.
+
+  sep_rewrite is_array_change; eauto.
+  intros i Hi; unfold fcc; rewrite <-plus_n_O.
+  rewrite nth_nseq.
+  destruct (leb _ _) eqn:Heq.
+  apply leb_iff in Heq.
+  assert (nt_step (ceil2 (Z.to_nat (s St))) i < ceil2 (Z.to_nat (s St))) by auto.
+  omega.
+  auto.
+Qed.  
+
+Lemma barrier_wf0 bid : Bdiv.Aistar_v (fst (binv bid 0)) |= Bdiv.Aistar_v (snd (binv bid 0)).
+Proof.
+  simpl; intros s h H.
+  istar_simplify_in H.
+  istar_simplify.
+  apply distribute_correct'; eauto.
+  { unfold ceil2; destruct Nat.eq_dec; try omega.
+    lets: (>>div_mult ntrd 2); omega. }
+  
+  Lemma is_array_distr e n (f' : nat -> Z) :
+    forall s stk,
+      stk ||= conj_xs (ls_init s n (fun i => e +o Zn i -->p (1, f' i))) <=>
+          is_array e n f' s.
+  Proof.
+    induction n; intros s stk; simpl.
+    - reflexivity.
+    - rewrite IHn; reflexivity.
+  Qed.
+  apply is_array_distr in H; auto.
 Qed.
+
+
 End Fold.
