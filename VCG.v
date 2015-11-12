@@ -132,6 +132,13 @@ Section independent_prover.
       [exploit H; [eauto | intros Heq; inversion Heq as [Heq']; rewrite Heq'; reflexivity]..].
       apply List.Forall_forall; unfold indeE; intros; simpl; reflexivity.
   Qed.
+
+  Lemma inde_meta_if A B (b : {A} + {B}) Pt Pe vs :
+    inde Pt vs -> inde Pe vs ->
+    inde (if b then Pt else Pe) vs.
+  Proof.
+    destruct b; eauto.
+  Qed.
 End independent_prover.
 
 Ltac prove_indeE := unfold indeE, indelE, var_upd in *; intros; simpl; auto.
@@ -150,6 +157,7 @@ Ltac prove_inde :=
       apply inde_distribute; auto; repeat (constructor; prove_indeE)
     | [ |- inde (is_array _ _ _ _) _ ] =>
       apply inde_is_array; auto; repeat (constructor; prove_indeE)
+    | [ |- inde (if _ then _ else _) _] => apply inde_meta_if; prove_inde
     | [ |- _ ] => try now (unfold inde, var_upd; simpl; try tauto) 
   end.
 
