@@ -1298,8 +1298,9 @@ Definition tid_post (arr out : Z) (bid : Fin.t nblk) (tid : Fin.t ntrd) :=
     else emp)).
 
 Lemma fold_correct_b (bid : Fin.t nblk) (arr out : val) :
+  nt_gr <= len ->
   CSLp ntrd ty_env_fold
-  (Ex v2,
+  (Ex v2 : Z,
    !(ARR === arr) ** !(OUT === out) ** sh_spec ((SARR, ntrd) :: List.nil) ** !(BID === Zn (nf bid)) **
    conj_xs (ls_init 0 ntrd (fun i => skip_arr (Gl arr) 0 len nt_gr f (i + nf bid * ntrd))) **
    (Gl out +o Zn (nf bid) -->p (1, v2)))
@@ -1308,6 +1309,7 @@ Lemma fold_correct_b (bid : Fin.t nblk) (arr out : val) :
    conj_xs (ls_init 0 ntrd (fun i => skip_arr (Gl arr) 0 len nt_gr f (i + nf bid * ntrd))) **
    (Gl out +o Zn (nf bid) -->p (1, sum_of 0 ntrd (f_ss' (nf bid))))).
 Proof.
+  intros Hlen.
   applys (>>rule_par (binv bid) (MyVector.init (tid_pre arr out bid))
             (MyVector.init (tid_post arr out bid))).
   - exists (ntrd - 1); try omega.
@@ -1345,5 +1347,211 @@ Proof.
     unfold precise; intros; destruct H.
     simpl; rewrite MyVector.init_spec.
     unfold precise; intros; destruct H.
-  -
- End Fold.
+  - simpl; intros s h [v2 H].
+    sep_split_in H.
+    unfold tid_pre.
+    istar_simplify.
+    sep_rewrite_in emp_unit_r H.
+    apply ex_lift_l_in in H; destruct H as [fsh H].
+    sep_rewrite (@ls_exists0 _ 0%Z); exists (ls_init 0 ntrd fsh); sep_split; eauto.
+    rewrite init_length; reflexivity.
+    sep_rewrite (@ls_exists0 _ 0%Z); exists (nseq ntrd v2). sep_split; eauto.
+    rewrite length_nseq; reflexivity.
+    repeat sep_rewrite (@ls_star); repeat sep_rewrite (@ls_pure); sep_split.
+    + apply ls_emp'; intros i Hi; rewrite init_length in Hi; rewrite ls_init_spec;
+      destruct lt_dec; eauto; omega.
+    + apply ls_emp'; intros i Hi; rewrite init_length in Hi; rewrite ls_init_spec;
+      destruct lt_dec; eauto; omega.
+    + apply ls_emp'; intros i Hi; rewrite init_length in Hi; rewrite ls_init_spec;
+      destruct lt_dec; eauto; omega.
+    + sep_cancel.
+      sep_rewrite (@ls_init_eq0).
+      Focus 2.
+      intros i Hi; rewrite ls_init_spec; destruct lt_dec; try omega; simpl; reflexivity.
+      
+      Lemma is_array_conj_xs e len' f' : forall s stk,
+        stk ||= is_array e len' f' s <=> conj_xs (ls_init s len' (fun i => e +o Zn i -->p (1, f' i))).
+      Proof.
+        induction len'; introv; simpl.
+        - reflexivity.
+        - split; intros; sep_cancel; apply IHlen'; auto.
+      Qed.
+      sep_rewrite_in is_array_conj_xs H0.
+      sep_cancel.
+      rewrite <-(firstn_skipn 1 (ls_init _ _ _)).
+      rewrite firstn_init, skipn_init.
+      rewrite Nat.min_l, <-plus_n_O; try omega.
+      simpl.
+      rewrite nth_nseq.
+      destruct (leb ntrd 0) eqn:Heq; [rewrite leb_iff in Heq; try omega|].
+      sep_cancel.
+      sep_rewrite (@ls_init_eq).
+      Focus 2.
+      intros i Hi.
+      destruct Nat.eq_dec; try omega.
+      cutrewrite (emp = id (fun i => emp) (0 + 1 + i)).
+      reflexivity.
+      reflexivity.
+      unfold id.
+      apply init_emp_emp; auto.
+  - simpl; intros s h H.
+    unfold tid_post in H;  istar_simplify_in H.
+    sep_rewrite emp_unit_r.
+    apply ex_lift_l; exists (List.nth 0 vs (fun _ => 0%Z)).
+    repeat sep_cancel.
+    rewrite <-(firstn_skipn 1 (ls_init _ _ _)) in H0.
+    rewrite firstn_init, skipn_init in H0.
+    rewrite Nat.min_l, <-plus_n_O in H0; try omega.
+    sep_rewrite_in (@ls_init_eq0) H0.
+    Focus 2.
+    intros i Hi.
+    destruct Nat.eq_dec; try omega.
+    reflexivity.
+    sep_rewrite_in conj_xs_app H0.
+    sep_rewrite_in (@ls_star) H0.
+    sep_rewrite_in distribute_correct' H0; try omega; eauto.
+    simpl in H0.
+    sep_normal_in H0.
+    sep_rewrite (is_array_change ntrd nblk); try omega.
+    sep_cancel.
+    2: intros; eauto.
+    sep_rewrite_in (@ls_init_eq) H0.
+    Focus 2.
+    intros i Hi.
+    destruct Nat.eq_dec; try omega.
+    cutrewrite (emp = id (fun i => emp) (0 + 1 + i)).
+    reflexivity.
+    reflexivity.
+    unfold id in H0.
+    sep_rewrite_in init_emp_emp H0; auto.
+    sep_normal_in H0.
+    auto.
+  - intros; unfold tid_pre; rewrite MyVector.init_spec.
+    unfold low_assn.
+    repeat prove_low_assn; eauto using low_assn_skip_arr.
+    applys_eq ty_offset 1; eauto.
+    instantiate (1:=Lo); reflexivity.
+    applys_eq ty_offset 1; eauto.
+    instantiate (1:=Lo); instantiate (1:=Lo); reflexivity.
+  - intros; unfold tid_post; rewrite MyVector.init_spec.
+    unfold low_assn.
+    repeat prove_low_assn; eauto using low_assn_skip_arr.
+    applys_eq ty_offset 1; eauto.
+    instantiate (1:=Lo); instantiate (1:=Lo); reflexivity.
+  - apply typing_fold.
+  - intros tid; unfold tid_pre, tid_post; rewrite !init_spec.
+    eapply Hbackward.
+    eapply Hforward.
+    apply fold_ker_correct; eauto.
+    intros s h [fc ?]; exists fc; repeat sep_cancel; eauto.
+    intros s h H.
+    repeat (apply ex_lift_l_in in H; destruct H as [? ?]).
+    exists x x0; sep_normal; sep_normal_in H.
+    repeat sep_cancel.
+Qed.
+
+Definition bid_pre (arr out : Z) (bid : Fin.t nblk) :=
+  Ex v2 : Z,
+   !(ARR === arr) **
+   !(OUT === out) **
+   conj_xs
+     (ls_init 0 ntrd
+        (fun i : nat => skip_arr (Gl arr) 0 len nt_gr f (i + nf bid * ntrd))) **
+   (Gl out +o Zn (nf bid) -->p (1,  v2)).
+
+Definition bid_post (arr out : Z) (bid : Fin.t nblk) :=
+  (conj_xs
+     (ls_init 0 ntrd
+        (fun i : nat => skip_arr (Gl arr) 0 len nt_gr f (i + nf bid * ntrd))) **
+   (Gl out +o Zn (nf bid) -->p (1,  sum_of 0 ntrd (f_ss' (nf bid))))).
+
+Theorem fold_ker_correct_g (arr out : val) :
+  nt_gr <= len ->
+  CSLg ntrd nblk ntrd_neq_0 nblk_neq_0
+  (Ex fout, 
+   !(ARR === arr) ** !(OUT === out) **
+   is_array (Gl arr) len f 0 ** is_array (Gl out) nblk fout 0)
+  (Pr ((SARR, ntrd) :: List.nil) fold_ker') 
+  (is_array (Gl arr) len f 0 ** is_array (Gl out) nblk (fun b => (sum_of 0 ntrd (f_ss' b))) 0).
+Proof.
+  intros Hlen.
+  applys (>>rule_grid ty_env_fold (MyVector.init (bid_pre arr out)) (MyVector.init (bid_post arr out))).
+  - intros s h [fout H].
+    unfold bid_pre; istar_simplify.
+    sep_split_in H.
+    sep_rewrite (@ls_exists0 _ 0%Z); exists (ls_init 0 nblk fout); sep_split; eauto.
+    rewrite init_length; reflexivity.
+    repeat sep_rewrite (@ls_star); repeat sep_rewrite (@ls_pure); sep_split.
+    + apply ls_emp'; rewrite init_length; intros; rewrite ls_init_spec; destruct lt_dec; eauto; omega.
+    + apply ls_emp'; rewrite init_length; intros; rewrite ls_init_spec; destruct lt_dec; eauto; omega.
+    + sep_rewrite_in (@is_array_skip_arr (Gl arr) nblk ntrd) H; try omega.
+      sep_cancel.
+      sep_rewrite is_array_distr; try omega.
+      sep_rewrite is_array_change; eauto.
+      intros; rewrite ls_init_spec; destruct lt_dec; eauto; try omega.
+  - intros bid.
+    unfold bid_pre, bid_post; simpl.
+    rewrite @MyVector.init_spec.
+    eapply CSLp_backward.
+    eapply CSLp_forward.
+    apply fold_correct_b; eauto.
+    + simpl; intros s h H.
+      rewrite MyVector.init_spec.
+      repeat sep_cancel.
+    + simpl; intros s h H.
+      apply ex_lift_l_in in H; destruct H as [v H].
+      exists v. repeat sep_cancel.
+  - unfold bid_post; intros s h H.
+    istar_simplify_in H.
+    sep_rewrite (@is_array_skip_arr (Gl arr) nblk ntrd); try omega.
+    sep_cancel.
+    sep_rewrite_in is_array_distr H; try omega.
+    sep_rewrite is_array_change; eauto.
+  - simpl.
+    prove_inde.
+    Lemma inde_ex {T : Type} (P : T -> assn) vs :
+      (forall x, inde (P x) vs) ->
+      inde (Ex x, P x) vs.
+    Proof.
+      unfold inde.
+      intros; simpl in *.
+      split; intros [t ?]; exists t; simpl in *.
+      rewrite <-H; auto.
+      rewrite H; eauto.
+    Qed.
+    apply inde_ex; intros.
+    prove_inde.
+  - intros bid; unfold bid_pre.
+    rewrite init_spec.
+    apply inde_ex; intros.
+    Require Import pmap.
+    repeat prove_inde.
+    apply (inde_conj_xs); try omega; intros.
+    rewrite init_length in H.
+    rewrite ls_init_spec; destruct lt_dec; try omega.
+    unfold skip_arr.
+    prove_inde.
+  - unfold bid_pre; intros.
+    rewrite MyVector.init_spec.
+    repeat prove_low_assn; eauto using low_assn_skip_arr, low_assn_conj_xs.
+    apply low_assn_conj_xs; rewrite init_length; intros.
+    rewrite ls_init_spec; repeat prove_low_assn.
+    eauto using low_assn_skip_arr.
+    applys_eq ty_offset 1; eauto.
+    instantiate (1:=Lo); instantiate (1:=Lo); reflexivity.
+  - intros bid.
+    unfold bid_post; rewrite MyVector.init_spec.
+    repeat has_no_vars_assn.
+    apply has_no_vars_conj_xs.
+    rewrite init_length; intros; rewrite ls_init_spec.
+    repeat has_no_vars_assn.
+    apply has_no_vars_skip_arr; cbv; auto.
+  - simpl; intros v [? | [ ] ].
+    subst; cbv; auto.
+  - auto.
+  - auto.
+  - cbv; destruct 1; try congruence.
+  - cbv; destruct 1; try congruence.
+  - cbv; eauto.
+Qed.
+End Fold.

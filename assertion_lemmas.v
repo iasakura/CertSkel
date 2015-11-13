@@ -34,21 +34,22 @@ Definition Aconj (P1 P2 : assn) : assn := (nosimpl (fun (s : stack) (ph : pheap)
 Notation "P '//\\' Q" := (Aconj P Q) (at level 80, right associativity).
 Definition Adisj (P1 P2 : assn) : assn := (nosimpl (fun (s : stack) (ph : pheap) => P1 s ph \/ P2 s ph)).
 Notation "P '\\//' Q" := (Adisj P Q) (at level 85, right associativity).
-Definition Apure (p : Prop) := (nosimpl (fun (s : stack) (ph : pheap) => p)).
+Definition Apure (p : Prop) : assn := (nosimpl (fun (s : stack) (ph : pheap) => p)).
 Notation pure p := (Apure p).
-Definition Apointsto (p : Qc) (e1 : loc_exp) (e2 : exp) := (nosimpl (fun (s : stack) (ph : pheap) =>
+Definition Apointsto (p : Qc) (e1 : loc_exp) (e2 : exp) : assn :=
+  (nosimpl (fun (s : stack) (ph : pheap) =>
   forall x, this ph x = if eq_dec x (ledenot e1 s) then Some (p, edenot e2 s) else None)).
 Notation "e1 '-->p' ( p ,  e2 )" := (Apointsto p e1 e2) (at level 75).
-Definition ban (P : assn) := (nosimpl (emp //\\ P)).
+Definition ban (P : assn) : assn := (nosimpl (emp //\\ P)).
 Notation "!( P )" := (ban P).
-Definition eeq (x y : exp) := (nosimpl (fun s (h : pheap) => edenot x s = edenot y s)).
+Definition eeq (x y : exp) : assn := (nosimpl (fun s (h : pheap) => edenot x s = edenot y s)).
 Notation "x '===' y" := (eeq x y) (at level 70, no associativity).
-Definition leeq (x y : loc_exp) := (nosimpl (fun s (h : pheap) => ledenot x s = ledenot y s)).
+Definition leeq (x y : loc_exp) : assn := (nosimpl (fun s (h : pheap) => ledenot x s = ledenot y s)).
 Notation "x '===l' y" := (leeq x y) (at level 70, no associativity).
-Definition AEx {T : Type} (Px : T -> assn) := (nosimpl (fun s h => ex (fun x => Px x s h))).
+Definition AEx {T : Type} (Px : T -> assn) : assn := (nosimpl (fun s h => ex (fun x => Px x s h))).
 Notation "'Ex' x .. y , p" := (AEx (fun x => .. (AEx (fun y => p)) ..))
   (at level 200, x binder, right associativity).                               
-Definition subA' (x : var) (e : exp) (P : assn) := (nosimpl (fun (s : stack) (h : pheap) => P (var_upd s x (edenot e s)) h)).
+Definition subA' (x : var) (e : exp) (P : assn) : assn := (nosimpl (fun (s : stack) (h : pheap) => P (var_upd s x (edenot e s)) h)).
 Notation subA x e P := (subA' x e P).
 
 Definition bexp_to_assn (b : bexp) : assn := fun s h => bdenot b s = true.

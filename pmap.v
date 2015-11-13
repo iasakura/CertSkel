@@ -315,47 +315,6 @@ Definition bl_pres (arr : val) : Vector.t assn nblk :=
 Definition bl_posts (arr : val) : Vector.t assn nblk :=
   init (fun b : Fin.t nblk => (bth_post b arr)).
 
-Lemma CSLp_backward (P' P : assn) n E C Q : 
-  CSLp n E P C Q -> (P' |= P) -> CSLp n E P' C Q.
-Proof.
-  unfold CSLp; intros Hcsl Hp; intros.
-  exploit Hcsl.
-  eauto.
-  eauto.
-  unfold sat_k in *.
-  instantiate (1:=h).
-  instantiate (1:=leqks).
-  destruct low_eq_repr.
-  apply Hp; eauto.
-  intros; eauto.
-Qed.  
-
-Lemma safe_gl_forward n m E ks h (Q Q' : assn) : 
-  @safe_nk n E m ks h Q -> 
-  (Q |= Q') ->
-  @safe_nk n E m ks h Q'.
-Proof.
-  revert h ks; induction m; simpl; intros h ks Hsafe Hq; eauto.
-  simpl in Hsafe; destructs Hsafe.
-  repeat split; eauto.
-  - intros; unfold sat_k in *.
-    exploit H; eauto.
-    intros [x ?]; exists x.
-    destruct low_eq_repr; apply Hq; eauto.
-  - exploit H2; eauto.
-    intros; jauto.
-  - exploit H2; eauto.
-    intros; jauto.
-  - intros; exploit H3; eauto.
-    intros (h'' & ? & ? & ?); exists h''; repeat split; eauto.
-Qed.  
-
-Lemma CSLp_forward P n E C (Q Q' : assn) : 
-  CSLp n E P C Q -> (Q |= Q') -> CSLp n E P C Q'.
-Proof.
-  unfold CSLp; intros; applys safe_gl_forward; eauto.
-Qed.
-
 Theorem map_correct_g (arr : val) :
   CSLg ntrd nblk ntrd_neq0 nblk_neq0
     (!(ARR === arr) ** 
@@ -404,62 +363,7 @@ Proof.
     (*   reflexivity. *)
     (*   reflexivity. } Unfocus. *)
     (* rewrite !init_length; eauto. *)
-    Lemma conj_xs_init_flatten l1 l2 f_ini :
-      forall s stk,
-        stk ||=
-          conj_xs (ls_init s l1 (fun i =>
-            conj_xs (ls_init 0 l2 (fun j => f_ini (j + i * l2))))) <=>
-          conj_xs (ls_init (s * l2) (l1 * l2) (fun i => f_ini i)).
-    Proof.
-      induction l1; simpl; [reflexivity|].
-      introv.
-      Lemma ls_init_app {T : Type} l1 l2 (f_ini : nat -> T) :
-        forall s, 
-          ls_init s (l1 + l2) f_ini = ls_init s l1 f_ini ++ ls_init (s + l1) l2 f_ini.
-      Proof.
-        induction l1; simpl.
-        - introv; rewrite <-plus_n_O; reflexivity.
-        - introv; f_equal.
-          rewrite IHl1; do 2 f_equal; ring.
-      Qed.
-      rewrite ls_init_app, conj_xs_app.
-      apply star_proper.
-      eapply equiv_from_nth; rewrite !init_length; eauto.
-      - intros i Hi stk'; repeat rewrite (@ls_init_spec _ _ _ emp); destruct lt_dec.
-        cutrewrite (0 + i + s * l2 = s * l2 + i); [|ring]; reflexivity.
-        reflexivity.
-      - rewrite IHl1.
-        cutrewrite (S s * l2 = s * l2 + l2); [|ring]; reflexivity.
-    Qed.
-    Lemma conj_xs_init_flatten0 l1 l2 f_ini :
-      forall stk,
-        stk ||=
-          conj_xs (ls_init 0 l1 (fun i =>
-            conj_xs (ls_init 0 l2 (fun j => f_ini (j + i * l2))))) <=>
-          conj_xs (ls_init 0 (l1 * l2) (fun i => f_ini i)).      
-    Proof.
-      cutrewrite (0 = 0 * l2); [|omega].
-      introv; rewrite <-conj_xs_init_flatten.
-      reflexivity.
-    Qed.
-    Lemma is_array_skip_arr E n m len' f_ini :
-      n <> 0 -> m <> 0 ->
-      forall stk, stk ||= 
-        is_array E len' f_ini 0 <=>
-        conj_xs (ls_init 0 n (fun i =>
-          conj_xs (ls_init 0 m (fun j =>
-            skip_arr E 0 len' (n * m) f_ini (j + i * m))))).
-    Proof.
-      intros.
-      rewrite conj_xs_init_flatten0.
-      lets Heq: (>>distribute_correct (n * m) (nt_step (n * m))); rewrite Heq; clear Heq.
-      2: unfold nt_step; intros; apply Nat.mod_upper_bound; nia.
-      eapply (@equiv_from_nth emp).
-      rewrite init_length, distribute_length; ring.
-      rewrite distribute_length; intros i Hi stk'.
-      rewrite ls_init_spec; destruct lt_dec; try omega.
-      reflexivity.
-    Qed.
+
     apply is_array_skip_arr; eauto.
   - unfold bl_pres, bl_posts; intros.
     rewrite !MyVector.init_spec.
@@ -482,17 +386,6 @@ Proof.
   - prove_inde.
   - intros; unfold bl_pres, bth_pre.
     rewrite MyVector.init_spec.
-    Lemma inde_conj_xs assns vs :
-      (forall i, i < length assns -> inde (nth i assns emp) vs) ->
-      inde (conj_xs assns) vs.
-    Proof.
-      induction assns; simpl; try omega.
-      - intros; unfold_conn; unfold inde; eauto; simpl; tauto.
-      - intros H.
-        apply inde_sconj; eauto.
-        + specialize (H 0); simpl in H; apply H; omega.
-        + apply IHassns; intros i Hi; specialize (H (S i)); simpl in H; apply H; omega.
-    Qed.
     prove_inde.
     apply inde_conj_xs; rewrite init_length; intros.
     rewrite ls_init_spec; destruct lt_dec; prove_inde.
@@ -500,14 +393,6 @@ Proof.
   - intros bid; unfold bl_pres, bth_pre; rewrite MyVector.init_spec.
     Hint Constructors typing_exp typing_lexp.
     repeat prove_low_assn; eauto.
-    Lemma low_assn_conj_xs assns E :
-      (forall i, i < length assns -> low_assn E (nth i assns emp)) ->
-      low_assn E (conj_xs assns) .
-    Proof.
-      induction assns; simpl; intros; repeat prove_low_assn.
-      specialize (H 0); apply H; omega.
-      apply IHassns; intros i; specialize (H (S i)); intros; apply H; omega.
-    Qed.
     apply low_assn_conj_xs; rewrite init_length; intros.
     rewrite ls_init_spec; destruct lt_dec.
     apply low_assn_skip_arr; eauto.
@@ -515,15 +400,6 @@ Proof.
   - intros.
     unfold bl_posts, bth_post.
     rewrite MyVector.init_spec.
-    Lemma has_no_vars_conj_xs assns :
-      (forall i, i < length assns -> has_no_vars (nth i assns emp)) ->
-      has_no_vars (conj_xs assns).
-    Proof.
-      induction assns; simpl; intros; repeat has_no_vars_assn.
-      apply (H 0); omega.
-      apply IHassns; intros i; specialize (H (S i)); simpl in *.
-      intros; apply H; omega.
-    Qed.
     apply has_no_vars_conj_xs.
     rewrite init_length; intros; rewrite ls_init_spec.
     repeat has_no_vars_assn.
