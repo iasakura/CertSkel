@@ -927,3 +927,81 @@ Ltac has_no_vars_assn :=
     | [|- has_no_vars (is_array _ _ _ _ _ _) ] => apply has_no_vars_is_array
     | _ => now (unfold has_no_vars, indeP; intros; tauto)
   end.
+
+Lemma mps_precise E1 E2 E2' q st : forall h1 h2 h1' h2' ,
+  (E1 -->p (q, E2)) st h1 ->
+  (E1 -->p (q, E2')) st h1' ->
+  pdisj h1 h2 -> pdisj h1' h2' -> phplus h1 h2 = phplus h1' h2' ->
+  h1 = h1'.
+Proof.
+  intros; unfold_conn_all.
+  destruct h1 as [h1 ?], h1' as [h1' ?]; simpl in *.
+  apply pheap_eq; extensionality x.
+  apply (f_equal (fun f => f x)) in H3; unfold phplus in H3.
+  specialize (H1 x); specialize (H2 x).
+  rewrite H, H0 in *.
+  destruct (eq_dec x (ledenot E1 st)); eauto.
+  destruct (h2 x) as [[? ?]|], (h2' x) as [[? ?]|]; try eauto; inversion H3; congruence.
+Qed.
+
+Lemma is_array_precise E f f' st n : forall s (h1 h2 h1' h2' : pheap),
+  (is_array E n f s) st h1 ->
+  (is_array E n f' s) st h1' ->
+  pdisj h1 h2 -> pdisj h1' h2' -> phplus h1 h2 = phplus h1' h2' ->
+  h1 = h1'.
+Proof.
+  induction n; simpl; intros.
+  - apply emp_emp_ph_eq in H; apply emp_emp_ph_eq in H0; congruence.
+  - destruct H as (ph1 & ph2 & ? & ? & ? & ?).
+    destruct H0 as (ph1' & ph2' & ? & ? & ? & ?).
+    assert (ph1 = ph1').
+    { assert (pdisj ph1 (phplus ph2 h2)).
+      { apply pdisj_padd_expand; eauto. rewrite H6; eauto. }
+      assert (pdisj ph1' (phplus ph2' h2')).
+      { apply pdisj_padd_expand; eauto. rewrite H9; eauto. }
+      eapply mps_precise; [exact H | exact H0 | exact H10 | exact H11 | ..].
+      rewrite <-H6 in H1.
+      rewrite <-H9 in H2.
+      apply pdisj_padd_expand in H1; eauto.
+      apply pdisj_padd_expand in H2; eauto.
+      rewrite <-!padd_assoc; try tauto.
+      rewrite H9, H6; eauto. }
+    cut (PHeap.this h1 = PHeap.this h1').
+    { intros; destruct h1, h1'; apply pheap_eq; simpl in *; eauto. }
+    rewrite <-H6, <-H9; rewrite H10; repeat f_equal.
+    rewrite <-H9, <-H6 in H3.
+    rewrite (@phplus_comm _ ph1 ph2) in H3; eauto.
+    rewrite (@phplus_comm _ ph1' ph2') in H3; eauto.
+    rewrite <-H6, (@phplus_comm _ ph1 ph2) in H1; eauto.
+    apply pdisj_padd_expand in H1; eauto.
+    rewrite <-H9, (@phplus_comm _ ph1' ph2') in H2; eauto.
+    apply pdisj_padd_expand in H2; eauto.
+    destruct H1, H2.
+    eapply IHn.
+    eauto. eauto.
+    instantiate (1 := (phplus_pheap H11)); simpl; eauto.
+    instantiate (1 := (phplus_pheap H12)); simpl; eauto.
+    simpl.
+    repeat (rewrite <-padd_assoc; eauto).
+Qed.
+
+Ltac sep_destruct_in H :=
+  match type of H with
+    | ((Ex _, _) _ _) => destruct H as [? H]; sep_destruct_in H
+    | _ => sep_split_in H
+  end.
+
+Ltac prove_precise :=
+  match goal with
+    | [|- precise _] =>
+      intros h1 h2 h1' h2' s Hsat Hsat' Hdis Hdis' Heq; simpl in *;
+      sep_destruct_in Hsat; sep_destruct_in Hsat'; unfold_pures;
+      repeat match goal with
+        | [ H : s ?X = Zn _, H': s ?X = Zn _ |- _ ] => rewrite H', Nat2Z.inj_iff in H
+      end; subst;
+      try (match type of Hsat with
+        | (if ?X then _ else _) _ _ => destruct X
+      end; sep_split_in Hsat; sep_split_in Hsat')
+  end.
+Hint Resolve is_array_precise precise_emp.
+

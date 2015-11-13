@@ -1149,5 +1149,94 @@ Proof.
   apply is_array_distr in H; auto.
 Qed.
 
+Require Import MyVector. 
+Import VectorNotations.
+Lemma precise_binv0_pre bid tid : precise ((fst (binv0 bid))[@tid]).
+Proof.
+  unfold binv0; simpl; rewrite MyVector.init_spec.
+  unfold precise; intros.
+  eapply mps_precise; eauto.
+Qed.
+
+Lemma precise_pts e1 e2 q :
+  precise (e1 -->p (q, e2)).
+Proof.
+  unfold precise; intros; simpl in *.
+  unfold_conn_all; simpl.
+  destruct h1 as [h1 ?], h1' as [h1' ?]; apply pheap_eq.
+  extensionality l; simpl in *; rewrite H, H0.
+  auto.
+Qed.
+
+Lemma precise_sat (P Q : assn) :
+  (Q |= P) -> precise P -> precise Q.
+Proof.
+  unfold precise; simpl; intros Hsat HprecP; introv.
+  intros HsatQ HsatQ' ? ? ?.
+  eapply HprecP; eauto.
+Qed.
+Hint Rewrite add_nth_length distribute_length.
+
+Lemma distribute_precise d e n dist i : forall s,
+  precise (Ex f', List.nth i (distribute d e n f' dist s) emp).
+Proof.
+  induction n; simpl; intros.
+  - rewrite nth_nseq; destruct leb; apply (@precise_sat emp); auto using precise_emp;
+    intros ? ? [? ?]; auto.
+  - assert (d <= i \/ i < d) as [? | ?] by omega.
+    + apply (@precise_sat emp); auto.
+      intros ? ? [v H'].
+      rewrite nth_overflow in H'; autorewrite with core; eauto using precise_emp.
+    + assert (d <= dist s \/ dist s < d) as [? | ?] by omega.
+      * eapply precise_sat; [intros stk h [f' Hsat]|].
+        { rewrite add_nth_overflow in Hsat; autorewrite with core; auto.
+          ex_intro f' Hsat; apply Hsat. }
+        auto.
+      * eapply precise_sat; [intros stk h [f' Hsat]|].
+        { rewrite nth_add_nth in Hsat; autorewrite with core; auto. 
+          ex_intro f' Hsat; apply Hsat. }
+        destruct beq_nat; auto.
+        apply precise_ex_star, precise_star; auto.
+        eapply precise_sat; [intros stk h [f' Hsat]|].
+        { ex_intro (f' s) Hsat; apply Hsat. }
+        apply GCSL.precise_pts.
+Qed.
+
+Lemma precise_binv0_snd bid tid : precise ((snd (binv0 bid))[@tid]).
+Proof.
+  unfold binv0; simpl; rewrite MyVector.init_spec.
+  eapply precise_sat; [intros stk h Hsat| ].
+  { ex_intro (f_ss' (nf bid)) Hsat; apply Hsat. }
+  apply distribute_precise.
+Qed.
+
+Lemma distribute_rewrite1 d e e' n f' dist stk i:
+  (e ===l e') stk (emp_ph loc) ->
+  forall s,
+    stk ||= List.nth i (distribute d e n f' dist s) emp <=>
+            List.nth i (distribute d e' n f' dist s) emp.
+Proof.
+  intros Heq; induction n; intros s; simpl.
+  - reflexivity.
+  - assert (d <= i \/ i < d) as [?|?] by omega.
+    + rewrite !nth_overflow; autorewrite with core; auto.
+      reflexivity.
+    + assert (d <= dist s \/ dist s < d) as [?|?] by omega.
+      * rewrite !add_nth_overflow; autorewrite with core; auto.
+      * rewrite !nth_add_nth; autorewrite with core; auto.
+        destruct beq_nat; auto.
+        assert ((e +o Zn s ===l e' +o Zn s) stk (emp_ph loc)).
+        { unfold_pures; unfold_conn; simpl; rewrite Heq; auto. }
+        lets Heq': (>>mps_eq1 H1); rewrite Heq'.
+        rewrite IHn; reflexivity.
+Qed.
+  
+Lemma precise_binv1_fst bid tid : precise ((fst (binv1 bid))[@tid]).
+Proof.
+  unfold binv1; simpl; rewrite MyVector.init_spec.
+  eapply precise_sat; [intros stk h (s & e & fc & Hsat)|].
+  { sep_split_in Hsat.
+    assert (s ==
+    
 
 End Fold.
