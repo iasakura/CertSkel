@@ -1332,5 +1332,18 @@ Proof.
       apply low_assn_skip_arr; repeat econstructor; repeat reflexivity. }
     split; intros; destruct Nat.eq_dec; try congruence; simpl; rewrite MyVector.init_spec;
     unfold low_assn; prove_low_assn.
-  - 
-End Fold.
+  - intros [|[|?]] [s h]; simpl.
+    apply barrier_wf0.
+    apply barrier_wf.
+    eauto.
+  - intros [|[|?]] tid; split.
+    apply precise_binv0_pre.
+    apply precise_binv0_snd.
+    apply precise_binv1_fst.
+    apply precise_binv1_snd.
+    simpl; rewrite MyVector.init_spec.
+    unfold precise; intros; destruct H.
+    simpl; rewrite MyVector.init_spec.
+    unfold precise; intros; destruct H.
+  -
+ End Fold.
