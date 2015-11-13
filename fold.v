@@ -1230,13 +1230,107 @@ Proof.
         lets Heq': (>>mps_eq1 H1); rewrite Heq'.
         rewrite IHn; reflexivity.
 Qed.
-  
+
+Lemma precise_ex_var (P : val -> assn) E :
+  (forall v, precise (P v)) ->
+  precise (Ex v, !(E === Enum v) ** P v).
+Proof.
+  unfold precise; simpl; intros Hprec; introv Hsat1 Hsat2 ? ?.
+  eapply Hprec; eauto;
+  destruct Hsat1 as [v1 Hsat1], Hsat2 as [v2 Hsat2];
+  sep_split_in Hsat1; sep_split_in Hsat2.
+  cutrewrite (v1 = edenot E s) in Hsat1; [|unfold_pures; auto]; eauto.
+  cutrewrite (v2 = edenot E s) in Hsat2; [|unfold_pures; auto]; eauto.
+Qed.
+
 Lemma precise_binv1_fst bid tid : precise ((fst (binv1 bid))[@tid]).
 Proof.
   unfold binv1; simpl; rewrite MyVector.init_spec.
   eapply precise_sat; [intros stk h (s & e & fc & Hsat)|].
   { sep_split_in Hsat.
-    assert (s ==
-    
+    clear HP0 HP1 HP2 HP3.
+    rewrite <-(Nat2Z.id s) in Hsat.
+    ex_intro fc Hsat.
+    sep_combine_in Hsat.
+    apply scC in Hsat.
+    ex_intro (Zn s) Hsat.
+    exact Hsat. }
+  simpl.
+  apply precise_ex_var.
+  intros; apply distribute_precise.
+Qed.
 
+Lemma precise_binv1_snd bid tid : precise ((snd (binv1 bid))[@tid]).
+Proof.
+  unfold binv1; simpl; rewrite MyVector.init_spec.
+  eapply precise_sat; [intros stk h (s & e & fc & Hsat)|].
+  { sep_split_in Hsat.
+    clear HP0 HP1 HP2 HP3.
+    rewrite <-(Nat2Z.id s) in Hsat.
+    ex_intro fc Hsat.
+    sep_combine_in Hsat.
+    apply scC in Hsat.
+    ex_intro (Zn s) Hsat.
+    exact Hsat. }
+  simpl.
+  apply precise_ex_var.
+  intros; apply distribute_precise.
+Qed.
+Import ListNotations.
+
+Definition tid_pre (arr out : Z) (bid : Fin.t nblk) (tid : Fin.t ntrd) :=
+  (Ex v1 v2 : Z,
+   !(ARR === arr) **
+   !(OUT === out) **
+   (Sh SARR +o Zn (nf tid) -->p (1,  v1)) **
+   skip_arr (Gl arr) 0 len nt_gr f (nf tid + nf bid * ntrd) **
+   (if Nat.eq_dec (nf tid) 0
+    then Gl out +o Zn (nf bid) -->p (1,  v2)
+    else emp) ** !(BID === Zn (nf bid))).
+
+Definition tid_post (arr out : Z) (bid : Fin.t nblk) (tid : Fin.t ntrd) :=
+  (Ex fc : nat -> Z,
+   skip_arr (Gl arr) 0 len nt_gr f (nf tid + nf bid * ntrd) **
+   (if Nat.eq_dec (nf tid) 0
+    then
+     List.nth (nf tid) (distribute 1 (Sh SARR) ntrd fc (nt_step 1) 0) emp **
+     (Gl out +o Zn (nf bid) -->p (1,  sum_of 0 ntrd (f_ss' (nf bid))))
+    else emp)).
+
+Lemma fold_correct_b (bid : Fin.t nblk) (arr out : val) :
+  CSLp ntrd ty_env_fold
+  (Ex v2,
+   !(ARR === arr) ** !(OUT === out) ** sh_spec ((SARR, ntrd) :: List.nil) ** !(BID === Zn (nf bid)) **
+   conj_xs (ls_init 0 ntrd (fun i => skip_arr (Gl arr) 0 len nt_gr f (i + nf bid * ntrd))) **
+   (Gl out +o Zn (nf bid) -->p (1, v2)))
+  fold_ker'
+  (sh_spec ((SARR, ntrd) :: List.nil) ** 
+   conj_xs (ls_init 0 ntrd (fun i => skip_arr (Gl arr) 0 len nt_gr f (i + nf bid * ntrd))) **
+   (Gl out +o Zn (nf bid) -->p (1, sum_of 0 ntrd (f_ss' (nf bid))))).
+Proof.
+  applys (>>rule_par (binv bid) (MyVector.init (tid_pre arr out bid))
+            (MyVector.init (tid_post arr out bid))).
+  - exists (ntrd - 1); try omega.
+  - unfold tid_pre, tid_post, binv, binv0, binv1.
+    destruct i.
+    { split; intros;
+      destruct Nat.eq_dec; try congruence; simpl; rewrite MyVector.init_spec.
+      unfold ty_env_fold, hi_list, low_assn.
+      prove_low_assn; repeat econstructor.
+      applys_eq ty_offset 1; repeat econstructor; repeat reflexivity. 
+      instantiate (1 := Lo).
+      reflexivity.
+
+      apply low_assn_skip_arr.
+      repeat econstructor; repeat reflexivity. }
+    destruct i.
+    { split; intros; destruct Nat.eq_dec; try congruence; simpl; rewrite MyVector.init_spec;
+      unfold low_assn.
+      repeat prove_low_assn; try now (repeat econstructor; repeat reflexivity).
+      apply low_assn_skip_arr; repeat econstructor; repeat reflexivity.
+      repeat prove_low_assn; try now (repeat econstructor; repeat reflexivity).
+      apply low_assn_skip_arr; repeat econstructor; repeat reflexivity. }
+    split; intros; destruct Nat.eq_dec; try congruence; simpl; rewrite MyVector.init_spec;
+    unfold low_assn; prove_low_assn.
+  - 
 End Fold.

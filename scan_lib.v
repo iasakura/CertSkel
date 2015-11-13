@@ -776,6 +776,7 @@ Ltac prove_low_assn :=
     | [|- low_assn _ (if ?X then _ else _) ] => destruct X
     | [|- low_assn _ (is_array _ _ _ _) ] => apply low_assn_is_array
     | [|- low_assn _ emp ] => apply low_assn_emp
+    | [|- low_assn _ (_ -->p (_, _)) ] => apply low_assn_mp
     | [|- low_assn _ (is_array _ _ _ _ _ _) ] => apply low_assn_is_array
     | _ => now (unfold low_assn, indeP; intros; tauto)
   end.
