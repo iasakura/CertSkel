@@ -72,6 +72,17 @@ Section independent_prover.
     erewrite (H x H0 s); erewrite (H' x H0 s); eauto.
   Qed.
 
+  Lemma inde_leeq (E E' : loc_exp) (vs : list var) :
+    List.Forall (indelE E) vs -> List.Forall (indelE E') vs ->
+    inde (E ===l E') vs.
+  Proof.
+    intros H H'; inde_simpl.
+    rewrite List.Forall_forall in *.
+    unfold_conn; split; intros Heq.
+    rewrite<-(H x H0 s); rewrite<-(H' x H0 s); auto.
+    erewrite (H x H0 s); erewrite (H' x H0 s); eauto.
+  Qed.
+
   Definition indeB (B : bexp) (x : var) :=
     forall (s : var -> Z) (v : Z), bdenot B s = bdenot B (var_upd s x v).
 
@@ -152,6 +163,7 @@ Ltac prove_inde :=
     | [ |- inde (?P \\// ?Q) _ ] => apply inde_disj; prove_inde
     | [ |- inde (?E -->p (_, ?E')) _ ] => apply inde_pointto; repeat (constructor; prove_indeE)
     | [ |- inde (?E === ?E') _ ] => apply inde_eeq; repeat (constructor; prove_indeE)
+    | [ |- inde (?E ===l ?E') _ ] => apply inde_leeq; repeat (constructor; prove_indeE)
     | [ |- inde (bexp_to_assn ?B) _ ] => apply inde_bexp; repeat (constructor; prove_indeB)
     | [ |- inde (List.nth _ (distribute _ _ _ _ _ _) emp) _ ] =>
       apply inde_distribute; auto; repeat (constructor; prove_indeE)
@@ -200,6 +212,13 @@ Section subA_simpl.
   Proof.
     intros; unfold subA' in *; unfold_conn_all; simpl in *;
     repeat rewrite <-subE_assign in *; auto.
+  Qed.
+
+  Lemma subA_leeq (X : var) (E : exp) (E1 E2 : loc_exp) s h :
+    subA X E (E1 ===l E2) s h -> (sublE X E E1 ===l sublE X E E2) s h.
+  Proof.
+    intros; unfold subA' in *; unfold_conn_all; simpl in *;
+    repeat rewrite <-sublE_assign in *; auto.
   Qed.
 
   Lemma distribute_subA nt arr l f dist (i : nat) x e : forall s,
@@ -306,6 +325,7 @@ Ltac subA_normalize_in H :=
         [ idtac | intros Hf; subA_normalize_in Hf; exact Hf ]
     | subA _ _ (pure _) _ _ => apply subA_pure' in H
     | subA _ _ (_ === _) _ _ => apply subA_eeq in H
+    | subA _ _ (_ ===l _) _ _ => apply subA_leeq in H
     | subA _ _ emp _ _ => apply subA_emp in H
     | subA _ _ (bexp_to_assn ?b) _ _ => apply subA_bexp_to_assn in H
     | subA _ _ (List.nth _ (distribute _ _ _ _ _ _) _) _ _ => apply distribute_subA in H; auto

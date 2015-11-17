@@ -1134,3 +1134,56 @@ Proof.
   apply IHassns; intros i; specialize (H (S i)); simpl in *.
   intros; apply H; omega.
 Qed.
+
+
+Ltac default T :=
+  lazymatch T with
+    | nat => constr:(0)
+    | Z => constr:(0%Z)
+    | ?T1 -> ?T2 => let t := default T2 in constr:(fun _ : T1 => t)
+  end.
+
+Ltac ex_elim H :=
+  lazymatch type of H with
+    | conj_xs (ls_init _ _ (fun _ : nat => Ex _ : ?T, _)) _ _ =>
+      let t := default T in
+      sep_rewrite_in (@ls_exists0 _ t) H
+  end.
+
+Ltac istar_simplify_in H :=
+  apply sc_v2l in H; rewrite (vec_to_list_init0 _ emp) in H; erewrite ls_init_eq0 in H;
+  [|let i := fresh "i" in
+    let Hi := fresh in
+    let Hex := fresh in
+    let Heq := fresh in
+    intros i Hi;
+    lazymatch goal with
+      [|- match ?X with inleft _ => _ | inright _ => _ end = _] =>
+      destruct X as [|Hex] eqn:Heq; [|destruct Hex; omega]
+    end;
+    rewrite (Fin_nat_inv Heq); reflexivity];
+  match goal with _ => idtac end;
+  (repeat (let vs := fresh "vs" in
+          ex_elim H; destruct H as [vs H]; sep_split_in H));
+  (repeat sep_rewrite_in (@ls_star) H);
+  (repeat sep_rewrite_in (@ls_pure) H; sep_split_in H).
+ 
+
+Ltac istar_simplify :=
+  apply sc_v2l; rewrite (vec_to_list_init0 _ emp); erewrite ls_init_eq0;
+  [|let i := fresh "i" in
+    let Hi := fresh in
+    let Hex := fresh in
+    let Heq := fresh in
+    intros i Hi;
+    lazymatch goal with
+      [|- match ?X with inleft _ => _ | inright _ => _ end = _] =>
+      destruct X as [|Hex] eqn:Heq; [|destruct Hex; omega]
+    end;
+    rewrite (Fin_nat_inv Heq); reflexivity];
+  match goal with _ => idtac end.
+
+Ltac rewrite_body lem tac :=
+      erewrite ls_init_eq0; [|intros ? ?; rewrite lem; try tac; reflexivity ].
+Ltac rewrite_body_in lem tac H :=
+  erewrite ls_init_eq0 in H; [|intros ? ?; rewrite lem; try tac; reflexivity ].
