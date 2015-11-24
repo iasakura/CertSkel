@@ -165,6 +165,94 @@ Qed.
 Definition binv bid i :=
   if Nat.eq_dec i 0 then binv0 bid else if Nat.eq_dec i 1 then binv1 bid else default ntrd.
 
+
+Lemma skip_sum_app sk ix (f' : nat -> Z) i : 
+  sk <> 0 -> i < sk -> forall st,
+  skip_sum sk (st * sk) (sk + ix * sk) f' i =
+  (f' (i + ix * sk + st * sk)%nat + skip_sum sk (st * sk) (ix * sk) f' i)%Z.
+Proof.
+  intros Hsk Hisk; induction ix; simpl; intros st.
+  - rewrite <-!plus_n_O, Z.add_0_r.
+    rewrite skip_sum_unfold; eauto.
+    rewrite minus_diag; simpl; omega.
+  - rewrite skip_sum_unfold; try nia.
+    rewrite (skip_sum_unfold (len := sk + ix * sk)); try nia.
+    cutrewrite (sk + (sk + ix * sk) - sk = sk + ix * sk); [|nia].
+    rewrite IHix.
+    ring_simplify.
+    cutrewrite (i + (sk + ix * sk) + st * sk = i + ix * sk + S st * sk); [|nia].
+    cutrewrite (sk + ix * sk - sk = ix * sk); [|nia]; eauto.
+Qed.
+
+Lemma skip_sum_app0 sk ix f' i :
+  sk <> 0 -> i < sk ->
+  skip_sum sk 0 (sk + ix * sk) f' i =
+  (f' (i + ix * sk)%nat + skip_sum sk 0 (ix * sk) f' i)%Z.
+Proof.
+  intros; cutrewrite (0 = 0 * sk); eauto.
+  rewrite skip_sum_app; try omega.
+  simpl; rewrite <-plus_n_O; auto.
+Qed.
+
+Lemma skip_sum_nil' next sk len1 f1 i : forall st,
+  (forall j, j < next -> (st + len1 + j) mod sk <> i) ->
+  skip_sum sk st len1 f1 i =
+  skip_sum sk st (len1 + next) f1 i.
+Proof.
+  induction len1; intros st Hst; simpl.
+  - rewrite (@skip_sum_nil next).
+    { rewrite minus_diag; eauto. }
+    rewrite <-plus_n_O in Hst; eauto.
+  - rewrite IHlen1; eauto.
+    intros; cutrewrite (S st + len1 + j = st + S len1 + j); [|nia]; eauto.
+Qed.
+Lemma mod_lt n m a b : m <> 0 ->
+  n * m <= a < b -> b < (S n) * m ->
+  a mod m < b mod m.
+Proof.
+  intros Hm0 Ha Hb; destruct Ha.
+  assert (a / m = n).
+  { apply (Nat.div_le_mono _ _ m) in H; try omega.
+    rewrite Nat.div_mul in H; try omega.
+    assert (a < S n * m) by omega.
+    rewrite mult_comm in H1; apply Nat.div_lt_upper_bound in H1; omega. }
+  assert (b / m = n).
+  { assert (n * m <= b) by omega.
+    apply (Nat.div_le_mono _ _ m) in H2; try omega.
+    rewrite Nat.div_mul in H2; try omega.
+    rewrite mult_comm in Hb; apply Nat.div_lt_upper_bound in Hb; try omega. }
+  rewrite (Nat.div_mod a m), (Nat.div_mod b m) in H0; try omega.
+  rewrite H1, H2 in H0; omega.
+Qed.
+Lemma mod_le n m a b : m <> 0 ->
+  n * m <= a <= b -> b < (S n) * m ->
+  a mod m <= b mod m.
+Proof.
+  intros Hm0 Ha Hb; destruct Ha.
+  assert (a / m = n).
+  { apply (Nat.div_le_mono _ _ m) in H; try omega.
+    rewrite Nat.div_mul in H; try omega.
+    assert (a < S n * m) by omega.
+    rewrite mult_comm in H1; apply Nat.div_lt_upper_bound in H1; omega. }
+  assert (b / m = n).
+  { assert (n * m <= b) by omega.
+    apply (Nat.div_le_mono _ _ m) in H2; try omega.
+    rewrite Nat.div_mul in H2; try omega.
+    rewrite mult_comm in Hb; apply Nat.div_lt_upper_bound in Hb; try omega. }
+  rewrite (Nat.div_mod a m), (Nat.div_mod b m) in H0; try omega.
+  rewrite H1, H2 in H0; omega.
+Qed.
+
+Require Import LibTactics.
+
+Lemma div_le a b: b <> 0 -> a / b <= a.
+Proof.
+  intros.
+  lets: (Nat.div_le_compat_l a 1 b).
+  rewrite Nat.div_1_r in H0.
+  apply H0; omega.
+Qed.
+
 Theorem fold_ker_correct (tid : Fin.t ntrd) (bid : Fin.t nblk) (arr out : val) :
   nt_gr <= len ->
   CSL (binv bid) tid
@@ -233,7 +321,6 @@ Proof.
         sep_split_in H.
         change_in H.
         { unfold_pures.
-          Require Import LibTactics.
           sep_rewrite_in (@skip_arr_nth' ix) H; [|first [now eauto | omega | nia]..].
           exact H. }
         assert (Heq : ((Gl arr +o Zn (ix * nt_gr + (nf tid + nf bid * ntrd))) ===l
@@ -255,33 +342,6 @@ Proof.
       - unfold_conn; simpl; nia.
       - unfold_conn; simpl. nia.
       - unfold_conn; simpl.
-        Lemma skip_sum_app sk ix (f' : nat -> Z) i : 
-          sk <> 0 -> i < sk -> forall st,
-          skip_sum sk (st * sk) (sk + ix * sk) f' i =
-          (f' (i + ix * sk + st * sk)%nat + skip_sum sk (st * sk) (ix * sk) f' i)%Z.
-        Proof.
-          intros Hsk Hisk; induction ix; simpl; intros st.
-          - rewrite <-!plus_n_O, Z.add_0_r.
-            rewrite skip_sum_unfold; eauto.
-            rewrite minus_diag; simpl; omega.
-          - rewrite skip_sum_unfold; try nia.
-            rewrite (skip_sum_unfold (len := sk + ix * sk)); try nia.
-            cutrewrite (sk + (sk + ix * sk) - sk = sk + ix * sk); [|nia].
-            rewrite IHix.
-            ring_simplify.
-            cutrewrite (i + (sk + ix * sk) + st * sk = i + ix * sk + S st * sk); [|nia].
-            cutrewrite (sk + ix * sk - sk = ix * sk); [|nia]; eauto.
-        Qed.
-
-        Lemma skip_sum_app0 sk ix f' i :
-          sk <> 0 -> i < sk ->
-          skip_sum sk 0 (sk + ix * sk) f' i =
-          (f' (i + ix * sk)%nat + skip_sum sk 0 (ix * sk) f' i)%Z.
-        Proof.
-          intros; cutrewrite (0 = 0 * sk); eauto.
-          rewrite skip_sum_app; try omega.
-          simpl; rewrite <-plus_n_O; auto.
-        Qed.
         subst. rewrite skip_sum_app0; try omega; eauto.
         cutrewrite (nf tid + nf bid * ntrd + x3 * nt_gr = x3 * nt_gr + (nf tid + nf bid * ntrd));
           [|ring].
@@ -329,54 +389,6 @@ Proof.
     { unfold_pures.
       assert (len <= x2 * nt_gr + (nf tid + nf bid * ntrd)) by nia.
 
-      Lemma skip_sum_nil' next sk len1 f1 i : forall st,
-        (forall j, j < next -> (st + len1 + j) mod sk <> i) ->
-        skip_sum sk st len1 f1 i =
-        skip_sum sk st (len1 + next) f1 i.
-      Proof.
-        induction len1; intros st Hst; simpl.
-        - rewrite (@skip_sum_nil next).
-          { rewrite minus_diag; eauto. }
-          rewrite <-plus_n_O in Hst; eauto.
-        - rewrite IHlen1; eauto.
-          intros; cutrewrite (S st + len1 + j = st + S len1 + j); [|nia]; eauto.
-      Qed.
-      Lemma mod_lt n m a b : m <> 0 ->
-        n * m <= a < b -> b < (S n) * m ->
-        a mod m < b mod m.
-      Proof.
-        intros Hm0 Ha Hb; destruct Ha.
-        assert (a / m = n).
-        { apply (Nat.div_le_mono _ _ m) in H; try omega.
-          rewrite Nat.div_mul in H; try omega.
-          assert (a < S n * m) by omega.
-          rewrite mult_comm in H1; apply Nat.div_lt_upper_bound in H1; omega. }
-        assert (b / m = n).
-        { assert (n * m <= b) by omega.
-          apply (Nat.div_le_mono _ _ m) in H2; try omega.
-          rewrite Nat.div_mul in H2; try omega.
-          rewrite mult_comm in Hb; apply Nat.div_lt_upper_bound in Hb; try omega. }
-        rewrite (Nat.div_mod a m), (Nat.div_mod b m) in H0; try omega.
-        rewrite H1, H2 in H0; omega.
-      Qed.
-      Lemma mod_le n m a b : m <> 0 ->
-        n * m <= a <= b -> b < (S n) * m ->
-        a mod m <= b mod m.
-      Proof.
-        intros Hm0 Ha Hb; destruct Ha.
-        assert (a / m = n).
-        { apply (Nat.div_le_mono _ _ m) in H; try omega.
-          rewrite Nat.div_mul in H; try omega.
-          assert (a < S n * m) by omega.
-          rewrite mult_comm in H1; apply Nat.div_lt_upper_bound in H1; omega. }
-        assert (b / m = n).
-        { assert (n * m <= b) by omega.
-          apply (Nat.div_le_mono _ _ m) in H2; try omega.
-          rewrite Nat.div_mul in H2; try omega.
-          rewrite mult_comm in Hb; apply Nat.div_lt_upper_bound in Hb; try omega. }
-        rewrite (Nat.div_mod a m), (Nat.div_mod b m) in H0; try omega.
-        rewrite H1, H2 in H0; omega.
-      Qed.
 
       assert (len < x2 * nt_gr \/ x2 * nt_gr <= len) as [Hl | Hl ] by omega.
       - rewrite (@skip_sum_nil' (x2 * nt_gr - len) _ len).
@@ -586,13 +598,6 @@ Proof.
           cutrewrite (2 ^ S e = 2 ^ e * 2); [|simpl; omega].
           lets Heq: (>>skip_sum_double (2 ^ e) (nf tid) ntrd 0); eauto.
         - unfold_pures; unfold fc'; unfold_conn; simpl; subst st.
-          Lemma div_le a b: b <> 0 -> a / b <= a.
-          Proof.
-            intros.
-            lets: (Nat.div_le_compat_l a 1 b).
-            rewrite Nat.div_1_r in H0.
-            apply H0; omega.
-          Qed.
           lets: (>>div_le (2 ^ e) 2); omega.
         (* - unfold_pures; unfold fc'; unfold_conn; simpl; subst st. *)
         (*   autorewrite with sep in *; eauto. *)
@@ -882,6 +887,58 @@ Proof.
   apply Lo.
 Qed.
 
+Lemma conj_xs_var (va : var) n (vs : nat -> nat) stk : forall st,
+  conj_xs (ls_init st n (fun i => va === Zn (vs i))) stk (emp_ph loc) ->
+  forall i, i < n -> vs (st + i) = Z.to_nat (stk va).
+Proof.
+  induction n; simpl; intros st Hsat i Hi; try omega.
+  destruct Hsat as (? & ? & Hsat1 & Hsat2 & ? & ?); unfold_conn_in Hsat1; simpl in Hsat1.
+  destruct i.
+  - rewrite <-plus_n_O; eauto.
+    rewrite Hsat1, Nat2Z.id; eauto.
+  - apply phplus_emp in H0; destruct H0; subst.
+    rewrite <-Nat.add_succ_comm; apply IHn; eauto; omega.
+Qed.
+
+Lemma distribute_correct' nt m e l fs dist s:
+  m <> 0 ->
+  m <= nt ->
+  (forall i, dist i < m) ->
+  forall stk, 
+  stk ||= conj_xs (ls_init 0 nt (fun i => nth i (distribute m e l (fs i) dist s) emp)) <=>
+          is_array e l (fun i => (fs (dist i) i)) s.
+Proof.
+  intros Hm0 Hmnt Hdis stk.
+  rewrite <-(firstn_skipn m (ls_init _ _ _)).
+  rewrite firstn_init, skipn_init.
+  rewrite Nat.min_l, <-plus_n_O; auto.
+
+  rewrite conj_xs_app.
+  lazymatch goal with
+  | [|- context [((_ ** conj_xs (ls_init ?b ?n ?P)))] ] =>
+    evar (fc : nat -> assn); 
+    sep_rewrite (@ls_init_eq' _ P fc n b); unfold fc in *
+  end.
+  2: intros i Hi; simpl; rewrite nth_overflow; [|rewrite distribute_length; omega].
+  2: instantiate (1 := fun _ => emp); reflexivity.
+
+  rewrite (init_emp_emp (nt - m) m), emp_unit_r.
+
+  (* erewrite ls_init_eq0. *)
+  (* 2: intros i Hi; rewrite nth_nseq; destruct (leb ntrd i) eqn:Heq; *)
+  (* try ((apply leb_iff in Heq || apply leb_iff_conv in Heq); omega). *)
+  (* 2: reflexivity. *)
+
+  rewrite equiv_from_nth.
+  symmetry. apply distribute_correct; auto.
+  rewrite init_length, distribute_length; reflexivity.
+  rewrite init_length; intros i Hi stc; rewrite ls_init_spec.
+  destruct (lt_dec i m); try omega.
+  simpl.
+  rewrite nth_dist_change; [reflexivity|auto..].
+  intros j Hj <-; auto. 
+Qed.
+
 Lemma barrier_wf bid : Bdiv.Aistar_v (fst (binv bid 1)) |= Bdiv.Aistar_v (snd (binv bid 1)).
 Proof.
   simpl; intros s h H.
@@ -891,18 +948,6 @@ Proof.
   sep_rewrite (@ls_exists0 _ 0); exists vs; sep_split; eauto.
   sep_rewrite (@ls_exists0 _ 0); exists vs0; sep_split; eauto.
 
-  Lemma conj_xs_var (va : var) n (vs : nat -> nat) stk : forall st,
-    conj_xs (ls_init st n (fun i => va === Zn (vs i))) stk (emp_ph loc) ->
-    forall i, i < n -> vs (st + i) = Z.to_nat (stk va).
-  Proof.
-    induction n; simpl; intros st Hsat i Hi; try omega.
-    destruct Hsat as (? & ? & Hsat1 & Hsat2 & ? & ?); unfold_conn_in Hsat1; simpl in Hsat1.
-    destruct i.
-    - rewrite <-plus_n_O; eauto.
-      rewrite Hsat1, Nat2Z.id; eauto.
-    - apply phplus_emp in H0; destruct H0; subst.
-      rewrite <-Nat.add_succ_comm; apply IHn; eauto; omega.
-  Qed.
   lets Hst: (conj_xs_var HP2).
   set (fcc := fun i : nat => (nth (i mod (dbl (Z.to_nat (s St)))) vs1 (fun _:nat=>0%Z)) i).
   sep_rewrite (@ls_exists0 _ (fun _ : nat=> 0%Z)).
@@ -1024,44 +1069,6 @@ Proof.
     lets Hst': (>>ls_emp 0 HP5); rewrite ls_init_spec in Hst'; destruct lt_dec; try omega; simpl in Hst'.
     lets: (@div_mult ntrd 2); unfold_pures; try omega. }
 
-  Lemma distribute_correct' nt m e l fs dist s:
-    m <> 0 ->
-    m <= nt ->
-    (forall i, dist i < m) ->
-    forall stk, 
-    stk ||= conj_xs (ls_init 0 nt (fun i => nth i (distribute m e l (fs i) dist s) emp)) <=>
-            is_array e l (fun i => (fs (dist i) i)) s.
-  Proof.
-    intros Hm0 Hmnt Hdis stk.
-    rewrite <-(firstn_skipn m (ls_init _ _ _)).
-    rewrite firstn_init, skipn_init.
-    rewrite Nat.min_l, <-plus_n_O; auto.
-
-    rewrite conj_xs_app.
-    lazymatch goal with
-    | [|- context [((_ ** conj_xs (ls_init ?b ?n ?P)))] ] =>
-      evar (fc : nat -> assn); 
-      sep_rewrite (@ls_init_eq' _ P fc n b); unfold fc in *
-    end.
-    2: intros i Hi; simpl; rewrite nth_overflow; [|rewrite distribute_length; omega].
-    2: instantiate (1 := fun _ => emp); reflexivity.
-
-    rewrite (init_emp_emp (nt - m) m), emp_unit_r.
-  
-    (* erewrite ls_init_eq0. *)
-    (* 2: intros i Hi; rewrite nth_nseq; destruct (leb ntrd i) eqn:Heq; *)
-    (* try ((apply leb_iff in Heq || apply leb_iff_conv in Heq); omega). *)
-    (* 2: reflexivity. *)
-
-    rewrite equiv_from_nth.
-    symmetry. apply distribute_correct; auto.
-    rewrite init_length, distribute_length; reflexivity.
-    rewrite init_length; intros i Hi stc; rewrite ls_init_spec.
-    destruct (lt_dec i m); try omega.
-    simpl.
-    rewrite nth_dist_change; [reflexivity|auto..].
-    intros j Hj <-; auto. 
-  Qed.
   assert (ceil2 (Z.to_nat (s St)) <= ntrd).
   { lets: (ceil2_dbl (Z.to_nat (s St))); omega. }
   
@@ -1078,6 +1085,16 @@ Proof.
   auto.
 Qed.  
 
+Lemma is_array_distr e n (f' : nat -> Z) :
+  forall s stk,
+    stk ||= conj_xs (ls_init s n (fun i => e +o Zn i -->p (1, f' i))) <=>
+        is_array e n f' s.
+Proof.
+  induction n; intros s stk; simpl.
+  - reflexivity.
+  - rewrite IHn; reflexivity.
+Qed.
+
 Lemma barrier_wf0 bid : Bdiv.Aistar_v (fst (binv bid 0)) |= Bdiv.Aistar_v (snd (binv bid 0)).
 Proof.
   simpl; intros s h H.
@@ -1087,15 +1104,6 @@ Proof.
   { unfold ceil2; destruct Nat.eq_dec; try omega.
     lets: (>>div_mult ntrd 2); omega. }
   
-  Lemma is_array_distr e n (f' : nat -> Z) :
-    forall s stk,
-      stk ||= conj_xs (ls_init s n (fun i => e +o Zn i -->p (1, f' i))) <=>
-          is_array e n f' s.
-  Proof.
-    induction n; intros s stk; simpl.
-    - reflexivity.
-    - rewrite IHn; reflexivity.
-  Qed.
   apply is_array_distr in H; auto.
 Qed.
 
@@ -1247,6 +1255,14 @@ Definition tid_post (arr out : Z) (bid : Fin.t nblk) (tid : Fin.t ntrd) :=
      (Gl out +o Zn (nf bid) -->p (1,  sum_of 0 ntrd (f_ss' (nf bid))))
     else emp)).
 
+Lemma is_array_conj_xs e len' f' : forall s stk,
+  stk ||= is_array e len' f' s <=> conj_xs (ls_init s len' (fun i => e +o Zn i -->p (1, f' i))).
+Proof.
+  induction len'; introv; simpl.
+  - reflexivity.
+  - split; intros; sep_cancel; apply IHlen'; auto.
+Qed.
+
 Lemma fold_correct_b (bid : Fin.t nblk) (arr out : val) :
   nt_gr <= len ->
   CSLp ntrd ty_env_fold
@@ -1319,13 +1335,6 @@ Proof.
       Focus 2.
       intros i Hi; rewrite ls_init_spec; destruct lt_dec; try omega; simpl; reflexivity.
       
-      Lemma is_array_conj_xs e len' f' : forall s stk,
-        stk ||= is_array e len' f' s <=> conj_xs (ls_init s len' (fun i => e +o Zn i -->p (1, f' i))).
-      Proof.
-        induction len'; introv; simpl.
-        - reflexivity.
-        - split; intros; sep_cancel; apply IHlen'; auto.
-      Qed.
       sep_rewrite_in is_array_conj_xs H0.
       sep_cancel.
       rewrite <-(firstn_skipn 1 (ls_init _ _ _)).

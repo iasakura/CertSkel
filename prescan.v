@@ -242,6 +242,82 @@ Section Prescan.
 
   Hint Resolve fin_lt.
 
+  Lemma ceil2_leq (n : nat) : n <= ceil2 n.
+  Proof.
+    unfold ceil2; destruct Nat.eq_dec; omega.
+  Qed.
+
+  Lemma rdiv2_div (x y : nat) : x <= rdiv2 y -> y mod (2 ^ x) = 0.
+  Proof.
+    revert x; functional induction (rdiv2 y); intros x Hx.
+    - apply Nat.mod_0_l, Nat.pow_nonzero; omega.
+    - destruct x; [simpl; auto|].
+      clear e0; rewrite <-Nat.div_exact in _x0; auto; rewrite Nat.pow_succ_r', _x0.
+      rewrite Nat.mul_mod_distr_l; auto; rewrite IHn; omega.
+    - assert (x = 0) by omega; subst; simpl; auto.
+  Qed.
+
+  Lemma rdiv2_eq n : n <> 0 -> exists m, n = 2 ^ rdiv2 n * m /\ m mod 2 = 1.
+  Proof.
+    intros; functional induction (rdiv2 n); try omega.
+    - clear e0; rewrite <-Nat.div_exact in _x0; try omega.
+      assert (n / 2 <> 0) by (rewrite mult_comm in _x0; rewrite _x0, Nat.div_mul; try omega).
+      apply IHn0 in H0 as (m & H1 & H2).
+      exists m; rewrite Nat.pow_succ_r', <-mult_assoc, <-H1; split; auto.
+    - exists n; split; [simpl; omega |].
+             assert(n mod 2 = 0 \/ n mod 2 = 1).
+             pose proof (Nat.mod_upper_bound n 2). omega.
+             destruct H0; omega. 
+  Qed.
+
+  Lemma rdiv2_leq (i n e : nat) : 
+    n = 2 ^ e -> i <= n -> 2 ^ rdiv2 i <= n.
+  Proof.
+    assert (i = 0 \/ i <> 0) as [H | H] by omega.
+    - subst; simpl; intros; subst.
+      pose proof (Nat.pow_nonzero 2 e); omega.
+    - destruct (rdiv2_eq i H) as [m [Him1 Him2]]; intros; subst n; rewrite Him1 in H1.
+      rewrite mult_comm in H1; destruct m; simpl in *; try omega.
+      generalize (m * 2 ^ rdiv2 i) H1; intros.  omega.
+  Qed.
+
+  Lemma is_array_concat e f len1 len2 : forall s stc,
+    stc||=
+       is_array e len1 f s ** is_array e len2 f (s + len1) <=>
+       is_array e (len1 + len2) f s.
+  Proof.
+    induction len1; simpl.
+    - intros; rewrite emp_unit_l, <-plus_n_O; reflexivity.
+    - intros. rewrite <-Nat.add_succ_comm, <-sep_assoc, IHlen1; reflexivity.
+  Qed.
+
+  Lemma is_array_change (e : loc_exp) (f1 f2 : nat -> Z) n :
+    forall s, (forall x, x < n -> f1 (x + s) = f2(x + s)) ->
+              forall stc,
+                stc ||= is_array e n f1 s <=> is_array e n f2 s.
+  Proof.
+    induction n; simpl; intros s Hf; try reflexivity.
+    intros stc; rewrite IHn.
+    cutrewrite (f1 s = f2 s); [reflexivity|].
+    pose proof (Hf 0); rewrite plus_O_n in H; rewrite H; omega.
+    intros x Hx; rewrite <-Nat.add_succ_comm; apply Hf; omega.
+  Qed.
+        
+  Lemma distribute_eq e e' stk i nt n f' dist:
+    i < nt -> (forall i, dist i < nt) ->
+    (e ===l e') stk (emp_ph loc) ->
+    forall s, stk ||= nth i (distribute nt e n f' dist s) emp <=>
+                      nth i (distribute nt e' n f' dist s) emp.
+  Proof.
+    induction n; simpl; intros; [split; eauto|].
+    rewrite !nth_add_nth; [|rewrite distribute_length; eauto..].
+    destruct beq_nat; eauto.
+    assert ((e +o Zn s ===l e' +o Zn s) stk (emp_ph loc)).
+    { unfold_conn_all; simpl in *; rewrite H1; eauto. }
+    rewrite mps_eq1; [|exact H2].
+    split; intros; sep_cancel; apply IHn; auto.
+  Qed.
+
   Lemma upsweep_correct (i : Fin.t ntrd) :
     CSL bspec i 
         (is_array (Gl Sum) 2 f_ini (nf i * 2) ** !(Tid === Zn (nf i)))
@@ -296,10 +372,6 @@ Section Prescan.
       { intros s h H; sep_normal_in H; sep_split_in H.
         change_in H.
         { unfold_pures.
-          Lemma ceil2_leq (n : nat) : n <= ceil2 n.
-          Proof.
-            unfold ceil2; destruct Nat.eq_dec; omega.
-          Qed.
           destruct lt_dec.
           2: rewrite HP0, HP3 in l; rewrite <-Nat2Z.inj_lt in l; pose proof (ceil2_leq d);
              apply n in l; destruct l.
@@ -422,16 +494,6 @@ Section Prescan.
         2: apply (Nat.pow_le_mono_r 2) in Hle; try omega; rewrite !Min.min_l; omega.
         apply Nat.nlt_ge; intros Hc; unfold lt in Hc.
         
-        Lemma rdiv2_div (x y : nat) : x <= rdiv2 y -> y mod (2 ^ x) = 0.
-        Proof.
-          revert x; functional induction (rdiv2 y); intros x Hx.
-          - apply Nat.mod_0_l, Nat.pow_nonzero; omega.
-          - destruct x; [simpl; auto|].
-            clear e0; rewrite <-Nat.div_exact in _x0; auto; rewrite Nat.pow_succ_r', _x0.
-            rewrite Nat.mul_mod_distr_l; auto; rewrite IHn; omega.
-          - assert (x = 0) by omega; subst; simpl; auto.
-        Qed.
-        
         apply rdiv2_div in Hc; rewrite Nat.pow_succ_r', mult_comm in Hc; auto.
     - destruct HP5 as [? | HP5]; try omega.
       assert (offset <> 0) by (destruct offset; rewrite mult_comm in HP5; omega).
@@ -452,17 +514,6 @@ Section Prescan.
       sep_lift_in H 1; sep_rewrite_in mps_eq1 H; [|exact Heq1]; clear Heq1.
       (* sep_lift_in H 2. sep_lift_in H 3. sep_lift_in H 3. *)
       
-      Lemma is_array_change (e : loc_exp) (f1 f2 : nat -> Z) n :
-        forall s, (forall x, x < n -> f1 (x + s) = f2(x + s)) ->
-                  forall stc,
-                    stc ||= is_array e n f1 s <=> is_array e n f2 s.
-      Proof.
-        induction n; simpl; intros s Hf; try reflexivity.
-        intros stc; rewrite IHn.
-        cutrewrite (f1 s = f2 s); [reflexivity|].
-        pose proof (Hf 0); rewrite plus_O_n in H; rewrite H; omega.
-        intros x Hx; rewrite <-Nat.add_succ_comm; apply Hf; omega.
-      Qed.
       assert (Heq :fc (offset * nf i * 2 + offset - 1) =
                    fc' (offset * nf i * 2 + offset - 1)); [|rewrite Heq in H; clear Heq].
       unfold fc'; destruct Nat.eq_dec; auto.
@@ -503,16 +554,6 @@ Section Prescan.
       
       rewrite Nat.max_r; try omega.
     
-      Lemma is_array_concat e f len1 len2 : forall s stc,
-        stc||=
-           is_array e len1 f s ** is_array e len2 f (s + len1) <=>
-           is_array e (len1 + len2) f s.
-      Proof.
-        induction len1; simpl.
-        - intros; rewrite emp_unit_l, <-plus_n_O; reflexivity.
-        - intros. rewrite <-Nat.add_succ_comm, <-sep_assoc, IHlen1; reflexivity.
-      Qed.
-
       sep_rewrite_in is_array_concat H.
       cutrewrite (offset + offset = offset * 2) in H; [|ring].
       cutrewrite (offset * nf i * 2 =  nf i * (offset * 2)) in H; [auto|ring].
@@ -560,31 +601,8 @@ Section Prescan.
         unfold_conn; intros; rewrite HP4; try omega.
         rewrite Min.min_l; eauto.
       
-        Lemma rdiv2_eq n : n <> 0 -> exists m, n = 2 ^ rdiv2 n * m /\ m mod 2 = 1.
-        Proof.
-          intros; functional induction (rdiv2 n); try omega.
-          - clear e0; rewrite <-Nat.div_exact in _x0; try omega.
-            assert (n / 2 <> 0) by (rewrite mult_comm in _x0; rewrite _x0, Nat.div_mul; try omega).
-            apply IHn0 in H0 as (m & H1 & H2).
-            exists m; rewrite Nat.pow_succ_r', <-mult_assoc, <-H1; split; auto.
-          - exists n; split; [simpl; omega |].
-                   assert(n mod 2 = 0 \/ n mod 2 = 1).
-                   pose proof (Nat.mod_upper_bound n 2). omega.
-                   destruct H0; omega. 
-        Qed.
         destruct HP3 as [[_ HP3] | ]; try omega; subst.
       
-        Lemma rdiv2_leq (i n e : nat) : 
-          n = 2 ^ e -> i <= n -> 2 ^ rdiv2 i <= n.
-        Proof.
-          assert (i = 0 \/ i <> 0) as [H | H] by omega.
-          - subst; simpl; intros; subst.
-            pose proof (Nat.pow_nonzero 2 e); omega.
-          - destruct (rdiv2_eq i H) as [m [Him1 Him2]]; intros; subst n; rewrite Him1 in H1.
-            rewrite mult_comm in H1; destruct m; simpl in *; try omega.
-            generalize (m * 2 ^ rdiv2 i) H1; intros.  omega.
-        Qed.
-
         destruct ntrd_is_p2 as [en Hen]; rewrite Hen.
         rewrite mult_comm, <-Nat.pow_succ_r'.
         eapply rdiv2_leq; eauto. simpl. omega.
@@ -614,6 +632,37 @@ Section Prescan.
   Qed.
   Import Bdiv.
 
+  Lemma vars_eq0 s (E : exp) len (f : nat -> nat) :
+    len <> 0 ->
+    conj_xs (ls_init 0 len (fun i => (E === Zn (f i)))) s (emp_ph loc) -> 
+    exists v, forall i, i < len -> f i = v.
+  Proof.
+    intros Hlen Hconj; exists (f 0); intros i Hil; destruct i; simpl; auto.
+    pose proof (@ls_emp _ _ 0 Hconj) as H0; rewrite ls_init_spec in H0; destruct lt_dec; try omega.
+    pose proof (@ls_emp _ _ (S i) Hconj) as HS; rewrite ls_init_spec in HS; destruct lt_dec; try omega.
+    unfold_pures. rewrite HS in H0; apply Nat2Z.inj in H0; auto.
+  Qed.
+
+  Lemma is_array_conj (e : loc_exp) (n m : nat) (f : nat -> nat -> Z) :
+    m <> 0 ->
+    forall s stc,
+      stc ||= conj_xs (ls_init s n (fun i => is_array e m (f i) (i * m))) <=>
+              is_array e (m * n) (fun i => f (i / m) i) (m * s).
+  Proof.
+    induction n; simpl; intros Hm s stc.
+    - rewrite mult_0_r; simpl; reflexivity.
+    - rewrite <-mult_n_Sm, plus_comm.
+      rewrite <-is_array_concat.
+      rewrite IHn; eauto.
+      rewrite <-mult_n_Sm.
+      lazymatch goal with
+        | [|- ?stc ||= ?X ** ?Y <=> ?Z ** ?W] =>
+          assert (Heq : stc ||= X <=> Z); [|rewrite Heq; reflexivity]
+      end.
+    rewrite mult_comm; apply is_array_change; intros x Hxm.
+    rewrite mult_comm, Nat.div_add; eauto; rewrite Nat.div_small; eauto.
+  Qed.
+
   Lemma bspec0_preserved : 
     Aistar_v (fst (bspec 0)) |= Aistar_v (snd (bspec 0)).
   Proof.
@@ -640,16 +689,6 @@ Section Prescan.
     repeat sep_rewrite_in (@ls_star ntrd) H.
     repeat sep_rewrite_in (@ls_pure ntrd) H; sep_split_in H.
     
-    Lemma vars_eq0 s (E : exp) len (f : nat -> nat) :
-      len <> 0 ->
-      conj_xs (ls_init 0 len (fun i => (E === Zn (f i)))) s (emp_ph loc) -> 
-      exists v, forall i, i < len -> f i = v.
-    Proof.
-      intros Hlen Hconj; exists (f 0); intros i Hil; destruct i; simpl; auto.
-      pose proof (@ls_emp _ _ 0 Hconj) as H0; rewrite ls_init_spec in H0; destruct lt_dec; try omega.
-      pose proof (@ls_emp _ _ (S i) Hconj) as HS; rewrite ls_init_spec in HS; destruct lt_dec; try omega.
-      unfold_pures. rewrite HS in H0; apply Nat2Z.inj in H0; auto.
-    Qed.
     destruct ntrd_is_p2 as [e Hen].
     assert (ntrd <> 0) by (pose proof (Nat.pow_nonzero 2 e); omega).
     
@@ -758,26 +797,6 @@ Section Prescan.
         rewrite Nat.max_l in *; try omega.
         rewrite Nat.min_r in H; try omega.
 
-        Lemma is_array_conj (e : loc_exp) (n m : nat) (f : nat -> nat -> Z) :
-          m <> 0 ->
-          forall s stc,
-            stc ||= conj_xs (ls_init s n (fun i => is_array e m (f i) (i * m))) <=>
-                    is_array e (m * n) (fun i => f (i / m) i) (m * s).
-        Proof.
-          induction n; simpl; intros Hm s stc.
-          - rewrite mult_0_r; simpl; reflexivity.
-          - rewrite <-mult_n_Sm, plus_comm.
-            rewrite <-is_array_concat.
-            rewrite IHn; eauto.
-            rewrite <-mult_n_Sm.
-            lazymatch goal with
-              | [|- ?stc ||= ?X ** ?Y <=> ?Z ** ?W] =>
-                assert (Heq : stc ||= X <=> Z); [|rewrite Heq; reflexivity]
-            end.
-          rewrite mult_comm; apply is_array_change; intros x Hxm.
-          rewrite mult_comm, Nat.div_add; eauto; rewrite Nat.div_small; eauto.
-        Qed.
-
         sep_rewrite_in is_array_conj H; eauto; rewrite mult_0_r in H.
         erewrite ls_init_eq0.
         Focus 2.
@@ -879,6 +898,56 @@ Definition bspec1 n :=
            else emp)))
   else default ntrd.
 
+Lemma pow_S (n e : nat) : n ^ e * n = n ^ (S e).
+Proof.
+  rewrite mult_comm; simpl; reflexivity.
+Qed.
+
+Lemma rdiv2_inv (e n : nat) : 2 ^ rdiv2 (2 ^ e * (2 * n + 1)) = 2 ^ e.
+Proof.
+  induction e; rewrite rdiv2_equation.
+  - rewrite pow_0_r, mult_1_l; remember (2 * n + 1); destruct n0; eauto.
+    rewrite Heqn0, mult_comm, plus_comm, Nat.mod_add; eauto.
+  - remember (2 ^ S e * (2 * n + 1)).
+    assert (n0 <> 0).
+    rewrite Heqn0; intros H; ring_simplify in H.
+    assert (2 ^ (1 + e) <> 0) by (apply Nat.pow_nonzero; eauto).
+    generalize (2 * 2 ^ (1 + e) * n) H0 H; intros; omega.
+    destruct n0; try omega.
+    rewrite Heqn0, Nat.pow_succ_r'.
+    rewrite <-mult_assoc, mult_comm, Nat.mod_mul; eauto; simpl.
+    cutrewrite (n + (n + 0) + 1 = 2 * n + 1); [|omega]; rewrite Nat.div_mul; eauto.
+Qed.
+
+Lemma minus_inj (n m k : nat) : n - k = m - k -> k <= n -> k <= m -> n = m.
+Proof.
+  intros Hnmk Hkn Hkm.
+  omega.
+Qed.
+
+Ltac sep_rewrite_r lem :=
+  lazymatch goal with
+    | |- ?X _ _ => pattern X
+  end; erewrite <-lem; cbv beta.
+
+Lemma add_l_sub_r n m k : n + m = k -> n = k - m.
+Proof.
+  omega.
+Qed.
+
+Lemma mod_range (n m k : nat) :
+  m <> 0 -> m * k <= n < m * (k + 1) -> n / m = k.
+Proof.
+  intros Hm Hn; rewrite (div_mod n m) in Hn; eauto; destruct Hn as [Hn1 Hn2].
+  assert (n / m < k \/ n / m = k \/ k < n / m) as [Hknm | [Hknm | Hknm]] by omega.
+  - assert (m * S (n / m)  <= m * k) by (apply mult_le_compat_l; try omega).
+    rewrite mult_succ_r in H.
+    pose proof (Nat.mod_upper_bound n m Hm); omega.
+  - eauto.
+  - assert (m * (k + 1) <= m * (n / m)) by (apply mult_le_compat_l; try omega).
+    omega.
+Qed.
+
 Lemma downsweep_correct (i : Fin.t ntrd) :
   CSL bspec1 i
       (Ex f : nat -> Z,
@@ -963,10 +1032,6 @@ Proof.
       rewrite <-Nat.divide_div_mul_exact; eauto.
       rewrite HP3, Nat.div_mul; eauto.
       unfold Nat.divide, divide; rewrite Hntrd2 in HP3, l.
-      Lemma pow_S (n e : nat) : n ^ e * n = n ^ (S e).
-      Proof.
-        rewrite mult_comm; simpl; reflexivity.
-      Qed.
       Hint Rewrite pow_S : sep.
       rewrite HP2, <-Nat2Z.inj_lt in l.
       autorewrite with sep in *.
@@ -1114,21 +1179,6 @@ Proof.
         
           rewrite Nat.add_sub.
         
-          Lemma rdiv2_inv (e n : nat) : 2 ^ rdiv2 (2 ^ e * (2 * n + 1)) = 2 ^ e.
-          Proof.
-            induction e; rewrite rdiv2_equation.
-            - rewrite pow_0_r, mult_1_l; remember (2 * n + 1); destruct n0; eauto.
-              rewrite Heqn0, mult_comm, plus_comm, Nat.mod_add; eauto.
-            - remember (2 ^ S e * (2 * n + 1)).
-              assert (n0 <> 0).
-              rewrite Heqn0; intros H; ring_simplify in H.
-              assert (2 ^ (1 + e) <> 0) by (apply Nat.pow_nonzero; eauto).
-              generalize (2 * 2 ^ (1 + e) * n) H0 H; intros; omega.
-              destruct n0; try omega.
-              rewrite Heqn0, Nat.pow_succ_r'.
-              rewrite <-mult_assoc, mult_comm, Nat.mod_mul; eauto; simpl.
-              cutrewrite (n + (n + 0) + 1 = 2 * n + 1); [|omega]; rewrite Nat.div_mul; eauto.
-          Qed.
         
           cutrewrite (nf i * (off * 2) + off = off * (2 * nf i + 1)); [|ring].
           rewrite Hoff2, rdiv2_inv.
@@ -1151,18 +1201,7 @@ Proof.
               cutrewrite (1 = 1 * 1); [|auto]; apply Nat.mul_le_mono; simpl.
               pose proof (Nat.pow_nonzero 2 e2); omega.
               omega.
-            * Lemma mod_range (n m k : nat) :
-                m <> 0 -> m * k <= n < m * (k + 1) -> n / m = k.
-              Proof.
-                intros Hm Hn; rewrite (div_mod n m) in Hn; eauto; destruct Hn as [Hn1 Hn2].
-                assert (n / m < k \/ n / m = k \/ k < n / m) as [Hknm | [Hknm | Hknm]] by omega.
-                - assert (m * S (n / m)  <= m * k) by (apply mult_le_compat_l; try omega).
-                  rewrite mult_succ_r in H.
-                  pose proof (Nat.mod_upper_bound n m Hm); omega.
-                - eauto.
-                - assert (m * (k + 1) <= m * (n / m)) by (apply mult_le_compat_l; try omega).
-                  omega.
-              Qed.
+            * 
               assert (nf i * (off * 2)  < j + 1 <= (nf i + 1) * (off * 2)) by omega.
               rewrite <-Nat.div_exact in e; try eauto; rewrite e in H2; destruct H2 as [Hj1 Hj2].
               cutrewrite (nf i * (off * 2) = off * (2 * nf i)) in Hj1; [|ring].
@@ -1170,10 +1209,7 @@ Proof.
               cutrewrite ((nf i + 1) * (off * 2) = off * (2 * nf i + 2)) in Hj2; [|ring].
               apply <-Nat.mul_le_mono_pos_l in Hj2; try omega.
 
-              Lemma add_l_sub_r n m k : n + m = k -> n = k - m.
-              Proof.
-                omega.
-              Qed.
+              
               
               assert ((j + 1) / off = 2 * nf i + 1 \/ (j + 1) / off = 2 * nf i + 2)
                 as [Hjoff | Hjoff] by omega;
@@ -1208,10 +1244,6 @@ Proof.
         { simpl in e. pose proof (Nat.pow_nonzero 2 e1). omega. }
         
         cutrewrite (off * 2 = off + off); [|omega].
-        Ltac sep_rewrite_r lem :=
-          lazymatch goal with
-            | |- ?X _ _ => pattern X
-          end; erewrite <-lem; cbv beta.
 
         sep_rewrite_r is_array_concat.
         (* rewrite <-HP2 in ntrd_neq_0; apply Nat.neq_mul_0 in ntrd_neq_0 as [Hd0 Hof0]. *)
@@ -1237,12 +1269,6 @@ Proof.
         destruct Nat.eq_dec.
         ring_simplify in e.
         
-        Lemma minus_inj (n m k : nat) : n - k = m - k -> k <= n -> k <= m -> n = m.
-        Proof.
-          intros Hnmk Hkn Hkm.
-          omega.
-        Qed.
-
         apply minus_inj in e; try omega.
         cutrewrite (nf i * (off + off) + off = off * (2 * nf i + 1)) in e; [|ring].
         rewrite Nat.mul_cancel_l in e; try omega.

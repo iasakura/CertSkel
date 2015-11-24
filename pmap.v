@@ -86,6 +86,20 @@ Qed.
 
 Hint Resolve nt_gr_neq_0 id_lt_nt_gr nf_lt.
 
+Lemma distribute_eq e e' stk i nt n f' dist:
+  i < nt -> (forall i, dist i < nt) ->
+  (e ===l e') stk (emp_ph loc) ->
+  forall s, stk ||= nth i (distribute nt e n f' dist s) emp <=>
+                    nth i (distribute nt e' n f' dist s) emp.
+Proof.
+  induction n; simpl; intros; [split; eauto|].
+  rewrite !nth_add_nth; [|rewrite distribute_length; eauto..].
+  destruct beq_nat; eauto.
+  assert ((e +o Zn s ===l e' +o Zn s) stk (emp_ph loc)).
+  { unfold_conn_all; simpl in *; rewrite H1; eauto. }
+  rewrite mps_eq1; [|exact H2].
+  split; intros; sep_cancel; apply IHn; auto.
+Qed.
 
 Lemma map_correct : forall (tid : Fin.t ntrd) (bid : Fin.t nblk) (arr out : Z) (fout : nat -> Z), 
   CSL (fun n => default ntrd) tid
@@ -173,20 +187,6 @@ Proof.
     2: rewrite plus_comm, Nat.mod_add; auto; rewrite Nat.mod_small; auto; try (zify; omega).
     rewrite minus_diag in H; simpl in H.
     rewrite nth_nseq in H.
-    Lemma distribute_eq e e' stk i nt n f' dist:
-      i < nt -> (forall i, dist i < nt) ->
-      (e ===l e') stk (emp_ph loc) ->
-      forall s, stk ||= nth i (distribute nt e n f' dist s) emp <=>
-                        nth i (distribute nt e' n f' dist s) emp.
-    Proof.
-      induction n; simpl; intros; [split; eauto|].
-      rewrite !nth_add_nth; [|rewrite distribute_length; eauto..].
-      destruct beq_nat; eauto.
-      assert ((e +o Zn s ===l e' +o Zn s) stk (emp_ph loc)).
-      { unfold_conn_all; simpl in *; rewrite H1; eauto. }
-      rewrite mps_eq1; [|exact H2].
-      split; intros; sep_cancel; apply IHn; auto.
-    Qed.
     (* assert ((Gl arr ===l Gl ARR) s (emp_ph loc)) by (unfold_conn; simpl; congruence). *)
     (* sep_rewrite distribute_eq; eauto. *)
     assert (x * nt_gr <= len \/ len < x * nt_gr) as [|] by omega.
