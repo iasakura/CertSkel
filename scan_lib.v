@@ -530,10 +530,12 @@ Lemma ls_exists0 {T : Type} (d : T) {n : nat} (P : T -> nat -> assn) :
      Ex vs : list T, !(pure (length vs = n)) ** conj_xs (ls_init 0 n (fun i => P (nth i vs d) i)).
 Proof.
   intros.
-  rewrite ls_exists; split; [intros [vs H]; exists vs; sep_cancel;
-  [erewrite ls_init_eq'; [apply H|]..]..]; intros; simpl; auto.
-  simpl; rewrite <-minus_n_O; reflexivity.
-  rewrite <-minus_n_O; reflexivity.
+  rewrite ls_exists.
+  split; intros [vs H]; exists vs; sep_split; sep_split_in H; eauto;
+  [erewrite ls_init_eq'; [apply H|];
+   intros; simpl in *;
+   try rewrite <-!minus_n_O in *; auto..].
+  simpl; rewrite <-!minus_n_O; auto.
 Qed.
 
 Lemma ls_pure {n : nat} (P : nat -> assn) :  forall b s,
@@ -689,6 +691,22 @@ Proof.
     apply IHn; auto.
 Qed.
 
+Lemma low_assn_is_array_p G E n f p : forall s,
+  typing_lexp G E Lo ->
+  CSL.low_assn G (is_array_p E n f s p).
+Proof.
+  induction n; simpl in *; intros s He.
+  - apply low_assn_emp.
+  - apply low_assn_star.
+    apply low_assn_mp.
+    cutrewrite (Lo = join Lo Lo); [|eauto].
+    induction E;
+      [constructor; repeat constructor; inversion He; subst; eauto..].
+    constructor; eauto.
+    constructor.
+    apply IHn; auto.
+Qed.
+
 Lemma low_assn_ex {T : Type} G (P : T -> assn) :
   (forall x, low_assn G (P x)) ->
   low_assn G (Ex x, P x).
@@ -775,6 +793,7 @@ Ltac prove_low_assn :=
     | [|- low_assn _ (pure _) ] => apply low_assn_pure
     | [|- low_assn _ (if ?X then _ else _) ] => destruct X
     | [|- low_assn _ (is_array _ _ _ _) ] => apply low_assn_is_array
+    | [|- low_assn _ (is_array_p _ _ _ _ _) ] => apply low_assn_is_array_p
     | [|- low_assn _ emp ] => apply low_assn_emp
     | [|- low_assn _ (_ -->p (_, _)) ] => apply low_assn_mp
     | [|- low_assn _ (is_array _ _ _ _ _ _) ] => apply low_assn_is_array
@@ -843,6 +862,17 @@ Qed.
 Lemma has_no_vars_is_array E n f : forall s,
   has_no_vars_lE E ->
   has_no_vars (is_array E n f s).
+Proof.
+  induction n; simpl in *; intros s He.
+  - apply has_no_vars_emp.
+  - apply has_no_vars_star.
+    apply has_no_vars_mp; simpl; eauto.
+    apply IHn; auto.
+Qed.
+
+Lemma has_no_vars_is_array_p p E n f : forall s,
+  has_no_vars_lE E ->
+  has_no_vars (is_array_p E n f s p).
 Proof.
   induction n; simpl in *; intros s He.
   - apply has_no_vars_emp.
@@ -924,6 +954,7 @@ Ltac has_no_vars_assn :=
     | [|- has_no_vars (pure _) ] => apply has_no_vars_pure
     | [|- has_no_vars (if ?X then _ else _) ] => destruct X
     | [|- has_no_vars (is_array _ _ _ _) ] => apply has_no_vars_is_array
+    | [|- has_no_vars (is_array _ _ _ _ _) ] => apply has_no_vars_is_array_p
     | [|- has_no_vars emp ] => apply has_no_vars_emp
     | [|- has_no_vars (is_array _ _ _ _ _ _) ] => apply has_no_vars_is_array
     | _ => now (unfold has_no_vars, indeP; intros; tauto)
@@ -1067,15 +1098,9 @@ Lemma CSLp_backward (P' P : assn) n E C Q :
   CSLp n E P C Q -> (P' |= P) -> CSLp n E P' C Q.
 Proof.
   unfold CSLp; intros Hcsl Hp; intros.
-  exploit Hcsl.
-  eauto.
-  eauto.
+  forwards: (>> Hcsl leqks); eauto. 
   unfold sat_k in *.
-  instantiate (1:=h).
-  instantiate (1:=leqks).
-  destruct low_eq_repr.
-  apply Hp; eauto.
-  intros; eauto.
+  destruct low_eq_repr; eauto.
 Qed.  
 
 Lemma safe_gl_forward n m E ks h (Q Q' : assn) : 
@@ -1085,7 +1110,7 @@ Lemma safe_gl_forward n m E ks h (Q Q' : assn) :
 Proof.
   revert h ks; induction m; simpl; intros h ks Hsafe Hq; eauto.
   simpl in Hsafe; destructs Hsafe.
-  repeat split; eauto.
+  repeat split; auto.
   - intros; unfold sat_k in *.
     exploit H; eauto.
     intros [x ?]; exists x.
@@ -1094,8 +1119,8 @@ Proof.
     intros; jauto.
   - exploit H2; eauto.
     intros; jauto.
-  - intros; exploit H3; eauto.
-    intros (h'' & ? & ? & ?); exists h''; repeat split; eauto.
+  - intros; forwards: H3; eauto.
+    destruct H7 as (ph'' & ? & ? & ?); exists ph''; repeat split; eauto.
 Qed.  
 
 Lemma CSLp_forward P n E C (Q Q' : assn) : 
@@ -1187,3 +1212,172 @@ Ltac rewrite_body lem tac :=
       erewrite ls_init_eq0; [|intros ? ?; rewrite lem; try tac; reflexivity ].
 Ltac rewrite_body_in lem tac H :=
   erewrite ls_init_eq0 in H; [|intros ? ?; rewrite lem; try tac; reflexivity ].
+
+Section read_only_lemma.
+Require Import QArith.
+Definition injZ (n : Z) : Qc := Q2Qc (inject_Z n).
+Require Import Qcanon.
+Require Import PHeap.
+Lemma pts_star_p e1 e2 (p1 p2 : Qc) stk :
+  0 < p1 -> p1 <= 1 -> 0 < p2 -> p2 <= 1 -> p1 + p2 <= 1 ->
+  stk ||= e1 -->p (p1 + p2, e2) <=>
+      (e1 -->p (p1, e2)) ** (e1 -->p (p2, e2)).
+Proof.
+  unfold_conn; intros Hp1 Hp1' Hp2 Hp2' H12 ph; split; intros Hsat.
+  - set (ph' := fun (p' : Qc) l => match PHeap.this ph l with
+                               Some (p, x) => Some (p', x)
+                             | None => None end).
+    assert (forall (p : Qc) , 0 < p -> p <= 1 -> is_pheap (ph' p)).
+    { intros p H0 H1 l; unfold ph'.
+      rewrite Hsat; destruct (eq_dec _ _); eauto. }
+    exists (Pheap (H _ Hp1 Hp1')) (Pheap (H _ Hp2 Hp2')); simpl.
+    unfold ph'; simpl; repeat split; intros; repeat (rewrite Hsat; destruct (eq_dec _ _); eauto).
+    + unfold pdisj; intros; rewrite Hsat; destruct (eq_dec _ _); eauto.
+      repeat split; eauto.
+      apply plus_gt_0; eauto.
+    + destruct ph as [ph ?]; simpl in *; extensionality l; unfold phplus.
+      rewrite Hsat; destruct (eq_dec _ _); eauto.
+  - destruct Hsat as (ph1 & ph2 & Hph1 & Hph2 & Hdis & Heq).
+    intros; rewrite <-Heq; unfold phplus; rewrite Hph1, Hph2.
+    destruct (eq_dec _ _); eauto.
+Qed.
+
+Lemma is_array_p_star e n f p1 p2 stk : 
+  0 < p1 -> p1 <= 1 -> 0 < p2 -> p2 <= 1 -> p1 + p2 <= 1 ->
+  forall s,
+  stk ||= is_array_p e n f s (p1 + p2) <=>
+      is_array_p e n f s p1 ** is_array_p e n f s p2.
+Proof.
+  induction n; simpl; intros.
+  - rewrite emp_unit_l; reflexivity.
+  - rewrite IHn; eauto; rewrite pts_star_p; eauto.
+    rewrite <-!sep_assoc; split; intros; repeat sep_cancel.
+Qed.
+
+Lemma this_inv q H : Qcanon.this {| Qcanon.this := q; canon := H |} = q. auto. Qed.
+
+Require Import Psatz.
+
+Lemma inject_Z_1 : inject_Z 1 = 1%Q. auto. Qed.
+
+Ltac injZ_simplify :=
+  unfold injZ in *;
+  repeat rewrite Nat2Z.inj_succ in *;
+  repeat rewrite <-Z.add_1_r in *;
+  repeat rewrite inject_Z_plus in *;
+  repeat rewrite inject_Z_1 in *.
+
+Lemma inject_Z_n_ge0 n  : (0 <= inject_Z (Z.of_nat n))%Q.
+Proof.
+  assert (0 <= Z.of_nat n)%Z.
+  { cutrewrite (0 = Z.of_nat 0)%Z; [|auto].
+    apply inj_le; omega. }
+  cutrewrite (0 = inject_Z 0)%Q; [|auto].
+  rewrite <-Zle_Qle; auto.
+Qed.
+
+Lemma inject_Z_Sn_gt0 n : (1 <= inject_Z (Z.of_nat (S n)))%Q.
+Proof.
+  injZ_simplify.
+  lets: (>>inject_Z_n_ge0 n).
+  psatz Q 2.
+Qed.
+
+Ltac Qc_to_Q :=
+  match goal with
+  | [q : Qc |- _] => destruct q; Qc_to_Q
+  | [|- _] =>
+    try applys Qc_is_canon;
+    repeat ( unfold Q2Qc, Qcmult, Qcplus, Qcdiv, Qcinv, Qclt, Qcle in *);
+    repeat (try rewrite this_inv in *; try rewrite Qred_correct in *)
+  end.
+
+Lemma is_array_is_array_p_n e n f s p stk (nt : nat) :
+  0 < p -> p <= 1 -> (injZ (Zn nt) * p <= 1) -> (nt <> 0)%nat -> 
+  forall st,
+  stk ||=
+    is_array_p e n f s (injZ (Z.of_nat nt) * p) <=>
+    conj_xs (ls_init st nt (fun i => is_array_p e n f s p)).
+Proof.
+  intros Hp0 Hp1 Hnp Hn0; induction nt as [|[|nt]]; intros; try omega.
+  - simpl.
+    asserts_rewrite (injZ 1 * p = p).
+    { apply Qc_is_canon.
+      repeat unfold injZ, Q2Qc, "*".
+      rewrite !this_inv, !Qred_correct.
+      cutrewrite (inject_Z 1 = 1%Q); [|eauto].
+      rewrite Qmult_1_l; reflexivity. }
+    rewrite emp_unit_r; reflexivity.
+  - remember (S nt) as nt'.
+    asserts_rewrite (Zn (S nt') = Zn nt' + 1)%Z.
+     { rewrite Nat2Z.inj_succ; omega. }
+     unfold injZ; rewrite inject_Z_plus; simpl.
+     asserts_rewrite (Q2Qc (inject_Z (Zn nt') + inject_Z 1) = injZ (Zn nt') + 1).
+     { apply Qc_is_canon.
+       unfold injZ, "+", Q2Qc.
+       rewrite !this_inv.
+       rewrite !Qred_correct.
+       reflexivity. }
+  rewrite Qcmult_plus_distr_l, Qcmult_1_l.
+
+Admitted.
+
+Lemma is_array_p1 e n f stk :
+  forall s,
+  stk ||= is_array e n f s <=>
+      is_array_p e n f s 1.
+Proof.
+  induction n; simpl; intros.
+  - reflexivity.
+  - rewrite IHn; reflexivity.
+Qed.
+
+Lemma one_div_n n : (n <> 0)%nat -> 1 = injZ (Zn n) * (1 / (injZ (Zn n))).
+Proof.
+  intros; rewrite Qcmult_div_r; eauto.
+  intros Hc.
+  cutrewrite (0 = injZ (Zn 0%nat)) in Hc;[| auto].
+  unfold injZ in Hc.
+  unfold Q2Qc in *; apply (f_equal (fun x => Qcanon.this x)) in Hc.
+  rewrite !this_inv in Hc.
+  assert (Qred (inject_Z (Zn n)) == Qred (inject_Z (Zn 0))) by (rewrite Hc; reflexivity).
+  rewrite !Qred_correct in H0.
+  rewrite inject_Z_injective in H0.
+  rewrite Nat2Z.inj_iff in H0.
+  auto.
+Qed.
+
+Lemma is_array_is_array_p_1 e n f s stk (nt : nat) :
+  (nt <> 0)%nat ->
+  forall st,
+  stk ||=
+    is_array e n f s <=>
+    conj_xs (ls_init st nt (fun i => is_array_p e n f s (1 / (injZ (Zn nt))))).
+Proof.    
+  intros Hnt st.
+  rewrite is_array_p1.
+  rewrite (@one_div_n nt) at 1; eauto.
+  apply is_array_is_array_p_n; eauto;
+  unfold injZ; Qc_to_Q; destruct nt; try omega; lets: (inject_Z_Sn_gt0 nt).
+  apply Qlt_shift_div_l; lra.
+  apply Qle_shift_div_r; try lra.
+  lets Heq: Qmult_div_r; unfold Qdiv in Heq; rewrite Heq; lra.
+Qed.
+Open Scope nat_scope.
+Lemma is_array_unfold Arr len' f p : forall s len,
+  len' < len ->
+  forall stc, 
+    stc ||= is_array_p Arr len f s p <=>
+        is_array_p Arr len' f s p **
+        (Arr +o (Zn (len' + s))%Z -->p (p, f (len' + s))) **
+        is_array_p Arr (len - len' - 1) f (S (len' + s)) p.
+Proof.
+  induction len'; intros s len Hlen stc.
+  - destruct len; try omega; simpl.
+    rewrite <-minus_n_O, emp_unit_l; reflexivity.
+  - destruct len; [inversion Hlen|]; simpl.
+    rewrite IHlen'; try omega.
+    rewrite <-plus_n_Sm; simpl; rewrite sep_assoc; autorewrite with sep. reflexivity.
+Qed.
+
+End read_only_lemma.

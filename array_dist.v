@@ -87,10 +87,10 @@ Definition nt_dist_nth (i : nat) e n f nt (s : nat) :=
 Definition skip_array_body (e : loc_exp) (nt : nat) (f : nat -> exp) (Hnt0 : nt <> 0) :
   forall x, (forall y, y < x -> nat -> assn) -> nat -> assn.
   refine (fun rest rec x =>
-            match ltb 0 (rest - x) as b return ltb 0 (rest - x) = b -> assn with 
+            match 0 <? (rest - x) as b return 0 <? (rest - x) = b -> assn with 
               | true => fun Heq => (e +o Enum' x -->p (1%Qc, f x)) ** rec (rest - nt) _ (x + nt)
               | false => fun _ => emp
-            end eq_refl); abstract (apply ltb_lt in Heq; omega).
+            end eq_refl); abstract (apply Nat.ltb_lt in Heq; omega).
 Defined.
 
 Definition skip_array nt e f (Hnt0 : nt <> 0) : nat -> nat -> assn :=
@@ -110,15 +110,15 @@ Hint Resolve Nat.mod_upper_bound.
 Lemma leb_le_false: forall n m : nat, (n <=? m) = false <-> m < n.
 Proof.
   split; intros.
-  assert (~ n <= m) by (intros Hc; apply leb_le in Hc; congruence); omega.
-  assert (~(n <=? m = true)) by (intros Hc; apply leb_le in Hc; omega); destruct (_ <=? _); congruence.
+  assert (~ n <= m) by (intros Hc; apply Nat.leb_le in Hc; congruence); omega.
+  assert (~(n <=? m = true)) by (intros Hc; apply Nat.leb_le in Hc; omega); destruct (_ <=? _); congruence.
 Qed.
 
 Lemma ltb_lt_false: forall n m : nat, (n <? m) = false <-> m <= n.
 Proof.
   split; intros.
-  assert (~ n < m) by (intros Hc; apply ltb_lt in Hc; congruence); omega.
-  assert (~(n <? m = true)) by (intros Hc; apply ltb_lt in Hc; omega); destruct (_ <? _); congruence.
+  assert (~ n < m) by (intros Hc; apply Nat.ltb_lt in Hc; congruence); omega.
+  assert (~(n <? m = true)) by (intros Hc; apply Nat.ltb_lt in Hc; omega); destruct (_ <? _); congruence.
 Qed.
 
 Lemma nth_add_nth (i j : nat) (a : assn) (l : list assn) (d : assn) :
@@ -213,7 +213,7 @@ Proof.
   { intros j Hjnt; unfold nt_step.
     rewrite plus_Snm_nSm, <-plus_assoc, plus_comm, Nat.mod_add; auto.
     intros Hc.
-    pose proof (div_mod (i + S j) nt Hnt0) as Heq; rewrite Hc in Heq.
+    pose proof (Nat.div_mod (i + S j) nt Hnt0) as Heq; rewrite Hc in Heq.
     assert (S j = nt * ((i + S j) / nt)) by omega.
     destruct ((i + S j ) / nt) as [|n']; rewrite mult_comm in H; simpl in H; try omega.
     destruct (n' * nt) as [|n'']; omega. }
@@ -241,7 +241,7 @@ Proof.
   { intros j Hjnt; unfold nt_step.
     rewrite plus_Snm_nSm, <-plus_assoc, plus_comm, Nat.mod_add; auto.
     intros Hc.
-    pose proof (div_mod (i + S j) nt Hnt0) as Heq; rewrite Hc in Heq.
+    pose proof (Nat.div_mod (i + S j) nt Hnt0) as Heq; rewrite Hc in Heq.
     assert (S j = nt * ((i + S j) / nt)) by omega.
     destruct ((i + S j ) / nt) as [|n']; rewrite mult_comm in H; simpl in H; try omega.
     destruct (n' * nt) as [|n'']; omega. }
@@ -375,7 +375,7 @@ Proof.
   intros j Hj; unfold nt_step.
   - cutrewrite (0 + S (s * nt + i + 0) + j = (S (i + j)) + s * nt); [|omega].
     rewrite Nat.mod_add; auto.
-    intros Heqij. pose proof (div_mod (S (i + j)) nt Hnt0) as H'; rewrite Heqij in H'.
+    intros Heqij. pose proof (Nat.div_mod (S (i + j)) nt Hnt0) as H'; rewrite Heqij in H'.
     assert (S j = nt * (S (i + j) / nt)) by omega.
     destruct (S (i + j) / nt); simpl in *; [omega|].
     rewrite mult_comm in H; simpl in *; destruct (n0 * nt); omega.
@@ -469,3 +469,9 @@ Proof.
   lets H': (>>skip_arr_nth nt f e i tid n 0).
   simpl in H'; apply H'; try omega.
 Qed.
+
+Fixpoint is_array_p e len (f : nat -> Z) s p :=
+  match len with
+    | O => emp
+    | S len' => (e +o Enum (Z.of_nat s) -->p (p, Enum (f s))) ** is_array_p e len' f (S s) p
+  end.
