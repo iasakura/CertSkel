@@ -1,6 +1,7 @@
 Set Implicit Arguments.
 Unset Strict Implicit.
 
+Require Import Omega.
 Require Import Qcanon.
 Require Import assertions.
 Require Import Lang.
@@ -139,8 +140,19 @@ Section independent_prover.
     - unfold inde; intros; cbv; tauto.
     - apply inde_sconj; [apply inde_pointto|]; eauto.
       rewrite List.Forall_forall in *; intros. unfold indeE, indelE in *; simpl in *; intros.
-      destruct arr; simpl in *;
-      [exploit H; [eauto | intros Heq; inversion Heq as [Heq']; rewrite Heq'; reflexivity]..].
+      erewrite H; [reflexivity|eauto].
+      apply List.Forall_forall; unfold indeE; intros; simpl; reflexivity.
+  Qed.
+
+  Lemma inde_is_array_p len arr f vs p : forall s,
+    List.Forall (indelE arr) vs ->
+    inde (is_array_p arr len f s p) vs.
+  Proof.
+    induction len; intros; simpl.
+    - unfold inde; intros; cbv; tauto.
+    - apply inde_sconj; [apply inde_pointto|]; eauto.
+      rewrite List.Forall_forall in *; intros. unfold indeE, indelE in *; simpl in *; intros.
+      erewrite H; [reflexivity|eauto].
       apply List.Forall_forall; unfold indeE; intros; simpl; reflexivity.
   Qed.
 
@@ -169,6 +181,8 @@ Ltac prove_inde :=
       apply inde_distribute; auto; repeat (constructor; prove_indeE)
     | [ |- inde (is_array _ _ _ _) _ ] =>
       apply inde_is_array; auto; repeat (constructor; prove_indeE)
+    | [ |- inde (is_array_p _ _ _ _ _) _ ] =>
+      apply inde_is_array_p; auto; repeat (constructor; prove_indeE)
     | [ |- inde (if _ then _ else _) _] => apply inde_meta_if; prove_inde
     | [ |- _ ] => try now (unfold inde, var_upd; simpl; try tauto) 
   end.
@@ -257,6 +271,15 @@ Section subA_simpl.
     - apply subA_sconj in H; revert h H; apply scRw_stack; intros h H; eauto.
       apply subA_pointto in H; destruct arr; apply H.
   Qed.
+
+  Lemma subA_is_array_p (arr : loc_exp) (len : nat) (f : nat -> Z) x e p: forall s,
+    subA x e (is_array_p arr len f s p) |= is_array_p (sublE x e arr) len f s p.
+  Proof.
+    induction len; simpl; intros s stc h H.
+    - apply H.
+    - apply subA_sconj in H; revert h H; apply scRw_stack; intros h H; eauto.
+      apply subA_pointto in H; destruct arr; apply H.
+  Qed.
 End subA_simpl.
 
 Lemma conj_mono (P Q P' Q' : assn) s h : (P s h -> P' s h) -> (Q s h -> Q' s h) ->
@@ -331,6 +354,7 @@ Ltac subA_normalize_in H :=
     | subA _ _ (List.nth _ (distribute _ _ _ _ _ _) _) _ _ => apply distribute_subA in H; auto
     (* | subA _ _ (skip_arr _ _ _ _ _) _ _ => apply distribute_subA in H; auto *)
     | subA _ _ (is_array _ _ _ _) _ _ => apply subA_is_array in H; auto
+    | subA _ _ (is_array_p _ _ _ _ _) _ _ => apply subA_is_array_p in H; auto
     | subA _ _ (if _ then _ else _) _ _ =>
       apply subA_if_dec in H; eapply if_mono in H;
       [ idtac | intros ? ? Hf; subA_normalize_in Hf; exact Hf ..]

@@ -575,8 +575,8 @@ Section ParCSL.
                | 0 => Empty_set
                | S n => unit
              end with
-         | Fin.F1 _ => tt
-         | Fin.FS _ _ => tt
+         | Fin.F1 => tt
+         | Fin.FS _ => tt
        end) 0 i.
 
   Definition low_eq_repr (n : nat) : 
@@ -592,7 +592,7 @@ Section ParCSL.
   
   Definition sat_k (ss : Vector.t stack ntrd) (h : pheap) (H : low_eq_l2 E ss) (Q : assn) :=
     match low_eq_repr H with
-      | existT x P => sat (x, h) Q
+      | existT _ x P => sat (x, h) Q
     end.
 
   Fixpoint safe_nk (n : nat) (ks : klist ntrd) (ph : pheap) (Q : assn) :=

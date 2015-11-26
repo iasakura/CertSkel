@@ -1,6 +1,6 @@
 Require Import SetoidClass.
 
-Require Import Lang PHeap MyList CSL assertions assertion_lemmas VCG Qcanon.
+Require Import Lang PHeap MyList CSL assertions assertion_lemmas VCG Qcanon Omega.
 
 Instance app_proper (s : stack) (h : pheap) : Proper (equiv_sep s ==> iff) (fun P => P s h).
 Proof.
