@@ -287,7 +287,7 @@ Section For_List_Notation.
                try (destruct H6; [eexists; reflexivity|]; inversion H6; subst);
                subst; congruence).
         Qed.
-        Notation eq_dec := PHeap.eq_dec.
+        
         Lemma precise_pts e1 q : precise (Ex e2, e1 -->p (q, Enum e2)).
         Proof.
           apply precise_ex; intros.
@@ -1260,8 +1260,7 @@ Proof.
     { apply leq_low_eq_l2; introv Hneq; unfold low_eq; introv Hlox.
       erewrite !nth_map; [|reflexivity..].
       rewrite !Hstkb; eauto; congruence. }
-    apply (Htri _ _ _ Hlowl2); eauto.
-    (* applys* (>> (@Htri) Hlowl2). *)
+    applys* (>> Htri Hlowl2).
     unfold sat_k;
     lazymatch goal with [|- context [ let (_, _) := ?X in _ ]] => destruct X as [stkr Hstkr] end; simpl.
     Require Import assertions.

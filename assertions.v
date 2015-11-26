@@ -1,8 +1,6 @@
 Require Export assertion_lemmas.
 Require Import PHeap.
 Require Import Lang.
-Require Import Omega.
-
 Ltac last_slist :=
   let H := fresh "H" in
   match goal with
