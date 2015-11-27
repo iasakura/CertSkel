@@ -1318,9 +1318,11 @@ Proof.
        rewrite !this_inv.
        rewrite !Qred_correct.
        reflexivity. }
-  rewrite Qcmult_plus_distr_l, Qcmult_1_l.
-
-Admitted.
+     rewrite Qcmult_plus_distr_l, Qcmult_1_l; eauto.
+     rewrite is_array_p_star, IHnt; [|subst nt'; unfold injZ in *; injZ_simplify; Qc_to_Q; eauto; pose proof (inject_Z_n_ge0 nt); psatz Q 3..].
+     split; intros; repeat sep_cancel; eauto.
+     sep_cancel; eauto.
+Qed.
 
 Lemma is_array_p1 e n f stk :
   forall s,
