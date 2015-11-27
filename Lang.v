@@ -10,6 +10,7 @@ Require Import List.
 Require ClassicalFacts.
 Require Export FunctionalExtensionality.
 Require Export ProofIrrelevance.
+Require Import String.
 
 Require Export Coq.ZArith.BinInt.
 
@@ -22,7 +23,7 @@ Require Import PHeap.
 Inductive loc :=
 | SLoc : Z -> loc | GLoc : Z -> loc.
 
-Inductive var := Var : Z -> var.
+Inductive var := Var : string -> var.
 Definition stack := var -> Z.
 Require Import Classes.EquivDec.
 Global Program Instance loc_eq_dec : eq_type loc.

@@ -6,15 +6,15 @@ Require Import scan_lib.
 Section Fold.
 
 (* Var *)
-Notation TID := (Var 0).
-Notation BID := (Var 1).
-Notation I := (Var 2).
-Notation St := (Var 3).
-Notation T1 := (Var 4).
-Notation T2 := (Var 5).
-Notation ARR := (Var 6).
-Notation SARR := (Var 7).
-Notation OUT := (Var 8).
+Notation TID := (Var "tid").
+Notation BID := (Var "bid").
+Notation I := (Var "i").
+Notation St := (Var "st").
+Notation T1 := (Var "t1").
+Notation T2 := (Var "t2").
+Notation ARR := (Var "arr").
+Notation SARR := (Var "sarr").
+Notation OUT := (Var "out").
 
 Definition If (b : bexp) (c : cmd) := Cif b c.
 

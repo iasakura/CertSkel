@@ -6,13 +6,13 @@ Require Import Skel_lemma.
 Close Scope Qc_scope.
 Close Scope Q_scope.
 Section Map.
-Local Notation TID := (Var 0).
-Local Notation BID := (Var 1).
-Local Notation ARR := (Var 2).
-Local Notation OUT := (Var 3).
-Local Notation X := (Var 4).
-Local Notation Y := (Var 5).
-Local Notation I := (Var 6).
+Local Notation TID := (Var "tid").
+Local Notation BID := (Var "bid").
+Local Notation ARR := (Var "arr").
+Local Notation OUT := (Var "out").
+Local Notation X := (Var "x").
+Local Notation Y := (Var "y").
+Local Notation I := (Var "i").
 
 Variable ntrd : nat.
 Variable nblk : nat.

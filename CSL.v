@@ -901,7 +901,7 @@ Section ParCSL.
   Definition CSLp (P : assn) (c : cmd) (Q : assn) :=
     forall (ks : klist ntrd) (h : pheap) (leqks : low_eq_l2 E (Vector.map (fun s => snd s) ks)),
       (forall tid : Fin.t ntrd, fst ks[@tid] = c) ->
-      (forall tid : Fin.t ntrd, (snd ks[@tid]) (Var 0) = Z_of_fin tid) ->
+      (forall tid : Fin.t ntrd, (snd ks[@tid]) (Var "tid") = Z_of_fin tid) ->
       sat_k h leqks P ->
       forall n, safe_nk n ks h Q.
 
@@ -913,7 +913,7 @@ Section ParCSL.
     typing_cmd E c ty ->
     (forall tid : Fin.t ntrd, 
        CSL bspec tid 
-           (Ps[@tid] ** !((Var 0) === Z_of_fin tid))
+           (Ps[@tid] ** !((Var "tid") === Z_of_fin tid))
            c 
            Qs[@tid]) ->
     CSLp P c Q.

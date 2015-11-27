@@ -131,8 +131,8 @@ Section For_List_Notation.
       | (sh, len) :: sh_decl => (Ex f, is_array (Sh sh) len f 0) ** sh_spec sh_decl
     end.
   
-  Notation TID := (Var 0).
-  Notation BID := (Var 1).
+  Notation TID := (Var "tid").
+  Notation BID := (Var "bid").
   Notation nf i := (nat_of_fin i).
   Notation zf i := (Z.of_nat (nf i)).
 
