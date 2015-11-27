@@ -1,7 +1,7 @@
 Require Import GPUCSL.
 Require Import scan_lib.
 Require Import LibTactics.
-
+Require Import Skel_lemma.
 
 Close Scope Qc_scope.
 Close Scope Q_scope.
@@ -38,34 +38,25 @@ Ltac sep_rewrite_r lem :=
     | [|- ?X _ _] => pattern X
   end; erewrite <-lem; cbv beta. 
 
-Fixpoint fv (e : exp) :=
-  match e with
-    | Evar v => v :: nil
-    | Enum n => nil
-    | e1 +C e2 
-    | e1 *C e2
-    | e1 -C e2 => fv e1 ++ fv e2
-    | e1>>1 => fv e1
-  end%exp.
-
-Lemma fv_subE var v e :
-  ~List.In var (fv e) -> subE var (Enum v) e = e.
-Proof.
-  simpl in *; intros; induction e; simpl in *; jauto;
-  try rewrite IHe1; try rewrite IHe2; try rewrite IHe; try rewrite in_app_iff in *; eauto.
-  destruct var_eq_dec; jauto.
-  contradict H; eauto.
-Qed.
+Variable aenv : assn.
 
 (* code generators filling the function hole *)
 (* func : the argument variable ->
     the command for getting the result and the return expression  *)
-Variable func : var -> exp.
+Variable func : var -> (cmd * exp).
 Variable f_den : Z -> Z.
+
+Import ListNotations.
+
 Hypothesis func_fv :
-  forall v u, List.In u (fv (func v)) -> u = v.
-Hypothesis func_denote :
-  forall v s, edenot (func v) s = f_den (s v).
+  forall v, disjoint [I; ARR; OUT; BID] (writes_var (fst (func v))) .
+Hypothesis func_no_bar :
+  forall v, barriers (fst (func v)) = nil.
+
+(* {v == val} func {ret == f_den val} *)
+Hypothesis func_denote : forall (var : var) nt (tid : Fin.t nt) (val : val),
+  CSL (fun _ => default nt) tid
+    (!(var === val)) (fst (func var)) (!(snd (func var) === f_den val)).
 Notation perm_n n := (1 / injZ (Zn n))%Qc.
 
 Section block_verification.
@@ -94,7 +85,8 @@ Definition map_ker :=
   I ::= (TID +C BID *C Z.of_nat ntrd);;
   WhileI inv (I < Z.of_nat len) (
     X ::= [Gl ARR +o I] ;;
-    [Gl OUT +o I] ::= func X;;
+    (fst (func X)) ;; 
+    [Gl OUT +o I] ::= (snd (func X)) ;;
     I ::= I +C Z.of_nat ntrd *C Z.of_nat nblk
   )%exp.
 
@@ -144,6 +136,7 @@ Proof.
   split; intros; sep_cancel; apply IHn; auto.
 Qed.
 
+  
 Lemma map_correct : 
   CSL (fun n => default ntrd) tid
   (!(ARR === arr) ** 
@@ -200,17 +193,28 @@ Proof.
       intros ? ? H; apply H. }
     
     eapply rule_seq.
-    { hoare_forward.
-      intros ? ? H; apply H. }
+    { (* executute the passed function *)
+      eapply Hbackward.
+      Focus 2.
+      { intros s h H.
+        sep_normal_in H.
+        sep_lift_in H 1.
+        exact H. } Unfocus.
+      apply rule_frame.
+      { apply func_denote. }
+      specialize (func_fv X); simpl in func_fv.
+      repeat prove_inde;
+      first [apply disjoint_indeE | apply disjoint_indelE | apply disjoint_indeB]; simpl; intuition. }
     
+    eapply rule_seq.
+    { hoare_forward; intros ? ? H; exact H. }
+
     eapply Hforward.
     { hoare_forward.
       intros ? ? H; destruct H as [v H].
       subA_normalize_in H. simpl in H.
-      assert ((subE I v (func X) === func X) s (emp_ph loc)).
-      { unfold_conn.
-        rewrite fv_subE; eauto.
-        intros Hc; apply func_fv in Hc; congruence. }
+      assert ((subE I v (snd (func X)) === f_den (f_ini (x * nt_gr + gtid))) s (emp_ph loc)).
+      { sep_split_in H; unfold_pures; eauto. }
       sep_rewrite_in mps_eq2 H; [|exact H0].
       ex_intro v H. exact H. }
     
@@ -224,12 +228,7 @@ Proof.
     sep_normal; simpl.
     simpl; repeat sep_cancel.
     cuts_rewrite (len - (nt_gr + x * nt_gr) = len - x * nt_gr - nt_gr); [|nia]. 
-    repeat autorewrite with sep. repeat sep_cancel.
-    assert ((func X === f_den (f_ini (x * nt_gr + gtid))) s (emp_ph loc)).
-    { unfold_conn; simpl.
-      rewrite func_denote, HP; eauto. }
-    sep_rewrite_in mps_eq2 H2; [|exact H3].
-    sep_cancel. }
+    repeat autorewrite with sep. repeat sep_cancel. }
   { unfold inv; intros s h H. apply ex_lift_l_in in H as [x H]. sep_split_in H. unfold_pures.
     rewrite HP2 in n; rewrite <-Nat2Z.inj_lt in n.
     assert (len - x * nt_gr <= nf tid + nf bid * ntrd) by (zify; omega).
@@ -355,16 +354,23 @@ Proof.
     sep_cancel.
   - intros; unfold tr_pres; rewrite MyVector.init_spec.
     unfold CSL.low_assn.
-    Hint Constructors typing_exp.
     repeat prove_low_assn; eauto.
-    constructor; eauto.
     apply low_assn_skip_arr.
     constructor; eauto.
   - intros; unfold CSL.low_assn, tr_posts; rewrite MyVector.init_spec.
     repeat prove_low_assn. 
     constructor; eauto.
     apply low_assn_skip_arr; constructor; eauto.
-  - repeat econstructor.
+  - repeat (match goal with
+            | [ |- typing_exp _ _ _ ] => eapply ty_var; apply le_type_refl
+            | _ => econstructor
+            end); try reflexivity.
+    repeat instantiate (1 := Hi).
+    apply typing_cmd_Hi; eauto.
+    intros.
+    lets: (>>disjoint_not_in_r v (func_fv X) H).
+    simpl in *.
+    unfold E; repeat destruct var_eq_dec; intuition.
   - unfold tr_pres, tr_posts; intros; rewrite !MyVector.init_spec.
     unfold bspec, skip_arr.
     eapply Hbackward.
@@ -378,9 +384,7 @@ Proof.
     apply Lo.
     apply Lo.
     apply Lo.
-    apply Lo.
     apply 0.
-    apply Lo.
 Qed.
 
 End block_verification.

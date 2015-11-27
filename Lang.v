@@ -711,7 +711,7 @@ Section NonInter.
   Variable g : env.
   
   Inductive typing_exp : exp -> type -> Prop := 
-  | ty_var : forall (v : var) (ty : type), g v = ty -> typing_exp (Evar v) ty
+  | ty_var : forall (v : var) (ty : type), le_type (g v) ty = true -> typing_exp (Evar v) ty
   | ty_num : forall (n : Z) (ty : type), typing_exp (Enum n) ty
   | ty_plus : forall (e1 e2 : exp) (ty1 ty2 : type), 
                 typing_exp e1 ty1 -> typing_exp e2 ty2 ->
@@ -782,7 +782,8 @@ Section NonInter.
     intros heq hty; induction e; simpl; eauto; 
     try now (inversion hty; destruct ty1, ty2; unfold join in *; try congruence;
              rewrite IHe1, IHe2; eauto).
-    - inversion hty; specialize (heq x); eauto.
+    - inversion hty; specialize (heq x).
+      destruct (g x); unfold le_type in H0; try congruence; eauto.
     - inversion hty; rewrite IHe; eauto. 
   Qed.
 

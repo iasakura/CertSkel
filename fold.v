@@ -872,10 +872,18 @@ Definition ty_env_fold (v : var) := if in_dec var_eq_dec v hi_list then Hi else 
 
 Hint Constructors typing_cmd typing_exp typing_lexp typing_bexp.
 
+Lemma le_type_refl ty : le_type ty ty = true.
+Proof.
+  destruct ty; eauto.
+Qed.
+
 Lemma typing_fold : typing_cmd ty_env_fold fold_ker' Lo.
 Proof.
   unfold fold_ker', fold_ker.
-  (repeat econstructor); try reflexivity.
+  repeat (match goal with
+  | [ |- typing_exp _ _ _ ] => eapply ty_var; apply le_type_refl
+  | _ => econstructor
+  end); try reflexivity.
   repeat instantiate (1 := Lo); reflexivity.
   repeat instantiate (1 := Lo); reflexivity.
   repeat instantiate (1 := Lo); reflexivity.
@@ -1286,8 +1294,7 @@ Proof.
       unfold ty_env_fold, hi_list, low_assn.
       prove_low_assn; repeat econstructor.
       applys_eq ty_offset 1; repeat econstructor; repeat reflexivity. 
-      instantiate (1 := Lo).
-      reflexivity.
+      repeat instantiate (1 := Lo); reflexivity.
 
       apply low_assn_skip_arr.
       repeat econstructor; repeat reflexivity. }
@@ -1389,9 +1396,9 @@ Proof.
     unfold low_assn.
     repeat prove_low_assn; eauto using low_assn_skip_arr.
     applys_eq ty_offset 1; eauto.
-    instantiate (1:=Lo); reflexivity.
+    repeat instantiate (1:=Lo); reflexivity.
     applys_eq ty_offset 1; eauto.
-    instantiate (1:=Lo); instantiate (1:=Lo); reflexivity.
+    repeat instantiate (1:=Lo); reflexivity.
   - intros; unfold tid_post; rewrite MyVector.init_spec.
     unfold low_assn.
     repeat prove_low_assn; eauto using low_assn_skip_arr.

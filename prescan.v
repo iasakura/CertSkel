@@ -1691,10 +1691,18 @@ Definition G (v : var) :=
   else if var_eq_dec v Tmp2 then Hi
   else Lo.
 
+Lemma le_type_refl ty : le_type ty ty = true.
+Proof.
+  destruct ty; eauto.
+Qed.
+
 Lemma typing_prescan : typing_cmd G prescan Lo.
 Proof.
   unfold prescan.
-  (repeat econstructor); (repeat instantiate (1 := Lo)); try reflexivity.
+  repeat (match goal with
+  | [ |- typing_exp _ _ _ ] => eapply ty_var; apply le_type_refl
+  | _ => econstructor
+  end); (repeat instantiate (1 := Lo)); try reflexivity.
   constructor.
   repeat (instantiate (1 := Lo)); reflexivity.
   repeat (instantiate (1 := Lo)); reflexivity.

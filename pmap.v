@@ -305,7 +305,9 @@ Proof.
     constructor; eauto.
   - intros; unfold CSL.low_assn, tr_posts; rewrite MyVector.init_spec.
     prove_low_assn; apply low_assn_skip_arr; constructor; eauto.
-  - repeat econstructor.
+  - repeat (econstructor; try instantiate (1 := Hi));
+    equates 1; repeat constructor; repeat instantiate (1 := Hi); eauto.
+    instantiate (1 := Hi); eauto.
   - unfold tr_pres, tr_posts; intros; rewrite !MyVector.init_spec.
     unfold bspec, skip_arr.
     eapply Hbackward.
@@ -321,8 +323,8 @@ Proof.
     apply Lo.
     apply Lo.
     apply Lo.
-    apply 0.
     apply Lo.
+    apply 0.
 Qed.
 
 Definition bl_pres (arr out : val) fout : Vector.t assn nblk :=
