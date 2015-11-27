@@ -6,6 +6,7 @@ Require Import Skel_lemma.
 Close Scope Qc_scope.
 Close Scope Q_scope.
 Section Map.
+Coercion Var : string >-> var.
 Local Notation TID := (Var "tid").
 Local Notation BID := (Var "bid").
 Local Notation ARR := (Var "arr").
@@ -13,6 +14,7 @@ Local Notation OUT := (Var "out").
 Local Notation X := (Var "x").
 Local Notation Y := (Var "y").
 Local Notation I := (Var "i").
+Local Notation Len := (Var "len").
 
 Variable ntrd : nat.
 Variable nblk : nat.
@@ -49,7 +51,7 @@ Variable f_den : Z -> Z.
 Import ListNotations.
 
 Hypothesis func_fv :
-  forall v, disjoint [I; ARR; OUT; BID] (writes_var (fst (func v))) .
+  forall v, disjoint [I; ARR; OUT; BID; Len] (writes_var (fst (func v))) .
 Hypothesis func_no_bar :
   forall v, barriers (fst (func v)) = nil.
 
@@ -69,10 +71,15 @@ Variable tid : Fin.t ntrd.
 
 Notation gtid := (nf tid + nf bid * ntrd).
 
+Open Scope string.
+
+Variable dim : nat.
+
 Definition inv :=
   Ex ix, 
     !(ARR === arr) **
     !(OUT === out) **
+    !(Len === Zn len) **
     !(I === Enum' (ix * nt_gr + gtid)) **
     !(Apure (ix * nt_gr + gtid < len + nt_gr)%nat) **
     is_array_p (Gl arr) len f_ini 0 (perm_n nt_gr) **
@@ -83,7 +90,7 @@ Notation GTID := (TID +C BID *C Zn ntrd).
 
 Definition map_ker :=
   I ::= (TID +C BID *C Z.of_nat ntrd);;
-  WhileI inv (I < Z.of_nat len) (
+  WhileI inv (I < Len) (
     X ::= [Gl ARR +o I] ;;
     (fst (func X)) ;; 
     [Gl OUT +o I] ::= (snd (func X)) ;;
@@ -136,11 +143,11 @@ Proof.
   split; intros; sep_cancel; apply IHn; auto.
 Qed.
 
-  
 Lemma map_correct : 
   CSL (fun n => default ntrd) tid
   (!(ARR === arr) ** 
-   !(OUT === out) ** 
+   !(OUT === out) **
+   !(Len === Zn len) **
    is_array_p (Gl arr) len f_ini 0 (perm_n nt_gr) **
    List.nth (nf tid + nf bid * ntrd) (distribute nt_gr (Gl out) len fout (nt_step nt_gr) 0) emp **
    !(BID === zf bid) ** !(TID === zf tid))
@@ -230,7 +237,7 @@ Proof.
     cuts_rewrite (len - (nt_gr + x * nt_gr) = len - x * nt_gr - nt_gr); [|nia]. 
     repeat autorewrite with sep. repeat sep_cancel. }
   { unfold inv; intros s h H. apply ex_lift_l_in in H as [x H]. sep_split_in H. unfold_pures.
-    rewrite HP2 in n; rewrite <-Nat2Z.inj_lt in n.
+    rewrite HP2, HP3 in n; rewrite <-Nat2Z.inj_lt in n.
     assert (len - x * nt_gr <= nf tid + nf bid * ntrd) by (zify; omega).
     assert (nf tid + nf bid * ntrd < nt_gr) by auto.
     sep_cancel.
@@ -283,6 +290,7 @@ Local Notation init := MyVector.init.
 Definition bth_pre :=
   !(ARR === arr) **
   !(OUT === out) **
+  !(Len === Zn len) **
   conj_xs (ls_init 0 ntrd (fun i =>
     is_array_p (Gl arr) len f_ini 0 (perm_n nt_gr))) **
   conj_xs (ls_init 0 ntrd (fun i =>
@@ -291,6 +299,7 @@ Definition bth_pre :=
 Definition tr_pres := init (fun i : Fin.t ntrd =>
   !(ARR === arr) ** 
   !(OUT === out) ** 
+  !(Len === Zn len) ** 
   is_array_p (Gl arr) len f_ini 0 (perm_n nt_gr) **
   skip_arr (Gl out) 0 len nt_gr fout (nf i + nf bid * ntrd) **
   !(BID === zf bid)).
@@ -309,6 +318,7 @@ Definition E : env := fun v =>
   if var_eq_dec v BID then Lo
   else if var_eq_dec v ARR then Lo
   else if var_eq_dec v OUT then Lo
+  else if var_eq_dec v Len then Lo
   else Hi.  
 Close Scope Qc_scope.
 Close Scope Q_scope.
@@ -345,6 +355,7 @@ Proof.
     repeat sep_rewrite (@ls_star).
     repeat sep_rewrite (@ls_pure).
     sep_split.
+    apply ls_emp'; intros; rewrite ls_init_spec; destruct lt_dec; auto; cbv; auto.
     apply ls_emp'; intros; rewrite ls_init_spec; destruct lt_dec; auto; cbv; auto.
     apply ls_emp'; intros; rewrite ls_init_spec; destruct lt_dec; auto; cbv; auto.
     apply ls_emp'; intros; rewrite ls_init_spec; destruct lt_dec; auto; cbv; auto.
@@ -401,7 +412,7 @@ Qed.
 
 Theorem map_correct_g  :
   CSLg ntrd nblk ntrd_neq0 nblk_neq0
-    (!(ARR === arr) ** !(OUT === out) ** 
+    (!(ARR === arr) ** !(OUT === out) ** !(Len === Zn len) **
      is_array (Gl arr) len f_ini 0 **
      is_array (Gl out) len fout 0)
     (Pr nil (map' bid0))
@@ -415,6 +426,7 @@ Proof.
     istar_simplify.
     repeat sep_rewrite (@ls_star nblk).
     repeat sep_rewrite (@ls_pure nblk); sep_split.
+    apply ls_emp'; intros; rewrite ls_init_spec; destruct lt_dec; auto; cbv; auto.
     apply ls_emp'; intros; rewrite ls_init_spec; destruct lt_dec; auto; cbv; auto.
     apply ls_emp'; intros; rewrite ls_init_spec; destruct lt_dec; auto; cbv; auto.
     repeat (sep_rewrite_r is_array_skip_arr); sep_cancel; eauto.
