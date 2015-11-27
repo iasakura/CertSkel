@@ -51,15 +51,15 @@ barrier(); // ϕspec
 Require Import GPUCSL scan_lib.
 
 Section Prescan.
-  Notation Tid := (Var 0).
-  Notation In := (Var 1). 
-  Notation Sum := (Var 2).
-  Notation Pres := (Var 3).
+  Notation Tid := (Var "tid").
+  Notation In := (Var "in"). 
+  Notation Sum := (Var "sum").
+  Notation Pres := (Var "pres").
 
-  Notation D := (Var 4).
-  Notation Offset := (Var 5).
-  Notation Tmp1 := (Var 6).
-  Notation Tmp2 := (Var 7).
+  Notation D := (Var "d").
+  Notation Offset := (Var "offset").
+  Notation Tmp1 := (Var "tmp1").
+  Notation Tmp2 := (Var "tmp2").
 
   Notation leftC ARR := (ARR +o (Offset *C (Enum 2 *C Tid +C Enum 1) -C Enum 1)).
   Notation rightC ARR := (ARR +o (Offset *C (Enum 2 *C Tid +C Enum 2) -C Enum 1)).

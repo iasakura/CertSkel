@@ -271,10 +271,10 @@ Section Swap.
   Open Scope exp_scope.
   Open Scope bexp_scope.
 
-  Definition X := ((Var 2)).
-  Definition Y := ((Var 3)).
-  Definition T := Var 4.
-  Definition U := Var 5.
+  Definition X := ((Var "X")).
+  Definition Y := ((Var "Y")).
+  Definition T := Var "T".
+  Definition U := Var "U".
 
   Definition swap :=
     T ::= [Gl X] ;;
