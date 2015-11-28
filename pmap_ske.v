@@ -66,6 +66,15 @@ Hypothesis func_denote : forall (var : var) nt (tid : Fin.t nt) (val : val),
     (fst (func var))
     (!(eq_tup (snd (func var)) (f_den val))).
 
+Hypothesis fout_length :
+  forall i, length (fout i) = outDim.
+Hypothesis fden_length :
+  forall v, length (f_den v) = outDim.
+Hypothesis out_length :
+  length out = outDim.
+Hypothesis func_length :
+  forall v, length (snd (func v)) = outDim.
+
 Notation perm_n n := (1 / injZ (Zn n))%Qc.
 
 Section block_verification.
@@ -167,6 +176,103 @@ Open Scope string.
 
 Arguments append _ _ : simpl never.
 
+Lemma inde_eq_tup E1 E2 vs:
+  List.Forall (fun e => forall v, List.In v vs -> indeE e v) E1 -> inde (E1 ==t E2) vs.
+Proof.
+  revert E2; induction E1; intros [|e e2]; simpl; intros; prove_inde.
+  inversion H; subst.
+  rewrite Forall_forall; auto.
+  inversion H; subst.
+  rewrite Forall_forall; auto.
+  apply IHE1; inversion H; subst; auto.
+Qed.
+
+Lemma In_ls_init (T : Type) s l f (x : T) : 
+  In x (ls_init s l f) <-> exists y, x = f y /\ s <= y < s + l.
+Proof.
+  revert s; induction l; intros s; simpl; eauto.
+  - split; [destruct 1| destruct 1; omega].
+  - split; intros H.
+    + destruct H as [|H]; [exists s; split; eauto; omega| ].
+      rewrite IHl in H; destruct H as [y [? ?]]; exists y; split; eauto; omega.
+    + destruct H as [y [Hh  Ht]].
+      assert (y = s \/ S s <= y < (S s) + l) as [|] by omega; [subst; left; eauto|].
+      right; rewrite IHl; exists y; split; eauto; omega.
+Qed.
+
+Lemma outs_inde vs :
+  List.Forall (fun e => prefix "arr" (var_of_str e) = false) vs ->
+  List.Forall (fun e => forall v, List.In v vs -> indeE e v) Outs.
+Proof.
+  rewrite !Forall_forall.
+  unfold Outs, writeArray, names_of_arg, names_of_array; simpl.
+  unfold vars2es; intros H x Hx.
+  apply in_map_iff in Hx as [? [? Hx]]; subst.
+  apply In_ls_init in Hx as [? [? ?]]; subst.
+  intros.
+  unfold indeE; intros; simpl; unfold var_upd.
+  destruct var_eq_dec; auto.
+  subst; apply H in H0; cbv in H0; congruence.
+Qed.
+
+Lemma outs_length : length Outs = outDim.
+Proof.
+  unfold Outs, writeArray, names_of_arg, names_of_arg, vars2es, names_of_array; simpl.
+  rewrite map_length, init_length; auto.
+Qed.
+
+Lemma inde_is_tup es1 es2 vs p :
+  List.Forall (fun e => forall v, List.In v vs -> indelE e v) es1 ->
+  List.Forall (fun e => forall v, List.In v vs -> indeE e v) es2 ->
+  inde (is_tuple_p es1 es2 p) vs.
+Proof.
+  revert es2; induction es1; simpl; intros [| e es2 ]; simpl; intros; prove_inde.
+  inversion H; subst; rewrite Forall_forall; auto.
+  inversion H0; subst; rewrite Forall_forall; auto.
+  apply IHes1; inverts H; inverts H0; auto.
+Qed.
+
+Lemma inde_distribute_tup nt es l f dist (i : nat) p vs : forall s,
+    List.Forall (fun e => forall v, List.In v vs -> indelE e v) es ->
+      inde (List.nth i (distribute_tup nt es l f dist s p) emp) vs.
+Proof.
+  induction l; [unfold subA'|]; intros s Hinde; simpl in *.
+  - simpl_nth; destruct (Compare_dec.leb _ _); prove_inde.
+  - assert (dist s < nt \/ nt <= dist s)%nat as [|] by omega.
+    + assert (i < nt \/ nt <= i)%nat as [|] by omega.
+      * rewrite nth_add_nth in *; [|rewrite distribute_tup_length; auto..].
+        destruct (EqNat.beq_nat _ _); intuition.
+        prove_inde.
+        apply inde_is_tup; auto.
+        rewrite Forall_forall; unfold tarr_idx; intros ? Htmp; rewrite in_map_iff in Htmp;
+        destruct Htmp as [? [? ?]]; subst.
+        rewrite Forall_forall in Hinde. specialize (Hinde x0 H3); intros;
+        unfold indelE in *; simpl; intros; rewrite <-Hinde; auto.
+        rewrite Forall_forall; intros ? Ht; unfold vs2es in Ht; rewrite in_map_iff in Ht.
+        destruct Ht as [? [? ?]]; intros; subst.
+        prove_inde.
+        apply IHl; eauto.
+      * rewrite List.nth_overflow in *; [|rewrite add_nth_length, distribute_tup_length..]; 
+        prove_inde.
+    + rewrite add_nth_overflow in *; (try rewrite distribute_tup_length); auto.
+Qed.
+
+Lemma inde_vals_l vs vals :
+  List.Forall (fun e => forall v, List.In v vs -> indelE e v) (es2gls (vs2es vals)).
+Proof.
+  unfold es2gls, vs2es; rewrite map_map, Forall_forall.
+  intros x Hx; rewrite in_map_iff in Hx; destruct Hx as [? [? Hx]]; subst.
+  intros; auto.
+Qed.
+
+Lemma inde_vals vs vals :
+  List.Forall (fun e => forall v, List.In v vs -> indeE e v) (vs2es vals).
+Proof.
+  unfold vs2es; rewrite Forall_forall.
+  intros x Hx; rewrite in_map_iff in Hx; destruct Hx as [? [? Hx]]; subst.
+  intros; auto.
+Qed.
+
 Lemma map_correct : 
   CSL (fun n => default ntrd) tid
   (!(ARR === arr) ** 
@@ -234,7 +340,34 @@ Proof.
           sep_combine_in H; exact H. }
         exact H. } Unfocus.
       hoare_forward; try (apply inde_distribute; auto; repeat (constructor; prove_indeE)); simpl.
-      admit. admit. admit. admit.
+      apply inde_eq_tup.
+      apply outs_inde; rewrite Forall_forall; simpl; intros ? [? | ?]; subst; simpl; tauto.
+      apply inde_distribute_tup.
+      apply inde_vals_l.
+      apply inde_is_tup.
+      
+      Lemma inde_tarr_idx es ix vs :
+        Forall (fun e : loc_exp => forall v, In v vs -> indelE e v) es ->
+        (forall v, In v vs -> indeE ix v) ->
+        Forall (fun e : loc_exp => forall v : var, In v vs -> indelE e v)
+               (tarr_idx es ix).
+      Proof.
+        unfold tarr_idx; rewrite !Forall_forall.
+        intros Hes Hix x Hx.
+        apply in_map_iff in Hx as [? [? Hx]]; subst.
+        intros.
+        forwards: (>> Hix H).
+        forwards: (>>Hes Hx H).
+        prove_indeE; rewrite <-H0, <-H1; auto.
+      Qed.
+
+      apply inde_tarr_idx.
+      apply inde_vals_l.
+      simpl; destruct 1; try tauto.
+      subst; prove_inde.
+      apply inde_vals.
+      apply inde_distribute_tup.
+      apply inde_vals_l.
       intros ? ? H; apply H. }
     
     eapply rule_seq.
@@ -254,7 +387,22 @@ Proof.
         | [H : In _ _ |- _] => first [apply func_fv_sh in H |
                                       apply func_fv_arr in H ]; simpl in H; try congruence
       end.
-      admit. admit. admit. admit.  }
+      apply inde_eq_tup, outs_inde.
+      rewrite Forall_forall; intros; eapply func_fv_arr; eauto.
+
+      apply inde_distribute_tup.
+      apply inde_vals_l.
+
+      apply inde_is_tup.
+      apply inde_tarr_idx.
+      apply inde_vals_l.
+      intros; apply indeE_fv; simpl.
+      intros [? | ?]; subst; auto.
+      
+      apply inde_vals.
+      
+      apply inde_distribute_tup.
+      apply inde_vals_l. }
 
     eapply rule_seq.
     { (* set the results to output array *)
@@ -280,7 +428,10 @@ Proof.
       } Unfocus.
       apply rule_frame.
       apply gen_write_correct; simpl.
-      admit. admit.
+      unfold vs2es; rewrite map_length.
+      rewrite fout_length, outs_length; auto.
+      rewrite func_length, outs_length; auto.
+      
       unfold catcmd, setOut; simpl; rewrite writes_var_gen_write.
       intros ?; destruct 1. }
     eapply Hforward.
@@ -311,8 +462,10 @@ Proof.
     unfold inv; intros s h H. destruct H as (v & H); simpl in H.
     sep_normal_in H; sep_split_in H.
     unfold_pures; subst.
+    unfold Outs, writeArray, names_of_arg; simpl.
     exists (S x); autorewrite with sep.
     sep_split; try now (unfold_conn; simpl; auto; omega).
+    { rewrite <-out_length; auto. }
     { unfold_conn; simpl. rewrite HP7. ring. }
     sep_rewrite (@is_array_unfold (Gl arr) (x * nt_gr + gtid)); try omega; eauto.
     lets Heq: (sublEs_es2gls); unfold es2gls in Heq; rewrite !Heq in H.
@@ -474,19 +627,7 @@ Proof.
     unfold Outs, writeArray, names_of_arg, vars2es, names_of_array; simpl.
     rewrite Forall_forall.
     intros x H; rewrite in_map_iff in H; destruct H as [? [? ?]]; subst.
-    
-    Lemma In_ls_init (T : Type) s l f (x : T) : 
-      In x (ls_init s l f) <-> exists y, x = f y /\ s <= y < s + l.
-    Proof.
-      revert s; induction l; intros s; simpl; eauto.
-      - split; [destruct 1| destruct 1; omega].
-      - split; intros H.
-        + destruct H as [|H]; [exists s; split; eauto; omega| ].
-          rewrite IHl in H; destruct H as [y [? ?]]; exists y; split; eauto; omega.
-        + destruct H as [y [Hh  Ht]].
-          assert (y = s \/ S s <= y < (S s) + l) as [|] by omega; [subst; left; eauto|].
-          right; rewrite IHl; exists y; split; eauto; omega.
-    Qed.
+
     rewrite In_ls_init in H0; destruct H0 as [z [? ?]]; subst.
     constructor; unfold E; simpl; auto.
     constructor; eauto.
@@ -569,6 +710,7 @@ Proof.
     eapply Hforward.
     apply map_correct.
     intros.
+    
     apply H.
     intros; sep_normal_in H; sep_normal; repeat sep_cancel.
     (* hmm.. *)
@@ -591,12 +733,6 @@ Definition bid0 : Fin.t nblk.
   exact Fin.F1.
 Qed.
 
-Hypothesis fout_length :
-  forall i, i < len -> length (fout i) = outDim.
-Hypothesis fden_length :
-  forall v, length (f_den v) = outDim.
-Hypothesis out_length :
-  length out = outDim.
 Theorem map_correct_g  :
   CSLg ntrd nblk ntrd_neq0 nblk_neq0
     (!(ARR === arr) ** !(Outs ==t out) ** !(Len === Zn len) **
@@ -684,16 +820,6 @@ Proof.
   - intros; unfold bl_pres, bth_pre.
     rewrite MyVector.init_spec.
     prove_inde.
-    Lemma inde_eq_tup E1 E2 vs:
-      List.Forall (fun e => forall v, List.In v vs -> indeE e v) E1 -> inde (E1 ==t E2) vs.
-    Proof.
-      revert E2; induction E1; intros [|e e2]; simpl; intros; prove_inde.
-      inversion H; subst.
-      rewrite Forall_forall; auto.
-      inversion H; subst.
-      rewrite Forall_forall; auto.
-      apply IHE1; inversion H; subst; auto.
-    Qed.
     apply inde_eq_tup, Forall_forall; unfold Outs, writeArray, names_of_arg; simpl; intros x H.
     unfold vars2es, names_of_array in H;
       rewrite in_map_iff in H; destruct H as [? [? H]]; subst; rewrite In_ls_init in H;
@@ -705,41 +831,7 @@ Proof.
     apply inde_distribute; prove_indeE.
     apply inde_conj_xs; rewrite init_length; intros;
     rewrite ls_init_spec; destruct lt_dec; prove_inde.
-    Lemma inde_is_tup es1 es2 vs p :
-      List.Forall (fun e => forall v, List.In v vs -> indelE e v) es1 ->
-      List.Forall (fun e => forall v, List.In v vs -> indeE e v) es2 ->
-      inde (is_tuple_p es1 es2 p) vs.
-    Proof.
-      revert es2; induction es1; simpl; intros [| e es2 ]; simpl; intros; prove_inde.
-      inversion H; subst; rewrite Forall_forall; auto.
-      inversion H0; subst; rewrite Forall_forall; auto.
-      apply IHes1; inverts H; inverts H0; auto.
-    Qed.
-    
-    Lemma inde_distribute_tup nt es l f dist (i : nat) p vs : forall s,
-        List.Forall (fun e => forall v, List.In v vs -> indelE e v) es ->
-          inde (List.nth i (distribute_tup nt es l f dist s p) emp) vs.
-    Proof.
-      induction l; [unfold subA'|]; intros s Hinde; simpl in *.
-      - simpl_nth; destruct (Compare_dec.leb _ _); prove_inde.
-      - assert (dist s < nt \/ nt <= dist s)%nat as [|] by omega.
-        + assert (i < nt \/ nt <= i)%nat as [|] by omega.
-          * rewrite nth_add_nth in *; [|rewrite distribute_tup_length; auto..].
-            destruct (EqNat.beq_nat _ _); intuition.
-            prove_inde.
-            apply inde_is_tup; auto.
-            rewrite Forall_forall; unfold tarr_idx; intros ? Htmp; rewrite in_map_iff in Htmp;
-            destruct Htmp as [? [? ?]]; subst.
-            rewrite Forall_forall in Hinde; specialize (Hinde x0 H3); intros;
-            unfold indelE in *; simpl; intros; rewrite <-Hinde; auto.
-            rewrite Forall_forall; intros ? Ht; unfold vs2es in Ht; rewrite in_map_iff in Ht.
-            destruct Ht as [? [? ?]]; intros; subst.
-            prove_inde.
-            apply IHl; eauto.
-          * rewrite List.nth_overflow in *; [|rewrite add_nth_length, distribute_tup_length..]; 
-            prove_inde.
-        + rewrite add_nth_overflow in *; (try rewrite distribute_tup_length); auto.
-    Qed.
+
     
     apply inde_distribute_tup; prove_indeE.
     unfold es2gls, vs2es; rewrite Forall_forall; intros ? Ht;
