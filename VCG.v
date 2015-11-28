@@ -327,25 +327,26 @@ Lemma if_mono A B (d : {A} + {B}) (P P' Q Q' : assn) :
   (if d then P else Q) |= if d then P' else Q'.
 Proof. destruct d; eauto. Qed.
 
-Ltac subA_normalize_in H :=
+Ltac subA_normalize_in H tac :=
   let Hf := fresh in
   match goal with _ => idtac end;
-  match type of H with
+  match goal with [H : ?ty|- _] => idtac ty end;
+  lazymatch type of H with
     | (_ ** _) _ _ =>
       eapply scRw in H;
-        [ idtac | intros ? ? Hf; subA_normalize_in Hf; exact Hf ..]
+        [ idtac | intros ? ? Hf; subA_normalize_in Hf tac; exact Hf ..]
     | subA _ _ (_ ** _) _ _ =>
       apply subA_sconj in H; eapply scRw in H;
-        [ idtac | intros ? ? Hf; subA_normalize_in Hf; exact Hf .. ]
+        [ idtac | intros ? ? Hf; subA_normalize_in Hf tac; exact Hf .. ]
     | subA _ _ (_ //\\ _) _ _ =>
       apply subA_conj in H;  eapply conj_mono in H;
-        [ idtac | intros Hf; subA_normalize_in Hf; exact Hf .. ]
+        [ idtac | intros Hf; subA_normalize_in Hf tac; exact Hf .. ]
     | subA _ _ (_ \\// _) _ _ =>
       apply subA_disj in H;  eapply disj_mono in H;
-        [ idtac | intros Hf; subA_normalize_in Hf; exact Hf .. ]
+        [ idtac | intros Hf; subA_normalize_in Hf tac; exact Hf .. ]
     | subA _ _ (_ -->p (_, _)) _ _ => apply subA_pointto in H
     | subA _ _ !(_) _ _ => eapply subA_pure in H; eapply pure_mono in H;
-        [ idtac | intros Hf; subA_normalize_in Hf; exact Hf ]
+        [ idtac | intros Hf; subA_normalize_in Hf tac; exact Hf ]
     | subA _ _ (pure _) _ _ => apply subA_pure' in H
     | subA _ _ (_ === _) _ _ => apply subA_eeq in H
     | subA _ _ (_ ===l _) _ _ => apply subA_leeq in H
@@ -357,9 +358,11 @@ Ltac subA_normalize_in H :=
     | subA _ _ (is_array_p _ _ _ _ _) _ _ => apply subA_is_array_p in H; auto
     | subA _ _ (if _ then _ else _) _ _ =>
       apply subA_if_dec in H; eapply if_mono in H;
-      [ idtac | intros ? ? Hf; subA_normalize_in Hf; exact Hf ..]
-    | _ => simpl in H
+      [ idtac | intros ? ? Hf; subA_normalize_in Hf tac; exact Hf ..]
+    | _ => try tac H; simpl in H
   end.
+Tactic Notation "subA_normalize_in" hyp(H) "with" tactic(tac)  := subA_normalize_in H tac.
+Tactic Notation "subA_normalize_in" hyp(H) := subA_normalize_in H with (fun x => idtac).
 
 Example subA_test6 (E1 E2 : exp) (X : var) (E : exp) s h :
   subA X E (E1 === E2) s h -> (subE X E E1 === subE X E E2) s h.
