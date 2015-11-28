@@ -747,18 +747,84 @@ Proof.
     simpl; intros; auto.
   - intros bid; unfold bl_pres, bth_pre; rewrite MyVector.init_spec.
     Hint Constructors typing_exp typing_lexp.
-    repeat prove_low_assn; eauto. apply low_assn_conj_xs; rewrite init_length; intros;
-    rewrite ls_init_spec; destruct lt_dec; try repeat prove_low_assn.
+    repeat prove_low_assn; eauto.
+    apply low_assn_eqt. unfold Outs.
+    rewrite Forall_forall.
+    Lemma writeArray_vars grp dim pl x: 
+      pl = Gl \/ pl = Sh ->
+      In x (fst (fst (writeArray grp dim pl))) ->
+      exists st, (Evar (Var st)) = x /\ prefix "arr" st = true.
+    Proof.
+      unfold writeArray, names_of_arg, names_of_array, vars2es; simpl.
+      intros H; rewrite in_map_iff; intros [? [? H']]; rewrite In_ls_init in H';
+      destruct H' as [? [? H']]; subst; simpl.
+      eexists; split; [reflexivity|].
+      simpl; destruct (_ ++ _)%string; eauto.
+    Qed.
+    intros x H; apply writeArray_vars in H.
+    destruct H as [? [? H]]; subst.
+    constructor; unfold E.
+    unfold var_of_str. rewrite H.
+    repeat lazymatch goal with [|- context [if ?X then _ else _]] => destruct X; auto end.
+    jauto.
     constructor; eauto.
-    apply low_assn_skip_arr; eauto;
-    prove_low_assn.
+    apply low_assn_conj_xs; rewrite init_length; intros.
+    rewrite ls_init_spec; destruct lt_dec; try repeat prove_low_assn.
+    repeat constructor; eauto.
+    apply low_assn_conj_xs; rewrite init_length; intros.
+    rewrite ls_init_spec; destruct lt_dec; try repeat prove_low_assn.
+    apply low_assn_skip_arr_tup.
+    rewrite Forall_forall; intros ? He.
+    unfold es2gls, vs2es in He.
+    repeat (rewrite in_map_iff in He; destruct He as [? [? He]]; subst).
+    eauto.
   - intros.
     unfold bl_posts, bth_post.
     rewrite MyVector.init_spec.
     has_no_vars_assn; apply has_no_vars_conj_xs; rewrite init_length; intros; rewrite ls_init_spec;
     repeat has_no_vars_assn.
     apply has_no_vars_is_array_p; repeat constructor.
-    apply has_no_vars_skip_arr; repeat constructor.
+    Lemma has_no_vars_is_tup es1 es2 p :
+      List.Forall (fun e => has_no_vars_lE e) es1 ->
+      List.Forall (fun e => has_no_vars_E e) es2 ->
+      has_no_vars (is_tuple_p es1 es2 p).
+    Proof.
+      revert es2; induction es1; simpl; intros [| e es2 ]; simpl; intros; try apply has_no_vars_emp.
+      inverts H; inverts H0.
+      has_no_vars_assn.
+      apply has_no_vars_mp; eauto.
+      apply IHes1; eauto.
+    Qed.
+
+    Lemma has_no_vars_skip_arr_tup (Es : list loc_exp) (n skip : nat) (f : nat -> list Z) (i st : nat) dist p :
+      forall s, 
+        Forall (fun e => has_no_vars_lE e) Es ->
+        has_no_vars (nth i (distribute_tup skip Es n f dist s p) emp).
+    Proof.
+      induction n; intros s Hinde; simpl in *.
+      - simpl_nth; destruct (Compare_dec.leb _ _); prove_inde.
+      - assert ( dist s < skip \/ skip <= dist s)%nat as [|] by omega.
+        + assert (i < skip \/ skip <= i)%nat as [|] by omega.
+          * rewrite nth_add_nth in *; [|rewrite distribute_tup_length; auto..].
+            destruct (EqNat.beq_nat _ _); intuition.
+            has_no_vars_assn.
+            apply has_no_vars_is_tup; auto.
+            rewrite Forall_forall; unfold tarr_idx; intros ? Htmp; rewrite in_map_iff in Htmp;
+            destruct Htmp as [? [? ?]]; subst.
+            rewrite Forall_forall in Hinde; specialize (Hinde x0 H3); intros;
+            unfold has_no_vars in *; simpl; intros; split; eauto.
+            unfold vs2es; rewrite Forall_forall; unfold tarr_idx; intros ? Htmp; rewrite in_map_iff in Htmp.
+            destruct Htmp as [? [? ?]]; subst.
+            unfold has_no_vars_E; auto.
+            eauto.
+          * rewrite List.nth_overflow in *; [|rewrite add_nth_length, distribute_tup_length..]; 
+            prove_inde.
+        + rewrite add_nth_overflow in *; (try rewrite distribute_tup_length); auto.
+    Qed.
+    apply has_no_vars_skip_arr_tup; repeat constructor.
+    unfold es2gls, vs2es.
+    rewrite Forall_forall; rewrite map_map; intros ? H'; rewrite in_map_iff in H';
+    destruct H' as [? [? ?]]; subst; prove_inde.
   - simpl; tauto.
   - unfold E; eauto.
   - unfold E; eauto.
