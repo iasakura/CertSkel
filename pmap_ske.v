@@ -41,14 +41,123 @@ Ltac sep_rewrite_r lem :=
 Variable aenv : assn.
 
 Variable outDim : nat.
+Variable inDim : nat.
+
+Import ListNotations.
+
+(* free variable environment: (de-bruijn idx, the dimension * length of the array * elems of the array) *)
+Variable env : list (nat * nat).
+Variable env_den : list (nat * (nat -> list val)).
+Hypothesis env_env_den_same_len : length env = length env_den.
+Definition vars2es := List.map Evar.
+Definition grpOfInt n := ("In" ++ nat_to_string n)%string.
+
+Lemma subEs_ss2es (ss : list string) (x : var) (e : exp) :
+  (forall s, In s ss -> var_of_str x <> s) ->
+  subEs x e (ss2es ss) = ss2es ss.
+Proof.
+  induction ss; simpl; eauto.
+  intros H; destruct var_eq_dec; rewrite IHss; eauto.
+  subst x; simpl in H.
+  forwards: (>>H a ___); try congruence; eauto.
+Qed.  
+
+Fixpoint input_spec env env_den p :=
+  match env, env_den with
+  | (idx, d) :: env, (len, f) :: env_den =>
+    let (Len, Arrs) := names_of_arg (grpOfInt idx) d in
+    let Arrs' := es2gls (ss2es Arrs) in
+    !(Evar (Var Len) === Zn len) **
+     (is_tuple_array_p Arrs' len f 0 p) **
+     input_spec env env_den p
+  | _, _ => emp
+  end.
+
+Lemma subA_is_tup_arr var e Es l f s p :
+  subA var e (is_tuple_array_p Es l f s p) |=
+  is_tuple_array_p (sublEs var e Es) l f s p.
+Proof.
+  revert f; induction Es; simpl; intros; eauto.
+  subA_norm_in H.
+  sep_cancel; eauto.
+Qed.  
+
+Lemma In_ls_init (T : Type) s l f (x : T) : 
+  In x (ls_init s l f) <-> exists y, x = f y /\ s <= y < s + l.
+Proof.
+  revert s; induction l; intros s; simpl; eauto.
+  - split; [destruct 1| destruct 1; omega].
+  - split; intros H.
+    + destruct H as [|H]; [exists s; split; eauto; omega| ].
+      rewrite IHl in H; destruct H as [y [? ?]]; exists y; split; eauto; omega.
+    + destruct H as [y [Hh  Ht]].
+      assert (y = s \/ S s <= y < (S s) + l) as [|] by omega; [subst; left; eauto|].
+      right; rewrite IHl; exists y; split; eauto; omega.
+Qed.
+
+Lemma names_of_array_in grp n x :
+  In x (names_of_array grp n) -> prefix "arr" x = true.
+Proof.
+  unfold names_of_array.
+  rewrite In_ls_init; intros [? [? ?]]; subst; simpl.
+  destruct (_ ++ _)%string; eauto.
+Qed.
+
+Lemma subA_input_spec var e E Ed p :
+  prefix "arr" (var_of_str var) = false ->
+  prefix "sh" (var_of_str var) = false ->
+  subA var e (input_spec E Ed p) |=
+  input_spec E Ed p.
+Proof.
+  revert Ed; induction E as [|[? ?] ?]; intros Ed; simpl.
+  - intros ? ? ? H; eauto.
+  - intros H H' s h Hsat.
+    destruct Ed as [| [? ?] ?]; [apply Hsat|].
+    subA_norm_in Hsat. simpl in Hsat.
+    assert (var <> Var (name_of_len (grpOfInt n))).
+    { intros Hc; unfold name_of_len in Hc; subst; simpl in H'; congruence. }
+    destruct var_eq_dec; try congruence.
+    sep_cancel.
+    revert Hsat; apply scRw; intros ? ? Hsat'.
+    apply subA_is_tup_arr in Hsat'.
+    rewrite sublEs_es2gls, subEs_ss2es in Hsat'; eauto.
+    intros s1 Hs1 Hc; apply names_of_array_in in Hs1; subst; congruence.
+    apply IHE; eauto.
+Qed.
+
+Notation perm_n n := (1 / injZ (Zn n))%Qc.
+
+Definition P p : assn := input_spec env env_den p.
+
+Variable get : var -> (cmd * list exp).
+Variable get_den : val -> list val. 
+Hypothesis get_fv :
+  forall v, disjoint [I; ARR; BID] (writes_var (fst (get v))) .
+Hypothesis get_res_fv :
+  forall v u e, In e (snd (get v)) -> In u (fv_E e) -> prefix "x" (var_of_str u) = false.
+Hypothesis get_no_bar :
+  forall v, barriers (fst (get v)) = nil.
+Hypothesis get_fv_sh :
+  forall u v, List.In u (writes_var (fst (get v))) -> prefix "sh" (var_of_str u) = false.
+Hypothesis get_fv_arr :
+  forall u v, List.In u (writes_var (fst (get v))) -> prefix "arr" (var_of_str u) = false.
+
+Hypothesis get_denote : forall (var : var) nt (tid : Fin.t nt) (val : val),
+  CSL (fun _ => default nt) tid
+    (!(var === val) ** !(pure (0 <= val /\ val < Zn len))%Z ** P (perm_n nt_gr))
+    (fst (get var))
+    (!((snd (get var)) ==t (get_den val)) ** P (perm_n nt_gr)).
+
+Hypothesis get_den_length :
+  forall v, length (get_den v) = inDim.
+Hypothesis get_length :
+  forall v, length (snd (get v)) = inDim.
 
 (* code generators filling the function hole *)
 (* func : the argument variable ->
     the command for getting the result and the return expression  *)
-Variable func : var -> (cmd * list exp).
-Variable f_den : val -> list val.
-
-Import ListNotations.
+Variable func : list var -> (cmd * list exp).
+Variable f_den : list val -> list val.
 
 Hypothesis func_fv :
   forall v, disjoint [I; ARR; BID] (writes_var (fst (func v))) .
@@ -59,12 +168,14 @@ Hypothesis func_fv_sh :
 Hypothesis func_fv_arr :
   forall u v, List.In u (writes_var (fst (func v))) -> prefix "arr" (var_of_str u) = false.
 
+
+
 (* {v == val} func {ret == f_den val} *)
-Hypothesis func_denote : forall (var : var) nt (tid : Fin.t nt) (val : val),
+Hypothesis func_denote : forall (var : list var) nt (tid : Fin.t nt) (val : val),
   CSL (fun _ => default nt) tid
-    (!(var === val))
+    (!(vars2es var ==t (get_den val)) ** P (perm_n nt_gr))
     (fst (func var))
-    (!(eq_tup (snd (func var)) (f_den val))).
+    (!((snd (func var)) ==t (f_den (get_den val)))).
 
 Hypothesis fout_length :
   forall i, length (fout i) = outDim.
@@ -74,8 +185,6 @@ Hypothesis out_length :
   length out = outDim.
 Hypothesis func_length :
   forall v, length (snd (func v)) = outDim.
-
-Notation perm_n n := (1 / injZ (Zn n))%Qc.
 
 Section block_verification.
 Variable bid : Fin.t nblk.
@@ -103,22 +212,100 @@ Definition inv :=
     !(Len === Zn len) **
     !(I === Enum' (ix * nt_gr + gtid)) **
     !(Apure (ix * nt_gr + gtid < len + nt_gr)%nat) **
-    is_array_p (Gl arr) len f_ini 0 (perm_n nt_gr) **
-    nth gtid (distribute_tup nt_gr gl_out (ix * nt_gr) (fun i => (f_den (f_ini i)))%Z (nt_step nt_gr) 0 1%Qc) emp **
+    P (perm_n nt_gr) **
+    nth gtid (distribute_tup nt_gr gl_out (ix * nt_gr) (fun i => (f_den (get_den (Zn i))))%Z (nt_step nt_gr) 0 1%Qc) emp **
     nth gtid (distribute_tup nt_gr gl_out (len - (ix * nt_gr)) (fun i => fout i) (nt_step nt_gr) (ix * nt_gr) 1%Qc) emp.
 
 Notation GTID := (TID +C BID *C Zn ntrd).
 
-Definition xs := locals "x" outDim.
+Definition xs := locals "x" inDim.
 
 Definition catcmd := fold_right Cseq Cskip. 
+
+Fixpoint read_tup (vs : list var) (es : list exp) :=
+  match vs, es with
+  | v :: vs, e :: es => (v ::= e) ;; read_tup vs es
+  | _, _  => Cskip
+  end.
+
+Lemma pure_pure P stk : stk ||= !(!(P)) <=> !(P).
+Proof.
+  split; intros.
+  apply H. unfold_conn_all; simpl.
+  repeat split; destructs H; eauto.
+Qed.  
+    
+Lemma fv_subE' var v es :
+  (forall e, In e es -> ~In var (fv_E e)) ->
+  subEs var v es = es.
+Proof.
+  induction es; intros; simpl in *; eauto.
+  rewrite fv_subE; eauto; rewrite IHes; eauto.
+Qed.  
+
+Lemma read_tup_writes vs es :
+  length vs = length es ->
+  writes_var (read_tup vs es) = vs.
+Proof.
+  revert vs; induction es; intros [|v vs]; simpl in *; try congruence.
+  intros; f_equal; eauto.
+Qed.
+
+Lemma read_tup_correct nt i es vs vars :
+  (forall v e, In v vars -> In e es -> ~In v (fv_E e)) ->
+  disjoint_list vars ->
+  length vs = length es -> length vars = length es ->
+  CSL (fun _ => default nt) i
+    ( !(es ==t vs) )
+    (read_tup vars es)
+    ( !(vars2es vars ==t vs) ).
+Proof.
+  revert vs vars; induction es; simpl in *; intros [|v vs] [|var vars]; simpl in *; try congruence;
+  intros Hfv Hdisvars Hlen1 Hlen2.
+  apply rule_skip.
+  lets: (>> IHes vs vars ___); try omega; jauto.
+  eapply rule_seq.
+  - hoare_forward.
+    intros s h [v' H'].
+    subA_norm_in H'. simpl in H'.
+    sep_rewrite_in pure_star H'; sep_rewrite_in pure_pure H'; sep_normal_in H'.
+    rewrite fv_subE in H'; eauto.
+    rewrite fv_subE' in H'; [|eauto].
+    assert ((!(es ==t vs) ** !(var === v)) s h).
+    { sep_split_in H'.
+      sep_split.
+      destruct H'.
+      unfold_conn_all; auto.
+      split; destruct H'; eauto.
+      unfold_conn_all; simpl in *; congruence. }
+    exact H0.
+  - eapply Hforward.
+    Focus 2. { intros. sep_rewrite pure_star; sep_rewrite pure_pure. apply scC; exact H0. } Unfocus.
+    apply rule_frame; eauto.
+    prove_inde; rewrite Forall_forall, read_tup_writes; auto.
+    intros; apply indeE_fv; simpl; intros [|]; intros; subst; jauto.
+Qed.    
+
+Lemma prefix_cat s1 s2 : prefix s1 (s1 ++ s2) = true.
+Proof.
+  induction s1; destruct s2; simpl; auto;
+  rewrite IHs1; destruct Ascii.ascii_dec; congruence.
+Qed.  
+
+Lemma locals_pref grp d x : List.In x (locals grp d) -> prefix grp (var_of_str x) = true.
+Proof.
+  induction d; simpl; [destruct 1|].
+  intros [H|H]; subst; simpl; eauto.
+  rewrite prefix_cat; auto.
+Qed.
 
 Definition map_ker :=
   I ::= (TID +C BID *C Z.of_nat ntrd);;
   WhileI inv (I < Len) (
-    X ::= [Gl ARR +o I] ;;
-    (fst (func X)) ;;
-    catcmd (setOut I (snd (func X))) ;;
+    (fst (get I)) ;;
+    read_tup xs (snd (get I)) ;;
+    (fst (func xs)) ;;
+    catcmd (setOut I (snd (func xs))) ;;
     I ::= I +C Z.of_nat ntrd *C Z.of_nat nblk
   )%exp.
 
@@ -168,8 +355,6 @@ Proof.
   split; intros; sep_cancel; apply IHn; auto.
 Qed.
 
-
-
 Hint Unfold Len Outs writeArray name_of_len.
 
 Open Scope string.
@@ -187,26 +372,13 @@ Proof.
   apply IHE1; inversion H; subst; auto.
 Qed.
 
-Lemma In_ls_init (T : Type) s l f (x : T) : 
-  In x (ls_init s l f) <-> exists y, x = f y /\ s <= y < s + l.
-Proof.
-  revert s; induction l; intros s; simpl; eauto.
-  - split; [destruct 1| destruct 1; omega].
-  - split; intros H.
-    + destruct H as [|H]; [exists s; split; eauto; omega| ].
-      rewrite IHl in H; destruct H as [y [? ?]]; exists y; split; eauto; omega.
-    + destruct H as [y [Hh  Ht]].
-      assert (y = s \/ S s <= y < (S s) + l) as [|] by omega; [subst; left; eauto|].
-      right; rewrite IHl; exists y; split; eauto; omega.
-Qed.
-
 Lemma outs_inde vs :
   List.Forall (fun e => prefix "arr" (var_of_str e) = false) vs ->
   List.Forall (fun e => forall v, List.In v vs -> indeE e v) Outs.
 Proof.
   rewrite !Forall_forall.
   unfold Outs, writeArray, names_of_arg, names_of_array; simpl.
-  unfold vars2es; intros H x Hx.
+  unfold ss2es; intros H x Hx.
   apply in_map_iff in Hx as [? [? Hx]]; subst.
   apply In_ls_init in Hx as [? [? ?]]; subst.
   intros.
@@ -217,7 +389,7 @@ Qed.
 
 Lemma outs_length : length Outs = outDim.
 Proof.
-  unfold Outs, writeArray, names_of_arg, names_of_arg, vars2es, names_of_array; simpl.
+  unfold Outs, writeArray, names_of_arg, names_of_arg, ss2es, names_of_array; simpl.
   rewrite map_length, init_length; auto.
 Qed.
 
@@ -278,33 +450,36 @@ Lemma map_correct :
   (!(ARR === arr) ** 
    !(Outs ==t out) **
    !(Len === Zn len) **
-   is_array_p (Gl arr) len f_ini 0 (perm_n nt_gr) **
+   (P (perm_n nt_gr)) **
    List.nth (nf tid + nf bid * ntrd) (distribute_tup nt_gr gl_out len fout (nt_step nt_gr) 0 1%Qc) emp **
    !(BID === zf bid) ** !(TID === zf tid))
 
   map_ker
 
   ( is_array_p (Gl arr) len f_ini 0 (perm_n nt_gr) **
-    List.nth (nf tid + nf bid * ntrd) (distribute_tup nt_gr gl_out len (fun v=>(f_den (f_ini v)))%Z (nt_step nt_gr) 0 1%Qc) emp).
+    List.nth gtid (distribute_tup nt_gr gl_out len (fun v=>(f_den (get_den (Zn v))))%Z (nt_step nt_gr) 0 1%Qc) emp).
 Proof.
   unfold map_ker.
   eapply rule_seq.
   { hoare_forward; intros ? ? H'.
-    destruct H' as [v H'].
-    subA_norm_in H'. repeat subE_simpl in *. simpl in H'. autounfold in H'. simpl in H'.
+    destruct H' as [v H']; unfold P in H'.
+    subA_normalize_in H' with ( fun H => first
+      [ apply subA_distribute_tup in H | apply subA_eq_tup in H
+      | apply subA_is_tuple_p in H | apply subA_input_spec in H; eauto ] ).
+    repeat subE_simpl in *. simpl in H'. autounfold in H'. simpl in H'.
     rewrite subE_vars2es in H'; auto.
     exact H'. }
   hoare_forward.
-  { unfold inv; eapply Hbackward.
+  { unfold inv, P; eapply Hbackward.
     Focus 2.
     { intros s h H; apply ex_lift_l_in in H as [x H]; sep_split_in H.
       change_in H.
       { unfold_pures.
         sep_rewrite_in skip_arr_tup_unfold' H; [|try first [omega | eauto]..]. 
         2: nia.
-        sep_rewrite_in (@is_array_unfold (Gl arr) (x * nt_gr + gtid)) H; [|try first [omega | eauto]..].
-        2: nia.
-        rewrite <-plus_n_O in H.
+        (* sep_rewrite_in (@is_array_unfold (Gl arr) (x * nt_gr + gtid)) H; [|try first [omega | eauto]..]. *)
+        (* 2: nia. *)
+        (* rewrite <-plus_n_O in H. *)
       apply H. } 
       sep_combine_in H. ex_intro x H. simpl in H. exact H. } Unfocus.
     
@@ -326,7 +501,7 @@ Proof.
         { assert (((Zn x * (Zn nblk * Zn ntrd) + (zf tid + zf bid * Zn ntrd))%Z === I)%exp
                       s (emp_ph loc)).
           { unfold_pures; unfold_conn; simpl; nia. }
-          sep_rewrite_in (mps_eq1') H; [|exact H0].
+          (* sep_rewrite_in (mps_eq1') H; [|exact H0]. *)
           Lemma mps_eq1_tup' (Es : list loc_exp) (E1 E1' : exp) (E2 : list exp) (p : Qc) (s : stack) :
             (E1 === E1') s (emp_ph loc) ->
             s ||= is_tuple_p (tarr_idx Es E1) E2 p <=>
@@ -338,46 +513,184 @@ Proof.
           Qed.
           sep_rewrite_in (mps_eq1_tup') H; [|exact H0]. 
           sep_combine_in H; exact H. }
-        exact H. } Unfocus.
-      hoare_forward; try (apply inde_distribute; auto; repeat (constructor; prove_indeE)); simpl.
-      apply inde_eq_tup.
-      apply outs_inde; rewrite Forall_forall; simpl; intros ? [? | ?]; subst; simpl; tauto.
-      apply inde_distribute_tup.
-      apply inde_vals_l.
-      apply inde_is_tup.
-      
-      Lemma inde_tarr_idx es ix vs :
-        Forall (fun e : loc_exp => forall v, In v vs -> indelE e v) es ->
-        (forall v, In v vs -> indeE ix v) ->
-        Forall (fun e : loc_exp => forall v : var, In v vs -> indelE e v)
-               (tarr_idx es ix).
-      Proof.
-        unfold tarr_idx; rewrite !Forall_forall.
-        intros Hes Hix x Hx.
-        apply in_map_iff in Hx as [? [? Hx]]; subst.
+        evar (P : assn).
+        assert (((input_spec env env_den (1 / injZ (Zn nblk * Zn ntrd)) **
+                 !(pure (0 <= (Zn x * (Zn nblk * Zn ntrd) + (zf tid + zf bid * Zn ntrd)) < Zn len))%Z **
+                 !(I === (Zn x * (Zn nblk * Zn ntrd) + (zf tid + zf bid * Zn ntrd))%Z)) ** P) s h).
+        { sep_normal; repeat sep_cancel.
+          sep_split; [sep_split_in H1; unfold_pures; unfold_conn; simpl in *; nia|].
+          unfold P; eauto. }
+        unfold P in *; apply H0. } Unfocus.
+      apply rule_frame.
+      { eapply Hbackward; [apply get_denote|].
         intros.
-        forwards: (>> Hix H).
-        forwards: (>>Hes Hx H).
-        prove_indeE; rewrite <-H0, <-H1; auto.
+        sep_split_in H; sep_split; eauto.
+        unfold_pures; unfold_conn; simpl in *.
+        autorewrite with sep; auto. }
+      destructs (get_fv I).
+      repeat prove_inde;
+      try (first [apply disjoint_indeE | apply disjoint_indelE | apply disjoint_indeB]; simpl;
+           repeat split; eauto );
+      try (intros Hc; apply get_fv_sh in Hc; simpl in Hc; congruence);
+      first [apply inde_distribute_tup | apply inde_is_tup |
+             apply inde_eq_tup ]; apply Forall_forall;
+      intros; first [apply indeE_fv|apply indelE_fv]; intros Hc;
+      lazymatch goal with
+        | [H : In _ (writes_var (fst (get _))) |- _] => lets: (>>get_fv_sh H); lets: (>>get_fv_arr H)
+      end;  unfold tarr_idx, es2gls, vs2es in *.
+      
+      Lemma outs_prefix x v :
+        In x Outs -> In v (fv_E x) -> prefix "arr" (var_of_str v) = true.
+      Proof.
+        unfold Outs, writeArray, names_of_arg, ss2es, names_of_array; simpl.
+        intros H; apply in_map_iff in H as [? [? H]]; subst;
+        apply In_ls_init in H as [? [? H]]; subst; simpl.
+        intros [?|[]]; subst; simpl; auto.
       Qed.
 
-      apply inde_tarr_idx.
-      apply inde_vals_l.
-      simpl; destruct 1; try tauto.
-      subst; prove_inde.
-      apply inde_vals.
-      apply inde_distribute_tup.
-      apply inde_vals_l.
-      intros ? ? H; apply H. }
-    
+      { eapply outs_prefix in H3; eauto; try congruence. 
+        congruence. }
+      { repeat apply in_map_iff in H3 as [? [? H3]]; subst; simpl in Hc; 
+        destruct Hc. }
+      { repeat apply in_map_iff in H3 as [? [? H3]]; subst;
+        simpl in Hc; destruct Hc as [|[]]; subst; eauto. }
+      { repeat apply in_map_iff in H3 as [? [? H3]]; subst; simpl in Hc; destruct Hc. }
+      { repeat apply in_map_iff in H3 as [? [? H3]]; subst; simpl in Hc; destruct Hc. } }
+      
+      (* hoare_forward; try (apply inde_distribute; auto; repeat (constructor; prove_indeE)); simpl. *)
+      (* apply inde_eq_tup. *)
+      (* apply outs_inde; rewrite Forall_forall; simpl; intros ? [? | ?]; subst; simpl; tauto. *)
+      (* apply inde_distribute_tup. *)
+      (* apply inde_vals_l. *)
+      (* apply inde_is_tup. *)
+      
+      (* Lemma inde_tarr_idx es ix vs : *)
+      (*   Forall (fun e : loc_exp => forall v, In v vs -> indelE e v) es -> *)
+      (*   (forall v, In v vs -> indeE ix v) -> *)
+      (*   Forall (fun e : loc_exp => forall v : var, In v vs -> indelE e v) *)
+      (*          (tarr_idx es ix). *)
+      (* Proof. *)
+      (*   unfold tarr_idx; rewrite !Forall_forall. *)
+      (*   intros Hes Hix x Hx. *)
+      (*   apply in_map_iff in Hx as [? [? Hx]]; subst. *)
+      (*   intros. *)
+      (*   forwards: (>> Hix H). *)
+      (*   forwards: (>>Hes Hx H). *)
+      (*   prove_indeE; rewrite <-H0, <-H1; auto. *)
+      (* Qed. *)
+
+      (* apply inde_tarr_idx. *)
+      (* apply inde_vals_l. *)
+      (* simpl; destruct 1; try tauto. *)
+      (* subst; prove_inde. *)
+      (* apply inde_vals. *)
+      (* apply inde_distribute_tup. *)
+      (* apply inde_vals_l. *)
+      (* intros ? ? H; apply H. } *)
+
+    eapply rule_seq.
+    { eapply Hbackward; [|intros ? ? H; sep_normal_in H; eauto].
+      apply rule_frame.
+      apply read_tup_correct.
+      intros; intros Hc.
+      eapply get_res_fv in Hc; apply locals_pref in H; eauto; congruence.
+      Lemma locals_disjoint_ls grp n : disjoint_list (locals grp n).
+      Proof.
+        induction n; simpl; auto; split; eauto; intros Hc.
+      Admitted.
+      Lemma locals_length grp n : length (locals grp n) = n.
+      Proof. induction n; simpl; auto; rewrite IHn; auto. Qed.
+      apply locals_disjoint_ls.
+      rewrite get_den_length, get_length; auto.
+      unfold xs; rewrite locals_length, get_length; auto.
+      rewrite read_tup_writes; [|unfold xs; rewrite locals_length, get_length; auto].
+      unfold xs.
+      lets Hpref: (>>locals_pref "x" inDim).
+      unfold P.
+
+      Lemma inde_is_tup_arr Es l f s p vs :
+        (forall e v, In e Es -> In v vs -> indelE e v) ->
+        inde (is_tuple_array_p Es l f s p) vs.
+      Proof.
+        revert f; induction Es; simpl; intros; eauto.
+        prove_inde.
+        prove_inde.
+        rewrite Forall_forall; intros; apply H; eauto.
+        eauto.
+      Qed.  
+
+      Lemma inde_input_spec E Ed p vs :
+        (forall v, In v vs -> prefix "arr" (var_of_str v) = false) ->
+        (forall v, In v vs -> prefix "sh" (var_of_str v) = false) ->
+        inde (input_spec E Ed p) vs.
+      Proof.
+        revert Ed; induction E as [|[? ?] ?]; intros Ed; simpl.
+        - intros; prove_inde.
+        - intros.
+          destruct Ed as [| [? ?] ?]; [prove_inde|].
+          prove_inde; try (rewrite Forall_forall; intros; apply indeE_fv; simpl; eauto).
+          intros Hc; destruct Hc as [|[]]; subst.
+          apply H0 in H1; simpl in H1; congruence.
+          apply inde_is_tup_arr; intros.
+          apply indelE_fv; intros Hc; simpl in Hc.
+          unfold es2gls, ss2es in H1; repeat (apply in_map_iff in H1 as [? [? H1]]; subst).
+          apply names_of_array_in in H1; simpl in Hc.
+          destruct Hc as [|[]]; subst; eauto; apply H in H2; simpl in H2; congruence.
+          apply IHE; eauto.
+      Qed.
+
+      repeat prove_inde;
+      try (first [apply disjoint_indeE | apply disjoint_indelE | apply disjoint_indeB]; simpl;
+           repeat split; eauto );
+      try (intros Hc; apply Hpref in Hc; simpl in Hc; congruence);
+      first [apply inde_distribute_tup | apply inde_is_tup |
+             apply inde_eq_tup | apply inde_input_spec]; try (apply Forall_forall;
+      intros; first [apply indeE_fv|apply indelE_fv]; intros Hc;
+      lazymatch goal with
+        | [H : In _ (locals _ _) |- _] => lets: (>>Hpref H)
+      end;  unfold tarr_idx, es2gls, vs2es in *).
+      
+      Lemma prefix_ex s1 s2 : prefix s1 s2 = true <-> exists s, s2 = s1 ++ s.
+      Proof.
+        revert s1; induction s2; simpl; split; intros.
+        - destruct s1; try congruence.
+          exists ""; reflexivity.
+        - destruct H as [? ?].
+          destruct s1; inversion H; eauto.
+        - destruct s1.
+          + exists (String a s2); reflexivity.
+          + destruct Ascii.ascii_dec; try congruence.
+            apply IHs2 in H as [? ?]; subst.
+            exists x; reflexivity.
+        - destruct s1; auto.
+          destruct Ascii.ascii_dec.
+          + apply IHs2; destruct H as [s ?]; exists s.
+            inversion H; eauto.
+          + destruct H as [s ?].
+            cutrewrite (String a0 s1 ++ s = String a0 (s1 ++ s)) in H; [|auto].
+            inversion H; congruence.
+      Qed.
+      { intros; lets: (>>Hpref ___); eauto; apply prefix_ex in H0 as [? ?]; rewrite H0; simpl; auto. }
+      { intros; lets: (>>Hpref ___); eauto; apply prefix_ex in H0 as [? ?]; rewrite H0; simpl; auto. }
+      { eapply outs_prefix in H; eauto.
+        apply prefix_ex in H1 as [? ?]; rewrite H1 in H; simpl in H; congruence. }
+      { repeat apply in_map_iff in H as [? [? H]]; subst; simpl in Hc; destruct Hc. }
+      { repeat apply in_map_iff in H as [? [? H]]; subst; simpl in Hc.
+        destruct Hc as [Hc|[]]; subst; simpl in H1; congruence. }
+      { repeat apply in_map_iff in H as [? [? H]]; subst; simpl in Hc; destruct Hc. }
+      { repeat apply in_map_iff in H as [? [? H]]; subst; simpl in Hc; destruct Hc. } }
+      
     eapply rule_seq.
     { (* executute the passed function *)
       eapply Hbackward.
-      Focus 2.
-      { intros s h H.
-        sep_normal_in H.
-        sep_lift_in H 1.
-        exact H. } Unfocus.
+      Focus 2. { 
+        intros s h H.
+        evar (Q : assn);
+        assert (((!(vars2es xs ==t get_den
+                    (Zn x * (Zn nblk * Zn ntrd) + (zf tid + zf bid * Zn ntrd))%Z) **
+                 P (perm_n nt_gr)) **Q) s h).
+        { sep_normal; repeat sep_cancel; unfold Q; apply H. }
+        unfold Q in *; clear Q; exact H0. } Unfocus.
       apply rule_frame.
       { apply func_denote. }
       specialize (func_fv X); simpl in func_fv.

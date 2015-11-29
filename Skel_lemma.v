@@ -28,7 +28,7 @@ Fixpoint fv_B (e : bexp) :=
   end.
 
 Lemma fv_subE var v e :
-  ~List.In var (fv_E e) -> subE var (Enum v) e = e.
+  ~List.In var (fv_E e) -> subE var v e = e.
 Proof.
   simpl in *; intros; induction e; simpl in *; jauto;
   try rewrite IHe1; try rewrite IHe2; try rewrite IHe; try rewrite in_app_iff in *; eauto.
@@ -394,16 +394,16 @@ Proof.
     intros; sep_cancel.
 Qed.
 
-Definition vars2es := List.map (fun x => Evar (Var x)).
+Definition ss2es := List.map (fun x => Evar (Var x)).
 
 Definition writeArray grp d pl : (list exp * exp * (exp -> list exp -> list cmd))  :=
   let (l, grp) := names_of_arg grp d in
-  (vars2es grp, Evar (Var l), gen_write pl (map (fun x => Evar (Var x)) grp)).
+  (ss2es grp, Evar (Var l), gen_write pl (map (fun x => Evar (Var x)) grp)).
 
 Fixpoint locals base n :=
   match n with
   | S n => (Var (base ++ nat_to_string n)) :: locals base n
-  | 0 => (Var (base ++ nat_to_string n)) :: nil
+  | 0 => nil
   end%list.
 
 Definition sublEs x e es := List.map (fun e' => sublE x e e') es.
@@ -500,7 +500,7 @@ Definition var_of_str v : string :=
 Notation string_eq s1 s2 := (if string_dec s1 s2 then true else false).
 
 Lemma subE_vars2es x e vs :
-  List.Forall (fun v => string_eq v (var_of_str x) = false) vs -> subEs x e (vars2es vs) = vars2es vs.
+  List.Forall (fun v => string_eq v (var_of_str x) = false) vs -> subEs x e (ss2es vs) = ss2es vs.
 Proof.  
   induction vs; simpl; eauto; intros.
   inversion H; subst.
