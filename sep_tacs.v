@@ -1,6 +1,6 @@
 Require Import SetoidClass.
 
-Require Import Lang PHeap MyList CSL assertions assertion_lemmas VCG Qcanon.
+Require Import Lang PHeap MyList CSL assertions assertion_lemmas VCG Qcanon array_dist.
 
 Instance app_proper (s : stack) (h : pheap) : Proper (equiv_sep s ==> iff) (fun P => P s h).
 Proof.
@@ -111,3 +111,18 @@ Ltac subst_expr E :=
     | [H : (Enum E === _) _ (emp_ph loc) |- _] => try (unfold_conn_in H; simpl in H; rewrite H in *; clear H)
     | [H : pure (E = _) _ (emp_ph loc) |- _] => try (unfold_conn_in H; rewrite H in *; clear H)
 end.
+
+Ltac sep_rewrite_r lem :=
+  match goal with
+    | [|- ?X _ _] => pattern X
+  end; erewrite <-lem; cbv beta. 
+
+
+Lemma mps_eq1' (E : loc_exp) (E1 E1' E2 : exp) (p : Qc) (s : stack) :
+  (E1 === E1') s (emp_ph loc) ->
+  s ||= (E +o E1) -->p (p, E2) <=> (E +o E1') -->p (p, E2).
+Proof.
+  unfold_conn; simpl; split; intros; destruct (ledenot E _);
+  try rewrite H in *; eauto.
+Qed.
+

@@ -1383,3 +1383,21 @@ Proof.
 Qed.
 
 End read_only_lemma.
+Section tid_lemma.
+Close Scope Qc.
+Close Scope Q.
+Lemma id_lt_nt_gr i j n m : (i < n -> j < m -> i + j * n < m * n)%nat.
+Proof.
+  clears_all.
+  intros.
+  assert (i + j * n < n + j * n) by omega.
+  assert (n + j * n <= m * n) by nia.
+  omega.
+Qed.
+
+Lemma nf_lt : forall n (i : Fin.t n), nf i < n.
+Proof.
+  clears_all; introv; destruct Fin.to_nat; simpl; omega.
+Qed.
+End tid_lemma.
+Hint Resolve id_lt_nt_gr nf_lt Nat.neq_mul_0.

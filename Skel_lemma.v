@@ -1,6 +1,9 @@
 Require Import GPUCSL.
 Require Import scan_lib.
 Require Import LibTactics.
+Require Import Psatz.
+
+Notation perm_n n := (1 / injZ (Zn n))%Qc.
 
 Fixpoint fv_E (e : exp) :=
   match e with
@@ -707,4 +710,702 @@ Proof.
     rewrite IHn; [reflexivity|..].
     auto.
     intros; cutrewrite (S s + i = s + S i); [|ring]; rewrite H; omega.
+Qed.
+
+Definition catcmd := fold_right Cseq Cskip. 
+
+Definition vars2es := List.map Evar.
+
+Fixpoint read_tup (vs : list var) (es : list exp) :=
+  match vs, es with
+  | v :: vs, e :: es => (v ::= e) ;; read_tup vs es
+  | _, _  => Cskip
+  end.
+
+Lemma pure_pure P stk : stk ||= !(!(P)) <=> !(P).
+Proof.
+  split; intros.
+  apply H. unfold_conn_all; simpl.
+  repeat split; destructs H; eauto.
+Qed.  
+    
+Lemma fv_subE' var v es :
+  (forall e, In e es -> ~In var (fv_E e)) ->
+  subEs var v es = es.
+Proof.
+  induction es; intros; simpl in *; eauto.
+  rewrite fv_subE; eauto; rewrite IHes; eauto.
+Qed.  
+
+Lemma read_tup_writes vs es :
+  length vs = length es ->
+  writes_var (read_tup vs es) = vs.
+Proof.
+  revert vs; induction es; intros [|v vs]; simpl in *; try congruence.
+  intros; f_equal; eauto.
+Qed.
+
+Lemma read_tup_correct nt i es vs vars :
+  (forall v e, In v vars -> In e es -> ~In v (fv_E e)) ->
+  disjoint_list vars ->
+  length vs = length es -> length vars = length es ->
+  CSL (fun _ => default nt) i
+    ( !(es ==t vs) )
+    (read_tup vars es)
+    ( !(vars2es vars ==t vs) ).
+Proof.
+  revert vs vars; induction es; simpl in *; intros [|v vs] [|var vars]; simpl in *; try congruence;
+  intros Hfv Hdisvars Hlen1 Hlen2.
+  apply rule_skip.
+  lets: (>> IHes vs vars ___); try omega; jauto.
+  eapply rule_seq.
+  - hoare_forward.
+    intros s h [v' H'].
+    subA_norm_in H'. simpl in H'.
+    sep_rewrite_in pure_star H'; sep_rewrite_in pure_pure H'; sep_normal_in H'.
+    rewrite fv_subE in H'; eauto.
+    rewrite fv_subE' in H'; [|eauto].
+    assert ((!(es ==t vs) ** !(var === v)) s h).
+    { sep_split_in H'.
+      sep_split.
+      destruct H'.
+      unfold_conn_all; auto.
+      split; destruct H'; eauto.
+      unfold_conn_all; simpl in *; congruence. }
+    exact H0.
+  - eapply Hforward.
+    Focus 2. { intros. sep_rewrite pure_star; sep_rewrite pure_pure. apply scC; exact H0. } Unfocus.
+    apply rule_frame; eauto.
+    prove_inde; rewrite Forall_forall, read_tup_writes; auto.
+    intros; apply indeE_fv; simpl; intros [|]; intros; subst; jauto.
+Qed.    
+
+Lemma subEs_ss2es (ss : list string) (x : var) (e : exp) :
+  (forall s, In s ss -> var_of_str x <> s) ->
+  subEs x e (ss2es ss) = ss2es ss.
+Proof.
+  induction ss; simpl; eauto.
+  intros H; destruct var_eq_dec; rewrite IHss; eauto.
+  subst x; simpl in H.
+  forwards: (>>H a ___); try congruence; eauto.
+Qed.  
+
+Definition grpOfInt n := ("In" ++ nat_to_string n)%string.
+
+Fixpoint input_spec env env_den p :=
+  match env, env_den with
+  | (idx, d) :: env, (addrs, len, f) :: env_den =>
+    let (Len, Arrs) := names_of_arg (grpOfInt idx) d in
+    let Arrs' := (ss2es Arrs) in
+    !(Evar (Var Len) === Zn len) **
+    !(Arrs' ==t addrs) **
+     (is_tuple_array_p (es2gls (vs2es addrs)) len f 0 p) **
+     input_spec env env_den p
+  | _, _ => emp
+  end.
+
+Fixpoint input_spec' env_den p :=
+  match env_den with
+  | (addrs, len, f) :: env_den =>
+     (is_tuple_array_p (es2gls (vs2es addrs)) len f 0 p) **
+     input_spec' env_den p
+  | _ => emp
+  end.
+
+Lemma input_spec_forget E E_den p :
+  length E = length E_den ->
+  input_spec E E_den p |= input_spec' E_den p.
+Proof.
+  revert E_den; induction E as [|[? ?] ?]; destruct E_den as [|((? & ?) & ?) ?]; simpl; intros; try omega; eauto.
+  sep_split_in H0; sep_cancel; eauto.
+Qed.  
+
+Lemma subA_is_tup_arr var e Es l f s p :
+  subA var e (is_tuple_array_p Es l f s p) |=
+  is_tuple_array_p (sublEs var e Es) l f s p.
+Proof.
+  revert f; induction Es; simpl; intros; eauto.
+  subA_norm_in H.
+  sep_cancel; eauto.
+Qed.  
+
+Lemma In_ls_init (T : Type) s l f (x : T) : 
+  In x (ls_init s l f) <-> exists y, x = f y /\ s <= y < s + l.
+Proof.
+  revert s; induction l; intros s; simpl; eauto.
+  - split; [destruct 1| destruct 1; omega].
+  - split; intros H.
+    + destruct H as [|H]; [exists s; split; eauto; omega| ].
+      rewrite IHl in H; destruct H as [y [? ?]]; exists y; split; eauto; omega.
+    + destruct H as [y [Hh  Ht]].
+      assert (y = s \/ S s <= y < (S s) + l) as [|] by omega; [subst; left; eauto|].
+      right; rewrite IHl; exists y; split; eauto; omega.
+Qed.
+
+Lemma names_of_array_in grp n x :
+  In x (names_of_array grp n) -> prefix "arr" x = true.
+Proof.
+  unfold names_of_array.
+  rewrite In_ls_init; intros [? [? ?]]; subst; simpl.
+  destruct (_ ++ _)%string; eauto.
+Qed.
+
+Lemma subA_input_spec var e E Ed p :
+  prefix "arr" (var_of_str var) = false ->
+  prefix "sh" (var_of_str var) = false ->
+  subA var e (input_spec E Ed p) |=
+  input_spec E Ed p.
+Proof.
+  revert Ed; induction E as [|[? ?] ?]; intros Ed; simpl.
+  - intros ? ? ? H; eauto.
+  - intros H H' s h Hsat.
+    destruct Ed as [| [[? ?] ?] ?]; [apply Hsat|].
+    subA_norm_in Hsat. simpl in Hsat.
+    assert (var <> Var (name_of_len (grpOfInt n))).
+    { intros Hc; unfold name_of_len in Hc; subst; simpl in H'; congruence. }
+    destruct var_eq_dec; try congruence.
+    sep_cancel.
+    revert Hsat; apply scRw; intros ? ? Hsat'.
+    rewrite subEs_ss2es in Hsat'; eauto.
+    intros s1 Hs1 Hc; apply names_of_array_in in Hs1; subst; congruence.
+    revert Hsat'; apply scRw; intros ? ? Hsat'.
+    apply subA_is_tup_arr in Hsat'.
+    rewrite sublEs_es2gls, subEs_vs2es in Hsat'; eauto.
+    apply IHE; eauto.
+Qed.
+
+Lemma inde_eq_tup E1 E2 vs:
+  List.Forall (fun e => forall v, List.In v vs -> indeE e v) E1 -> inde (E1 ==t E2) vs.
+Proof.
+  revert E2; induction E1; intros [|e e2]; simpl; intros; prove_inde.
+  inversion H; subst.
+  rewrite Forall_forall; auto.
+  inversion H; subst.
+  rewrite Forall_forall; auto.
+  apply IHE1; inversion H; subst; auto.
+Qed.
+
+Lemma outs_prefix x v grp d pl :
+  In x (fst (fst (writeArray grp d pl))) -> In v (fv_E x) -> prefix "arr" (var_of_str v) = true.
+Proof.
+  unfold writeArray, names_of_arg, ss2es, names_of_array; simpl.
+  intros H; apply in_map_iff in H as [? [? H]]; subst;
+  apply In_ls_init in H as [? [? H]]; subst; simpl.
+  intros [?|[]]; subst; simpl; auto.
+  destruct (_ ++ _)%string; auto.
+Qed.
+
+Lemma outs_length grp d pl : length (fst (fst (writeArray grp d pl))) = d.
+Proof.
+  unfold writeArray, names_of_arg, names_of_arg, ss2es, names_of_array; simpl.
+  rewrite map_length, init_length; auto.
+Qed.
+
+(* Lemma outs_inde vs : *)
+(*   List.Forall (fun e => prefix "arr" (var_of_str e) = false) vs -> *)
+(*   List.Forall (fun e => forall v, List.In v vs -> indeE e v) . *)
+(* Proof. *)
+(*   rewrite !Forall_forall. *)
+(*   unfold Outs, writeArray, names_of_arg, names_of_array; simpl. *)
+(*   unfold ss2es; intros H x Hx. *)
+(*   apply in_map_iff in Hx as [? [? Hx]]; subst. *)
+(*   apply In_ls_init in Hx as [? [? ?]]; subst. *)
+(*   intros. *)
+(*   unfold indeE; intros; simpl; unfold var_upd. *)
+(*   destruct var_eq_dec; auto. *)
+(*   subst; apply H in H0; cbv in H0; congruence. *)
+(* Qed. *)
+
+
+Lemma inde_is_tup es1 es2 vs p :
+  List.Forall (fun e => forall v, List.In v vs -> indelE e v) es1 ->
+  List.Forall (fun e => forall v, List.In v vs -> indeE e v) es2 ->
+  inde (is_tuple_p es1 es2 p) vs.
+Proof.
+  revert es2; induction es1; simpl; intros [| e es2 ]; simpl; intros; prove_inde.
+  inversion H; subst; rewrite Forall_forall; auto.
+  inversion H0; subst; rewrite Forall_forall; auto.
+  apply IHes1; inverts H; inverts H0; auto.
+Qed.
+
+Lemma inde_distribute_tup nt es l f dist (i : nat) p vs : forall s,
+    List.Forall (fun e => forall v, List.In v vs -> indelE e v) es ->
+      inde (List.nth i (distribute_tup nt es l f dist s p) emp) vs.
+Proof.
+  induction l; [unfold subA'|]; intros s Hinde; simpl in *.
+  - simpl_nth; destruct (Compare_dec.leb _ _); prove_inde.
+  - assert (dist s < nt \/ nt <= dist s)%nat as [|] by omega.
+    + assert (i < nt \/ nt <= i)%nat as [|] by omega.
+      * rewrite nth_add_nth in *; [|rewrite distribute_tup_length; auto..].
+        destruct (EqNat.beq_nat _ _); intuition.
+        prove_inde.
+        apply inde_is_tup; auto.
+        rewrite Forall_forall; unfold tarr_idx; intros ? Htmp; rewrite in_map_iff in Htmp;
+        destruct Htmp as [? [? ?]]; subst.
+        rewrite Forall_forall in Hinde. specialize (Hinde x0 H2); intros;
+        unfold indelE in *; simpl; intros; rewrite <-Hinde; auto.
+        rewrite Forall_forall; intros ? Ht; unfold vs2es in Ht; rewrite in_map_iff in Ht.
+        destruct Ht as [? [? ?]]; intros; subst.
+        prove_inde.
+        apply IHl; eauto.
+      * rewrite List.nth_overflow in *; [|rewrite add_nth_length, distribute_tup_length..]; 
+        prove_inde.
+    + rewrite add_nth_overflow in *; (try rewrite distribute_tup_length); auto.
+Qed.
+
+Lemma inde_vals_l vs vals :
+  List.Forall (fun e => forall v, List.In v vs -> indelE e v) (es2gls (vs2es vals)).
+Proof.
+  unfold es2gls, vs2es; rewrite map_map, Forall_forall.
+  intros x Hx; rewrite in_map_iff in Hx; destruct Hx as [? [? Hx]]; subst.
+  intros; auto.
+Qed.
+
+Lemma inde_vals vs vals :
+  List.Forall (fun e => forall v, List.In v vs -> indeE e v) (vs2es vals).
+Proof.
+  unfold vs2es; rewrite Forall_forall.
+  intros x Hx; rewrite in_map_iff in Hx; destruct Hx as [? [? Hx]]; subst.
+  intros; auto.
+Qed.
+
+Lemma prefix_cat s1 s2 : prefix s1 (s1 ++ s2) = true.
+Proof.
+  induction s1; destruct s2; simpl; auto;
+  rewrite IHs1; destruct Ascii.ascii_dec; congruence.
+Qed.  
+
+Lemma locals_pref grp d x : List.In x (locals grp d) -> prefix grp (var_of_str x) = true.
+Proof.
+  induction d; simpl; [destruct 1|].
+  intros [H|H]; subst; simpl; eauto.
+  rewrite prefix_cat; auto.
+Qed.
+
+Lemma mps_eq1_tup' (Es : list loc_exp) (E1 E1' : exp) (E2 : list exp) (p : Qc) (s : stack) :
+  (E1 === E1') s (emp_ph loc) ->
+  s ||= is_tuple_p (tarr_idx Es E1) E2 p <=>
+        is_tuple_p (tarr_idx Es E1') E2 p.
+Proof.
+  revert E2; induction Es; intros [|e E2] Heq; simpl; try reflexivity.
+  lets H: (>> mps_eq1' Heq); rewrite H.
+  rewrite IHEs; eauto; reflexivity.
+Qed.
+
+Section String_lemma.
+Open Scope string.
+Lemma string_inj2 s1 s2 s1' s2' : s1 = s1' -> s1 ++ s2 = s1' ++ s2' -> s2 = s2'.
+Proof.
+  revert s1'; induction s1; intros [|? s1']; simpl in *; try congruence; intros.
+  inverts H; inverts H0; subst; eauto.
+Qed.
+
+Lemma nat_to_string_inj n m : nat_to_string n = nat_to_string m -> n = m.
+Proof.
+  revert m; induction n; simpl in *; intros [|m]; simpl; try congruence.
+  inversion 1. eauto.
+Qed.
+
+Lemma prefix_ex s1 s2 : prefix s1 s2 = true <-> exists s, s2 = s1 ++ s.
+Proof.
+  revert s1; induction s2; simpl; split; intros.
+  - destruct s1; try congruence.
+    exists ""; reflexivity.
+  - destruct H as [? ?].
+    destruct s1; inversion H; eauto.
+  - destruct s1.
+    + exists (String a s2); reflexivity.
+    + destruct Ascii.ascii_dec; try congruence.
+      apply IHs2 in H as [? ?]; subst.
+      exists x; reflexivity.
+  - destruct s1; auto.
+    destruct Ascii.ascii_dec.
+    + apply IHs2; destruct H as [s ?]; exists s.
+      inversion H; eauto.
+    + destruct H as [s ?].
+      cutrewrite (String a0 s1 ++ s = String a0 (s1 ++ s)) in H; [|auto].
+      inversion H; congruence.
+Qed.
+End String_lemma.
+
+Lemma locals_not_in grp n m:
+  n <= m ->
+  ~In (Var (grp ++ nat_to_string m)) (locals grp n).
+Proof.
+  remember nat_to_string as to_s.
+  revert m; induction n; simpl; intros [|m]; eauto; try omega.
+  intros Hnm [Hc | Hc].
+  + inverts Hc as Hc'.
+    apply string_inj2 in Hc'; auto.
+    subst; apply nat_to_string_inj in Hc'; omega.
+  + apply IHn in Hc; eauto; omega.
+Qed.        
+  
+Lemma locals_disjoint_ls grp n : disjoint_list (locals grp n).
+Proof.
+  induction n; simpl; auto; split; eauto; intros Hc.
+  apply locals_not_in in Hc; eauto.
+Qed.
+
+Lemma locals_length grp n : length (locals grp n) = n.
+Proof. induction n; simpl; auto; rewrite IHn; auto. Qed.
+
+Lemma inde_is_tup_arr Es l f s p vs :
+  (forall e v, In e Es -> In v vs -> indelE e v) ->
+  inde (is_tuple_array_p Es l f s p) vs.
+Proof.
+  revert f; induction Es; simpl; intros; eauto.
+  prove_inde.
+  prove_inde.
+  rewrite Forall_forall; intros; apply H; eauto.
+  eauto.
+Qed.  
+
+Lemma inde_input_spec E Ed p vs :
+  (forall v, In v vs -> prefix "arr" (var_of_str v) = false) ->
+  (forall v, In v vs -> prefix "sh" (var_of_str v) = false) ->
+  inde (input_spec E Ed p) vs.
+Proof.
+  revert Ed; induction E as [|[? ?] ?]; intros Ed; simpl.
+  - intros; prove_inde.
+  - intros.
+    destruct Ed as [| [[? ?] ?] ?]; [prove_inde|].
+    prove_inde; try (rewrite Forall_forall; intros; apply indeE_fv; simpl; eauto).
+    intros Hc; destruct Hc as [|[]]; subst.
+    apply H0 in H1; simpl in H1; congruence.
+    apply inde_eq_tup; rewrite Forall_forall.
+    intros.
+    unfold es2gls, ss2es in H1; repeat (apply in_map_iff in H1 as [? [? H1]]; subst).
+    apply indeE_fv; intros Hc; apply names_of_array_in in H1; destruct Hc as [|[]].
+    subst.
+    apply H in H2; simpl in H2; congruence.
+    apply inde_is_tup_arr; intros.
+    apply indelE_fv; intros Hc; simpl in Hc.
+    unfold es2gls, vs2es in H1; repeat (apply in_map_iff in H1 as [? [? H1]]; subst).
+    eauto.
+    apply IHE; eauto.
+Qed.
+
+Lemma mps_eq1_tup (E1 : list exp) (E1' : list val) (E : exp) (E2 : list exp) (p : Qc) (s : stack) :
+  (E1 ==t E1') s (emp_ph loc) ->
+  s ||= is_tuple_p (tarr_idx (es2gls E1) E) E2 p <=>
+    is_tuple_p (tarr_idx (es2gls (vs2es E1')) E) E2 p.
+Proof.
+  revert E1' E2; induction E1; intros [|e1' E1'] [|e2 E2] Heq; simpl in *; try reflexivity;
+  try now destruct Heq.
+  sep_split_in Heq.
+  assert ((Gl a +o E ===l Gl e1' +o E) s (emp_ph loc)) by (unfold_conn_all; simpl in *; congruence).
+  rewrite (mps_eq1); [|apply H].
+  rewrite IHE1; eauto; reflexivity.
+Qed.
+
+Lemma mps_eq2_tup (Es : list loc_exp) E2 E2' (p : Qc) (s : stack) :
+  (E2 ==t E2') s (emp_ph loc) ->
+  s ||= is_tuple_p Es E2 p <=> is_tuple_p Es (vs2es E2') p.
+Proof.
+  revert E2 E2'; induction Es; intros [|e E2] [|e' E2'] Heq; simpl in *;
+    try first [now destruct Heq | reflexivity | congruence].
+  sep_split_in Heq.
+  lets H: (>> mps_eq2 HP); rewrite H.
+  rewrite IHEs; eauto; reflexivity.
+Qed.
+
+Lemma low_assn_eqt E1 E2 G :
+  List.Forall (fun e => typing_exp G e Lo) E1 -> low_assn G (E1 ==t E2).
+Proof.
+  unfold low_assn.
+  revert E2; induction E1; simpl; intros [|e2 E2] ?; repeat prove_low_assn; eauto;
+  intros; inversion H; subst.
+  repeat prove_low_assn; eauto.
+  eauto.
+Qed.
+
+Lemma low_assn_is_tuple G E1 E2 q :
+  List.Forall (fun e => typing_lexp G e Lo) E1 ->
+  List.Forall (fun e => typing_exp G e Lo) E2 ->
+  low_assn G (is_tuple_p E1 E2 q).
+Proof.
+  unfold low_assn.
+  revert E2; induction E1; intros [|e2 E2]; simpl; rewrite !Forall_forall; intros;
+  repeat prove_low_assn.
+  apply H; simpl; eauto.
+  apply H0; simpl; eauto.
+  apply IHE1; rewrite !Forall_forall; intros; [apply H | apply H0]; simpl; eauto.
+Qed.
+
+Lemma low_assn_skip_arr_tup G Es n skip f dist i p : forall st,
+    Forall (fun e => typing_lexp G e Lo) Es ->
+    low_assn G (nth i(distribute_tup skip Es n f dist st p) emp).
+Proof.
+  unfold low_assn.
+  assert (skip = 0 \/ skip <> 0) as [|] by omega.
+  - subst; induction n; simpl in *; intros s He.
+    destruct i; apply low_assn_emp.
+    unfold nt_step; simpl.
+    rewrite nth_overflow; [apply low_assn_emp|].
+    rewrite add_nth_length, distribute_tup_length; omega.
+  - unfold skip_arr; induction n; simpl in *; intros s He.
+    + rewrite nth_nseq; destruct leb; apply low_assn_emp.
+    + assert (i < skip \/ skip <= i) as [|] by omega.
+      assert(dist s < skip \/ skip <= dist s) as [|] by omega.
+      rewrite nth_add_nth; [|try rewrite distribute_tup_length; unfold nt_step; eauto..].
+      destruct (beq_nat i (dist s)) eqn:Heq.
+      apply low_assn_star; eauto.
+      apply low_assn_is_tuple.
+      rewrite Forall_forall in *; intros x H'.
+      unfold tarr_idx in H'; rewrite in_map_iff in H'; destruct H' as [y [? ?]]; subst.
+      cutrewrite (Lo = join Lo Lo); [|eauto].
+      repeat constructor; eauto.
+      unfold vs2es; rewrite Forall_forall; intros ? H'; apply in_map_iff in H' as [? [? ?]]; subst; constructor.
+      eauto.
+      rewrite add_nth_overflow; [|rewrite distribute_tup_length; eauto].
+      apply IHn; auto.
+      rewrite nth_overflow.
+      apply low_assn_emp.
+      rewrite add_nth_length, distribute_tup_length; eauto.
+Qed.
+
+Lemma low_assn_is_tup_arr E Es l f s p:
+  (forall e, In e Es -> typing_lexp E e Lo) ->
+  low_assn E (is_tuple_array_p Es l f s p).
+Proof.
+  unfold low_assn.
+  revert f; induction Es; simpl; intros; eauto.
+  prove_low_assn.
+  repeat prove_low_assn.
+  apply H; eauto.
+  eauto.
+Qed.  
+
+Lemma low_assn_input_spec E Es Ed p  :
+  (forall v, prefix "arr" (var_of_str v) = true -> E v = Lo) ->
+  (forall v, prefix "sh" (var_of_str v) = true -> E v = Lo) ->
+   low_assn E (input_spec Es Ed p).
+Proof.
+  unfold low_assn.
+  revert Ed; induction Es as [|[? ?] ?]; intros Ed; simpl.
+  - intros; prove_low_assn.
+  - intros.
+    destruct Ed as [| [[? ?] ?] ?]; [prove_low_assn|].
+    prove_low_assn; try (rewrite Forall_forall; intros; apply indeE_fv; simpl; eauto).
+    repeat prove_low_assn; constructor.
+    rewrite H0; auto; simpl; auto.
+    repeat prove_low_assn.
+    apply low_assn_eqt.
+    rewrite Forall_forall; intros; unfold ss2es, names_of_array in H1.
+    repeat (apply in_map_iff in H1 as [? [? H1]]; subst).
+    apply In_ls_init in H1 as [? [? H1]]; subst.
+    repeat constructor.
+    rewrite H; eauto.
+    apply low_assn_is_tup_arr; intros.
+    unfold es2gls, vs2es, names_of_array in H1.
+    repeat (apply in_map_iff in H1 as [? [? H1]]; subst).
+    repeat constructor.
+    eauto.
+Qed.
+
+Lemma low_assn_input_spec' E Ed p  :
+  low_assn E (input_spec' Ed p).
+Proof.
+  unfold low_assn.
+  induction Ed as [|[[? ?] ?] ?]; simpl.
+  - intros; prove_low_assn.
+  - intros.
+    repeat prove_low_assn; eauto.
+    apply low_assn_is_tup_arr; intros.
+    unfold es2gls, vs2es in H; simpl in H.
+    repeat (rewrite in_map_iff in H; destruct H as [? [? H]]; subst).
+    repeat constructor.
+Qed.
+
+Lemma read_tup_hi E xs es :
+  (forall x, In x xs -> E x = Hi) ->
+  typing_cmd E (read_tup xs es) Hi.
+Proof.
+  revert es; induction xs; destruct es; simpl; repeat econstructor.
+  apply typing_exp_Hi.
+  rewrite H; eauto.
+  eauto.
+Qed.
+
+Lemma conj_xs_init_flatten (l1 l2 : nat) (a : assn) :
+  forall (s : nat) (stk : stack),
+    stk
+      ||= conj_xs
+      (ls_init s l1
+         (fun i : nat =>
+            conj_xs (ls_init 0 l2 (fun j : nat => a)))) <=>
+      conj_xs (ls_init (s * l2) (l1 * l2) (fun i : nat => a)).
+Proof.          
+  induction l1; simpl.
+  - intros; reflexivity.
+  - intros; rewrite IHl1.
+    rewrite ls_init_app, conj_xs_app; simpl.
+    erewrite ls_init_eq.
+    cutrewrite (l2 + s * l2 = s * l2 + l2); [|ring].
+    rewrite <-plus_n_O.
+    reflexivity.
+    intros; simpl; auto.
+Qed.
+Lemma is_array_skip_arr Es n m len' f p :
+  n <> 0 -> m <> 0 ->
+  (forall i : nat, i < len' -> length (f i) = length Es) ->
+  forall stk, stk ||= 
+    is_tuple_array_p Es len' f 0 p <=>
+    conj_xs (ls_init 0 n (fun i =>
+    conj_xs (ls_init 0 m (fun j =>
+    nth (j + i * m) (distribute_tup (n * m) Es len' f (nt_step (n * m)) 0 p) emp)))).
+Proof.
+  intros.
+  lets flat: (>>conj_xs_init_flatten0 n m 
+     (fun x => nth x (distribute_tup (n * m) Es len' f (nt_step (n * m)) 0 p) emp)).
+  simpl in flat. rewrite flat.
+  lets Heq: (>>distribute_correct (n * m) (nt_step (n * m))); rewrite Heq; clear Heq.
+  2: unfold nt_step; intros; apply Nat.mod_upper_bound; nia.
+  eapply (@equiv_from_nth emp).
+  rewrite init_length, distribute_tup_length; ring. 
+  rewrite distribute_tup_length; intros i Hi stk'.
+  rewrite ls_init_spec; destruct lt_dec; try omega.
+  reflexivity.
+  auto.
+Qed.
+
+Lemma is_tup_array_p1 Es n f s nt stk :
+  nt <> 0 ->
+  stk ||=
+      conj_xs (ls_init 0 nt (fun _ => is_tuple_array_p Es n f s (perm_n nt))) <=>
+      is_tuple_array_p Es n f s 1.
+Proof.
+  revert f; induction Es; simpl; intros f.
+  - rewrite init_emp_emp; reflexivity.
+  - intros; rewrite ls_star, IHEs.
+    rewrite <-is_array_is_array_p_1; eauto.
+    rewrite is_array_p1; reflexivity.
+    eauto.
+Qed.
+
+Lemma input_spec_p1 E Eden n stk :
+  length E = length Eden ->
+  n <> 0 ->
+  stk ||=
+      conj_xs (ls_init 0 n (fun _ => input_spec E Eden (perm_n n))) <=>
+      input_spec E Eden 1.
+Proof.
+  revert Eden; induction E as [|[? ?] ?]; intros [|[[? ?] ?] Eden]; simpl in *; try omega.
+  - rewrite init_emp_emp; reflexivity.
+  - intros.
+    repeat rewrite ls_star.
+    rewrite IHE; try omega.
+    rewrite !ls_pure.
+    rewrite is_tup_array_p1; eauto.
+    split; intros; repeat sep_cancel; eauto.
+    sep_split_in H2; sep_split; eauto.
+    eapply (ls_emp _ _ 0) in HP.
+    rewrite ls_init_spec in HP; destruct lt_dec; try omega; eauto.
+    eapply (ls_emp _ _ 0) in HP0.
+    rewrite ls_init_spec in HP0; destruct lt_dec; try omega; eauto.
+    sep_split_in H2; sep_split; eauto.
+    eapply ls_emp'; rewrite init_length; intros.
+    rewrite ls_init_spec; destruct lt_dec; try omega; eauto.
+    eapply ls_emp'; rewrite init_length; intros.
+    rewrite ls_init_spec; destruct lt_dec; try omega; eauto.
+Qed.
+Lemma input_spec'_p1 Eden n stk :
+  n <> 0 ->
+  stk ||=
+      conj_xs (ls_init 0 n (fun _ => input_spec' Eden (perm_n n))) <=>
+      input_spec' Eden 1.
+Proof.
+  induction Eden as  [|[[? ?] ?] Eden]; simpl in *; try omega.
+  - rewrite init_emp_emp; reflexivity.
+  - intros.
+    repeat rewrite ls_star.
+    rewrite IHEden; try omega.
+    rewrite is_tup_array_p1; eauto.
+    reflexivity.
+Qed.
+
+Lemma writeArray_vars grp dim pl x: 
+  pl = Gl \/ pl = Sh ->
+  In x (fst (fst (writeArray grp dim pl))) ->
+  exists st, (Evar (Var st)) = x /\ prefix "arr" st = true.
+Proof.
+  unfold writeArray, names_of_arg, names_of_array, ss2es; simpl.
+  intros H; rewrite in_map_iff; intros [? [? H']]; rewrite In_ls_init in H';
+  destruct H' as [? [? H']]; subst; simpl.
+  eexists; split; [reflexivity|].
+  simpl; destruct (_ ++ _)%string; eauto.
+Qed.
+
+Lemma has_no_vars_is_tup_arr Es l f s p  :
+  (forall e, In e Es -> has_no_vars_lE e) ->
+  has_no_vars (is_tuple_array_p Es l f s p).
+Proof.
+  revert f; induction Es; simpl; intros; eauto.
+  has_no_vars_assn.
+  has_no_vars_assn.
+  apply has_no_vars_is_array_p; auto.
+  apply IHEs; eauto.
+Qed.  
+
+Lemma has_no_vars_input_spec Ed p :
+  has_no_vars (input_spec' Ed p).
+Proof.
+  induction Ed as [|[[? ?] ?] ?]; simpl.
+  - has_no_vars_assn.
+  - intros.
+    has_no_vars_assn.
+    apply has_no_vars_is_tup_arr.
+    intros.
+    unfold es2gls, vs2es in H.
+    repeat (apply in_map_iff in H as [? [? H]]; subst); simpl; eauto.
+    eauto.
+Qed.
+
+Lemma has_no_vars_is_tup es1 es2 p :
+  List.Forall (fun e => has_no_vars_lE e) es1 ->
+  List.Forall (fun e => has_no_vars_E e) es2 ->
+  has_no_vars (is_tuple_p es1 es2 p).
+Proof.
+  revert es2; induction es1; simpl; intros [| e es2 ]; simpl; intros; try apply has_no_vars_emp.
+  inverts H; inverts H0.
+  has_no_vars_assn.
+  apply has_no_vars_mp; eauto.
+  apply IHes1; eauto.
+Qed.
+
+Lemma has_no_vars_skip_arr_tup (Es : list loc_exp) (n skip : nat) (f : nat -> list Z) (i st : nat) dist p :
+  forall s, 
+    Forall (fun e => has_no_vars_lE e) Es ->
+    has_no_vars (nth i (distribute_tup skip Es n f dist s p) emp).
+Proof.
+  induction n; intros s Hinde; simpl in *.
+  - simpl_nth; destruct (Compare_dec.leb _ _); prove_inde.
+  - assert ( dist s < skip \/ skip <= dist s)%nat as [|] by omega.
+    + assert (i < skip \/ skip <= i)%nat as [|] by omega.
+      * rewrite nth_add_nth in *; [|rewrite distribute_tup_length; auto..].
+        destruct (EqNat.beq_nat _ _); intuition.
+        has_no_vars_assn.
+        apply has_no_vars_is_tup; auto.
+        rewrite Forall_forall; unfold tarr_idx; intros ? Htmp; rewrite in_map_iff in Htmp;
+        destruct Htmp as [? [? ?]]; subst.
+        rewrite Forall_forall in Hinde; specialize (Hinde x0 H2); intros;
+        unfold has_no_vars in *; simpl; intros; split; eauto.
+        unfold vs2es; rewrite Forall_forall; unfold tarr_idx; intros ? Htmp; rewrite in_map_iff in Htmp.
+        destruct Htmp as [? [? ?]]; subst.
+        unfold has_no_vars_E; auto.
+        eauto.
+      * rewrite List.nth_overflow in *; [|rewrite add_nth_length, distribute_tup_length..]; 
+        prove_inde.
+    + rewrite add_nth_overflow in *; (try rewrite distribute_tup_length); auto.
+Qed.
+
+Lemma not_in_disjoint (T : Type) (l1 l2 : list T)  :
+  (forall x, In x l1 -> ~In x l2) -> disjoint l1 l2.
+Proof.
+  revert l2; induction l1; simpl; eauto.
+  intros l2 Hx.
+  split.
+  - apply Hx; eauto.
+  - apply IHl1; intros; eauto.
 Qed.
