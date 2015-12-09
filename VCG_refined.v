@@ -458,14 +458,43 @@ Definition exec_if (st : Astate) (b : bexp) (C1 C2 : cmd) :=
 
 Hint Unfold exec_if.
 
-Lemma bexp_denote_correct (env : penv) (b : bexp) P s h :
+Lemma bexp_denote_correct' (env : penv) (b : bexp) P s h :
+  esat env s h ->
   bexp_denote env b = Some P ->
-  (bexp_to_assn b) s h -> P.
+  ((bexp_to_assn b) s h -> P) /\ ((bexp_to_assn (Bnot b)) s h -> ~P).
 Proof.
-  induction b; simpl; eauto.
-  destruct (eval env e1), (eval env e2); simpl; try congruence; eauto.
-  inversion 1; subst; unfold_conn.
+  revert P; induction b; simpl; eauto; intros P Henv Heq;
+  try (destruct (eval env e1) eqn:Heq1, (eval env e2) eqn:Heq2; simpl in *; try congruence;
+       inverts Heq;
+       eapply eval_correct in Heq1; eapply eval_correct in Heq2; eauto).
+  - unfold_conn_all; simpl in *; destruct eq_dec; split; intros; simpl in *; try congruence.
+  - unfold_conn_all; simpl in *; destruct Z_lt_dec; split; intros; simpl in *; try congruence.
+  - destruct (bexp_denote env b1), (bexp_denote env b2); simpl in *; try congruence.
+    inverts Heq; split; intros Hsat; unfold bexp_to_assn in Hsat; simpl in *;
+    lets (? & ?): (>>IHb1 Henv (@eq_refl));
+    lets (? & ?): (>>IHb2 Henv (@eq_refl)).
+    rewrite Bool.andb_true_iff in Hsat; split; jauto.
+    intros [? ?].
+    unfold bexp_to_assn in *; simpl in *.
+    rewrite Bool.negb_true_iff, Bool.andb_false_iff in *.
+    destruct Hsat; jauto.
+  - destruct (bexp_denote env b); simpl in *; try congruence.
+    inverts Heq.
+    lets (? & ?): (>>IHb P0 Henv (@eq_refl)).
+    unfold bexp_to_assn in *; simpl in *.
+    rewrite !Bool.negb_true_iff in *.
+    rewrite Bool.negb_false_iff in *.
+    split; jauto.
+Qed.
 
+Lemma bexp_denote_correct (env : penv) (b : bexp) P s h :
+  esat env s h ->
+  bexp_denote env b = Some P -> ((bexp_to_assn b) s h -> P).
+Proof.
+  intros.
+  lets ?: (>>bexp_denote_correct' ___); eauto; jauto.
+Qed.  
+  
 Lemma exec_if_correct (i : Fin.t ntrd) (BS : bspec)
       (st st_th st_el st_th' st_el' : Astate) b C1 C2:
   exec_if st b C1 C2 = Some (st_th, st_el) ->
@@ -478,5 +507,13 @@ Proof.
   inverts H; simpl in *.
   eapply Hforward.
   apply rule_if_disj; eauto; [eapply Hbackward; [eauto|]..];
-  intros; sep_split_in H; sep_split; eauto; repeat split; destruct HP0; jauto.
-  
+  intros; sep_split_in H; sep_split; eauto; repeat split; destruct HP0; jauto;
+  eapply bexp_denote_correct; eauto.
+  simpl in *.
+  destruct bexp_denote; simpl in *; congruence.
+
+  unfold Ast_denote; simpl.
+  intros s h [? | ?].
+  - left; eauto.
+  - right; left; eauto.
+Qed.
