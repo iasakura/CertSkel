@@ -447,17 +447,15 @@ Fixpoint bexp_denote (env : penv) (b : bexp) :=
   | Bnot b1 => not <$> bexp_denote env b1
   end.
 
-Definition exec_if (st : Astate) (b : bexp) :=
-  match bexp_denote (Aenv st) b with
-  | None => None
-  | Some p =>
-    Some ({| Aenv := Aenv st; Aenv_wf := Aenv_wf st;
-             Ap := p /\ Ap st; sp := sp st |},
-          {| Aenv := Aenv st; Aenv_wf := Aenv_wf st;
-             Ap := ~p /\ Ap st; sp := sp st |})
-  end.
+Definition exec_if_then (st : Astate) (p : Prop) :=
+  {| Aenv := Aenv st; Aenv_wf := Aenv_wf st;
+     Ap := p /\ Ap st; sp := sp st |}.
 
-Hint Unfold exec_if.
+Definition exec_if_else (st : Astate) (p : Prop) :=
+  {| Aenv := Aenv st; Aenv_wf := Aenv_wf st;
+     Ap := ~p /\ Ap st; sp := sp st |}.
+
+Hint Unfold exec_if_then exec_if_else.
 
 Lemma bexp_denote_correct' (env : penv) (b : bexp) P s h :
   esat env s h ->
@@ -497,23 +495,22 @@ Proof.
 Qed.  
   
 Lemma exec_if_correct (i : Fin.t ntrd) (BS : bspec)
-      (st st_th st_el st_th' st_el' : Astate) b C1 C2:
-  exec_if st b = Some (st_th, st_el) ->
+      (st st_th' st_el' : Astate) (p : Prop) b C1 C2:
+  bexp_denote (Aenv st) b = Some p ->
+  let st_th := exec_if_then st p in
+  let st_el := exec_if_else st p in
   CSL BS i (Ast_denote st_th) C1 (Ast_denote st_th') ->
   CSL BS i (Ast_denote st_el) C2 (Ast_denote st_el') ->
   CSL BS i (Ast_denote st) (Cif b C1 C2) (Asts_denote (st_th' :: st_el' :: nil)).
 Proof.
-  autounfold; intros H H1 H2.
-  destruct (bexp_denote _ _) eqn:Heq; simpl in H; try congruence.
-  inverts H; simpl in *.
+  autounfold; intros Hbexp H1 H2.
+  destruct (bexp_denote _ _) eqn:Heq; simpl in *; try congruence.
+  inverts Hbexp.
   eapply Hforward.
   apply rule_if_disj; eauto; [eapply Hbackward; [eauto|]..];
   intros; sep_split_in H; sep_split; eauto; repeat split; destruct HP0; jauto;
-  eapply bexp_denote_correct; eauto.
+  eapply bexp_denote_correct'; eauto.
   simpl in *.
-  destruct bexp_denote; simpl in *; congruence.
-
-  unfold Ast_denote; simpl.
   intros s h [? | ?].
   - left; eauto.
   - right; left; eauto.
@@ -560,23 +557,17 @@ Proof.
   intros; left; auto.
 Qed.
 
-Definition exec_while (st : Astate) (b : bexp) :=
-  match bexp_denote (Aenv st) b with
-  | None => None
-  | Some p =>
-    Some ({| Aenv := Aenv st; Aenv_wf := Aenv_wf st;
-             Ap := p /\ Ap st; sp := sp st |})
-  end.
-
 Lemma exec_while_correct (stI : Astate) (i : Fin.t ntrd) (BS : bspec) b C
-      (st stI' stI'': Astate) :
-  exec_if stI b = Some (stI', stI'')  ->
+      (st stI' stI'': Astate) p :
+  bexp_denote (Aenv st) b = Some p ->
+  let stI' := exec_if_then st p in
+  let stI'' := exec_if_else st p in
   (Ast_denote st |= Ast_denote stI) ->
   CSL BS i (Ast_denote stI') C (Ast_denote stI) ->
   CSL BS i (Ast_denote st) (Cwhile b C) (Ast_denote stI'').
 Proof.
-  intros Hexec Hpre HC; autounfold in *.
-  destruct (bexp_denote _ _) eqn:Heq; simpl in Hexec; inverts Hexec; simpl in *.
+  intros Hth Hel Hpre HC; autounfold in *.
+  destruct (bexp_denote _ _) eqn:Heq; simpl in Hth, Hel; inverts Hth; inverts Hel; simpl in *.
   eapply rule_conseq; [apply rule_while| |].
   eapply Hbackward; [apply HC|].
   intros s h H; sep_normal_in H; sep_normal; sep_split_in H; sep_split;
@@ -587,3 +578,16 @@ Proof.
   repeat split; destruct HP; jauto.
   eapply bexp_denote_correct' in Heq; jauto.
 Qed.
+
+Inductive ex_Astate :=
+| pure_ast : Astate -> ex_Astate
+| ex_ast : forall T, (T -> ex_Astate) -> ex_Astate.
+
+Fixpoint exec_while_th (st : ex_Astate) (b : bexp) :=
+  match bexp_denote (Aenv st) b with
+  | None => None
+  | Some p =>
+  match st with
+  | pure_ast st => exec_if_then st b
+  | ex_ast T f => ex_ast T (fun x => exec_while_th (f x) b)
+  end.

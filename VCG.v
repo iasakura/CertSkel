@@ -568,7 +568,7 @@ Ltac hoare_forward :=
       eapply Hforward; [
         eapply Hbackward; [
           eapply rule_frame; 
-          [eapply rule_barrier | prove_inde] |
+          [apply rule_barrier | prove_inde] |
            autounfold; simpl; repeat rewrite MyVector.init_spec in *] | 
         (* frame_analysis (Vector.nth (fst (bspec i)) tid) *)]
     | [ |- CSL ?bspec ?tid ?P (Cif ?b ?c1 ?c2) ?Q ] =>
