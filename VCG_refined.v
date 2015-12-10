@@ -11,7 +11,7 @@ Fixpoint var_in (x : var) (E : penv) :=
 
 Fixpoint esat (E : penv) :=
   match E with
-  | nil => TrueP
+  | nil => FalseP
   | (x, v) :: E => (x === v) //\\ esat E
   end.
 
@@ -42,7 +42,7 @@ Definition Ast_denote (st : Astate) : assn :=
   !(esat (Aenv st) //\\ pure (Ap st)) ** Ssat (sp st).
 
 Definition Asts_denote (sts : list Astate) : assn :=
-  fold_right (fun st assn => Ast_denote st \\// assn) TrueP sts.
+  fold_right (fun st assn => Ast_denote st \\// assn) FalseP sts.
 
 Fixpoint get (E : penv) (x : var) : option val :=
   match E with
@@ -327,11 +327,12 @@ Proof.
 Qed.
     
 Lemma exec_read_correct (i : Fin.t ntrd) (BS : bspec) (st st' : Astate) x E:
-  indelE E x ->
+  ~(In x (fv_lE E)) ->
   exec_read st x E = Some st' ->
   CSL BS i (Ast_denote st) (x ::= [E]) (Ast_denote st').
 Proof.
   autounfold; intros Hfv H.
+  apply indelE_fv in Hfv.
   destruct st as [env envwf P S], st'; simpl in *.
   destruct (leval env E) eqn:Heval; try congruence.
   destruct (get_addr l S) as [[p v]| ] eqn:Hget; try congruence.
@@ -446,7 +447,7 @@ Fixpoint bexp_denote (env : penv) (b : bexp) :=
   | Bnot b1 => not <$> bexp_denote env b1
   end.
 
-Definition exec_if (st : Astate) (b : bexp) (C1 C2 : cmd) :=
+Definition exec_if (st : Astate) (b : bexp) :=
   match bexp_denote (Aenv st) b with
   | None => None
   | Some p =>
@@ -458,17 +459,46 @@ Definition exec_if (st : Astate) (b : bexp) (C1 C2 : cmd) :=
 
 Hint Unfold exec_if.
 
-Lemma bexp_denote_correct (env : penv) (b : bexp) P s h :
+Lemma bexp_denote_correct' (env : penv) (b : bexp) P s h :
+  esat env s h ->
   bexp_denote env b = Some P ->
-  (bexp_to_assn b) s h -> P.
+  ((bexp_to_assn b) s h -> P) /\ ((bexp_to_assn (Bnot b)) s h -> ~P).
 Proof.
-  induction b; simpl; eauto.
-  destruct (eval env e1), (eval env e2); simpl; try congruence; eauto.
-  inversion 1; subst; unfold_conn.
+  revert P; induction b; simpl; eauto; intros P Henv Heq;
+  try (destruct (eval env e1) eqn:Heq1, (eval env e2) eqn:Heq2; simpl in *; try congruence;
+       inverts Heq;
+       eapply eval_correct in Heq1; eapply eval_correct in Heq2; eauto).
+  - unfold_conn_all; simpl in *; destruct eq_dec; split; intros; simpl in *; try congruence.
+  - unfold_conn_all; simpl in *; destruct Z_lt_dec; split; intros; simpl in *; try congruence.
+  - destruct (bexp_denote env b1), (bexp_denote env b2); simpl in *; try congruence.
+    inverts Heq; split; intros Hsat; unfold bexp_to_assn in Hsat; simpl in *;
+    lets (? & ?): (>>IHb1 Henv (@eq_refl));
+    lets (? & ?): (>>IHb2 Henv (@eq_refl)).
+    rewrite Bool.andb_true_iff in Hsat; split; jauto.
+    intros [? ?].
+    unfold bexp_to_assn in *; simpl in *.
+    rewrite Bool.negb_true_iff, Bool.andb_false_iff in *.
+    destruct Hsat; jauto.
+  - destruct (bexp_denote env b); simpl in *; try congruence.
+    inverts Heq.
+    lets (? & ?): (>>IHb P0 Henv (@eq_refl)).
+    unfold bexp_to_assn in *; simpl in *.
+    rewrite !Bool.negb_true_iff in *.
+    rewrite Bool.negb_false_iff in *.
+    split; jauto.
+Qed.
 
+Lemma bexp_denote_correct (env : penv) (b : bexp) P s h :
+  esat env s h ->
+  bexp_denote env b = Some P -> ((bexp_to_assn b) s h -> P).
+Proof.
+  intros.
+  lets ?: (>>bexp_denote_correct' ___); eauto; jauto.
+Qed.  
+  
 Lemma exec_if_correct (i : Fin.t ntrd) (BS : bspec)
       (st st_th st_el st_th' st_el' : Astate) b C1 C2:
-  exec_if st b C1 C2 = Some (st_th, st_el) ->
+  exec_if st b = Some (st_th, st_el) ->
   CSL BS i (Ast_denote st_th) C1 (Ast_denote st_th') ->
   CSL BS i (Ast_denote st_el) C2 (Ast_denote st_el') ->
   CSL BS i (Ast_denote st) (Cif b C1 C2) (Asts_denote (st_th' :: st_el' :: nil)).
@@ -478,5 +508,82 @@ Proof.
   inverts H; simpl in *.
   eapply Hforward.
   apply rule_if_disj; eauto; [eapply Hbackward; [eauto|]..];
-  intros; sep_split_in H; sep_split; eauto; repeat split; destruct HP0; jauto.
-  
+  intros; sep_split_in H; sep_split; eauto; repeat split; destruct HP0; jauto;
+  eapply bexp_denote_correct; eauto.
+  simpl in *.
+  destruct bexp_denote; simpl in *; congruence.
+
+  unfold Ast_denote; simpl.
+  intros s h [? | ?].
+  - left; eauto.
+  - right; left; eauto.
+Qed.
+
+Lemma asts_denote_app sts sts' stk :
+  stk ||= Asts_denote sts \\// Asts_denote sts' <=> Asts_denote (sts ++ sts').
+Proof.
+  induction sts; simpl; eauto.
+  - split.
+    + intros [[]|]; eauto.
+    + intros; right; eauto.
+  - split.
+    + unfold_conn_all; simpl.
+      intros; intuition; eauto.
+      right; apply IHsts; eauto.
+      right; apply IHsts; eauto.
+    + unfold_conn_all; simpl.
+      intros; intuition; eauto.
+      apply IHsts in H0.
+      intuition.
+Qed.
+      
+Lemma exec_disj (i : Fin.t ntrd) (BS : bspec) C st sts sts' sts'':
+  CSL BS i (Ast_denote st) C (Asts_denote sts') ->
+  CSL BS i (Asts_denote sts) C (Asts_denote sts'') ->
+  CSL BS i (Asts_denote (st :: sts)) C (Asts_denote (sts' ++ sts'')).
+Proof.
+  induction sts; simpl; eauto.
+  - intros HC1 HC2.
+    eapply Hforward; [apply rule_disj|]; eauto.
+    intros s h H; apply asts_denote_app; auto.
+  - intros HC1 HC2.
+    eapply Hforward; [apply rule_disj|]; eauto.
+    intros s h H; apply asts_denote_app; auto.
+Qed.
+
+Lemma exec_one (i : Fin.t ntrd) (BS : bspec) C st st' :
+  CSL BS i (Ast_denote st) C (Ast_denote st') ->
+  CSL BS i (Ast_denote st) C (Asts_denote (st' :: nil)).
+Proof.
+  intros HC; simpl.
+  eapply Hforward; eauto.
+  intros; left; auto.
+Qed.
+
+Definition exec_while (st : Astate) (b : bexp) :=
+  match bexp_denote (Aenv st) b with
+  | None => None
+  | Some p =>
+    Some ({| Aenv := Aenv st; Aenv_wf := Aenv_wf st;
+             Ap := p /\ Ap st; sp := sp st |})
+  end.
+
+Lemma exec_while_correct (stI : Astate) (i : Fin.t ntrd) (BS : bspec) b C
+      (st stI' stI'': Astate) :
+  exec_if stI b = Some (stI', stI'')  ->
+  (Ast_denote st |= Ast_denote stI) ->
+  CSL BS i (Ast_denote stI') C (Ast_denote stI) ->
+  CSL BS i (Ast_denote st) (Cwhile b C) (Ast_denote stI'').
+Proof.
+  intros Hexec Hpre HC; autounfold in *.
+  destruct (bexp_denote _ _) eqn:Heq; simpl in Hexec; inverts Hexec; simpl in *.
+  eapply rule_conseq; [apply rule_while| |].
+  eapply Hbackward; [apply HC|].
+  intros s h H; sep_normal_in H; sep_normal; sep_split_in H; sep_split;
+  repeat split; destruct HP; jauto.
+  eapply bexp_denote_correct in Heq; eauto.
+  eauto.
+  intros s h H; sep_normal_in H; sep_normal; sep_split_in H; sep_split;
+  repeat split; destruct HP; jauto.
+  eapply bexp_denote_correct' in Heq; jauto.
+Qed.
