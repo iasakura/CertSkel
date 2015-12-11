@@ -11,7 +11,7 @@ Fixpoint var_in (x : var) (E : penv) :=
 
 Fixpoint esat (E : penv) :=
   match E with
-  | nil => FalseP
+  | nil => TrueP
   | (x, v) :: E => (x === v) //\\ esat E
   end.
 
@@ -125,9 +125,8 @@ Definition exec_assign (st : Astate) (x : var) (E : exp) :=
     Some {| Aenv := env_update x v (Aenv st); Aenv_wf := env_update_wf x v (Aenv st) (Aenv_wf st);
             Ap := Ap st; sp := sp st|}
   end.
-
+Section rules.
 Variable ntrd : nat.
-Hypothesis ntrd_neq_0 : ntrd <> 0.
 
 Notation bspec := (Bdiv.barrier_spec ntrd).
 
@@ -548,6 +547,12 @@ Proof.
     intros s h H; apply asts_denote_app; auto.
 Qed.
 
+Lemma exec_zero (i : Fin.t ntrd) (BS : bspec) C :
+  CSL BS i (Asts_denote nil) C (Asts_denote nil).
+Proof.
+  intros s ph; simpl; destruct 1.
+Qed.
+
 Lemma exec_one (i : Fin.t ntrd) (BS : bspec) C st st' :
   CSL BS i (Ast_denote st) C (Ast_denote st') ->
   CSL BS i (Ast_denote st) C (Asts_denote (st' :: nil)).
@@ -571,6 +576,7 @@ Fixpoint exec_while_then (st : ex_Astate) (b : bexp) :=
   | ex_ast T f => ex_ast T (fun x => exec_while_then (f x) b)
   end.
 
+
 Fixpoint exec_while_else (st : ex_Astate) (b : bexp) :=
   match st with
   | pure_ast st =>
@@ -578,7 +584,7 @@ Fixpoint exec_while_else (st : ex_Astate) (b : bexp) :=
     | Some p => pure_ast (exec_if_then st (~p))
     | None => pure_ast st
     end
-  | ex_ast T f => ex_ast T (fun x => exec_while_then (f x) b)
+  | ex_ast T f => ex_ast T (fun x => exec_while_else (f x) b)
   end.
 
 Fixpoint exAst_denote (st : ex_Astate) :=
@@ -587,34 +593,99 @@ Fixpoint exAst_denote (st : ex_Astate) :=
   | ex_ast T f => Ex x : T, (exAst_denote (f x))
   end.
   
-Lemma exec_while_correct (i : Fin.t ntrd) (BS : bspec) b C stI st:
+Fixpoint exAst_ok (st : ex_Astate) b :=
+  match st with
+  | pure_ast st => match bexp_denote (Aenv st) b with Some _ => True | _ => False end 
+  | ex_ast T f => forall x : T, exAst_ok (f x) b
+  end.
+
+Lemma exec_while_correct stI (i : Fin.t ntrd) (BS : bspec) b C st:
   let stI' := exec_while_then stI b in
   let stI'' := exec_while_else stI b in
+  exAst_ok stI b ->
   (Ast_denote st |= exAst_denote stI) ->
   CSL BS i (exAst_denote stI') C (exAst_denote stI) ->
   CSL BS i (Ast_denote st) (Cwhile b C) (exAst_denote stI'').
 Proof.
-  simpl; intros Hexp Hpre HC; autounfold in *.
-  destruct (bexp_denote _ _) eqn:Heq; simpl in Hexp; inverts Hexp; simpl in *.
+  simpl; intros Hok Hden Hsl; autounfold in *.
+  (* destruct (bexp_denote _ _) eqn:Heq; simpl in Hexp; inverts Hexp; simpl in *. *)
   eapply rule_conseq; [apply rule_while| |].
-  - eapply Hbackward; [apply HC|].
-    intros s h H.
-    assert (H' : (!(esat (Aenv st) //\\ pure (Ap st)) ** Ssat (sp st)) s h).
-    { intros.
-      sep_normal_in H; sep_normal; sep_split_in H; sep_split; eauto. }
-    assert (H'' : (esat (Aenv st)) s (emp_ph loc)).
-    { sep_split_in H; destruct HP0; eauto. }
-    apply Hpre in H'.
-    sep_split_in H'; sep_split; eauto; repeat split; destruct HP; eauto.
-    eapply bexp_denote_correct in Heq; sep_split_in H; eauto.
+  - eapply Hbackward; [apply Hsl|].
+    clear Hden Hsl st.
+    induction stI; simpl in *.
+    + destruct (bexp_denote _ _) eqn:Heq; simpl in Hok; destruct Hok.
+      destruct a; autounfold in *; simpl in *; autounfold in *; simpl in *.
+      intros s h H.
+      sep_normal_in H; sep_normal; sep_split_in H; sep_split; eauto.
+      destructs HP; repeat split; eauto.
+      eapply bexp_denote_correct; eauto.
+    + intros s h H'.
+      sep_split_in H'; destruct H' as [x H']; exists x.
+      apply H; eauto.
+      sep_split; eauto.
   - eauto.
-  -intros s h H.
-    assert (H' : (!(esat (Aenv st) //\\ pure (Ap st)) ** Ssat (sp st)) s h).
-    { intros.
-      sep_normal_in H; sep_normal; sep_split_in H; sep_split; eauto. }
-    assert (H'' : (esat (Aenv st)) s (emp_ph loc)).
-    { sep_split_in H; destruct HP0; eauto. }
-    apply Hpre in H'.
-    sep_split_in H'; sep_split; eauto; repeat split; destruct HP; eauto.
-    eapply bexp_denote_correct' in Heq; sep_split_in H; jauto.
+  - intros s h H.
+    clear Hden Hsl st.
+    induction stI; simpl in *.
+    + destruct (bexp_denote _ _) eqn:Heq; simpl in Hok; destruct Hok.
+      destruct a; autounfold in *; simpl in *; autounfold in *; simpl in *.
+      sep_normal_in H; sep_normal; sep_split_in H; sep_split; eauto.
+      destructs HP; repeat split; eauto.
+      eapply bexp_denote_correct' in Heq; jauto.
+    + sep_split_in H; destruct H as [x H]; exists x.
+      apply H0; eauto.
+      sep_split; eauto.
 Qed.
+
+Definition while (I : ex_Astate) := Cwhile.
+
+Lemma exec_ex {T : Type} (BS : bspec) i (st : T -> ex_Astate) C Q :
+  (forall x, CSL BS i (exAst_denote (st x)) C Q) ->
+  CSL BS i (exAst_denote (ex_ast T st)) C Q.
+Proof.
+  simpl; intros H.
+  apply rule_ex; auto.
+Qed.
+
+Lemma exec_ex_pure (BS : bspec) i (st : Astate) C Q:
+  CSL BS i (Ast_denote st) C Q ->
+  CSL BS i (exAst_denote (pure_ast st)) C Q.
+Proof. eauto. Qed.
+
+End rules.
+
+
+Ltac sym_exec_atom :=
+  lazymatch goal with
+  | [|- CSL ?BS ?i (Ast_denote ?st) ( _ ::= _ ) _] =>
+    apply exec_assign_correct
+  | [|- CSL ?BS ?i (Ast_denote ?st) ( _ ::= [_] ) _] =>
+    apply exec_read_correct
+  | [|- CSL ?BS ?i (Ast_denote ?st) ([_] ::= _) _] =>
+    apply exec_write_correct
+  | [|- CSL ?BS ?i (Ast_denote ?st) (Cif _ _ _) _] =>
+    apply exec_if_correct
+  | [|- CSL ?BS ?i (Ast_denote ?st) (while ?I _ _) _] =>
+    apply (exec_while_correct _ I)
+  end.
+
+Ltac sym_exec_one := 
+  lazymatch goal with
+  | [|- CSL ?BS ?i (Ast_denote ?st) (_ ;; _) _] =>
+    eapply rule_seq; [sym_exec_one|]
+  | [|- CSL ?BS ?i (Ast_denote ?st) _ _] => sym_exec_atom
+  end.
+
+Ltac sym_exec :=
+  lazymatch goal with
+  | [|- CSL ?BS ?i (Ast_denote _) _ _] =>
+    sym_exec_one
+  | [|- CSL ?BS ?i (Asts_denote (?st :: _)) _ _] =>
+    eapply exec_disj; [sym_exec_one|sym_exec]
+  | [|- CSL ?BS ?i (Asts_denote nil) _ _] =>
+    eapply exec_zero
+  | [|- CSL ?BS ?i (exAst_denote (ex_ast _ _)) _ _] =>
+    eapply exec_ex
+  | [|- CSL ?BS ?i (exAst_denote (pure_ast _)) _ _] =>
+    eapply exec_ex_pure; sym_exec
+  end.

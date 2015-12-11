@@ -1,8 +1,8 @@
 Require Import GPUCSL.
 
 Section sum_of_number.
-Definition X := (Var 1).
-Definition T := (Var 2).
+Definition X := (Var "x").
+Definition T := (Var "t").
 Variable n : nat.
 
 Fixpoint sum n := match n with
@@ -77,12 +77,12 @@ Proof.
   intros ? ? H. subA_ex H. destruct H. simpl in H. ex_intro x0 H. simpl in H. exact H.
   eapply rule_ex; intros y; repeat hoare_forward.
   intros ? ? H. subA_ex H; destruct H; simpl in H. exists (S x); sep_split; sep_split_in H.
-  { unfold_conn. rewrite Zpos_P_of_succ_nat. omega. }
-  { unfold_conn. simpl. rewrite Zpos_P_of_succ_nat. destruct H. rewrite Nat2Z.inj_add. omega. }
-  { unfold_conn;  unfold bexp_to_assn in *. simpl in *. split; destruct H; auto. 
+  { unfold_conn_all; simpl in *; rewrite Zpos_P_of_succ_nat; omega. }
+  { unfold_conn_all; simpl in *. rewrite Zpos_P_of_succ_nat. destruct H. rewrite Nat2Z.inj_add. omega. }
+  { unfold_conn_all; simpl in *;unfold bexp_to_assn in *. simpl in *. split; destruct H; auto. 
     destruct (Z_lt_dec); [omega|congruence]. } 
   { intros s h H. sep_split_in H. destruct H. sep_split_in H.
-    unfold_conn; unfold bexp_to_assn in *; simpl in *; split; destruct H; auto.
+    unfold_conn_all; simpl in *; unfold bexp_to_assn in *; simpl in *; split; destruct H; auto.
     assert (x = n) by (destruct Z_lt_dec; simpl in *; (congruence || omega)).
     congruence. }
   { intros; sep_split_in H.
