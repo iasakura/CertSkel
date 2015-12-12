@@ -27,14 +27,15 @@ Require Import LibTactics.
 Program Definition INV :=
   ex_ast _ (fun x : val => ex_ast _ (fun t : val => pure_ast (
     {| Aenv := (X, x) :: (T, t) :: nil;
-       Aenv_wf := _;
-       Ap := (0 <= x /\ x <= Zn n /\ t = sum (Z.to_nat x))%Z;
-       sp := nil
-    |}))).
+       App := (0 <= x /\ x <= Zn n /\ t = sum (Z.to_nat x))%Z;
+       Asp := nil |}))).
 Next Obligation.
 repeat split; jauto.
 intros [H | H]; jauto.
 congruence.
+Qed.
+Next Obligation.
+cbv; auto.
 Qed.
 
 Definition SUM :=
@@ -51,6 +52,10 @@ Lemma nil_wf : env_wf nil.
 simpl; eauto.
 Qed.
 
+Lemma nil_sp_wf : sp_wf nil.
+cbv; auto.
+Qed.
+
 Lemma one_wf x v : env_wf ((x, v) :: nil).
 simpl; eauto.
 Qed.
@@ -63,14 +68,14 @@ Hint Unfold exAst_denote Ast_denote.
 Goal
   CSL (fun _ => default ntrd) tid
   (Ast_denote {| Aenv := nil;
-                 Aenv_wf := nil_wf;
-                 Ap := True;
-                 sp := nil|})
+                 App := True;
+                 Asp := nil;
+                 Aenv_wf := nil_wf; Asp_wf := nil_sp_wf |})
   SUM 
   (Ast_denote {| Aenv := (T, (sum n)) :: nil;
-                 Aenv_wf := one_wf _ _;
-                 Ap := True;
-                 sp := nil|}).
+                 App := True;
+                 Asp := nil;
+                 Aenv_wf := one_wf _ _; Asp_wf := nil_sp_wf |}).
 Proof.
   unfold SUM, INV; eapply Hforward.
   repeat (sym_exec; [reflexivity|]).
@@ -97,5 +102,90 @@ Proof.
   cutrewrite (s X = Zn n)%Z; [|omega].
   rewrite Nat2Z.id; eauto.
 Qed.
+End sum_of_number.
 
-Section sum_of_number.
+Section swap.
+Variable ntrd : nat.
+Variable tid : Fin.t ntrd.
+
+Notation X := (Var "X").
+Notation Y := (Var "Y").
+
+Notation ptrX := (Var "ptrX").
+Notation ptrY := (Var "ptrY").
+
+Variable locX : val.
+Variable locY : val.
+
+Variable valX : val.
+Variable valY : val.
+
+Definition swap :=
+  ( X ::= [ Gl ptrX ] ;;
+    Y ::= [ Gl ptrY ] ;;
+    [ Gl ptrX ] ::= Y ;;
+    [ Gl ptrY ] ::= X ).
+
+Definition pre_env : penv := (ptrX, locX) :: (ptrY, locY) :: nil.
+Definition post_env : penv := nil.
+
+Definition pre_sp := Spts (GLoc locX) 1 valX :: Spts (GLoc locY) 1 valY :: nil.
+Definition post_sp := Spts (GLoc locX) 1 valY :: Spts (GLoc locY) 1 valX :: nil.
+
+Hint Unfold pre_env post_env pre_sp post_sp swap.
+
+Lemma pre_env_wf : env_wf pre_env. 
+Proof.
+  cbv; repeat split; jauto.
+  intros [|]; congruence.
+Qed.
+
+Lemma post_env_wf : env_wf post_env.
+Proof.
+  unfold post_env; simpl; auto.
+Qed.
+
+Hypothesis pre_sp_wf : disjoint_list (GLoc locX :: GLoc locY :: nil).
+
+Ltac crush :=
+  first [tauto | congruence |  omega | ring | nia].
+
+Lemma swap_correct :
+  CSL (fun _ => default ntrd) tid
+    (Ast_denote
+     {| Aenv := pre_env;
+        App := True;
+        Asp := Spts (GLoc locX) 1 valX :: Spts (GLoc locY) 1 valY :: nil;
+        Aenv_wf := pre_env_wf; Asp_wf := pre_sp_wf
+     |})
+    swap
+    (Ast_denote
+     {| Aenv := post_env;
+        App := True;
+        Asp := Spts (GLoc locX) 1 valY :: Spts (GLoc locY) 1 valX :: nil;
+        Aenv_wf := post_env_wf; Asp_wf := pre_sp_wf
+     |}).
+Proof.
+  autounfold.
+  sym_exec.
+  { simpl; introv [|]; congruence. }
+  { unfold exec_read; simpl.
+    Ltac resource_dec :=
+      lazymatch goal with [|- context [if eq_dec_P ?P ?X ?Y then _ else _] ] =>
+        first [assert (P -> X = Y) by (intros; crush); destruct (eq_dec_P P X Y); [|elimtype False; crush]  |
+               assert (P -> X <> Y) by (intros; crush); destruct (eq_dec_P P X Y); [elimtype False; crush|]]
+      end.
+    resource_dec.
+    reflexivity. }
+  sym_exec.
+  { simpl; introv [|]; congruence. }
+  { unfold exec_read; simpl.
+    unfold sp_wf in *; simpl in *.
+    repeat resource_dec.
+    reflexivity. }
+  sym_exec.
+  { unfold exec_write, sp_wf; simpl.
+    assert ((True /\ ~ (GLoc locY = GLoc locX \/ False) /\ ~ False /\ True) ->
+            (GLoc locX) = (GLoc locX)).
+    crush.
+    
