@@ -172,6 +172,7 @@ Ltac sep_lift n :=
 Ltac sep_split :=
   let H := fresh "H" in
   match goal with
+    | [ |- !(?P) ?s ?h] => apply pure_emp
     | [ |- ?P ?s ?h ] => 
       find_ban P ltac:(fun n =>
       match n with
@@ -192,8 +193,19 @@ Proof.
   sep_split.
 Abort.
 
+Lemma pure_emp_in (P : assn) (s : stack) (h : pheap) :
+  !(P) s h -> P s (emp_ph loc) /\ emp s h.
+Proof.
+  unfold_conn; simpl; destruct 1.
+  apply emp_emp_ph_eq in H; subst; split; auto.
+Qed.
+
 Ltac sep_split_in H :=
   repeat (match goal with
+    | [ H' : !(?P) ?s ?h |- _] => match H' with H =>
+      let HP := fresh "HP" in
+      apply pure_emp_in in H'; destruct H' as [HP H]
+      end
     | [ H' : ?P ?s ?h |- _ ] => match H' with H =>
       find_ban P ltac:(fun n =>
       idtac "debug" n;
@@ -328,14 +340,32 @@ Ltac sep_cancel2 :=
     | _ => idtac
   end.
 
+(* Ltac sep_cancel := *)
+(*   match goal with *)
+(*     | [ H : ?P ?s ?h |- ?P ?s ?h] => exact H *)
+(*     | [ H : (?P ** ?Q) ?s ?h |- (?P ** ?R) ?s ?h] => *)
+(*       let Hf := fresh "H" in *)
+(*       eapply scRw; [ intros ? ? Hf; exact Hf |  *)
+(*                      clear s h H; intros s h H | *)
+(*                      exact H] *)
+(*     | [ H : ?P ?s ?h |- ?Q ?s ?h ] => *)
+(*       search_match P Q ltac:(fun p =>  *)
+(*       match p with *)
+(*         | Some (?n, ?m) => *)
+(*           sep_lift m; sep_lift_in H n; *)
+(*           let Hf := fresh "H" in *)
+(*           eapply scRw_stack; [ intros ? Hf; exact Hf |  *)
+(*                                intros ? ? | *)
+(*                                exact H ] *)
+(*       end) *)
+(*     | [ H : ?P ?s (emp_ph loc), H' : emp ?s ?h |- !(?P) ?s ?h ] => *)
+(*       eapply pure_emp; eauto *)
+(*     | _ => sep_cancel2 *)
+(*   end. *)
+
 Ltac sep_cancel :=
+  auto;
   match goal with
-    | [ H : ?P ?s ?h |- ?P ?s ?h] => exact H
-    | [ H : (?P ** ?Q) ?s ?h |- (?P ** ?R) ?s ?h] =>
-      let Hf := fresh "H" in
-      eapply scRw; [ intros ? ? Hf; exact Hf | 
-                     clear s h H; intros s h H |
-                     exact H]
     | [ H : ?P ?s ?h |- ?Q ?s ?h ] =>
       search_match P Q ltac:(fun p => 
       match p with
@@ -346,9 +376,12 @@ Ltac sep_cancel :=
                                intros ? ? |
                                exact H ]
       end)
-    | [ H : ?P ?s (emp_ph loc), H' : emp ?s ?h |- !(?P) ?s ?h ] =>
-      eapply pure_emp; eauto
-    | _ => sep_cancel2
+    | [H : ?P ?s ?h |- ?Q ?s ?h ] =>
+      search_same_maps H;
+      let Hf := fresh in
+      exact H ||
+      (eapply scRw_stack; [intros ? Hf; exact Hf | clear H; intros ? H | exact H ]) (*||*)
+    | _ => idtac
   end.
 
 Ltac sep_combine_in H :=

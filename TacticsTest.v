@@ -206,7 +206,7 @@ Section VCG_test.
   Proof.
     intros ? ? ?.
     sep_split_in H.
-    sep_cancel.
+    sep_split; eauto.
     sep_cancel.
     sep_cancel.
   Qed.

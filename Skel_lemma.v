@@ -468,6 +468,7 @@ Lemma subA_eq_tup x e es1 es2 :
   subA x e (es1 ==t es2) |= (subEs x e es1 ==t es2).
 Proof.
   revert es2; induction es1; simpl; destruct es2; simpl; intros s h H; subA_normalize_in H; eauto.
+  simpl in *.
   sep_cancel; eauto.
 Qed.
 
@@ -767,10 +768,7 @@ Proof.
     rewrite fv_subE' in H'; [|eauto].
     assert ((!(es ==t vs) ** !(var === v)) s h).
     { sep_split_in H'.
-      sep_split.
-      destruct H'.
-      unfold_conn_all; auto.
-      split; destruct H'; eauto.
+      sep_split; eauto.
       unfold_conn_all; simpl in *; congruence. }
     exact H0.
   - eapply Hforward.
@@ -865,7 +863,7 @@ Proof.
     { intros Hc; unfold name_of_len in Hc; subst; simpl in H'; congruence. }
     destruct var_eq_dec; try congruence.
     sep_cancel.
-    revert Hsat; apply scRw; intros ? ? Hsat'.
+    revert H1; apply scRw; intros ? ? Hsat'.
     rewrite subEs_ss2es in Hsat'; eauto.
     intros s1 Hs1 Hc; apply names_of_array_in in Hs1; subst; congruence.
     revert Hsat'; apply scRw; intros ? ? Hsat'.
