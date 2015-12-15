@@ -47,11 +47,6 @@ Ltac subA_ex H :=
     | (Ex _, _) _ _ => eapply scEx in H;
        [|intros t ? ? Hf; subA_normalize_in Hf; magic; ptrn t Hf; exact Hf]
   end.
-
-Lemma eta_ex_dep2 {T U : Type} {S : T -> U -> Type} (f : forall (x : T) (y : U) , S x y) :
-  (fun x y => f x y) = f.
-Admitted.
-
 Variable ntrd : nat.
 Variable tid : Fin.t ntrd.
 Goal CSL (fun _ => default ntrd) tid emp SUM !(T === Enum' (n * (n + 1) / 2)).
@@ -76,19 +71,19 @@ Proof.
   eapply rule_seq; [repeat hoare_forward |].
   intros ? ? H. subA_ex H. destruct H. simpl in H. ex_intro x0 H. simpl in H. exact H.
   eapply rule_ex; intros y; repeat hoare_forward.
-  intros ? ? H. subA_ex H; destruct H; simpl in H. exists (S x); sep_split; sep_split_in H.
+  intros ? ? H. subA_ex H; destruct H; simpl in H. exists (S x); sep_split; sep_split_in H; auto.
   { unfold_conn_all; simpl in *; rewrite Zpos_P_of_succ_nat; omega. }
-  { unfold_conn_all; simpl in *. rewrite Zpos_P_of_succ_nat. destruct H. rewrite Nat2Z.inj_add. omega. }
-  { unfold_conn_all; simpl in *;unfold bexp_to_assn in *. simpl in *. split; destruct H; auto. 
+  { unfold_conn_all; simpl in *. rewrite Zpos_P_of_succ_nat. rewrite Nat2Z.inj_add. omega. }
+  { unfold_conn_all; simpl in *;unfold bexp_to_assn in *. simpl in *. 
     destruct (Z_lt_dec); [omega|congruence]. } 
   { intros s h H. sep_split_in H. destruct H. sep_split_in H.
-    unfold_conn_all; simpl in *; unfold bexp_to_assn in *; simpl in *; split; destruct H; auto.
+    unfold_conn_all; simpl in *; unfold bexp_to_assn in *; simpl in *; split; auto.
     assert (x = n) by (destruct Z_lt_dec; simpl in *; (congruence || omega)).
     congruence. }
   { intros; sep_split_in H.
     exists 0; sep_split; simpl in *; auto.
     - unfold_conn; auto.
-    - unfold_conn; split; auto. omega. }
+    - unfold_conn; auto. omega. }
 Qed.
 
-Section sum_of_number.
+End sum_of_number.

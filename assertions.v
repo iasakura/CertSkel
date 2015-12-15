@@ -5,7 +5,7 @@ Ltac last_slist :=
   let H := fresh "H" in
   match goal with
     | [ |- (?P ** ?R) ?s ?h ] =>
-      eapply scRw; [intros ? ? H; exact H | intros ? ? H; last_slist; exact H | idtac];
+      eapply scRw; [clear; intros ? ? H; exact H | intros ? ? H; last_slist; exact H | idtac];
       apply scA'
     | _ => idtac
   end.
@@ -328,17 +328,17 @@ Ltac search_same_maps H :=
       eapply scRw_stack; [intros ? Hf; exact Hf | intros ? Hf; search_same_maps H; exact Hf | idtac ]
   end.  
 
-Ltac sep_cancel2 :=
-  match goal with
-    | [H : ?P ?s ?h |- ?Q ?s ?h ] =>
-      idtac "cancel2:" P Q;
-      search_same_maps H;
-      let Hf := fresh in
-      exact H ||
-      (eapply scRw_stack; [intros ? Hf; exact Hf | clear H; intros ? H | exact H ]) ||
-      (eapply (@sc_emp2 _ s h) in H; eapply scRw_stack; [intros ? Hf; exact Hf | clear H; intros ? H | exact H ])
-    | _ => idtac
-  end.
+(* Ltac sep_cancel2 := *)
+(*   match goal with *)
+(*     | [H : ?P ?s ?h |- ?Q ?s ?h ] => *)
+(*       idtac "cancel2:" P Q; *)
+(*       search_same_maps H; *)
+(*       let Hf := fresh in *)
+(*       exact H || *)
+(*       (eapply scRw_stack; [intros ? Hf; exact Hf | clear H; intros ? H | exact H ]) || *)
+(*       (eapply (@sc_emp2 _ s h) in H; eapply scRw_stack; [intros ? Hf; exact Hf | clear H; intros ? H | exact H ]) *)
+(*     | _ => idtac *)
+(*   end. *)
 
 (* Ltac sep_cancel := *)
 (*   match goal with *)
