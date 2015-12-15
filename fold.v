@@ -333,6 +333,7 @@ Proof.
       { hoare_forward; intros ? ? H; exact H. }
       eapply rule_seq.
       { hoare_forward; intros ? ? [v H]. subA_normalize_in H. simpl in H. ex_intro v H; exact H. }
+      
       repeat hoare_forward. intros ? ? [v H].
       subA_normalize_in H. simpl in H.
       sep_normal_in H. sep_split_in H.

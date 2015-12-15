@@ -1307,6 +1307,8 @@ Proof.
         intros x0 Hx0.
         cutrewrite (off * (2 * nf i + 2) - 1 = nf i * (off + off) + off + off - 1); [|f_equal; ring].
         rewrite <-Nat.add_sub_assoc; try omega.
+        Show Existentials.
+        clear.
         rewrite (plus_comm x0 (nf i * (off + off))).
         Require Import LibTactics.
         clears.
