@@ -1308,10 +1308,8 @@ Proof.
         cutrewrite (off * (2 * nf i + 2) - 1 = nf i * (off + off) + off + off - 1); [|f_equal; ring].
         rewrite <-Nat.add_sub_assoc; try omega.
         Show Existentials.
-        clear.
         rewrite (plus_comm x0 (nf i * (off + off))).
         Require Import LibTactics.
-        clears.
         destruct Nat.eq_dec; try omega.
         destruct Nat.eq_dec; eauto.
         cutrewrite (nf i * (off + off) = off * (2 * nf i)) in e3; [|ring].

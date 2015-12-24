@@ -1271,7 +1271,7 @@ Lemma inject_Z_Sn_gt0 n : (1 <= inject_Z (Z.of_nat (S n)))%Q.
 Proof.
   injZ_simplify.
   lets: (>>inject_Z_n_ge0 n).
-  psatz Q 2.
+  lra.
 Qed.
 
 Ltac Qc_to_Q :=
@@ -1310,9 +1310,11 @@ Proof.
        rewrite !Qred_correct.
        reflexivity. }
      rewrite Qcmult_plus_distr_l, Qcmult_1_l; eauto.
-     rewrite is_array_p_star, IHnt; [|subst nt'; unfold injZ in *; injZ_simplify; Qc_to_Q; eauto; pose proof (inject_Z_n_ge0 nt); psatz Q 3..].
+     rewrite is_array_p_star, IHnt; [|subst nt'; unfold injZ in *; injZ_simplify; Qc_to_Q; eauto; pose proof (inject_Z_n_ge0 nt); try lra..].
      split; intros; repeat sep_cancel; eauto.
      sep_cancel; eauto.
+     assert (0 <= inject_Z (Zn nt) * this)%Q by (apply Qmult_le_0_compat; lra).
+     lra.
 Qed.
 
 Lemma is_array_p1 e n f stk :
