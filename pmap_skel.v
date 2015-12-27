@@ -452,26 +452,24 @@ Proof.
 
     eapply mod_between; eauto. }
 
-  {  intros s h H; unfold inv; exists 0; simpl.
-     sep_split_in H; unfold_pures; sep_split; auto.
-     - unfold_conn; simpl; autorewrite with sep. unfold_conn_in HP; simpl in HP. 
-       repeat match goal with [H : _ = _|- _] => first [rewrite <-H | rewrite H]; clear H end; auto.
-     - unfold_conn. assert (nf tid + nf bid * ntrd < nt_gr) by auto. omega.
-     - sep_cancel.
-       sep_rewrite nth_dist_nil_tup; auto.
-       2: instantiate (1 := nf tid + nf bid * ntrd).
-       rewrite minus_diag; simpl.
-       2: simpl; intros; unfold nt_step; rewrite Nat.mod_small; try omega; auto.
-       2: assert (nf tid + nf bid * ntrd < nt_gr) by auto; omega.
-       Require Import pmap.
-       Hint Resolve id_lt_nt_gr.
-       sep_rewrite_in nth_dist_nil_tup H0; eauto.
-       2: instantiate (1 := nf tid + nf bid * ntrd).
-       2: simpl; intros; unfold nt_step; rewrite Nat.mod_small; try omega; auto.
-       2: assert (nf tid + nf bid * ntrd < nt_gr) by auto; omega.
-       simpl in *.
-       rewrite nth_nseq; destruct (leb _ _); sep_rewrite emp_unit_l; eauto. }
-
+  { assert (Hlt : gtid < nt_gr) by auto.
+    intros s h H; unfold inv; exists 0; simpl.
+    sep_split_in H; unfold_pures; sep_split; auto.
+    - unfold_conn; simpl; autorewrite with sep. unfold_conn_in HP; simpl in HP. 
+      repeat match goal with [H : _ = _|- _] => first [rewrite <-H | rewrite H]; clear H end; auto.
+    - unfold_conn. assert (nf tid + nf bid * ntrd < nt_gr) by auto. omega.
+    - sep_cancel.
+      sep_rewrite nth_dist_nil_tup; auto.
+      2: instantiate (1 := nf tid + nf bid * ntrd).
+      rewrite minus_diag; simpl.
+      2: simpl; intros; unfold nt_step; rewrite Nat.mod_small; try omega; auto.
+      sep_rewrite_in nth_dist_nil_tup H0; auto.
+      
+      2: instantiate (1 := nf tid + nf bid * ntrd).
+      2: simpl; intros; unfold nt_step; rewrite Nat.mod_small; try omega; auto.
+      2: unfold lt in *; omega.
+      simpl in *.
+      rewrite nth_nseq; destruct (leb _ _); sep_rewrite emp_unit_l; eauto. }
 Qed.
 End thread_verification.
 
