@@ -334,19 +334,19 @@ Ltac subA_normalize_in H tac :=
   lazymatch type of H with
     | (_ ** _) _ _ =>
       eapply scRw in H;
-        [ idtac | intros ? ? Hf; subA_normalize_in Hf tac; exact Hf ..]
+        [ idtac | clear; intros ? ? Hf; subA_normalize_in Hf tac; exact Hf ..]
     | subA _ _ (_ ** _) _ _ =>
       apply subA_sconj in H; eapply scRw in H;
-        [ idtac | intros ? ? Hf; subA_normalize_in Hf tac; exact Hf .. ]
+        [ idtac | clear; intros ? ? Hf; subA_normalize_in Hf tac; exact Hf .. ]
     | subA _ _ (_ //\\ _) _ _ =>
       apply subA_conj in H;  eapply conj_mono in H;
-        [ idtac | intros Hf; subA_normalize_in Hf tac; exact Hf .. ]
+        [ idtac | clear; intros Hf; subA_normalize_in Hf tac; exact Hf .. ]
     | subA _ _ (_ \\// _) _ _ =>
       apply subA_disj in H;  eapply disj_mono in H;
-        [ idtac | intros Hf; subA_normalize_in Hf tac; exact Hf .. ]
+        [ idtac | clear; intros Hf; subA_normalize_in Hf tac; exact Hf .. ]
     | subA _ _ (_ -->p (_, _)) _ _ => apply subA_pointto in H
     | subA _ _ !(_) _ _ => eapply subA_pure in H; eapply pure_mono in H;
-        [ idtac | intros Hf; subA_normalize_in Hf tac; exact Hf ]
+        [ idtac | clear; intros Hf; subA_normalize_in Hf tac; exact Hf ]
     | subA _ _ (pure _) _ _ => apply subA_pure' in H
     | subA _ _ (_ === _) _ _ => apply subA_eeq in H
     | subA _ _ (_ ===l _) _ _ => apply subA_leeq in H
@@ -358,7 +358,7 @@ Ltac subA_normalize_in H tac :=
     | subA _ _ (is_array_p _ _ _ _ _) _ _ => apply subA_is_array_p in H; auto
     | subA _ _ (if _ then _ else _) _ _ =>
       apply subA_if_dec in H; eapply if_mono in H;
-      [ idtac | intros ? ? Hf; subA_normalize_in Hf tac; exact Hf ..]
+      [ idtac | clear; intros ? ? Hf; subA_normalize_in Hf tac; exact Hf ..]
     | _ => try tac H; simpl in H
   end.
 Tactic Notation "subA_normalize_in" hyp(H) "with" tactic(tac)  := subA_normalize_in H tac.
@@ -404,19 +404,19 @@ End hoare_lemmas.
 (* Definition equiv_sep (P Q : assn) := (forall s h, P s h <-> Q s h). *)
 (* Notation "P <=> Q" := (equiv_sep P Q) (at level 87). *)
 
-Ltac ltac_bug E H :=
-  match type of H with
-    | ((_ ** _) _ _) =>
-      let Hf := fresh in
-      eapply scRw_stack in H; [idtac | intros ? Hf; exact Hf |
-                               intros ? Hf; ltac_bug E Hf; exact Hf];
-      match goal with _ => idtac  end;
-      match type of H with
-        | ((_ ** _ ** _) _ _) => apply scCA in H
-        | ((_ ** _) _ _) => apply scC in H
-      end 
-    | _ => idtac
-  end.
+(* Ltac ltac_bug E H := *)
+(*   match type of H with *)
+(*     | ((_ ** _) _ _) => *)
+(*       let Hf := fresh in *)
+(*       eapply scRw_stack in H; [idtac | clear; intros ? Hf; exact Hf | *)
+(*                                intros ? Hf; ltac_bug E Hf; exact Hf]; *)
+(*       match goal with _ => idtac  end; *)
+(*       match type of H with *)
+(*         | ((_ ** _ ** _) _ _) => apply scCA in H *)
+(*         | ((_ ** _) _ _) => apply scC in H *)
+(*       end  *)
+(*     | _ => idtac *)
+(*   end. *)
 (*
 Example ltac_bug P Q s h n (tid : Fin.t n) :
   (P ** Q ** ( (ARR +  Z_of_fin tid) -->p (1%Qc,  (Z_of_fin tid))) ** !( TID ===  (Z_of_fin tid))) s h -> False.
@@ -568,7 +568,7 @@ Ltac hoare_forward :=
       eapply Hforward; [
         eapply Hbackward; [
           eapply rule_frame; 
-          [eapply rule_barrier | prove_inde] |
+          [apply rule_barrier | prove_inde] |
            autounfold; simpl; repeat rewrite MyVector.init_spec in *] | 
         (* frame_analysis (Vector.nth (fst (bspec i)) tid) *)]
     | [ |- CSL ?bspec ?tid ?P (Cif ?b ?c1 ?c2) ?Q ] =>

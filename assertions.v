@@ -5,7 +5,7 @@ Ltac last_slist :=
   let H := fresh "H" in
   match goal with
     | [ |- (?P ** ?R) ?s ?h ] =>
-      eapply scRw; [intros ? ? H; exact H | intros ? ? H; last_slist; exact H | idtac];
+      eapply scRw; [clear; intros ? ? H; exact H | clear; intros ? ? H; last_slist; exact H | idtac];
       apply scA'
     | _ => idtac
   end.
@@ -14,7 +14,7 @@ Ltac append_slist :=
   let H := fresh "H" in
   match goal with
     | [ |- ((?P ** ?Q) ** ?R) ?s ?h ] =>
-      eapply scRw; [intros ? ? H; last_slist; exact H | intros ? ? H; exact H | idtac];
+      eapply scRw; [clear; intros ? ? H; last_slist; exact H | clear; intros ? ? H; exact H | idtac];
       apply scA; append_slist
     | [ |- _ ] => idtac
   end.
@@ -35,10 +35,10 @@ Ltac sep_normal :=
     | [ |- (?P ** emp) ?s ?h ] => apply sc_emp2; sep_normal
 (*    | [ |- (?P ** !(?Q)) ?s ?h ] => apply scban_r; [sep_normal | ]
     | [ |- (!(?P) ** ?Q) ?s ?h ] => apply scban_l; [ | sep_normal ]*)
-    | [ |- (Ex _, _) ?s ?h ] => eapply scEx; [intros ? ? ? H; sep_normal; exact H | idtac ]
+    | [ |- (Ex _, _) ?s ?h ] => eapply scEx; [clear; intros ? ? ? H; sep_normal; exact H | idtac ]
     | [ |- (?P ** ?Q) ?s ?h] => 
-      eapply scRw; [intros ? ? H; sep_normal; exact H |
-                    intros ? ? H; sep_normal; exact H | idtac];
+      eapply scRw; [clear; intros ? ? H; sep_normal; exact H |
+                    clear; intros ? ? H; sep_normal; exact H | idtac];
       append_slist
     | _ => idtac
   end.
@@ -59,8 +59,8 @@ Ltac last_slist_in H :=
   match goal with
     | [ H' : (?P ** ?R) ?s ?h |- _ ] => match H with H' =>
         eapply scRw in H; [ idtac |
-                            intros ? ? Hf; exact Hf |
-                            intros ? ? Hf; last_slist_in Hf; exact Hf ];
+                            clear; intros ? ? Hf; exact Hf |
+                            clear; intros ? ? Hf; last_slist_in Hf; exact Hf ];
         apply scA in H
       end
     | _ => idtac
@@ -71,8 +71,8 @@ Ltac append_slist_in H :=
   match goal with
     | [ H' : ((?P ** ?Q) ** ?R) ?s ?h |- _ ] => match H with H' =>
         eapply scRw in H; [ idtac |
-                            intros ? ? Hf; last_slist_in Hf; exact Hf |
-                            intros ? ? Hf; exact Hf ];
+                            clear; intros ? ? Hf; last_slist_in Hf; exact Hf |
+                            clear; intros ? ? Hf; exact Hf ];
         apply scA' in H; append_slist_in H
       end
     | [ |- _ ] => idtac
@@ -88,12 +88,12 @@ Ltac sep_normal_in H :=
         apply sc_emp2' in H; sep_normal_in H
       end
     | [ H' : (Ex _, _) ?s ?h |- _ ] => match H with H' => 
-        eapply scEx in H; [ idtac | intros ? ? ? Hf; sep_normal_in Hf; exact Hf ]
+        eapply scEx in H; [ idtac | clear; intros ? ? ? Hf; sep_normal_in Hf; exact Hf ]
       end
     | [ H' : (?P ** ?Q) ?s ?h |- _ ] => match H with H' => 
         eapply scRw in H; [ idtac |
-                            intros ? ? Hf; sep_normal_in Hf; exact Hf |
-                            intros ? ? Hf; sep_normal_in Hf; exact Hf ];
+                            clear; intros ? ? Hf; sep_normal_in Hf; exact Hf |
+                            clear; intros ? ? Hf; sep_normal_in Hf; exact Hf ];
         append_slist_in H
       end
     | _ => idtac
@@ -108,7 +108,7 @@ Ltac sep_lift_in H n :=
         | O => fail 2
         | S ?n => 
           let Hf := fresh "H" in
-          eapply scEx in H; [idtac | intros ? ? ? Hf; sep_lift_in Hf n; exact Hf] 
+          eapply scEx in H; [idtac | clear; intros ? ? ? Hf; sep_lift_in Hf n; exact Hf] 
       end end
     | [ H' : (_ ** _ ** _) ?s ?h |- _ ] => match H' with H =>
       idtac "match second case";
@@ -117,8 +117,8 @@ Ltac sep_lift_in H n :=
         | S ?n => 
           let Hf := fresh "H" in
           eapply scRw in H; [idtac |
-                        intros ? ? Hf; exact Hf | 
-                        intros ? ? Hf; sep_lift_in Hf n; exact Hf];
+                        clear; intros ? ? Hf; exact Hf | 
+                        clear; intros ? ? Hf; sep_lift_in Hf n; exact Hf];
           apply scCA in H
       end end
     | [ H' : (_ ** _) ?s ?h |- _] => match H' with H =>
@@ -150,15 +150,15 @@ Ltac sep_lift n :=
     | [ |- (Ex _, _) ?s ?h ] => 
       pred_n n ltac:(fun n =>
         let H := fresh "H" in
-        eapply scEx; [intros ? ? ? H; sep_lift n; exact H| idtac] )
+        eapply scEx; [clear; intros ? ? ? H; sep_lift n; exact H| idtac] )
     | [ |- (_ ** _ ** _) ?s ?h ] =>
       match n with
         | 0 => idtac
         | S ?n => 
           let H := fresh "H" in
-          eapply scRw; [intros ? ? H; exact H | 
-                       intros ? ? H; sep_lift n; exact H|
-                       idtac];
+          eapply scRw; [clear; intros ? ? H; exact H | 
+                        clear; intros ? ? H; sep_lift n; exact H|
+                        idtac];
           apply scCA
       end
     | [ |- (_ ** _) ?s ?h ] =>
@@ -172,6 +172,7 @@ Ltac sep_lift n :=
 Ltac sep_split :=
   let H := fresh "H" in
   match goal with
+    | [ |- !(?P) ?s ?h] => apply pure_emp
     | [ |- ?P ?s ?h ] => 
       find_ban P ltac:(fun n =>
       match n with
@@ -192,8 +193,19 @@ Proof.
   sep_split.
 Abort.
 
+Lemma pure_emp_in (P : assn) (s : stack) (h : pheap) :
+  !(P) s h -> P s (emp_ph loc) /\ emp s h.
+Proof.
+  unfold_conn; simpl; destruct 1.
+  apply emp_emp_ph_eq in H; subst; split; auto.
+Qed.
+
 Ltac sep_split_in H :=
   repeat (match goal with
+    | [ H' : !(?P) ?s ?h |- _] => match H' with H =>
+      let HP := fresh "HP" in
+      apply pure_emp_in in H'; destruct H' as [HP H]
+      end
     | [ H' : ?P ?s ?h |- _ ] => match H' with H =>
       find_ban P ltac:(fun n =>
       idtac "debug" n;
@@ -272,11 +284,11 @@ Ltac find_enough_resource E H :=
       eapply scRw_stack in H;
       [idtac |
        intros hf Hf'; eapply (mapsto_rewrite1 Hf) in Hf'; exact Hf' |
-       intros ? Hf'; exact Hf'];
+       clear; intros ? Hf'; exact Hf'];
       clear Hf
     | ((_ ** _) _ _) =>
       let Hf := fresh in
-      eapply scRw_stack in H; [idtac | intros ? Hf; exact Hf |
+      eapply scRw_stack in H; [idtac | clear; intros ? Hf; exact Hf |
                                intros ? Hf; find_enough_resource E Hf; exact Hf];
       match goal with _ => idtac  end;
 (*      match goal with [ H' : ?P |- _ ] => match H with H' => match P with*)
@@ -303,7 +315,7 @@ Ltac search_addr E0 E1 H :=
       eapply scRw_stack in H;
       [idtac |
        intros hf Hf'; eapply (mapsto_rewrite2 Hf) in Hf'; exact Hf' |
-       intros ? Hf'; exact Hf'];
+       clear; intros ? Hf'; exact Hf'];
       clear Hf
   end.
 
@@ -313,42 +325,64 @@ Ltac search_same_maps H :=
     | [ |- ((?E0 -->p (_, ?E1))) _ _ ] => search_addr E0 E1 H
     | [ |- (_ ** ?Q) _ _ ] =>
       let Hf := fresh in
-      eapply scRw_stack; [intros ? Hf; exact Hf | intros ? Hf; search_same_maps H; exact Hf | idtac ]
+      eapply scRw_stack; [clear; intros ? Hf; exact Hf |
+                          clear; intros ? Hf; search_same_maps H; exact Hf | idtac ]
   end.  
 
-Ltac sep_cancel2 :=
-  match goal with
-    | [H : ?P ?s ?h |- ?Q ?s ?h ] =>
-      idtac "cancel2:" P Q;
-      search_same_maps H;
-      let Hf := fresh in
-      exact H ||
-      (eapply scRw_stack; [intros ? Hf; exact Hf | clear H; intros ? H | exact H ]) ||
-      (eapply (@sc_emp2 _ s h) in H; eapply scRw_stack; [intros ? Hf; exact Hf | clear H; intros ? H | exact H ])
-    | _ => idtac
-  end.
+(* Ltac sep_cancel2 := *)
+(*   match goal with *)
+(*     | [H : ?P ?s ?h |- ?Q ?s ?h ] => *)
+(*       idtac "cancel2:" P Q; *)
+(*       search_same_maps H; *)
+(*       let Hf := fresh in *)
+(*       exact H || *)
+(*       (eapply scRw_stack; [intros ? Hf; exact Hf | clear H; intros ? H | exact H ]) || *)
+(*       (eapply (@sc_emp2 _ s h) in H; eapply scRw_stack; [intros ? Hf; exact Hf | clear H; intros ? H | exact H ]) *)
+(*     | _ => idtac *)
+(*   end. *)
+
+(* Ltac sep_cancel := *)
+(*   match goal with *)
+(*     | [ H : ?P ?s ?h |- ?P ?s ?h] => exact H *)
+(*     | [ H : (?P ** ?Q) ?s ?h |- (?P ** ?R) ?s ?h] => *)
+(*       let Hf := fresh "H" in *)
+(*       eapply scRw; [ intros ? ? Hf; exact Hf |  *)
+(*                      clear s h H; intros s h H | *)
+(*                      exact H] *)
+(*     | [ H : ?P ?s ?h |- ?Q ?s ?h ] => *)
+(*       search_match P Q ltac:(fun p =>  *)
+(*       match p with *)
+(*         | Some (?n, ?m) => *)
+(*           sep_lift m; sep_lift_in H n; *)
+(*           let Hf := fresh "H" in *)
+(*           eapply scRw_stack; [ intros ? Hf; exact Hf |  *)
+(*                                intros ? ? | *)
+(*                                exact H ] *)
+(*       end) *)
+(*     | [ H : ?P ?s (emp_ph loc), H' : emp ?s ?h |- !(?P) ?s ?h ] => *)
+(*       eapply pure_emp; eauto *)
+(*     | _ => sep_cancel2 *)
+(*   end. *)
 
 Ltac sep_cancel :=
+  auto;
   match goal with
-    | [ H : ?P ?s ?h |- ?P ?s ?h] => exact H
-    | [ H : (?P ** ?Q) ?s ?h |- (?P ** ?R) ?s ?h] =>
-      let Hf := fresh "H" in
-      eapply scRw; [ intros ? ? Hf; exact Hf | 
-                     clear s h H; intros s h H |
-                     exact H]
     | [ H : ?P ?s ?h |- ?Q ?s ?h ] =>
       search_match P Q ltac:(fun p => 
       match p with
         | Some (?n, ?m) =>
           sep_lift m; sep_lift_in H n;
           let Hf := fresh "H" in
-          eapply scRw_stack; [ intros ? Hf; exact Hf | 
+          eapply scRw_stack; [ clear; intros ? Hf; exact Hf | 
                                intros ? ? |
                                exact H ]
       end)
-    | [ H : ?P ?s (emp_ph loc), H' : emp ?s ?h |- !(?P) ?s ?h ] =>
-      eapply pure_emp; eauto
-    | _ => sep_cancel2
+    | [H : ?P ?s ?h |- ?Q ?s ?h ] =>
+      search_same_maps H;
+      let Hf := fresh in
+      exact H ||
+      (eapply scRw_stack; [clear; intros ? Hf; exact Hf | clear H; intros ? H | exact H ]) (*||*)
+    | _ => idtac
   end.
 
 Ltac sep_combine_in H :=

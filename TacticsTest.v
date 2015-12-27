@@ -206,7 +206,7 @@ Section VCG_test.
   Proof.
     intros ? ? ?.
     sep_split_in H.
-    sep_cancel.
+    sep_split; eauto.
     sep_cancel.
     sep_cancel.
   Qed.
@@ -289,9 +289,13 @@ Section Swap.
        (Gl X -->p(1%Qc, ty) ** (Gl Y -->p(1%Qc, tx))).
   Proof.
     unfold swap.
-    repeat (hoare_forward || (eapply rule_seq; [hoare_forward; intros ? ? H'; exact H' |])).
+    (hoare_forward || (eapply rule_seq; [hoare_forward; intros ? ? H'; exact H' |])).
+    (hoare_forward || (eapply rule_seq; [hoare_forward; intros ? ? H'; exact H' |])).
+    (hoare_forward || (eapply rule_seq; [hoare_forward; intros ? ? H'; exact H' |])).
+    (hoare_forward || (eapply rule_seq; [hoare_forward; intros ? ? H'; exact H' |])).
     intros ? ? H.
-    sep_normal_in H. sep_split_in H. sep_normal. sep_split. 
-    repeat sep_cancel2.
+    sep_normal_in H. sep_split_in H. sep_normal. sep_split.
+    sep_cancel.
+    repeat sep_cancel.
   Qed.
 End Swap.

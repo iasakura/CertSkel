@@ -11,7 +11,7 @@ Fixpoint var_in (x : var) (E : penv) :=
 
 Fixpoint esat (E : penv) :=
   match E with
-  | nil => FalseP
+  | nil => TrueP
   | (x, v) :: E => (x === v) //\\ esat E
   end.
 
@@ -36,10 +36,19 @@ Fixpoint env_wf (E : penv) :=
   | (x, _) :: E => ~var_in x E /\ env_wf E
   end.
 
-Record Astate := {Aenv : penv; Aenv_wf : env_wf Aenv; Ap : Prop; sp : SProp}.
+Definition addr pts := match pts with Spts addr _ _ => addr end.
+
+Definition sp_wf (sp : list SP) := disjoint_list (map addr sp).
+
+Record Astate := 
+  {Aenv : penv;
+   App : Prop;
+   Asp : SProp;
+   Aenv_wf : env_wf Aenv}.
+   (* Asp_wf : sp_wf Asp}. *)
 
 Definition Ast_denote (st : Astate) : assn :=
-  !(esat (Aenv st) //\\ pure (Ap st)) ** Ssat (sp st).
+  !(esat (Aenv st) //\\ pure (App st)) ** Ssat (Asp st).
 
 Definition Asts_denote (sts : list Astate) : assn :=
   fold_right (fun st assn => Ast_denote st \\// assn) FalseP sts.
@@ -122,12 +131,14 @@ Definition exec_assign (st : Astate) (x : var) (E : exp) :=
   match eval (Aenv st) E with
   | None => None
   | Some v =>
-    Some {| Aenv := env_update x v (Aenv st); Aenv_wf := env_update_wf x v (Aenv st) (Aenv_wf st);
-            Ap := Ap st; sp := sp st|}
+    Some {| Aenv := env_update x v (Aenv st);
+            App := App st;
+            Asp := Asp st;
+            Aenv_wf := env_update_wf x v (Aenv st) (Aenv_wf st) |}
+            (* Asp_wf := Asp_wf st|} *)
   end.
-
+Section rules.
 Variable ntrd : nat.
-Hypothesis ntrd_neq_0 : ntrd <> 0.
 
 Notation bspec := (Bdiv.barrier_spec ntrd).
 
@@ -222,12 +233,14 @@ Definition exec_read (st : Astate) (x : var) (E : loc_exp) :=
   match leval (Aenv st) E with
   | None => None
   | Some l =>
-    match get_addr l (sp st) with
+    match get_addr l (Asp st) with
     | None => None
     | Some (_, v) =>
       Some {| Aenv := env_update x v (Aenv st);
-              Aenv_wf := env_update_wf x v (Aenv st) (Aenv_wf st);
-              Ap := Ap st; sp := sp st|}
+              App := App st;
+              Asp := Asp st;
+              Aenv_wf := env_update_wf x v (Aenv st) (Aenv_wf st) |}
+              (* Asp_wf := Asp_wf st|} *)
     end
   end.
 
@@ -250,7 +263,7 @@ Proof.
 Qed.
 
 Lemma get_addr_correct (l : loc) (sp : SProp) p v :
-  get_addr l sp = Some (p, v) ->
+  get_addr l sp = Some (p, v) -> 
   exists sp0 sp1,
     sp = sp0 ++ (Spts l p v) :: sp1.
 Proof.
@@ -258,8 +271,8 @@ Proof.
   intros H.
   destruct (eq_dec l l0); subst.
   - inverts H.
-    exists (@nil SP) sp0; simpl; eauto.
-  - lets (sp1 & sp2 & ?): (IHsp H); subst.
+    exists (@nil SP) sp; simpl; eauto.
+  - lets (sp1 & sp2 & ?): (IHsp H); subst; auto.
     exists (Spts l0 q v0 :: sp1) sp2; eauto.
 Qed.    
 
@@ -278,6 +291,39 @@ Fixpoint env_remove (e : penv) (x : var) :=
   | nil => nil
   | (y, v) :: e => if var_eq_dec y x then env_remove e x else (y, v) :: env_remove e x
   end.
+
+Lemma eval_correct' E x s h e v:
+  ~(In x (fv_E e)) ->
+  esat (env_remove E x) s h ->
+  eval E e = Some v ->
+  edenot e s = v.
+Proof.
+  revert v; induction e; simpl; intros; try congruence;
+  try destruct (eval E e1); try destruct (eval E e2); try destruct (eval E e); simpl in *; try congruence;
+  try rewrite in_app_iff in *; try rewrite (IHe v0); try rewrite (IHe1 v0); try rewrite (IHe2 v1); eauto; try congruence.
+  - destruct (var_eq_dec x0 x); subst; try (now (elimtype False; eauto)).
+    induction E as [|[x' v'] E]; simpl in *; try congruence.
+    + repeat destruct var_eq_dec; try congruence; eauto; subst.
+      * simpl in H0; unfold_conn_in H0; simpl in H0; destruct H0; congruence.
+      * apply IHE in H1; auto; destruct H0; auto.
+  - rewrite Zdiv2_div; unfold div2 in *; congruence.
+Qed.
+
+Lemma leval_correct' E x s h e v:
+  ~(In x (fv_lE e)) ->
+  esat (env_remove E x) s h ->
+  leval E e = Some v ->
+  ledenot e s = v.
+Proof.
+  revert v; induction e; simpl; intros; try congruence;
+  try (destruct (eval E e) eqn:Heq; simpl in *; try congruence;
+       inversion H1; erewrite eval_correct'; eauto).
+  destruct (leval E e) eqn:?, (eval E e0) eqn:?; simpl in *; try congruence.
+  rewrite in_app_iff in H.
+  erewrite IHe; eauto.
+  erewrite eval_correct'; eauto.
+  destruct l; simpl in *; congruence.
+Qed.
 
 Lemma env_remove_weak (e : penv) (x : var) s h :
   esat e s h ->
@@ -328,39 +374,58 @@ Qed.
     
 Lemma exec_read_correct (i : Fin.t ntrd) (BS : bspec) (st st' : Astate) x E:
   ~(In x (fv_lE E)) ->
-  exec_read st x E = Some st' ->
+  (App st -> exec_read st x E = Some st') ->
   CSL BS i (Ast_denote st) (x ::= [E]) (Ast_denote st').
 Proof.
-  autounfold; intros Hfv H.
-  apply indelE_fv in Hfv.
-  destruct st as [env envwf P S], st'; simpl in *.
-  destruct (leval env E) eqn:Heval; try congruence.
-  destruct (get_addr l S) as [[p v]| ] eqn:Hget; try congruence.
-  inversion H; subst.
-  lets (sp1 & sp2 & Heq): (>> get_addr_correct Hget); subst.
+  intros Hfv H.
+  lets Hfv': (>>indelE_fv Hfv).
+  autounfold in *.
+  destruct st as [env P S envwf], st'; simpl in *.
   eapply Hbackward.
-  Focus 2. { 
+  Focus 2. {
     intros s h Hsat.
     sep_split_in Hsat.
+    destruct HP as [HP0 HP1].
+    destruct (leval env E) eqn:Heval; try intuition congruence.
+    destruct (get_addr l S) as [[p v]| ] eqn:Hget; try intuition congruence.
+    lets (sp1 & sp2 & Heq): (>> get_addr_correct Hget); auto.
+    rewrite Heq in Hsat.
     sep_rewrite_in SP_order Hsat; simpl in Hsat.
     assert ((loc_to_exp l ===l E) s (emp_ph loc)).
-    { destruct HP.
-      eapply leval_correct in Heval; eauto.
+    { eapply leval_correct in Heval; eauto.
       unfold_conn; simpl; rewrite Heval.
       destruct l; simpl; eauto. }
     sep_rewrite_in mps_eq1 Hsat; [|exact H0].
-    destruct HP.
-    apply (env_remove_weak _ x) in H1.
-    sep_combine_in Hsat; sep_normal_in Hsat; eauto. } Unfocus.
-  hoare_forward.
+    apply (env_remove_weak _ x) in HP0.
+    instantiate (1 := Ex (l : loc) (p : Qc) (v : val) (sp1 sp2 : list SP),
+                       !(loc_to_exp l ===l E) **
+                       !(pure (S = sp1 ++ Spts l p v :: sp2)) **
+                       !(pure (get_addr l S = Some (p, v))) **
+                       !(esat (env_remove env x)) **
+                       !(pure P) **
+                       ((E -->p (p,  v)) ** Ssat (sp1 ++ sp2))).
+    do 5 eexists; autounfold; simpl; sep_split; eauto. } Unfocus.
+  repeat hoare_forward.
+  - destruct x0; simpl; auto.
   - simpl.
     apply env_remove_inde.
-  - destruct l; simpl; auto.
   - apply inde_Ssat.
   - intros s h Hsat.
     sep_normal_in Hsat; sep_split_in Hsat.
+    destruct (leval env E) eqn:Heval; try intuition congruence.
+    destruct (get_addr l S) as [[p v]| ] eqn:Hget; try intuition congruence.
+    lets H': (H HP4); inverts H'.
     sep_split; try split; eauto.
     apply esat_remove_update; eauto.
+    assert (l = x0).
+    { unfold_conn_in HP2; simpl in HP2.
+      unfold_conn_in HP0; simpl in HP0.
+      eapply leval_correct' in Heval; eauto.
+      destruct x0; simpl in *; congruence. }
+    subst x0.
+    assert (v = x2); [|subst x2; eauto].
+    { unfold_conn_all; simpl in *; congruence. }
+    unfold_conn_in HP1; subst Asp0.
     sep_rewrite SP_order; simpl; sep_cancel.
 Qed.
 
@@ -371,19 +436,43 @@ Fixpoint SP_update (l : loc) (v : val) (SP : SProp) :=
     if eq_dec l l' then Spts l' p v :: SP else Spts l' p v' :: SP_update l v SP
   end.
 
+Lemma SP_update_in l v SP l' :
+  ~In l' (map addr SP) -> ~In l' (map addr (SP_update l v SP)).
+Proof.
+  induction SP; simpl; auto.
+  destruct a.
+  destruct (eq_dec _ _); simpl; auto.
+  introv H Hc.
+  destruct Hc; auto.
+  apply IHSP; eauto.
+Qed.
+
+Lemma SP_update_wf l v SP :
+  sp_wf SP -> sp_wf (SP_update l v SP).
+Proof.
+  induction SP; simpl; eauto.
+  destruct a; unfold sp_wf in *; simpl.
+  destruct (eq_dec _ _); simpl; eauto.
+  split; jauto.
+  apply SP_update_in; jauto.
+Qed.
+
 Definition exec_write (st : Astate) (E : loc_exp) (E' : exp) :=
   match leval (Aenv st) E with
   | None => None
   | Some l =>
-    match get_addr l (sp st) with
+    match get_addr l (Asp st) with
     | None => None
     | Some (p, v) =>
       if Qc_eq_dec p 1 then 
         match eval (Aenv st) E' with
         | None => None
         | Some v =>
-          Some {| Aenv := Aenv st; Aenv_wf := Aenv_wf st;
-                  Ap := Ap st; sp := SP_update l v (sp st) |}
+          Some {| Aenv := Aenv st; 
+                  App := App st;
+                  Asp := SP_update l v (Asp st);
+                  Aenv_wf := Aenv_wf st |}
+                  (* Asp_wf := SP_update_wf _ l v (Asp st) (Asp_wf st) |} *)
         end
       else None
     end
@@ -392,51 +481,69 @@ Definition exec_write (st : Astate) (E : loc_exp) (E' : exp) :=
 Hint Unfold exec_write.
 
 Lemma exec_write_correct (i : Fin.t ntrd) (BS : bspec) (st st' : Astate) E E':
-  exec_write st E E' = Some st' ->
+  (App st -> exec_write st E E' = Some st') ->
   CSL BS i (Ast_denote st) ([E] ::= E') (Ast_denote st').
 Proof.
-  autounfold; intros H.
-  destruct st as [env envwf P S], st'; simpl in *.
-  destruct (leval env E) eqn:Hleval; try congruence.
-  destruct (get_addr l S) as [[p v]| ] eqn:Hget; try congruence.
-  destruct Qc_eq_dec; try congruence.
-  destruct (eval env E') eqn:Heval; try congruence.
-  inversion H; subst.
-  lets (sp1 & sp2 & Heq): (>> get_addr_correct Hget); subst.
+  intros H.
+  autounfold in *.
+  destruct st as [env P S envwf], st'; simpl in *.
   eapply Hbackward.
-  Focus 2. { 
+  Focus 2. {
     intros s h Hsat.
     sep_split_in Hsat.
+    destruct HP as [HP0 HP1].
+    destruct (leval env E) eqn:Heval; try intuition congruence.
+    destruct (get_addr l S) as [[p v]| ] eqn:Hget; try intuition congruence.
+    destruct (Qc_eq_dec p 1); try intuition congruence.
+    lets (sp1 & sp2 & Heq): (>> get_addr_correct Hget); auto.
+    rewrite Heq in Hsat.
     sep_rewrite_in SP_order Hsat; simpl in Hsat.
     assert ((loc_to_exp l ===l E) s (emp_ph loc)).
-    { destruct HP.
-      eapply leval_correct in Hleval; eauto.
-      unfold_conn; simpl; rewrite Hleval.
+    { eapply leval_correct in Heval; eauto.
+      unfold_conn; simpl; rewrite Heval.
       destruct l; simpl; eauto. }
     sep_rewrite_in mps_eq1 Hsat; [|exact H0].
-    sep_combine_in Hsat; sep_normal_in Hsat; eauto. } Unfocus.
-  hoare_forward.
+    instantiate (1 := Ex (l : loc) (v : val) (sp1 sp2 : list SP),
+                       !(loc_to_exp l ===l E) **
+                       !(pure (S = sp1 ++ Spts l 1 v :: sp2)) **
+                       !(pure (get_addr l S = Some (1%Qc, v))) **
+                       !(pure P) **
+                       !(esat env) **
+                       (E -->p (1,  v) ** Ssat (sp1 ++ sp2))).
+    subst p; do 4 eexists; autounfold; simpl; sep_split; eauto. } Unfocus.
+  repeat hoare_forward.
   - intros s h Hsat.
     sep_normal_in Hsat; sep_split_in Hsat.
-    destruct HP.
+    destruct (leval env E) eqn:Heval; try intuition congruence.
+    destruct (get_addr l S) as [[p v]| ] eqn:Hget; try intuition congruence.
+    destruct (Qc_eq_dec _ _); try intuition congruence.
+    destruct (eval env E') as [v'|] eqn:Heq'; try intuition congruence.
+    subst p.
+    lets H': (H HP2); inverts H'; clear H.
     sep_split; try split; eauto.
-    assert ((E ===l loc_to_exp l) s (emp_ph loc)).
-    { eapply leval_correct in Hleval; eauto.
-      unfold_conn; simpl; rewrite Hleval.
-      destruct l; simpl; eauto. }
-    assert ((E' === v0) s (emp_ph loc)).
-    { eapply eval_correct in Heval; eauto. }
+    unfold_conn_in HP0; subst S.
+    assert ((E' === v') s (emp_ph loc)).
+    { eapply eval_correct in Heq'; eauto. }
+    sep_rewrite_in mps_eq2 Hsat; [|exact H].
+    clear HP1.
+    assert ((x ===l E) s (emp_ph loc)).
     clear H.
-    revert h Hsat; induction sp1; simpl in *; intros.
-    + destruct (eq_dec l l); try congruence; simpl.
-      sep_cancel.
-    + destruct a.
-      destruct (eq_dec l l0); simpl; subst.
-      inversion Hget; subst.
-      repeat sep_cancel.
-      sep_rewrite SP_order; simpl; eauto.
-      repeat sep_cancel.
-      apply IHsp1; eauto.
+    revert h Hsat; induction x2; simpl in *; intros.
+    + destruct (eq_dec l x).
+      * subst l; simpl in *; destruct x; simpl in *; inverts Hget; sep_cancel.
+      * 
+    + destruct a; simpl in *.
+      destruct (eq_dec_P _ l l0).
+      unfold sp_wf in *; simpl in *.
+      assert (l = l0) by auto.
+      subst l.
+      * subst; simpl; inversion Hget; subst; auto.
+        unfold_conn_in HP2.
+        sep_cancel.
+        sep_rewrite SP_order; simpl; repeat sep_cancel.
+      * simpl.
+        sep_cancel.
+        erewrite SP_update_irr; apply IHx; jauto.
 Qed.
 
 Fixpoint bexp_denote (env : penv) (b : bexp) :=
@@ -447,17 +554,15 @@ Fixpoint bexp_denote (env : penv) (b : bexp) :=
   | Bnot b1 => not <$> bexp_denote env b1
   end.
 
-Definition exec_if (st : Astate) (b : bexp) :=
-  match bexp_denote (Aenv st) b with
-  | None => None
-  | Some p =>
-    Some ({| Aenv := Aenv st; Aenv_wf := Aenv_wf st;
-             Ap := p /\ Ap st; sp := sp st |},
-          {| Aenv := Aenv st; Aenv_wf := Aenv_wf st;
-             Ap := ~p /\ Ap st; sp := sp st |})
-  end.
+Definition exec_if_then (st : Astate) (p : Prop) :=
+  {| Aenv := Aenv st; App := p /\ App st; Asp := Asp st;
+     Aenv_wf := Aenv_wf st(* ; Asp_wf := Asp_wf st *)|}.
 
-Hint Unfold exec_if.
+Definition exec_if_else (st : Astate) (p : Prop) :=
+  {| Aenv := Aenv st; App := ~p /\ App st; Asp := Asp st;
+     Aenv_wf := Aenv_wf st(* ; Asp_wf := Asp_wf st *) |}.
+
+Hint Unfold exec_if_then exec_if_else.
 
 Lemma bexp_denote_correct' (env : penv) (b : bexp) P s h :
   esat env s h ->
@@ -497,23 +602,22 @@ Proof.
 Qed.  
   
 Lemma exec_if_correct (i : Fin.t ntrd) (BS : bspec)
-      (st st_th st_el st_th' st_el' : Astate) b C1 C2:
-  exec_if st b = Some (st_th, st_el) ->
+      (st st_th' st_el' : Astate) (p : Prop) b C1 C2:
+  bexp_denote (Aenv st) b = Some p ->
+  let st_th := exec_if_then st p in
+  let st_el := exec_if_else st p in
   CSL BS i (Ast_denote st_th) C1 (Ast_denote st_th') ->
   CSL BS i (Ast_denote st_el) C2 (Ast_denote st_el') ->
   CSL BS i (Ast_denote st) (Cif b C1 C2) (Asts_denote (st_th' :: st_el' :: nil)).
 Proof.
-  autounfold; intros H H1 H2.
-  destruct (bexp_denote _ _) eqn:Heq; simpl in H; try congruence.
-  inverts H; simpl in *.
+  autounfold; intros Hbexp H1 H2.
+  destruct (bexp_denote _ _) eqn:Heq; simpl in *; try congruence.
+  inverts Hbexp.
   eapply Hforward.
   apply rule_if_disj; eauto; [eapply Hbackward; [eauto|]..];
   intros; sep_split_in H; sep_split; eauto; repeat split; destruct HP0; jauto;
-  eapply bexp_denote_correct; eauto.
+  eapply bexp_denote_correct'; eauto.
   simpl in *.
-  destruct bexp_denote; simpl in *; congruence.
-
-  unfold Ast_denote; simpl.
   intros s h [? | ?].
   - left; eauto.
   - right; left; eauto.
@@ -551,6 +655,12 @@ Proof.
     intros s h H; apply asts_denote_app; auto.
 Qed.
 
+Lemma exec_zero (i : Fin.t ntrd) (BS : bspec) C :
+  CSL BS i (Asts_denote nil) C (Asts_denote nil).
+Proof.
+  intros s ph; simpl; destruct 1.
+Qed.
+
 Lemma exec_one (i : Fin.t ntrd) (BS : bspec) C st st' :
   CSL BS i (Ast_denote st) C (Ast_denote st') ->
   CSL BS i (Ast_denote st) C (Asts_denote (st' :: nil)).
@@ -560,30 +670,128 @@ Proof.
   intros; left; auto.
 Qed.
 
-Definition exec_while (st : Astate) (b : bexp) :=
-  match bexp_denote (Aenv st) b with
-  | None => None
-  | Some p =>
-    Some ({| Aenv := Aenv st; Aenv_wf := Aenv_wf st;
-             Ap := p /\ Ap st; sp := sp st |})
+Inductive ex_Astate :=
+| pure_ast : Astate -> ex_Astate
+| ex_ast : forall T, (T -> ex_Astate) -> ex_Astate.
+
+Fixpoint exec_while_then (st : ex_Astate) (b : bexp) :=
+  match st with
+  | pure_ast st =>
+    match bexp_denote (Aenv st) b with
+    | Some p => pure_ast (exec_if_then st p)
+    | None => pure_ast st
+    end
+  | ex_ast T f => ex_ast T (fun x => exec_while_then (f x) b)
   end.
 
-Lemma exec_while_correct (stI : Astate) (i : Fin.t ntrd) (BS : bspec) b C
-      (st stI' stI'': Astate) :
-  exec_if stI b = Some (stI', stI'')  ->
-  (Ast_denote st |= Ast_denote stI) ->
-  CSL BS i (Ast_denote stI') C (Ast_denote stI) ->
-  CSL BS i (Ast_denote st) (Cwhile b C) (Ast_denote stI'').
+
+Fixpoint exec_while_else (st : ex_Astate) (b : bexp) :=
+  match st with
+  | pure_ast st =>
+    match bexp_denote (Aenv st) b with
+    | Some p => pure_ast (exec_if_then st (~p))
+    | None => pure_ast st
+    end
+  | ex_ast T f => ex_ast T (fun x => exec_while_else (f x) b)
+  end.
+
+Fixpoint exAst_denote (st : ex_Astate) :=
+  match st with
+  | pure_ast st => Ast_denote st
+  | ex_ast T f => Ex x : T, (exAst_denote (f x))
+  end.
+  
+Fixpoint exAst_ok (st : ex_Astate) b :=
+  match st with
+  | pure_ast st => match bexp_denote (Aenv st) b with Some _ => True | _ => False end 
+  | ex_ast T f => forall x : T, exAst_ok (f x) b
+  end.
+
+Lemma exec_while_correct stI (i : Fin.t ntrd) (BS : bspec) b C st:
+  let stI' := exec_while_then stI b in
+  let stI'' := exec_while_else stI b in
+  exAst_ok stI b ->
+  (Ast_denote st |= exAst_denote stI) ->
+  CSL BS i (exAst_denote stI') C (exAst_denote stI) ->
+  CSL BS i (Ast_denote st) (Cwhile b C) (exAst_denote stI'').
 Proof.
-  intros Hexec Hpre HC; autounfold in *.
-  destruct (bexp_denote _ _) eqn:Heq; simpl in Hexec; inverts Hexec; simpl in *.
+  simpl; intros Hok Hden Hsl; autounfold in *.
+  (* destruct (bexp_denote _ _) eqn:Heq; simpl in Hexp; inverts Hexp; simpl in *. *)
   eapply rule_conseq; [apply rule_while| |].
-  eapply Hbackward; [apply HC|].
-  intros s h H; sep_normal_in H; sep_normal; sep_split_in H; sep_split;
-  repeat split; destruct HP; jauto.
-  eapply bexp_denote_correct in Heq; eauto.
-  eauto.
-  intros s h H; sep_normal_in H; sep_normal; sep_split_in H; sep_split;
-  repeat split; destruct HP; jauto.
-  eapply bexp_denote_correct' in Heq; jauto.
+  - eapply Hbackward; [apply Hsl|].
+    clear Hden Hsl st.
+    induction stI; simpl in *.
+    + destruct (bexp_denote _ _) eqn:Heq; simpl in Hok; destruct Hok.
+      destruct a; autounfold in *; simpl in *; autounfold in *; simpl in *.
+      intros s h H.
+      sep_normal_in H; sep_normal; sep_split_in H; sep_split; eauto.
+      destructs HP; repeat split; eauto.
+      eapply bexp_denote_correct; eauto.
+    + intros s h H'.
+      sep_split_in H'; destruct H' as [x H']; exists x.
+      apply H; eauto.
+      sep_split; eauto.
+  - eauto.
+  - intros s h H.
+    clear Hden Hsl st.
+    induction stI; simpl in *.
+    + destruct (bexp_denote _ _) eqn:Heq; simpl in Hok; destruct Hok.
+      destruct a; autounfold in *; simpl in *; autounfold in *; simpl in *.
+      sep_normal_in H; sep_normal; sep_split_in H; sep_split; eauto.
+      destructs HP; repeat split; eauto.
+      eapply bexp_denote_correct' in Heq; jauto.
+    + sep_split_in H; destruct H as [x H]; exists x.
+      apply H0; eauto.
+      sep_split; eauto.
 Qed.
+
+Definition while (I : ex_Astate) := Cwhile.
+
+Lemma exec_ex {T : Type} (BS : bspec) i (st : T -> ex_Astate) C Q :
+  (forall x, CSL BS i (exAst_denote (st x)) C Q) ->
+  CSL BS i (exAst_denote (ex_ast T st)) C Q.
+Proof.
+  simpl; intros H.
+  apply rule_ex; auto.
+Qed.
+
+Lemma exec_ex_pure (BS : bspec) i (st : Astate) C Q:
+  CSL BS i (Ast_denote st) C Q ->
+  CSL BS i (exAst_denote (pure_ast st)) C Q.
+Proof. eauto. Qed.
+End rules.
+
+Ltac sym_exec_atom :=
+  lazymatch goal with
+  | [|- CSL ?BS ?i (Ast_denote ?st) ( _ ::= _ ) _] =>
+    apply exec_assign_correct
+  | [|- CSL ?BS ?i (Ast_denote ?st) ( _ ::= [_] ) _] =>
+    apply exec_read_correct
+  | [|- CSL ?BS ?i (Ast_denote ?st) ([_] ::= _) _] =>
+    apply exec_write_correct
+  | [|- CSL ?BS ?i (Ast_denote ?st) (Cif _ _ _) _] =>
+    apply exec_if_correct
+  | [|- CSL ?BS ?i (Ast_denote ?st) (while ?I _ _) _] =>
+    apply (exec_while_correct _ I)
+  end.
+
+Ltac sym_exec_one := 
+  lazymatch goal with
+  | [|- CSL ?BS ?i (Ast_denote ?st) (_ ;; _) _] =>
+    eapply rule_seq; [sym_exec_one|]
+  | [|- CSL ?BS ?i (Ast_denote ?st) _ _] => sym_exec_atom
+  end.
+
+Ltac sym_exec :=
+  lazymatch goal with
+  | [|- CSL ?BS ?i (Ast_denote _) _ _] =>
+    sym_exec_one
+  | [|- CSL ?BS ?i (Asts_denote (?st :: _)) _ _] =>
+    eapply exec_disj; [sym_exec_one|sym_exec]
+  | [|- CSL ?BS ?i (Asts_denote nil) _ _] =>
+    eapply exec_zero
+  | [|- CSL ?BS ?i (exAst_denote (ex_ast _ _)) _ _] =>
+    eapply exec_ex
+  | [|- CSL ?BS ?i (exAst_denote (pure_ast _)) _ _] =>
+    eapply exec_ex_pure; sym_exec
+  end.

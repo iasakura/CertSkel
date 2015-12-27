@@ -296,18 +296,18 @@ Proof.
     + destruct H as [xs H].
       apply ex_lift_l.
       Require Import Program.
-      dependent destruction xs; exists h0; sep_cancel.
+      dependent destruction xs; exists h0; simpl in H; sep_cancel.
       set (P' := fun (x : T) (i : Fin.t (S n)) => P x (Fin.FS i)).
       lazymatch goal with
-      | [|- ?X s h] =>
+      | [|- ?X s ?h] =>
         cutrewrite (X = Bdiv.Aistar_v
            (MyVector.init (fun i : Fin.t (S n) => Ex x : T, P' x i))); [|unfold P'; auto]
       end.
       lazymatch goal with
-        | [|- ?X s h] => pattern X
+        | [|- ?X s ?h] => pattern X
       end.
       rewrite IHn; [|omega].
-      exists xs; simpl; sep_cancel.
+      exists xs; simpl in *; sep_cancel.
 Qed.
 
 Fixpoint ls_init {T : Type} s (n : nat) (f : nat -> T) := 
@@ -347,16 +347,9 @@ Proof.
   - split; intros; [sep_rewrite_in_r emp_unit_l H | sep_rewrite_in emp_unit_l H]; auto.
   - intros s; split; simpl; intros H.
     + sep_normal_in H; sep_normal; repeat sep_cancel.
-      sep_rewrite_in IHn H0; auto.
+      sep_rewrite_in IHn H1; auto.
     + sep_normal_in H; sep_normal; repeat sep_cancel.
-      sep_rewrite_in_r IHn H0; auto.
-Qed.
-
-Lemma pure_emp_in (P : assn) (s : stack) (h : pheap) :
-  !(P) s h -> P s (emp_ph loc) /\ emp s h.
-Proof.
-  unfold_conn; simpl; destruct 1.
-  apply emp_emp_ph_eq in H; subst; split; auto.
+      sep_rewrite_in_r IHn H1; auto.
 Qed.
 
 Lemma phplus_emp (ph1 ph2 : pheap) :
@@ -381,12 +374,10 @@ Lemma pure_star (P Q : assn) : forall s, s ||= !(P ** Q) <=> !(P) ** !(Q).
 Proof.
   intros s; split; intros H.
   - sep_split;
-    apply pure_emp_in in H; destruct H;
-    apply emp_star in H.
-    + tauto.
-    + apply pure_emp; tauto.
-  - apply pure_emp; [apply emp_star|];
-    sep_split_in H; apply pure_emp_in in H; tauto.
+    apply pure_emp_in in H; destruct H; eauto;
+    apply emp_star in H; tauto.
+  - sep_split_in H;
+    [apply pure_emp; [apply emp_star|]..]; eauto.
 Qed.
 
 Lemma vs_pure {n : nat} (P : Fin.t n -> assn) :  forall s,
@@ -590,9 +581,9 @@ Proof.
   - split; intros; [sep_rewrite_in_r emp_unit_l H | sep_rewrite_in emp_unit_l H]; auto.
   - intros s; split; simpl; intros H.
     + sep_normal_in H; sep_normal; repeat sep_cancel.
-      sep_rewrite_in IHn H0; auto.
+      sep_rewrite_in IHn H1; auto.
     + sep_normal_in H; sep_normal; repeat sep_cancel.
-      sep_rewrite_in_r IHn H0; auto.
+      sep_rewrite_in_r IHn H1; auto.
 Qed.
 
 Lemma init_length {T : Type} (n : nat) (fc : nat -> T) :
@@ -1280,7 +1271,7 @@ Lemma inject_Z_Sn_gt0 n : (1 <= inject_Z (Z.of_nat (S n)))%Q.
 Proof.
   injZ_simplify.
   lets: (>>inject_Z_n_ge0 n).
-  psatz Q 2.
+  lra.
 Qed.
 
 Ltac Qc_to_Q :=
@@ -1319,9 +1310,11 @@ Proof.
        rewrite !Qred_correct.
        reflexivity. }
      rewrite Qcmult_plus_distr_l, Qcmult_1_l; eauto.
-     rewrite is_array_p_star, IHnt; [|subst nt'; unfold injZ in *; injZ_simplify; Qc_to_Q; eauto; pose proof (inject_Z_n_ge0 nt); psatz Q 3..].
+     rewrite is_array_p_star, IHnt; [|subst nt'; unfold injZ in *; injZ_simplify; Qc_to_Q; eauto; pose proof (inject_Z_n_ge0 nt); try lra..].
      split; intros; repeat sep_cancel; eauto.
      sep_cancel; eauto.
+     assert (0 <= inject_Z (Zn nt) * this)%Q by (apply Qmult_le_0_compat; lra).
+     lra.
 Qed.
 
 Lemma is_array_p1 e n f stk :

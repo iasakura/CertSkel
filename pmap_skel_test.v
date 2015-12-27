@@ -1,5 +1,5 @@
 Require Import GPUCSL.
-Require Import pmap_ske.
+Require Import pmap_skel.
 Require Import Skel_lemma.
 Require Import scan_lib.
 Require Import LibTactics.
@@ -103,10 +103,9 @@ Section verification_example.
           remember t0.
           subA_normalize_in H with (fun H =>  H).
           assert ((!(t0 === ix) ** !(x === ix)) s h).
-          { sep_rewrite_in_r emp_unit_l H; sep_split_in H; sep_split.
+          { sep_rewrite_in_r emp_unit_l H; sep_split_in H; sep_split; eauto.
             unfold_conn_all; simpl in *.
-            destruct var_eq_dec; try congruence.
-            split; eauto.
+            destruct var_eq_dec; try congruence; eauto.
             unfold_conn_all; simpl in *.
             destruct var_eq_dec; simpl in *; try congruence. }
           exact H0.
@@ -205,11 +204,11 @@ Section verification_example.
         sep_normal; repeat sep_cancel.
   Qed.
 
-   Goal False.
-   Proof.
-     let t := type of gen_code_correct in pose t.
-     simpl in P.
-     unfold map', map_ker, WhileI, get, func in P; simpl in P.
-   Abort.
+  Goal False.
+  Proof.
+    let t := type of gen_code_correct in pose t.
+    simpl in P.
+    unfold map', map_ker, WhileI, get, func in P; simpl in P.
+  Abort.
 End verification_example.
 

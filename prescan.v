@@ -334,12 +334,13 @@ Section Prescan.
     (* the 1st command *)
     eapply rule_seq; [hoare_forward; intros ? ? [v H] | ].
     { remember 1 in H. subA_normalize_in H. simpl in H. subst; exact H. }
+    
     (* the snd command *)
     eapply rule_seq; [hoare_forward; intros ? ? [v H] | ].
     { remember 1 in H; subA_normalize_in H. simpl in H. subst. exact H. }
     hoare_forward.
     Hint Unfold bspec upInv.
-    
+    Show Proof.
     (* loop body *)
     (* barrier *)
     eapply rule_seq; [hoare_forward|].
@@ -1306,9 +1307,9 @@ Proof.
         intros x0 Hx0.
         cutrewrite (off * (2 * nf i + 2) - 1 = nf i * (off + off) + off + off - 1); [|f_equal; ring].
         rewrite <-Nat.add_sub_assoc; try omega.
+        Show Existentials.
         rewrite (plus_comm x0 (nf i * (off + off))).
         Require Import LibTactics.
-        clears.
         destruct Nat.eq_dec; try omega.
         destruct Nat.eq_dec; eauto.
         cutrewrite (nf i * (off + off) = off * (2 * nf i)) in e3; [|ring].
@@ -1317,8 +1318,8 @@ Proof.
       
   - instantiate (1 := (downInv (nf i))).
     sep_split_in H.
-    sep_rewrite_in_r emp_unit_r H.
-    sep_split_in H.
+    (* sep_rewrite_in_r emp_unit_r H. *)
+    (* sep_split_in H. *)
     simpl in *. unfold_pures.
     unfold downInv.
     exists off (d * 2) f.
@@ -1333,7 +1334,7 @@ Proof.
       rewrite pow_S, pow_divS; try omega.
       rewrite HP2, HP5, Hd, <-Nat2Z.inj_lt in n; try omega.
       rewrite ceil2_pow; destruct lt_dec; try (unfold lt in *; omega); eauto.
-
+      
   - unfold downInv; intros s h [H | H]; apply H.
 
 Time Qed.

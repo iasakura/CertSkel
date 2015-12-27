@@ -163,8 +163,8 @@ Definition inv :=
     !(I === Enum' (ix * nt_gr + gtid)) **
     !(Apure (ix * nt_gr + gtid < len + nt_gr)%nat) **
     input_spec env env_den (perm_n nt_gr) **
-    nth gtid (distribute_tup nt_gr gl_out (ix * nt_gr) (fun i => (f_den (get_den (Zn i))))%Z (nt_step nt_gr) 0 1%Qc) emp **
-    nth gtid (distribute_tup nt_gr gl_out (len - (ix * nt_gr)) (fun i => fout i) (nt_step nt_gr) (ix * nt_gr) 1%Qc) emp.
+    nth gtid (distribute_tup nt_gr gl_out (ix * nt_gr + gtid) (fun i => (f_den (get_den (Zn i))))%Z (nt_step nt_gr) 0 1%Qc) emp **
+    nth gtid (distribute_tup nt_gr gl_out (len - (ix * nt_gr + gtid)) (fun i => fout i) (nt_step nt_gr) (ix * nt_gr + gtid) 1%Qc) emp.
 
 Notation GTID := (TID +C BID *C Zn ntrd).
 
@@ -187,7 +187,7 @@ Lemma map_correct :
    (!(Outs ==t out) **
    !(Len === Zn len) **
    (input_spec env env_den (perm_n nt_gr)) **
-   List.nth (nf tid + nf bid * ntrd) (distribute_tup nt_gr gl_out len fout (nt_step nt_gr) 0 1%Qc) emp **
+   List.nth gtid (distribute_tup nt_gr gl_out len fout (nt_step nt_gr) 0 1%Qc) emp **
    !(BID === zf bid) ** !(TID === zf tid))
 
   (map_ker inv)
@@ -211,7 +211,7 @@ Proof.
     { intros s h H; apply ex_lift_l_in in H as [x H]; sep_split_in H.
       change_in H.
       { unfold_pures.
-        sep_rewrite_in skip_arr_tup_unfold' H; [|try first [omega | eauto]..].
+        sep_rewrite_in skip_arr_tup_unfold H; [|try first [omega | eauto]..].
         2: nia.
         (* sep_rewrite_in (@is_array_unfold (Gl arr) (x * nt_gr + gtid)) H; [|try first [omega | eauto]..]. *)
         (* 2: nia. *)

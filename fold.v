@@ -333,6 +333,7 @@ Proof.
       { hoare_forward; intros ? ? H; exact H. }
       eapply rule_seq.
       { hoare_forward; intros ? ? [v H]. subA_normalize_in H. simpl in H. ex_intro v H; exact H. }
+      
       repeat hoare_forward. intros ? ? [v H].
       subA_normalize_in H. simpl in H.
       sep_normal_in H. sep_split_in H.
@@ -739,6 +740,7 @@ Proof.
     Focus 2.
     { (* barrier pre holds at barrier (else) *)
       intros s h H; simpl; rewrite MyVector.init_spec.
+      sep_rewrite_in emp_unit_l H.
       sep_normal_in H; sep_split_in H.
       assert ((2 ^ e) / 2 = 2 ^ (e - 1)).
       { unfold_pures; destruct e; [simpl in *; omega|].
@@ -747,7 +749,6 @@ Proof.
       apply ex_lift_l; exists (2 ^ (e - 1) / 2).
       apply ex_lift_l; exists (e - 1).
       apply ex_lift_l; exists fc.
-      sep_rewrite_in_r emp_unit_r H; sep_split_in H.
       instantiate (1 := !(TID === Zn (nf tid)) ** !(ARR === arr) ** !(OUT === out)).
       sep_normal; sep_split;
       try now (unfold_conn_all; simpl in *; autorewrite with sep in *; auto).
@@ -770,6 +771,7 @@ Proof.
         rewrite H0 in HP.
         rewrite nth_overflow; eauto.
         rewrite distribute_length; auto.
+        omega.
         (* destruct e as [|e]; [unfold_pures; cbv in HP2; inversion HP2|].   *)
         (* change_; [intros Hf|]. *)
         (* { autorewrite with sep in HP5; auto; unfold_pures. *)
@@ -1350,7 +1352,6 @@ Proof.
       simpl.
       rewrite nth_nseq.
       destruct (leb ntrd 0) eqn:Heq; [rewrite leb_iff in Heq; try omega|].
-      sep_cancel.
       sep_rewrite (@ls_init_eq).
       Focus 2.
       intros i Hi.
@@ -1359,7 +1360,7 @@ Proof.
       reflexivity.
       reflexivity.
       unfold id.
-      apply init_emp_emp; auto.
+      sep_rewrite init_emp_emp; sep_rewrite emp_unit_r; auto.
   - simpl; intros s h H.
     unfold tid_post in H;  istar_simplify_in H.
     sep_rewrite emp_unit_r.
@@ -1471,7 +1472,7 @@ Proof.
     istar_simplify_in H.
     sep_rewrite (@is_array_skip_arr (Gl arr) nblk ntrd); try omega.
     sep_cancel.
-    sep_rewrite_in is_array_distr H; try omega.
+    sep_rewrite_in is_array_distr H0; try omega.
     sep_rewrite is_array_change; eauto.
   - simpl.
     prove_inde.

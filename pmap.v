@@ -20,6 +20,7 @@ Variable f : nat -> Z.
 Local Close Scope exp_scope.
 
 Local Notation nt_gr := (nblk * ntrd).
+Notation perm_n n := (1 / injZ (Zn n))%Qc.
 
 Definition inv (i : nat) (arr out : Z) (fout : nat -> Z) :=
   Ex ix, 
@@ -27,10 +28,9 @@ Definition inv (i : nat) (arr out : Z) (fout : nat -> Z) :=
     !(OUT === out) **
     !(I === Enum' (ix * nt_gr + i)) **
     !(Apure (ix * nt_gr + i < len + nt_gr)%nat) **
-    nth i (distribute nt_gr (Gl arr) (ix * nt_gr) f (nt_step nt_gr) 0) emp **
-    nth i (distribute nt_gr (Gl arr) (len - (ix * nt_gr)) f (nt_step nt_gr) (ix * nt_gr)) emp **
-    nth i (distribute nt_gr (Gl out) (ix * nt_gr) (fun i => f i + 1)%Z (nt_step nt_gr) 0) emp **
-    nth i (distribute nt_gr (Gl out) (len - (ix * nt_gr)) (fun i => fout i) (nt_step nt_gr) (ix * nt_gr)) emp.
+    is_array_p (Gl arr) len f 0 (perm_n nt_gr) ** 
+    nth i (distribute nt_gr (Gl out) (ix * nt_gr + i) (fun i => f i + 1)%Z (nt_step nt_gr) 0) emp **
+    nth i (distribute nt_gr (Gl out) (len - (ix * nt_gr + i)) (fun i => fout i) (nt_step nt_gr) (ix * nt_gr + i)) emp.
 
 Definition map_ker (i : nat) (arr out : Z) (fout : nat -> Z):=
   I ::= (TID +C BID *C Z.of_nat ntrd);;
@@ -101,15 +101,25 @@ Proof.
   split; intros; sep_cancel; apply IHn; auto.
 Qed.
 
+Lemma mod_between n m q r :
+  m <> 0 -> r < m -> q * m + r < n < S q * m + r -> n mod m <> r.
+Proof.
+  intros Hm Hrm Hbetween; rewrite (Nat.div_mod n m) in Hbetween; auto.
+  intros Heq; rewrite Heq in Hbetween; clear Heq.
+  assert (q * m < m * (n / m) < S q * m) by omega.
+  assert (q < n / m < S q) by nia.
+  omega.
+Qed.
+
 Lemma map_correct : forall (tid : Fin.t ntrd) (bid : Fin.t nblk) (arr out : Z) (fout : nat -> Z), 
   CSL (fun n => default ntrd) tid
   (!(ARR === arr) ** 
    !(OUT === out) ** 
-   List.nth (nf tid + nf bid * ntrd) (distribute nt_gr (Gl arr) len f (nt_step nt_gr) 0) emp **
+   is_array_p (Gl arr) len f 0 (perm_n nt_gr) ** 
    List.nth (nf tid + nf bid * ntrd) (distribute nt_gr (Gl out) len fout (nt_step nt_gr) 0) emp **
    !(BID === zf bid) ** !(TID === zf tid))
   (map_ker (nf tid + nf bid * ntrd) arr out fout)
-  ( List.nth (nf tid + nf bid * ntrd) (distribute nt_gr (Gl arr) len f (nt_step nt_gr) 0) emp **
+  ( is_array_p (Gl arr) len f 0 (perm_n nt_gr) ** 
     List.nth (nf tid + nf bid * ntrd) (distribute nt_gr (Gl out) len (fun v=>f v+1)%Z (nt_step nt_gr) 0) emp).
 Proof.
   (* assert (Htid : nat_of_fin tid < ntrd) by (destruct (Fin.to_nat _); simpl in *; auto). *)
@@ -124,10 +134,11 @@ Proof.
     { intros s h H; apply ex_lift_l_in in H as [x H]; sep_split_in H.
       change_in H.
       { unfold_pures.
-        sep_rewrite_in skip_arr_unfold' H; [|try first [omega | eauto]..]. 
+        sep_rewrite_in skip_arr_unfold H; [|try first [omega | eauto]..].
         2: nia.
-        sep_rewrite_in (@skip_arr_unfold' (nf tid + nf bid * ntrd) (Gl out)) H; [|try first [omega | eauto]..].
+        sep_rewrite_in (@is_array_unfold (Gl arr) (x * nt_gr + (nf tid + nf bid * ntrd))) H.
         2: nia.
+        sep_normal_in H.
       apply H. } 
       sep_combine_in H. ex_intro x H. simpl in H. exact H. } Unfocus.
     
@@ -140,12 +151,12 @@ Proof.
         change_in H.
         { assert ((Gl arr +o (Zn x * (Zn nblk * Zn ntrd) + (zf tid + zf bid * Zn ntrd))%Z ===l
                   Gl arr +o I)%exp s (emp_ph loc)).
-          { unfold_pures; unfold_conn; simpl; f_equal; nia. }
+          { unfold_pures; unfold_conn; simpl; f_equal; omega. }
           sep_rewrite_in (mps_eq1) H; [|exact H0]. 
           assert ((Gl out +o (Zn x * (Zn nblk * Zn ntrd) + (zf tid + zf bid * Zn ntrd))%Z ===l
                   Gl out +o I)%exp s (emp_ph loc)).
-          { unfold_pures; unfold_conn; simpl; f_equal; nia. }
-          sep_lift_in H 3.
+          { unfold_pures; unfold_conn; simpl; f_equal; omega. }
+          sep_lift_in H 4.
           sep_rewrite_in (mps_eq1) H; [|exact H1]. 
           sep_combine_in H; exact H. }
         exact H. } Unfocus.
@@ -166,67 +177,57 @@ Proof.
     sep_normal_in H; sep_split_in H.
     unfold_pures; subst.
     exists (S x); autorewrite with sep.
-    sep_split; try now (unfold_conn; simpl; auto; nia).
-    sep_rewrite_r skip_arr_fold'; try omega; eauto.
-    sep_rewrite_r (@skip_arr_fold' (nf tid + nf bid * ntrd) (Gl (s OUT))); try omega; eauto.
+    sep_split; try now (unfold_conn; simpl; auto).
+    unfold_conn; simpl; rewrite HP7; ring.
+    unfold_conn; simpl; omega.
+    sep_rewrite_r skip_arr_fold; try omega; eauto.
+    sep_rewrite (@is_array_unfold (Gl (s ARR)) (x * nt_gr + (nf tid + nf bid * ntrd))).
+    2: omega.
     sep_normal; simpl.
-    simpl; repeat sep_cancel.
-    cuts_rewrite (len - (nt_gr + x * nt_gr) = len - x * nt_gr - nt_gr); [|nia]. 
+    repeat autorewrite with sep. simpl; repeat sep_cancel.
+    cuts_rewrite (len - (nt_gr + x * nt_gr + (nf tid + nf bid * ntrd)) =
+                  len - (x * nt_gr + (nf tid + nf bid * ntrd)) - nt_gr); [|omega]. 
     repeat autorewrite with sep. repeat sep_cancel. }
 
   { unfold inv; intros s h H. apply ex_lift_l_in in H as [x H]. sep_split_in H. unfold_pures.
+    sep_cancel.
     rewrite HP2 in n; rewrite <-Nat2Z.inj_lt in n.
-    assert (len - x * nt_gr <= nf tid + nf bid * ntrd) by (zify; omega).
-    assert (nf tid + nf bid * ntrd < nt_gr) by auto.
-    apply scC in H; sep_rewrite_in nth_dist_nil H; try omega; eauto.
-    2: instantiate (1 :=len - x * nt_gr); intros j Hj; unfold nt_step.
-    2: rewrite plus_comm, Nat.mod_add; auto; rewrite Nat.mod_small; auto; try (zify; omega).
-    sep_normal_in H.
-    sep_lift_in H 2; sep_rewrite_in nth_dist_nil H; try omega; eauto.
-    2: instantiate (1 :=len - x * nt_gr); intros j Hj; unfold nt_step.
-    2: rewrite plus_comm, Nat.mod_add; auto; rewrite Nat.mod_small; auto; try (zify; omega).
-    rewrite minus_diag in H; simpl in H.
-    rewrite nth_nseq in H.
-    (* assert ((Gl arr ===l Gl ARR) s (emp_ph loc)) by (unfold_conn; simpl; congruence). *)
-    (* sep_rewrite distribute_eq; eauto. *)
-    assert (x * nt_gr <= len \/ len < x * nt_gr) as [|] by omega.
-    - apply scC in H; sep_rewrite_in nth_dist_ext H; try omega; auto.
-      2: instantiate (1 :=len - x * nt_gr); intros j Hj; simpl; unfold nt_step;
-         rewrite plus_comm, Nat.mod_add; auto; rewrite Nat.mod_small; auto; try omega.
-      sep_normal_in H.
-      sep_lift_in H 2; sep_rewrite_in nth_dist_ext H; try omega; auto.
-      2: instantiate (1 :=len - x * nt_gr); intros j Hj; simpl; unfold nt_step;
-         rewrite plus_comm, Nat.mod_add; auto; rewrite Nat.mod_small; auto; try omega.
-      cutrewrite (x * nt_gr + (len - x * nt_gr) = len) in H; [|omega].
-      destruct leb; sep_normal_in H; sep_split; try now (unfold_conn; simpl; auto); sep_cancel.
-    - (* apply scC in H; sep_rewrite nth_dist_ext; try omega; auto. *)
-      (* cutrewrite (len - x * ntrd = 0) in H; [|omega]. *)
-      cutrewrite (x * nt_gr = len + (x * nt_gr - len)) in H; [|omega].
-      assert (forall j, j < x * nt_gr - len -> nt_step nt_gr (0 + len + j) <> nf tid + nf bid * ntrd).
-      { unfold nt_step; simpl; intros j Hj Hc.
-        assert (len + j + nt_gr < (S x) * nt_gr) by (simpl; omega).
-        assert (x * nt_gr + j + (nf tid + nf bid * ntrd) < len + j + nt_gr) by omega.
-        let t := (eval simpl in (Nat.mod_add (len + j) 1 nt_gr)) in pose proof t.
-        rewrite mult_1_l in H5.
-        rewrite (Nat.div_mod (len + j + nt_gr) nt_gr), H5 in H3, H4; auto.
-        assert (x * nt_gr  < nt_gr * ((len + j + nt_gr) / nt_gr)) by omega.
-        assert (nt_gr * ((len + j + nt_gr) / nt_gr) < S x * nt_gr) by omega.
-        rewrite mult_comm in H6; apply Nat.mul_lt_mono_pos_l in H6; try omega.
-        rewrite mult_comm in H7; apply Nat.mul_lt_mono_pos_r in H7; omega. } 
-      sep_rewrite_in_r nth_dist_ext H; try omega; eauto.
-      sep_rewrite_in_r nth_dist_ext H; try omega; eauto.
-      sep_split; auto.
-      destruct leb; sep_normal_in H; repeat sep_cancel. }
+    cutrewrite (len - (x * nt_gr + (nf tid + nf bid * ntrd))  = 0) in H0; [|zify; omega].
+    simpl in H0.
+    cutrewrite (nth (nf tid + nf bid * ntrd) (nseq nt_gr emp) emp = emp) in H0;
+      [|rewrite nth_nseq; destruct (leb _ _); auto].
+    sep_rewrite_in emp_unit_r H0.
+    sep_rewrite nth_dist_ext; auto.
+    2: instantiate (1 := (x * nt_gr + (nf tid + nf bid * ntrd) - len)).
+    cutrewrite (len + (x * nt_gr + (nf tid + nf bid * ntrd) - len) =
+                x * nt_gr + (nf tid + nf bid * ntrd)); [eauto|omega].
+    
+    intros j Hj; simpl; unfold nt_step.
+    cut (((len + nt_gr) + j) mod nt_gr <> nf tid + nf bid * ntrd).
+    cutrewrite (len + nt_gr + j = len + j + 1 * nt_gr); [|ring].
+    rewrite Nat.mod_add; auto.
+    assert (len + nt_gr + j < S x * nt_gr + (nf tid + nf bid * ntrd)) by nia.
+    assert (x * nt_gr + (nf tid + nf bid * ntrd) < len + nt_gr + j) by nia.
+
+    eapply mod_between; eauto. }
 
   {  intros s h H; unfold inv; exists 0; simpl.
      sep_split_in H; unfold_pures; sep_split; auto.
      - unfold_conn; simpl; autorewrite with sep; congruence.
      - unfold_conn. assert (nf tid + nf bid * ntrd < nt_gr) by auto. omega.
-     - (* assert ((Gl ARR ===l Gl arr) s (emp_ph loc)) by (unfold_conn; simpl; congruence). *)
-       (* sep_rewrite distribute_eq; eauto. *)
-       rewrite <-minus_n_O, nth_nseq; destruct leb; sep_normal; sep_cancel.
+     - sep_cancel.
+       sep_rewrite nth_dist_nil; auto.
+       2: instantiate (1 := nf tid + nf bid * ntrd).
+       rewrite minus_diag; simpl.
        
-  }
+       2: simpl; intros; unfold nt_step; rewrite Nat.mod_small; try omega; auto.
+       2: assert (nf tid + nf bid * ntrd < nt_gr) by auto; omega.
+       sep_rewrite_in nth_dist_nil H0; eauto.
+       2: instantiate (1 := nf tid + nf bid * ntrd).
+       2: simpl; intros; unfold nt_step; rewrite Nat.mod_small; try omega; auto.
+       2: assert (nf tid + nf bid * ntrd < nt_gr) by auto; omega.
+       simpl in *.
+       rewrite nth_nseq; destruct (leb _ _); sep_rewrite emp_unit_l; eauto. }
 Qed.
 
 Require Import Bdiv.
@@ -235,25 +236,25 @@ Definition bth_pre (b : Fin.t nblk) (arr out : val) (fout : nat -> Z) :=
   !(ARR === arr) **
   !(OUT === out) **
   conj_xs (ls_init 0 ntrd (fun i =>
-    skip_arr (Gl arr) 0 len nt_gr f (i + nf b * ntrd))) **
+    is_array_p (Gl arr) len f 0 (perm_n nt_gr))) ** 
   conj_xs (ls_init 0 ntrd (fun i =>
     skip_arr (Gl out) 0 len nt_gr fout (i + nf b * ntrd))).
 
 Definition tr_pres (b : Fin.t nblk) (arr out : val) fout := init (fun i : Fin.t ntrd =>
   !(ARR === arr) ** 
-  !(OUT === out) ** 
-  skip_arr (Gl arr) 0 len nt_gr f (nf i + nf b * ntrd) **
+  !(OUT === out) **
+  is_array_p (Gl arr) len f 0 (perm_n nt_gr) ** 
   skip_arr (Gl out) 0 len nt_gr fout (nf i + nf b * ntrd) **
   !(BID === zf b)).
 
 Definition bth_post (b : Fin.t nblk) (arr out : val) := 
   conj_xs (ls_init 0 ntrd (fun i  =>
-    skip_arr (Gl arr) 0 len nt_gr f%Z (i + nf b * ntrd))) **
+    is_array_p (Gl arr) len f 0 (perm_n nt_gr))) **
   conj_xs (ls_init 0 ntrd (fun i  =>
     skip_arr (Gl out) 0 len nt_gr (fun v => f v + 1)%Z (i + nf b * ntrd))).
 
 Definition tr_posts (b : Fin.t nblk) (arr out : val) := (init (fun i : Fin.t ntrd =>
-  skip_arr (Gl arr) 0 len nt_gr f (nf i + nf b * ntrd) **
+  is_array_p (Gl arr) len f 0 (perm_n nt_gr) ** 
   skip_arr (Gl out) 0 len nt_gr (fun v => f v + 1)%Z (nf i + nf b * ntrd))).
 
 Definition E : env := fun v =>
@@ -300,11 +301,14 @@ Proof.
   - intros; unfold tr_pres; rewrite MyVector.init_spec.
     unfold CSL.low_assn.
     Hint Constructors typing_exp.
-    repeat prove_low_assn; eauto;
-    apply low_assn_skip_arr;
+    repeat prove_low_assn; eauto.
+    constructor; eauto.
+    apply low_assn_skip_arr; eauto.
     constructor; eauto.
   - intros; unfold CSL.low_assn, tr_posts; rewrite MyVector.init_spec.
-    prove_low_assn; apply low_assn_skip_arr; constructor; eauto.
+    repeat prove_low_assn.
+    constructor; eauto.
+    apply low_assn_skip_arr; constructor; eauto.
   - repeat (econstructor; try instantiate (1 := Hi));
     equates 1; repeat constructor; repeat instantiate (1 := Hi); eauto.
     instantiate (1 := Hi); eauto.
@@ -351,6 +355,9 @@ Proof.
     apply ls_emp'; intros; rewrite ls_init_spec; destruct lt_dec; auto; cbv; auto.
     apply ls_emp'; intros; rewrite ls_init_spec; destruct lt_dec; auto; cbv; auto.
     repeat (sep_rewrite_r is_array_skip_arr); eauto.
+    Require Import Skel_lemma.
+    sep_rewrite conj_xs_init_flatten.
+    sep_rewrite_r is_array_is_array_p_1; eauto.
   - unfold bl_pres, bl_posts; intros.
     rewrite !MyVector.init_spec.
     eapply CSLp_backward.
@@ -361,7 +368,10 @@ Proof.
   - unfold bl_posts, bth_post.
     intros s h H.
     istar_simplify_in H.
-    repeat sep_rewrite is_array_skip_arr; eauto.
+    Require Import Skel_lemma.
+    sep_rewrite_in conj_xs_init_flatten H.
+    sep_rewrite_in_r is_array_is_array_p_1 H; eauto.
+    sep_rewrite_in_r scan_lib.is_array_skip_arr H; eauto.
   - prove_inde.
   - intros; unfold bl_pres, bth_pre.
     rewrite MyVector.init_spec.
@@ -373,7 +383,8 @@ Proof.
     Hint Constructors typing_exp typing_lexp.
     repeat prove_low_assn; eauto;
     apply low_assn_conj_xs; rewrite init_length; intros;
-    rewrite ls_init_spec; destruct lt_dec; try prove_low_assn;
+    rewrite ls_init_spec; destruct lt_dec; try prove_low_assn.
+    constructor; eauto.
     apply low_assn_skip_arr; eauto;
     prove_low_assn.
   - intros.
@@ -382,7 +393,8 @@ Proof.
     has_no_vars_assn;
     apply has_no_vars_conj_xs;
     rewrite init_length; intros; rewrite ls_init_spec;
-    repeat has_no_vars_assn;
+    repeat has_no_vars_assn.
+    apply has_no_vars_is_array_p; cbv; auto.
     apply has_no_vars_skip_arr; simpl; eauto.
   - simpl; tauto.
   - unfold E; eauto.
