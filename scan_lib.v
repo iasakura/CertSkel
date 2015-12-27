@@ -1394,3 +1394,13 @@ Proof.
 Qed.
 End tid_lemma.
 Hint Resolve id_lt_nt_gr nf_lt Nat.neq_mul_0.
+
+Lemma mod_between n m q r :
+  (m <> 0 -> r < m -> q * m + r < n < S q * m + r -> n mod m <> r)%nat.
+Proof.
+  intros Hm Hrm Hbetween; rewrite (Nat.div_mod n m) in Hbetween; auto.
+  intros Heq; rewrite Heq in Hbetween; clear Heq.
+  assert (q * m < m * (n / m) < S q * m)%nat by omega.
+  assert (q < n / m < S q)%nat by nia.
+  omega.
+Qed.

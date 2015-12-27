@@ -101,16 +101,6 @@ Proof.
   split; intros; sep_cancel; apply IHn; auto.
 Qed.
 
-Lemma mod_between n m q r :
-  m <> 0 -> r < m -> q * m + r < n < S q * m + r -> n mod m <> r.
-Proof.
-  intros Hm Hrm Hbetween; rewrite (Nat.div_mod n m) in Hbetween; auto.
-  intros Heq; rewrite Heq in Hbetween; clear Heq.
-  assert (q * m < m * (n / m) < S q * m) by omega.
-  assert (q < n / m < S q) by nia.
-  omega.
-Qed.
-
 Lemma map_correct : forall (tid : Fin.t ntrd) (bid : Fin.t nblk) (arr out : Z) (fout : nat -> Z), 
   CSL (fun n => default ntrd) tid
   (!(ARR === arr) ** 
