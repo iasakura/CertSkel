@@ -1504,8 +1504,7 @@ Proof.
     apply low_assn_conj_xs; rewrite init_length; intros.
     rewrite ls_init_spec; repeat prove_low_assn.
     eauto using low_assn_skip_arr.
-    applys_eq ty_offset 1; eauto.
-    instantiate (1:=Lo); instantiate (1:=Lo); reflexivity.
+    applys_eq (>> ty_offset Lo Lo) 1; eauto.
   - intros bid.
     unfold bid_post; rewrite MyVector.init_spec.
     repeat has_no_vars_assn.
