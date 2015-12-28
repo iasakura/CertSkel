@@ -641,18 +641,18 @@ Proof.
       intros j Hj; cutrewrite (S s + n + j = s + n + S j); [|omega]; apply Hdisti; omega.
 Qed.
 
-Lemma skip_arr_tup_fold i e f n nt (Hnt0 : nt <> 0) : forall s, 
-  i < nt -> 0 < n ->
+Lemma skip_arr_tup_fold i es f nt (Hnt0 : nt <> 0) p : forall s, 
+  i < nt -> 
   forall stc, stc ||=
-  nth i (distribute_tup nt e (s * nt + i) f (nt_step nt) 0) emp **
-   (e +o Enum' (s * nt + i) -->p (1,  Enum (f (s * nt + i)))) <=>
-    nth i (distribute_tup nt e (S s * nt + i) f (nt_step nt) 0) emp.
+  nth i (distribute_tup nt es (s * nt + i) f (nt_step nt) 0 p) emp **
+    (is_tuple_p (tarr_idx es (Zn (s * nt + i)))) (vs2es (f (s * nt + i))) p <=>
+    nth i (distribute_tup nt es (S s * nt + i) f (nt_step nt) 0 p) emp.
 Proof.
-  intros s Hint Hn0 stc.
+  intros s Hint stc.
   assert (Heq : s * nt + i = 0 + (s * nt + i) + 0) by omega.
   rewrite Heq at 2; rewrite Heq at 3.
-  rewrite nth_dist_snoc; auto.
-  rewrite nth_dist_ext with (next := nt - 1); auto.
+  rewrite nth_dist_snoc_tup; auto.
+  rewrite nth_dist_tup_ext with (next := nt - 1); auto.
   cutrewrite (S (s * nt + i + 0) + (nt - 1) = S s * nt + i); [|simpl; omega]; reflexivity.
   intros j Hj; unfold nt_step.
   - cutrewrite (0 + S (s * nt + i + 0) + j = (S (i + j)) + s * nt); [|omega].
@@ -660,7 +660,7 @@ Proof.
     intros Heqij. pose proof (Nat.div_mod (S (i + j)) nt Hnt0) as H'; rewrite Heqij in H'.
     assert (S j = nt * (S (i + j) / nt)) by omega.
     destruct (S (i + j) / nt); simpl in *; [omega|].
-    rewrite mult_comm in H; simpl in *; destruct (n0 * nt); omega.
+    rewrite mult_comm in H; simpl in *; destruct (n * nt); omega.
   - simpl; rewrite <-!plus_n_O; unfold nt_step.
     rewrite plus_comm, Nat.mod_add; auto; rewrite Nat.mod_small; auto.
   - inversion 1.
