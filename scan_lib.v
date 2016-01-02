@@ -1375,6 +1375,43 @@ Proof.
     rewrite <-plus_n_Sm; simpl; rewrite sep_assoc; autorewrite with sep. reflexivity.
 Qed.
 
+Lemma skip_arr_forward ix i e f n nt (Hnt0 : nt <> 0) : forall s, 
+  ix < n -> (s + ix) mod nt = i ->
+  forall stc, stc ||= nth i (distribute nt e n f (nt_step nt) s) emp <=>
+                  nth i (distribute nt e ix f (nt_step nt) s) emp **
+                  (e +o Enum' (s + ix) -->p (1,  Enum (f (s + ix)))) **
+                  nth i (distribute nt e (n - ix - 1) f (nt_step nt) (s + ix + 1)) emp.
+Proof.
+  intros s Hix0 Hix1 stc.
+  revert ix Hix0 s Hix1; induction n; [intros; simpl; try omega|]; intros ix Hix0 s Hix1.
+  cutrewrite (S n - ix - 1 = n - ix); [|omega].
+  assert (i < nt) by (subst; apply mod_bound_pos; omega).
+  simpl; rewrite nth_add_nth; [|rewrite distribute_length; eauto..].
+  destruct (beq_nat _ _) eqn:Heq;
+    [rewrite beq_nat_true_iff in Heq | rewrite beq_nat_false_iff in Heq].
+  - destruct ix; simpl.
+    + rewrite <-plus_n_O, <-minus_n_O.
+      cutrewrite (s + 1 = S s); [|omega].
+      rewrite nth_nseq; destruct (Compare_dec.leb _ _); rewrite emp_unit_l;
+      split; intros; repeat sep_cancel.
+    + rewrite nth_add_nth; [|rewrite distribute_length; try omega..].
+      rewrite Heq at 2; rewrite <-beq_nat_refl.
+      rewrite <-plus_n_Sm in Hix1.
+      lets H':(>>IHn ix (S s)); try omega; rewrite H'; clear H'; eauto.
+      cutrewrite (S s + ix = s + S ix); [|omega].
+      cutrewrite (n - ix - 1 = n - S ix); [|omega].
+      rewrite !sep_assoc; reflexivity.
+  - destruct ix; simpl.
+    + unfold nt_step in *; rewrite <-plus_n_O in *; congruence.
+    + rewrite nth_add_nth; [|rewrite distribute_length; try omega; eauto..].
+      lets H': (>>beq_nat_false_iff ___); apply H' in Heq; rewrite Heq; clear H'.
+      rewrite <-plus_n_Sm in Hix1.
+      lets H':(>>IHn ix (S s)); try omega; rewrite H'; clear H'; eauto.
+      cutrewrite (S s + ix = s + S ix); [|omega].
+      cutrewrite (n - ix - 1 = n - S ix); [|omega].
+      rewrite !sep_assoc; reflexivity.
+Qed.
+
 End read_only_lemma.
 Section tid_lemma.
 Close Scope Qc.

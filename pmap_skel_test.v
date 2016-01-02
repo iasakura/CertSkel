@@ -17,11 +17,8 @@ Section verification_example.
   Close Scope exp.
   Eval compute in names_of_arg (grpOfInt 0) 1.
   (* length of the array: shInO, the top address of the array: arrInOO *)
-  Definition env := (0, 1) :: (1, 1) :: nil.
-  Eval compute in names_of_arg (grpOfInt 0) 1.
-  Eval compute in names_of_arg (grpOfInt 1) 1.
+  Definition env := (0, 2) :: nil.
   Notation t0 := (Var "lv10").
-  Notation t1 := (Var "lv11").
 
   Notation arr0 := (Var "arrInOO").
   Notation arr1 := (Var "arrInSOO").

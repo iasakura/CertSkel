@@ -686,6 +686,43 @@ Proof.
   intros j Hji; simpl; unfold nt_step; rewrite plus_comm, Nat.mod_add, Nat.mod_small; omega.
 Qed.  
 
+Lemma skip_arr_tup_forward ix i e f n nt (Hnt0 : nt <> 0) q : forall s, 
+  ix < n -> (s + ix) mod nt = i ->
+  forall stc, stc ||= nth i (distribute_tup nt e n f (nt_step nt) s q) emp <=>
+                  nth i (distribute_tup nt e ix f (nt_step nt) s q) emp **
+                  is_tuple_p (tarr_idx e (Zn (s + ix))) (vs2es (f (s + ix))) q **
+                  nth i (distribute_tup nt e (n - ix - 1) f (nt_step nt) (s + ix + 1) q) emp.
+Proof.
+  intros s Hix0 Hix1 stc.
+  revert ix Hix0 s Hix1; induction n; [intros; simpl; try omega|]; intros ix Hix0 s Hix1.
+  cutrewrite (S n - ix - 1 = n - ix); [|omega].
+  assert (i < nt) by (subst; apply mod_bound_pos; omega).
+  simpl; rewrite nth_add_nth; [|rewrite distribute_tup_length; eauto..].
+  destruct (beq_nat _ _) eqn:Heq;
+    [rewrite beq_nat_true_iff in Heq | rewrite beq_nat_false_iff in Heq].
+  - destruct ix; simpl.
+    + rewrite <-plus_n_O, <-minus_n_O.
+      cutrewrite (s + 1 = S s); [|omega].
+      rewrite nth_nseq; destruct (Compare_dec.leb _ _); rewrite emp_unit_l;
+      split; intros; repeat sep_cancel.
+    + rewrite nth_add_nth; [|rewrite distribute_tup_length; try omega..].
+      rewrite Heq at 2; rewrite <-beq_nat_refl.
+      rewrite <-plus_n_Sm in Hix1.
+      lets H':(>>IHn ix (S s)); try omega; rewrite H'; clear H'; eauto.
+      cutrewrite (S s + ix = s + S ix); [|omega].
+      cutrewrite (n - ix - 1 = n - S ix); [|omega].
+      rewrite !sep_assoc; reflexivity.
+  - destruct ix; simpl.
+    + unfold nt_step in *; rewrite <-plus_n_O in *; congruence.
+    + rewrite nth_add_nth; [|rewrite distribute_tup_length; try omega; eauto..].
+      lets H': (>>beq_nat_false_iff ___); apply H' in Heq; rewrite Heq; clear H'.
+      rewrite <-plus_n_Sm in Hix1.
+      lets H':(>>IHn ix (S s)); try omega; rewrite H'; clear H'; eauto.
+      cutrewrite (S s + ix = s + S ix); [|omega].
+      cutrewrite (n - ix - 1 = n - S ix); [|omega].
+      rewrite !sep_assoc; reflexivity.
+Qed.
+
 Lemma is_array_tup_unfold es len' f p : forall s len,
   (forall i, i < len -> length (f (s + i) ) = length es) ->
   len' < len ->
@@ -1431,4 +1468,23 @@ Proof.
   split.
   - apply Hx; eauto.
   - apply IHl1; intros; eauto.
+Qed.
+
+Lemma nth_dist_tup_change i e f1 f2 nt (Hnt0 : nt <> 0) dist q : forall n s,
+  i < nt ->
+  (forall i, dist i < nt) ->
+  (forall j, j < n -> dist (j + s) = i -> f1 (j + s) = f2 (j + s)) ->
+  forall stc, stc ||=
+  nth i (distribute_tup nt e n f1 dist s q) emp <=> 
+  nth i (distribute_tup nt e n f2 dist s q) emp.
+Proof.
+  induction n; intros s Hint Hdist Hf stc; simpl; [reflexivity|].
+  rewrite !nth_add_nth; auto.
+  destruct (beq_nat i (dist s)) eqn:Heq.
+  - apply Nat.eqb_eq in Heq.
+    pose (Hf 0) as Hf0; simpl in Hf0; rewrite Hf0; [|omega|auto].
+    rewrite IHn; auto; [reflexivity|].
+    intros j ?; rewrite <-plus_n_Sm; simpl; apply (Hf (S j)); omega.
+  - apply IHn; auto.
+    intros j ?; rewrite <-plus_n_Sm; simpl; apply (Hf (S j)); omega.
 Qed.

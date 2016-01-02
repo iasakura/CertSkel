@@ -29,8 +29,8 @@ Definition inv (i : nat) (arr out : Z) (fout : nat -> Z) :=
     !(I === Enum' (ix * nt_gr + i)) **
     !(Apure (ix * nt_gr + i < len + nt_gr)%nat) **
     is_array_p (Gl arr) len f 0 (perm_n nt_gr) ** 
-    nth i (distribute nt_gr (Gl out) (ix * nt_gr + i) (fun i => f i + 1)%Z (nt_step nt_gr) 0) emp **
-    nth i (distribute nt_gr (Gl out) (len - (ix * nt_gr + i)) (fun i => fout i) (nt_step nt_gr) (ix * nt_gr + i)) emp.
+    nth i (distribute nt_gr (Gl out) len
+      (fun j => if lt_dec j (ix * nt_gr + i) then f j + 1 else fout j)%Z (nt_step nt_gr) 0) emp.
 
 Definition map_ker (i : nat) (arr out : Z) (fout : nat -> Z):=
   I ::= (TID +C BID *C Z.of_nat ntrd);;
@@ -119,13 +119,15 @@ Proof.
     destruct H' as [v H'].
     subA_normalize_in H'. simpl in H'. exact H'. }
   hoare_forward.
+  assert (mod_add : forall x y c, y <> 0 -> c < y -> (x * y + c) mod y = c).
+  { intros; rewrite plus_comm; rewrite Nat.mod_add, Nat.mod_small; eauto. }
   { unfold inv; eapply Hbackward.
     Focus 2.
     { intros s h H; apply ex_lift_l_in in H as [x H]; sep_split_in H.
       change_in H.
       { unfold_pures.
-        sep_rewrite_in skip_arr_unfold H; [|try first [omega | eauto]..].
-        2: nia.
+        lets Heq: (>> skip_arr_forward (x * nt_gr + (nf tid + nf bid * ntrd))).
+        sep_rewrite_in Heq H; simpl in *; [|try first [nia; omega | eauto]..].
         sep_rewrite_in (@is_array_unfold (Gl arr) (x * nt_gr + (nf tid + nf bid * ntrd))) H.
         2: nia.
         sep_normal_in H.
@@ -170,54 +172,49 @@ Proof.
     sep_split; try now (unfold_conn; simpl; auto).
     unfold_conn; simpl; rewrite HP7; ring.
     unfold_conn; simpl; omega.
-    sep_rewrite_r skip_arr_fold; try omega; eauto.
+    lets Heq: (>> skip_arr_forward (x * nt_gr + (nf tid + nf bid * ntrd))).
+    sep_rewrite Heq; simpl in *; [|try first [omega | eauto]..].
     sep_rewrite (@is_array_unfold (Gl (s ARR)) (x * nt_gr + (nf tid + nf bid * ntrd))).
     2: omega.
     sep_normal; simpl.
     repeat autorewrite with sep. simpl; repeat sep_cancel.
-    cuts_rewrite (len - (nt_gr + x * nt_gr + (nf tid + nf bid * ntrd)) =
-                  len - (x * nt_gr + (nf tid + nf bid * ntrd)) - nt_gr); [|omega]. 
-    repeat autorewrite with sep. repeat sep_cancel. }
+    assert (0 < nt_gr) by (apply Nat.mul_pos_pos; omega).
+    destruct lt_dec; try omega; sep_lift 1; sep_cancel.
+    sep_rewrite nth_dist_change; eauto.
+    apply scC; sep_rewrite nth_dist_change; eauto.
+    apply scC; eauto.
+    clear H1 h3 H2 h2 h1 H0 h0 H Heq.
+    - intros; repeat destruct lt_dec; eauto; try omega. 
+      assert (nt_gr - 1 <= j); [|omega].
+      cutrewrite (j + (x * nt_gr + (nf tid + nf bid * ntrd) + 1) =
+                  ((j + 1) + (nf tid + nf bid * ntrd)) + x * nt_gr) in H0; [|ring].
+      Lemma mod_same: forall x y z, z <> 0 -> (x + y) mod z = y -> x mod z = 0.
+      Proof.
+        intros.
+        lets: (>>Nat.div_mod (x + y) z ___); auto.
+        assert (x = z * ((x + y) / z)) by omega.
+        rewrite H2, mult_comm, Nat.mod_mul; eauto.
+      Qed.
+      unfold nt_step in H0; rewrite Nat.mod_add in H0; eauto.
+      apply mod_same in H0; eauto.
+      apply Nat.mod_divides in H0 as [[| c] ?]; subst; nia.
+
+      - intros; repeat destruct lt_dec; eauto; try omega. }
 
   { unfold inv; intros s h H. apply ex_lift_l_in in H as [x H]. sep_split_in H. unfold_pures.
     sep_cancel.
-    rewrite HP2 in n; rewrite <-Nat2Z.inj_lt in n.
-    cutrewrite (len - (x * nt_gr + (nf tid + nf bid * ntrd))  = 0) in H0; [|zify; omega].
-    simpl in H0.
-    cutrewrite (nth (nf tid + nf bid * ntrd) (nseq nt_gr emp) emp = emp) in H0;
-      [|rewrite nth_nseq; destruct (leb _ _); auto].
-    sep_rewrite_in emp_unit_r H0.
-    sep_rewrite nth_dist_ext; auto.
-    2: instantiate (1 := (x * nt_gr + (nf tid + nf bid * ntrd) - len)).
-    cutrewrite (len + (x * nt_gr + (nf tid + nf bid * ntrd) - len) =
-                x * nt_gr + (nf tid + nf bid * ntrd)); [eauto|omega].
-    
-    intros j Hj; simpl; unfold nt_step.
-    cut (((len + nt_gr) + j) mod nt_gr <> nf tid + nf bid * ntrd).
-    cutrewrite (len + nt_gr + j = len + j + 1 * nt_gr); [|ring].
-    rewrite Nat.mod_add; auto.
-    assert (len + nt_gr + j < S x * nt_gr + (nf tid + nf bid * ntrd)) by nia.
-    assert (x * nt_gr + (nf tid + nf bid * ntrd) < len + nt_gr + j) by nia.
-
-    eapply mod_between; eauto. }
+    sep_rewrite nth_dist_change; eauto.
+    intros; destruct lt_dec; try omega; zify; omega. }
 
   {  intros s h H; unfold inv; exists 0; simpl.
      sep_split_in H; unfold_pures; sep_split; auto.
      - unfold_conn; simpl; autorewrite with sep; congruence.
      - unfold_conn. assert (nf tid + nf bid * ntrd < nt_gr) by auto. omega.
      - sep_cancel.
-       sep_rewrite nth_dist_nil; auto.
-       2: instantiate (1 := nf tid + nf bid * ntrd).
-       rewrite minus_diag; simpl.
-       
-       2: simpl; intros; unfold nt_step; rewrite Nat.mod_small; try omega; auto.
-       2: assert (nf tid + nf bid * ntrd < nt_gr) by auto; omega.
-       sep_rewrite_in nth_dist_nil H0; eauto.
-       2: instantiate (1 := nf tid + nf bid * ntrd).
-       2: simpl; intros; unfold nt_step; rewrite Nat.mod_small; try omega; auto.
-       2: assert (nf tid + nf bid * ntrd < nt_gr) by auto; omega.
-       simpl in *.
-       rewrite nth_nseq; destruct (leb _ _); sep_rewrite emp_unit_l; eauto. }
+       sep_rewrite nth_dist_change; eauto.
+       intros; destruct lt_dec; try omega.
+       unfold nt_step in H2; rewrite Nat.mod_small in H2; try omega.
+       assert (nf tid + nf bid * ntrd < nt_gr); eauto; omega. }
 Qed.
 
 Require Import Bdiv.
