@@ -423,7 +423,7 @@ Proof.
     intros j ?; rewrite <-plus_n_Sm; simpl; apply (Hf (S j)); omega.
 Qed.
 
-Require Import LibTactics.
+Require Import TLC.LibTactics.
 Require Import Psatz.
 
 Lemma skip_arr_nth nt f e i tid :

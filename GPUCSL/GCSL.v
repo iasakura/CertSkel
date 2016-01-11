@@ -1,7 +1,7 @@
 Require Export CSL.
 Require Import array_dist Bdiv MyList.
 Import PHeap Lang assertion_lemmas.
-Require Import LibTactics.
+Require Import TLC.LibTactics.
 
 Section GlobalCSL.
 Variable ntrd : nat.
@@ -868,7 +868,7 @@ Section For_List_Notation.
             specialize (H x); unfold dom_eq, dom_eqp, htop, htop' in *; simpl in *.
             destruct (this h1 x) as [[? ?]|], (this h2 x) as [[? ?]|]; try congruence.
             specialize (H q); destruct H.
-            exploit H1; [eauto|intros [v ?]; congruence].
+            forwards [v ?]: H1; [eauto|congruence].
         Qed.
 
         Lemma dom_eq_phplus (h1 h2 h h' : pheap) :
@@ -910,28 +910,28 @@ Section For_List_Notation.
             specialize (Hdomeq l).
             destruct (this h1 l) as [[? ?]|], (this h2 l) as [[? ?]|],
                      (this h' l) as [[? ?]|] eqn:Heq'; eauto.
-            - destruct (Hdomeq (q + q0)); exploit H; [eexists; eauto|].
-              intros [? ?]; congruence.
-            - destruct (Hdomeq q); exploit H; [eexists; eauto|].
-              intros [? ?]; congruence.
-            - destruct (Hdomeq q); exploit H; [eexists; eauto|].
-              intros [? ?]; congruence.
-            - rewrite <-Heq in Hdomeq; destruct (Hdomeq q) as [? H']; exploit H'; eauto.
-              intros [? ?]; congruence. }
+            - destruct (Hdomeq (q + q0)); forwards [? ?]: H; [eexists; eauto|].
+              congruence.
+            - destruct (Hdomeq q); forwards [? ?]: H; [eexists; eauto|].
+              congruence.
+            - destruct (Hdomeq q); forwards [? ?]: H; [eexists; eauto|].
+              congruence.
+            - rewrite <-Heq in Hdomeq; destruct (Hdomeq q) as [? H']; forwards [? ?]: H'; eauto.
+              congruence. }
           unfold dom_eqp; split; intros; unfold h1', h2'; simpl; 
           apply (f_equal (fun f => f l)) in Heq; unfold phplus in Heq; simpl in Heq;
           specialize (Hdomeq l);
           destruct (this h1 l) as [[? ?]|]; destruct (this h2 l) as [[? ?]|];
           split; intros [? H]; destruct (this h' l) as [[? ?]|]; inversion H;
           (try now (eexists; eauto)); rewrite <-Heq in *.
-          - destruct (Hdomeq (q + q0)) as [Hx ?]; exploit Hx; [eexists; eauto|].
-            intros [? ?]; congruence.
-          - destruct (Hdomeq q) as [Hx ?]; exploit Hx; [eexists; eauto|].
-            intros [? ?]; congruence.
-          - destruct (Hdomeq (q + q0)) as [Hx ?]; exploit Hx; [eexists; eauto|].
-            intros [? ?]; congruence.
-          - destruct (Hdomeq q) as [Hx ?]; exploit Hx; [eexists; eauto|].
-            intros [? ?]; congruence.
+          - destruct (Hdomeq (q + q0)) as [Hx ?]; forwards [? ?]: Hx; [eexists; eauto|].
+            congruence.
+          - destruct (Hdomeq q) as [Hx ?]; forwards [? ?]: Hx; [eexists; eauto|].
+            congruence.
+          - destruct (Hdomeq (q + q0)) as [Hx ?]; forwards [? ?]: Hx; [eexists; eauto|].
+            congruence.
+          - destruct (Hdomeq q) as [Hx ?]; forwards [? ?]: Hx; [eexists; eauto|].
+            congruence.
         Qed.
           
         Lemma is_arr_dom_eq stk e n f : forall (h1 h2 : pheap) s,
@@ -945,7 +945,7 @@ Section For_List_Notation.
             unfold dom_eqp, dom_eq, htop, htop' in *; simpl in *.
             specialize (H x); destruct (this h2 x) as [[? ?]|]; auto.
             specialize (H0 x); destruct (this h1 x) as [[? ?]|]; try tauto; try congruence.
-            destruct (H q) as [? Hx]; exploit Hx; eauto; intros [? ?]; congruence.
+            destruct (H q) as [? Hx]; forwards [? ?]: Hx; eauto; congruence.
           - destruct H0 as (ph1 & ph2 & ? & ? & ? & ?).
             lets (h1' & h2' & Hdis' & Heq' & Heq1' & Heq2'): (>> dom_eq_phplus H2 H3 H).
             lets (v & Hsat1): (>> pts_dom_eq Heq1' H0).
@@ -977,7 +977,7 @@ Section For_List_Notation.
           induction sdec as [|[var len] sdec]; simpl; intros h1 h2 Heqb Hsat.
           - unfold_conn_all; unfold dom_eqp in *; intros l; specialize (Hsat l); specialize (Heqb l).
             destruct (this h1 l) as [[? ?]|], (this h2 l) as [[? ?]|]; try congruence.
-            destruct (Heqb q) as [_ H]; exploit H; [eauto | intros [? ?]; congruence].
+            destruct (Heqb q) as [_ H]; forwards [? ?]: H; [eauto | congruence].
           - destruct Hsat as (ph1 & ph2 & ? & ? & ? & ?).
             lets (ph1' & ph2' & Hdis' & Heq' & Heq1' & Heq2'): (>> dom_eq_phplus H1 H2 Heqb).
             destruct H as (f & H).
@@ -1055,9 +1055,9 @@ Section For_List_Notation.
           lets~ (H1 & H2): (H l full_p); clear H.
           split; intros [v H'].
           - destruct l as [z | z]; destruct (sh1 z); try congruence.
-            exploit H1; [eauto|]; destruct (sh2 z); intros [? H]; inversion H'; eauto.
+            forwards [? H]: H1; [eauto|]; destruct (sh2 z); inversion H'; eauto.
           - destruct l as [z | z]; destruct (sh2 z); try congruence.
-            exploit H2; [eauto|]; destruct (sh1 z); intros [? H]; inversion H'; eauto.
+            forwards [? H]: H2; [eauto|]; destruct (sh1 z); inversion H'; eauto.
         Qed.
 
         lets Heqsh: (>> dom_eq_sh_gh Hdomeq).
@@ -1260,7 +1260,7 @@ Proof.
     { apply leq_low_eq_l2; introv Hneq; unfold low_eq; introv Hlox.
       erewrite !nth_map; [|reflexivity..].
       rewrite !Hstkb; eauto; congruence. }
-    applys* (>> Htri Hlowl2).
+    applys* (>> Htri ___ Hlowl2).
     unfold sat_k;
     lazymatch goal with [|- context [ let (_, _) := ?X in _ ]] => destruct X as [stkr Hstkr] end; simpl.
     Require Import assertions.
@@ -1403,9 +1403,9 @@ Proof.
             exists (Pheap H1) (Pheap H2); repeat split; simpl; eauto.
             unfold_conn; intros [l | l]; simpl; eauto.
             destruct Z.eq_dec, (eq_dec (SLoc _)); try congruence.
-            rewrite e, H0 in n; exploit n; [f_equal; omega | tauto].
+            rewrite e, H0 in n; forwards: n; [f_equal; omega | tauto].
             inversion e.
-            rewrite H6, H0 in n; exploit n; [f_equal; omega|tauto].
+            rewrite H6, H0 in n; forwards: n; [f_equal; omega|tauto].
         Qed.
         eapply (sh_is_array_sat _ _ 0).
         
@@ -1433,6 +1433,8 @@ Proof.
     rewrite Vector.const_nth; eauto.
   - intros.
     rewrite HC; eauto.
+Grab Existential Variables.
+eauto.
 Qed.
 
 End For_List_Notation.
