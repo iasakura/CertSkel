@@ -127,8 +127,8 @@ Section independent_prover.
     - apply inde_nth_add_nth.
       + apply inde_pointto; auto; rewrite List.Forall_forall in *; intros;
         unfold indeE, indelE in *; simpl; intros; auto.
-        exploit H; eauto; intros Heq.
-        destruct arr; simpl in *; inversion Heq; rewrite H2; reflexivity.
+        forwards: H; eauto.
+        destruct arr; simpl in *; inversion H1; rewrite H3; eauto.
       + apply IHl; auto.
   Qed.      
 

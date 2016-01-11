@@ -455,7 +455,7 @@ Section BarrierDivergenceFreedom.
     inversion red_s; subst; eauto; simpl in *.
     assert (Hdis : pdisj hF phF).
     { rewrite <-hto1 in H5; apply pdisjC, pdisjE2, pdisjC in H5; eauto. }
-    exploit (Hstep (phplus_pheap Hdis) h1 c2 (s2, h2)); simpl; eauto.
+    forwards (h' & ph' & ? & ? & ? &  _): (Hstep (phplus_pheap Hdis) h1 c2 (s2, h2)); simpl; eauto.
     - apply pdisj_padd_expand; eauto.
       rewrite hto1; eauto.
     - rewrite <-padd_assoc; eauto.
@@ -463,7 +463,7 @@ Section BarrierDivergenceFreedom.
       (* apply pdisj_padd_expand; eauto. *)
       (* rewrite hto1; eauto. *)
     - rewrite <-heq; eauto.
-    - intros (h' & ph' & ? & ? & ? &  _); exists (s2, ph'); repeat split; simpl; eauto.
+    - exists (s2, ph'); repeat split; simpl; eauto.
       eapply (@redp_ster c1 c2 (s1, h1) (s2, h2) pst1 (s2, ph') (fst pst1) s2 (snd pst1) ph' (phplus_pheap Hdis) h1 h2); eauto; try congruence.
       + destruct pst1; eauto.
       + rewrite <-hto1 in H5; apply pdisj_padd_expand; eauto.

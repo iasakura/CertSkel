@@ -1103,13 +1103,11 @@ Proof.
   simpl in Hsafe; destructs Hsafe.
   repeat split; auto.
   - intros; unfold sat_k in *.
-    exploit H; eauto.
-    intros [x ?]; exists x.
+    forwards [x ?]: H; eauto.
+    exists x.
     destruct low_eq_repr; apply Hq; eauto.
-  - exploit H2; eauto.
-    intros; jauto.
-  - exploit H2; eauto.
-    intros; jauto.
+  - forwards: H2; jauto.
+  - forwards: H2; jauto.
   - intros; forwards: H3; eauto.
     destruct H7 as (ph'' & ? & ? & ?); exists ph''; repeat split; eauto.
 Qed.  
