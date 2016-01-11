@@ -2,7 +2,7 @@ Require Import GPUCSL.
 Require Import scan_lib.
 Require Import LibTactics Psatz.
 
-Section Reduce.
+Section Reduce0.
 
 Variable e_b : nat.
 Variable ntrd : nat.
@@ -140,13 +140,14 @@ Definition reduce_body n s :=
 Fixpoint reduce_aux t m :=
   match m with
   | O => Cskip
-  | S m => reduce_body t (s t) ;; reduce_aux (S t) m
+  | S m =>
+    reduce_body t (s t) ;; reduce_aux (S t) m 
   end.
 
 Definition reduce := reduce_aux 1 e_b.  
 
 Lemma even_odd_dec m :
-  {exists n, m = 2 * n} + {exists n, m = 2 * n + 1}.
+  {n | m = 2 * n} + {n | m = 2 * n + 1}.
 Proof.
   rewrite (Nat.div_mod m 2); try omega.
   destruct (m mod 2) as [| [| ?]] eqn:Heq.
@@ -155,4 +156,184 @@ Proof.
   - assert (m mod 2 <= 1) by (lets: (Nat.mod_upper_bound m 2); omega).
     omega.
 Defined.
+Notation perm_n n := (1 / injZ (Zn n))%Qc.
+Definition BSpre i n := 
+  match even_odd_dec n with
+  | inl (exist m _) => (Sh sdata +o (Zn i)) -->p (1,  f m i)
+  | inr (exist m _) => is_array_p (Sh sdata) ntrd (f m) 0 (perm_n ntrd)
+  end.
 
+Definition BSpost i n := 
+  match even_odd_dec n with
+  | inl (exist m _) => is_array_p (Sh sdata) ntrd (f m) 0 (perm_n ntrd)
+  | inr (exist m _) => (Sh sdata +o (Zn i)) -->p (1,  f m i)
+  end.
+
+Definition BS n := (@MyVector.init _ ntrd (fun i =>(BSpre (nf i) n)),
+                    @MyVector.init _ ntrd (fun i =>(BSpost (nf i) n))).
+
+Lemma reduce_body_ok n i:
+  CSL BS i
+    (!(tid === Zn (nf i)) **
+     !(len === Zn l) **
+     !(x1 === f n (nf i)) **
+     (Sh sdata +o (Zn (nf i)) -->p (1, f n (nf i))))
+    (reduce_body (S n) (s (S n)))
+    (!(tid === Zn (nf i)) **
+     !(len === Zn l) **
+     !(x1 === f (S n) (nf i)) **
+     (Sh sdata +o (Zn (nf i)) -->p (1, f (S n) (nf i)))).
+Proof.
+  remember (S n) as sn.
+  unfold reduce_body.
+  eapply rule_seq; simpl.
+  { subst sn; simpl; rewrite <-minus_n_O; unfold BS, BSpre, BSpost.
+    hoare_forward.
+    - destruct even_odd_dec as [[m ?] |[m ?]]; try now (repeat intros ?; omega).
+      assert (n = m) by omega; subst m; intros s h H; sep_normal; repeat sep_cancel.
+      apply H0.
+    - simpl; rewrite MyVector.init_spec.
+      destruct even_odd_dec as [[m ?] |[m ?]]; try now (repeat intros ?; omega).
+      intros s h H; eauto.
+      assert (n = m) by omega; subst m; eauto. }
+  eapply rule_seq.
+  { hoare_forward; eauto.
+    - eapply Hbackward.
+      Focus 2. {
+        intros st h H.
+        sep_split_in H.
+        change_in H.
+        { unfold_pures.
+          lets Heq: (>>is_array_unfold ((nf i) + s (S n))).
+          sep_rewrite_in Heq H; clear Heq; try (unfold lt in *; subst sn; omega).
+          assert ((Sh sdata +o Zn (nf i + s (S n) + 0) ===l
+                               Sh sdata +o (tid +C Zn (s (S n)))) st (emp_ph loc)).
+          { unfold_conn_all; simpl in *; f_equal; zify; unfold lt in *; omega. }
+          sep_rewrite_in mps_eq1 H; [|exact H0].
+          apply H. }
+        sep_combine_in H; exact H. } Unfocus.
+      eapply rule_seq; [hoare_forward; eauto|].
+      eapply rule_seq.
+      { hoare_forward.
+        intros s h [? H]; subA_normalize_in H. simpl in H. apply H. }
+      hoare_forward.
+      intros s h [v H]; subA_normalize_in H. simpl in H.
+      ex_intro v H; simpl in H; apply H.
+    - apply rule_skip. }
+  eapply Hforward.
+  { apply rule_disj.
+    - repeat hoare_forward.
+      unfold BS, BSpre, BSpost; simpl; eapply rule_seq; [hoare_forward|eauto].
+      destruct even_odd_dec as [[m H]|[m H]]; try now (repeat intros ?; omega).
+      assert (n = m) by omega; subst m; clear H.
+      intros st h H.
+      sep_split_in H; sep_normal_in H; sep_normal; unfold lt in *.
+      lets Heq: (>>is_array_unfold ((nf i) + s (S n))).
+      sep_rewrite Heq; clear Heq; try (unfold lt in *; unfold_pures; subst sn; omega).
+      unfold lt in *; sep_normal_in H; sep_normal; repeat sep_cancel.
+      assert ((Sh sdata +o Zn (nf i + s (S n) + 0) ===l
+               Sh sdata +o (tid +C Zn (s (S n)))) st (emp_ph loc)).
+      { unfold_conn_all; simpl in *; f_equal; zify; unfold lt in *; omega. }
+      sep_rewrite mps_eq1; [|exact H2].
+      sep_combine_in H1; sep_cancel.
+      simpl; rewrite MyVector.init_spec.
+      destruct even_odd_dec as [[m H]|[m H]]; try now (repeat intros ?; omega).
+      assert (n = m) by omega; subst m; clear H; eauto.
+
+      hoare_forward; eauto.
+      intros st h H.
+      ex_intro x H; apply H.
+    - unfold BS, BSpre, BSpost; simpl; eapply rule_seq; [hoare_forward|eauto].
+      destruct even_odd_dec as [[m H]|[m H]]; try now (repeat intros ?; omega).
+      assert (n = m) by omega; subst m; clear H.
+      intros st h H.
+      sep_normal_in H; sep_cancel; eauto.
+      simpl; rewrite MyVector.init_spec.
+      destruct even_odd_dec as [[m H]|[m H]]; try now (repeat intros ?; omega).
+      assert (n = m) by omega; subst m; clear H.
+      eauto.
+      hoare_forward; eauto. }
+  intros st h [[v H] | H]; sep_split_in H; unfold_pures; sep_split; eauto; sep_cancel.
+  - unfold_conn; subst sn; simpl.
+    destruct lt_dec; try (zify; unfold lt in *; omega).
+    rewrite <-plus_n_O in *; unfold lt in *; omega.
+  - subst sn; simpl.
+    destruct lt_dec; try (zify; unfold lt in *; omega).
+    rewrite <-plus_n_O in *; unfold lt in *; sep_cancel.
+  - unfold_conn; subst sn; simpl.
+    destruct lt_dec; try (zify; unfold lt in *; omega).
+  - subst sn; simpl.
+    destruct lt_dec; try (zify; unfold lt in *; omega).
+    sep_cancel.
+Qed.
+
+Lemma reduce_aux_ok i t m :
+  CSL BS i
+    (!(tid === Zn (nf i)) **
+     !(len === Zn l) **
+     !(x1 === f t (nf i)) **
+     (Sh sdata +o (Zn (nf i)) -->p (1, f t (nf i))))
+    (reduce_aux (S t) m)
+    (!(tid === Zn (nf i)) **
+     !(len === Zn l) **
+     !(x1 === f (t + m) (nf i)) **
+     (Sh sdata +o (Zn (nf i)) -->p (1, f (t + m) (nf i)))).
+Proof.
+  revert t; induction m; simpl; intros t.
+  - rewrite <-plus_n_O; apply rule_skip.
+  - eapply rule_seq; eauto.
+    apply reduce_body_ok.
+    cutrewrite (t + S m = S t + m); [|omega]; eauto.
+Qed.
+
+Theorem reduce_ok i :
+  CSL BS i
+    (!(tid === Zn (nf i)) **
+     !(len === Zn l) **
+     !(x1 === f_in (nf i)) **
+     (Sh sdata +o (Zn (nf i)) -->p (1, f_in (nf i))))
+    reduce
+    (!(tid === Zn (nf i)) **
+     !(len === Zn l) **
+     !(x1 === f e_b (nf i)) **
+     (Sh sdata +o (Zn (nf i)) -->p (1, f e_b (nf i)))).
+Proof.
+  unfold reduce.
+  eapply rule_conseq; eauto using reduce_aux_ok.
+Qed.
+
+
+Lemma is_array_distr e n (f' : nat -> Z) :
+  forall s stk,
+    stk ||= conj_xs (ls_init s n (fun i => e +o Zn i -->p (1, f' i))) <=>
+        is_array e n f' s.
+Proof.
+  induction n; intros s stk; simpl.
+  - reflexivity.
+  - rewrite IHn; reflexivity.
+Qed.
+
+Theorem BS_ok b :
+  Bdiv.Aistar_v (fst (BS b)) |= Bdiv.Aistar_v (snd (BS b)). 
+Proof.
+  unfold BS, BSpre, BSpost; simpl.
+  intros s h H.
+  destruct (even_odd_dec b) as [[m Hb] | [m Hb]]; subst b.
+  - istar_simplify_in H.
+    apply is_array_distr in H.
+    apply sc_v2l; rewrite (vec_to_list_init0 _ emp); erewrite ls_init_eq0.
+    2: intros i Hi; destruct (Fin.of_nat i ntrd) as [|[? Hex]]; try omega.
+    2: cutrewrite (is_array_p (Sh sdata) ntrd (f m) 0 (perm_n ntrd) =
+                   id (fun i : nat => is_array_p (Sh sdata) ntrd (f m) 0 (perm_n ntrd)) i); eauto.
+    unfold id.
+    apply is_array_is_array_p_1; eauto.
+  - istar_simplify.
+    apply is_array_distr.
+    apply sc_v2l in H; rewrite (vec_to_list_init0 _ emp) in H; erewrite ls_init_eq0 in H.
+    2: intros i Hi; destruct (Fin.of_nat i ntrd) as [|[? Hex]]; try omega.
+    2: cutrewrite (is_array_p (Sh sdata) ntrd (f m) 0 (perm_n ntrd) =
+                   id (fun i : nat => is_array_p (Sh sdata) ntrd (f m) 0 (perm_n ntrd)) i); eauto.
+    unfold id in H.
+    apply is_array_is_array_p_1 in H; eauto.
+Qed.
+End Reduce0.
