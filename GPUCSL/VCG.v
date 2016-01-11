@@ -9,7 +9,7 @@ Require Import CSL.
 Require Import PHeap.
 Require Import array_dist.
 Require Import MyList.
-Require Import LibTactics.
+Require Import TLC.LibTactics.
 Open Scope exp_scope.
 Open Scope bexp_scope.
 (* Require Import scan_lib. *)

@@ -419,7 +419,7 @@ Section BarrierDivergenceFreedom.
       assert (ph' = snd ps') as Heq by (subst; eauto); rewrite Heq; clear Heq.    
     apply safe_inv'.
   Qed.
-  Require Import LibTactics.
+  Require Import TLC.LibTactics.
 
   Lemma safe_red_sp (c1 c2 : cmd) (st1 st2 : state) (pst1 : pstate) (hF : pheap) (tid : Fin.t ngroup) n q:
     c1 / st1 ==>s c2 / st2 -> 

@@ -67,7 +67,7 @@ Section SeqCSL.
           [  |- context [match ?v with | Some _ => _ | None => _ end] ] => 
             destruct v as [[? ?]|] end; eexists; eauto.
   Qed.
-  Require Import LibTactics.
+  Require Import TLC.LibTactics.
 
   Lemma write_ok_mono (C : cmd) (s : stack) (ph phF : pheap) (dis : pdisj ph phF) :
     write_ok C s ph -> write_ok C s (phplus_pheap dis).

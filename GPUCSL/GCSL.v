@@ -1,7 +1,7 @@
 Require Export CSL.
 Require Import array_dist Bdiv MyList.
 Import PHeap Lang assertion_lemmas.
-Require Import LibTactics.
+Require Import TLC.LibTactics.
 
 Section GlobalCSL.
 Variable ntrd : nat.
@@ -1260,7 +1260,7 @@ Proof.
     { apply leq_low_eq_l2; introv Hneq; unfold low_eq; introv Hlox.
       erewrite !nth_map; [|reflexivity..].
       rewrite !Hstkb; eauto; congruence. }
-    applys* (>> Htri Hlowl2).
+    applys* (>> Htri ___ Hlowl2).
     unfold sat_k;
     lazymatch goal with [|- context [ let (_, _) := ?X in _ ]] => destruct X as [stkr Hstkr] end; simpl.
     Require Import assertions.
@@ -1433,6 +1433,8 @@ Proof.
     rewrite Vector.const_nth; eauto.
   - intros.
     rewrite HC; eauto.
+Grab Existential Variables.
+eauto.
 Qed.
 
 End For_List_Notation.

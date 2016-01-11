@@ -1027,7 +1027,7 @@ Ltac prove_precise :=
       end; sep_split_in Hsat; sep_split_in Hsat')
   end.
 Hint Resolve is_array_precise precise_emp.
-Require Import LibTactics Psatz.
+Require Import TLC.LibTactics Psatz.
 Lemma conj_xs_init_flatten l1 l2 f_ini :
   forall s stk,
     stk ||=
@@ -1089,7 +1089,7 @@ Lemma CSLp_backward (P' P : assn) n E C Q :
   CSLp n E P C Q -> (P' |= P) -> CSLp n E P' C Q.
 Proof.
   unfold CSLp; intros Hcsl Hp; intros.
-  forwards: (>> Hcsl leqks); eauto. 
+  forwards: (Hcsl ks h leqks); eauto. 
   unfold sat_k in *.
   destruct low_eq_repr; eauto.
 Qed.  
