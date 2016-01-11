@@ -159,7 +159,7 @@ Definition Binv (fc : nat -> Z) n i :=
     Sh sdata +o (Zn i) -->p (1, fc i) **
     (Sh sdata +o (Zn i + Zn (s (S n)))%Z -->p (1, fc (i + (s (S n)))))
    else emp) **
-sntht  (if Nat.eq_dec i 0 then
+  (if Nat.eq_dec i 0 then
     is_array (Sh sdata) (min (s (S n)) ntrd - min (l - s (S n)) (s (S n))) fc (min (l - s (S n)) (s (S n))) **
     is_array (Sh sdata) (ntrd - (min (l - s (S n)) (s (S n)) + s (S n))) fc
                         (min (l - s (S n)) (s (S n)) + s (S n))
