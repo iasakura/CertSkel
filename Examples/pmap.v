@@ -30,7 +30,8 @@ Definition inv (i : nat) (arr out : Z) (fout : nat -> Z) :=
     !(Apure (ix * nt_gr + i < len + nt_gr)%nat) **
     is_array_p (Gl arr) len f 0 (perm_n nt_gr) ** 
     nth i (distribute nt_gr (Gl out) len
-      (fun j => if lt_dec j (ix * nt_gr + i) then f j + 1 else fout j)%Z (nt_step nt_gr) 0) emp.
+      (fun j => if lt_dec j (ix * nt_gr + i)
+                then f j + 1 else fout j)%Z (nt_step nt_gr) 0) emp.
 
 Definition map_ker (i : nat) (arr out : Z) (fout : nat -> Z):=
   I ::= (TID +C BID *C Z.of_nat ntrd);;
@@ -99,6 +100,14 @@ Proof.
   { unfold_conn_all; simpl in *; rewrite H1; eauto. }
   rewrite mps_eq1; [|exact H2].
   split; intros; sep_cancel; apply IHn; auto.
+Qed.
+
+Lemma mod_same: forall x y z, z <> 0 -> (x + y) mod z = y -> x mod z = 0.
+Proof.
+  intros.
+  lets: (>>Nat.div_mod (x + y) z ___); auto.
+  assert (x = z * ((x + y) / z)) by omega.
+  rewrite H2, mult_comm, Nat.mod_mul; eauto.
 Qed.
 
 Lemma map_correct : forall (tid : Fin.t ntrd) (bid : Fin.t nblk) (arr out : Z) (fout : nat -> Z), 
@@ -188,13 +197,6 @@ Proof.
       assert (nt_gr - 1 <= j); [|omega].
       cutrewrite (j + (x * nt_gr + (nf tid + nf bid * ntrd) + 1) =
                   ((j + 1) + (nf tid + nf bid * ntrd)) + x * nt_gr) in H0; [|ring].
-      Lemma mod_same: forall x y z, z <> 0 -> (x + y) mod z = y -> x mod z = 0.
-      Proof.
-        intros.
-        lets: (>>Nat.div_mod (x + y) z ___); auto.
-        assert (x = z * ((x + y) / z)) by omega.
-        rewrite H2, mult_comm, Nat.mod_mul; eauto.
-      Qed.
       unfold nt_step in H0; rewrite Nat.mod_add in H0; eauto.
       apply mod_same in H0; eauto.
       apply Nat.mod_divides in H0 as [[| c] ?]; subst; nia.
