@@ -27,7 +27,7 @@ Definition inv (i : nat) (arr out : Z) (fout : nat -> Z) :=
     !(ARR === arr) **
     !(OUT === out) **
     !(I === Enum' (ix * nt_gr + i)) **
-    !(Apure (ix * nt_gr + i < len + nt_gr)%nat) **
+    (* !(Apure (ix * nt_gr + i < len + nt_gr)%nat) ** *)
     is_array_p (Gl arr) len f 0 (perm_n nt_gr) ** 
     nth i (distribute nt_gr (Gl out) len
       (fun j => if lt_dec j (ix * nt_gr + i)
@@ -179,8 +179,8 @@ Proof.
     unfold_pures; subst.
     exists (S x); autorewrite with sep.
     sep_split; try now (unfold_conn; simpl; auto).
-    unfold_conn; simpl; rewrite HP7; ring.
-    unfold_conn; simpl; omega.
+    unfold_conn; simpl; rewrite HP6; ring.
+    (* unfold_conn; simpl; omega. *)
     lets Heq: (>> skip_arr_forward (x * nt_gr + (nf tid + nf bid * ntrd))).
     sep_rewrite Heq; simpl in *; [|try first [omega | eauto]..].
     sep_rewrite (@is_array_unfold (Gl (s ARR)) (x * nt_gr + (nf tid + nf bid * ntrd))).
@@ -211,7 +211,7 @@ Proof.
   {  intros s h H; unfold inv; exists 0; simpl.
      sep_split_in H; unfold_pures; sep_split; auto.
      - unfold_conn; simpl; autorewrite with sep; congruence.
-     - unfold_conn. assert (nf tid + nf bid * ntrd < nt_gr) by auto. omega.
+     (* - unfold_conn. assert (nf tid + nf bid * ntrd < nt_gr) by auto. omega. *)
      - sep_cancel.
        sep_rewrite nth_dist_change; eauto.
        intros; destruct lt_dec; try omega.

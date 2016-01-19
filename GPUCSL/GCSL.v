@@ -82,6 +82,7 @@ Definition bdiv_g (gs : glist nblk ntrd) (shs : Vector.t simple_heap nblk) (gh :
   exists (bid : Fin.t nblk), 
     Bdiv.bdiv (gs[@bid], (sh_gl_pheap shs[@bid] gh)).
 
+
 Fixpoint safe_ng (n : nat) (gs : glist nblk ntrd)
          (shs : Vector.t simple_heap nblk) (gh : zpheap) (Q : assn) :=
   match n with
