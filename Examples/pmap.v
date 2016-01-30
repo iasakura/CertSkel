@@ -27,10 +27,11 @@ Definition inv (i : nat) (arr out : Z) (fout : nat -> Z) :=
     !(ARR === arr) **
     !(OUT === out) **
     !(I === Enum' (ix * nt_gr + i)) **
-    !(Apure (ix * nt_gr + i < len + nt_gr)%nat) **
+    (* !(Apure (ix * nt_gr + i < len + nt_gr)%nat) ** *)
     is_array_p (Gl arr) len f 0 (perm_n nt_gr) ** 
     nth i (distribute nt_gr (Gl out) len
-      (fun j => if lt_dec j (ix * nt_gr + i) then f j + 1 else fout j)%Z (nt_step nt_gr) 0) emp.
+      (fun j => if lt_dec j (ix * nt_gr + i)
+                then f j + 1 else fout j)%Z (nt_step nt_gr) 0) emp.
 
 Definition map_ker (i : nat) (arr out : Z) (fout : nat -> Z):=
   I ::= (TID +C BID *C Z.of_nat ntrd);;
@@ -99,6 +100,14 @@ Proof.
   { unfold_conn_all; simpl in *; rewrite H1; eauto. }
   rewrite mps_eq1; [|exact H2].
   split; intros; sep_cancel; apply IHn; auto.
+Qed.
+
+Lemma mod_same: forall x y z, z <> 0 -> (x + y) mod z = y -> x mod z = 0.
+Proof.
+  intros.
+  lets: (>>Nat.div_mod (x + y) z ___); auto.
+  assert (x = z * ((x + y) / z)) by omega.
+  rewrite H2, mult_comm, Nat.mod_mul; eauto.
 Qed.
 
 Lemma map_correct : forall (tid : Fin.t ntrd) (bid : Fin.t nblk) (arr out : Z) (fout : nat -> Z), 
@@ -170,8 +179,8 @@ Proof.
     unfold_pures; subst.
     exists (S x); autorewrite with sep.
     sep_split; try now (unfold_conn; simpl; auto).
-    unfold_conn; simpl; rewrite HP7; ring.
-    unfold_conn; simpl; omega.
+    unfold_conn; simpl; rewrite HP6; ring.
+    (* unfold_conn; simpl; omega. *)
     lets Heq: (>> skip_arr_forward (x * nt_gr + (nf tid + nf bid * ntrd))).
     sep_rewrite Heq; simpl in *; [|try first [omega | eauto]..].
     sep_rewrite (@is_array_unfold (Gl (s ARR)) (x * nt_gr + (nf tid + nf bid * ntrd))).
@@ -188,13 +197,6 @@ Proof.
       assert (nt_gr - 1 <= j); [|omega].
       cutrewrite (j + (x * nt_gr + (nf tid + nf bid * ntrd) + 1) =
                   ((j + 1) + (nf tid + nf bid * ntrd)) + x * nt_gr) in H0; [|ring].
-      Lemma mod_same: forall x y z, z <> 0 -> (x + y) mod z = y -> x mod z = 0.
-      Proof.
-        intros.
-        lets: (>>Nat.div_mod (x + y) z ___); auto.
-        assert (x = z * ((x + y) / z)) by omega.
-        rewrite H2, mult_comm, Nat.mod_mul; eauto.
-      Qed.
       unfold nt_step in H0; rewrite Nat.mod_add in H0; eauto.
       apply mod_same in H0; eauto.
       apply Nat.mod_divides in H0 as [[| c] ?]; subst; nia.
@@ -209,7 +211,7 @@ Proof.
   {  intros s h H; unfold inv; exists 0; simpl.
      sep_split_in H; unfold_pures; sep_split; auto.
      - unfold_conn; simpl; autorewrite with sep; congruence.
-     - unfold_conn. assert (nf tid + nf bid * ntrd < nt_gr) by auto. omega.
+     (* - unfold_conn. assert (nf tid + nf bid * ntrd < nt_gr) by auto. omega. *)
      - sep_cancel.
        sep_rewrite nth_dist_change; eauto.
        intros; destruct lt_dec; try omega.
