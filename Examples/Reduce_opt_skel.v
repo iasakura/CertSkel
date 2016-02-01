@@ -483,7 +483,11 @@ Proof.
         sep_rewrite_in mps_eq1_tup' H; [|subst sn; exact H1].
         apply H. }
       sep_combine_in H; exact H. } Unfocus.
-    eapply rule_seq; [apply rule_frame; [unfold es2shs; apply gen_read_correct|]; eauto|].
+    eapply rule_seq; [apply rule_frame; [apply gen_read_correct|]; eauto; simpl|].
+    - simplify; subst; eauto.
+      apply locals_pref in H; simpl in *; congruence; eauto.
+    - unfold vars2es; simplify; subst; eauto.
+      apply locals_pref in H; apply locals_pref in H1.
     eapply rule_seq.
     { hoare_forward.
       intros s h [? H]; subA_normalize_in H. simpl in H. apply H. }
