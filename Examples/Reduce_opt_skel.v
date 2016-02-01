@@ -29,12 +29,18 @@ Variable func : list var -> list var -> (cmd * list exp).
     the command for getting the result and the return expression  *)
 Variable f_den : list val -> list val -> list val -> Prop.
 
-Variable f_fun :
-  forall vs vs', 
-    length vs = dim -> length vs' = dim ->
-    {fv | f_den vs vs' fv}.
-Hypothesis f_fun_wf :
-  forall vs vs' H H', length (proj1_sig (f_fun vs vs' H H')) = dim.
+Variable f_fun : list val -> list val -> list val.
+Hypothesis f_fun_den :
+  forall vs vs',
+    length vs = dim -> length vs' = dim -> f_den vs vs' (f_fun vs vs').
+Hypothesis f_den_wf :
+  forall vs vs' rs,
+    length vs = dim ->
+    length vs' = dim ->
+    f_den vs vs' rs ->
+    length rs = dim.
+
+Infix "|+|" := (f_fun) (at level 40).
 
 Variable fout : nat -> list val.
 
@@ -48,6 +54,7 @@ Local Notation x0 := (locals "x0" dim).
 Local Notation x1 := (locals "x1" dim).
 Local Notation x2 := (locals "x2" dim).
 Local Notation sdata := (vars2es (locals "sdata" dim)).
+Local Notation sdata' := (map Sh sdata).
 Local Notation len := (Var "len").
 Local Notation tid := (Var "tid").
 
@@ -77,18 +84,13 @@ Definition reduce := reduce_aux 1 e_b.
 
 Section simfun.
 
-Definition f : nat -> nat -> list val.
-  refine (let fix rec n i : {l | length l = dim} :=
+Fixpoint f n i :=
   match n with
-  | O => exist _ (f_in i) (f_in_wf i)
+  | O => f_in i
   | S n => if Sumbool.sumbool_and _ _ _ _ (lt_dec (i + s (S n)) l) (lt_dec i (s (S n))) 
-           then (exist _ (proj1_sig (f_fun (proj1_sig (rec n i)) (proj1_sig (rec n (i + s (S n))))%nat _ _))%Z (f_fun_wf _ _ _ _))
-           else rec n i
-  end in (fun n i => proj1_sig (rec n i))).
-  Grab Existential Variables.
-  destruct (rec _ _); simpl; eauto.
-  destruct (rec _ _); simpl; eauto.
-Defined.
+           then (f n i |+| f n (i + s (S n))%nat)%Z
+           else f n i
+  end.
 
 Lemma sn_decr n : s (S n) <= s n.
 Proof.
@@ -190,15 +192,18 @@ Qed.
 
 End simfun.
 
-Definition Binv (fc : nat -> Z) n i :=
+Local Notation "l '+ol' i" := (tarr_idx l i) (at level 40).
+Local Notation "l '-->l' ( p , e )" := (is_tuple_p l e p) (at level 75, right associativity).
+
+Definition Binv (fc : nat -> list val) n i :=
   (if Sumbool.sumbool_and _ _ _ _ (lt_dec (i + s (S n)) l) (lt_dec i (s (S n))) then
-    Sh sdata +o (Zn i) -->p (1, fc i) **
-    (Sh sdata +o (Zn i + Zn (s (S n)))%Z -->p (1, fc (i + (s (S n)))))
+    (sdata' +ol (Zn i) -->l (1, vs2es (fc i))) **
+    (sdata' +ol (Zn i + Zn (s (S n)))%Z -->l (1, vs2es (fc (i + (s (S n))))))
    else emp) **
   (if Nat.eq_dec i 0 then
-    is_array (Sh sdata) (min (s (S n)) ntrd - min (l - s (S n)) (s (S n))) fc (min (l - s (S n)) (s (S n))) **
-    is_array (Sh sdata) (ntrd - (min (l - s (S n)) (s (S n)) + s (S n))) fc
-                        (min (l - s (S n)) (s (S n)) + s (S n))
+    is_tuple_array_p (sdata') (min (s (S n)) ntrd - min (l - s (S n)) (s (S n))) fc (min (l - s (S n)) (s (S n))) 1 **
+    is_tuple_array_p (sdata') (ntrd - (min (l - s (S n)) (s (S n)) + s (S n))) fc
+      (min (l - s (S n)) (s (S n)) + s (S n)) 1
    else emp).
 
 Lemma sep_comm P Q stk :
@@ -207,16 +212,39 @@ Proof.
   split; intros; repeat sep_cancel.
 Qed.
 
-Lemma is_array_change (e : loc_exp) (f1 f2 : nat -> Z) n :
+Lemma is_array_change (e : loc_exp) (f1 f2 : nat -> Z) n:
   forall s, (forall x, x < n -> f1 (x + s) = f2(x + s)) ->
             forall stc,
               stc ||= is_array e n f1 s <=> is_array e n f2 s.
 Proof.
-  induction n; simpl; intros s Hf; try reflexivity.
-  intros stc; rewrite IHn.
+  induction n; simpl; intros s Hf stk; try reflexivity.
+  rewrite IHn.
   cutrewrite (f1 s = f2 s); [reflexivity|].
   pose proof (Hf 0); rewrite plus_O_n in H; rewrite H; omega.
   intros x Hx; rewrite <-Nat.add_succ_comm; apply Hf; omega.
+Qed.
+
+Lemma is_array_p_change (e : loc_exp) (f1 f2 : nat -> Z) n p:
+  forall s, (forall x, x < n -> f1 (x + s) = f2(x + s)) ->
+            forall stc,
+              stc ||= is_array_p e n f1 s p <=> is_array_p e n f2 s p.
+Proof.
+  induction n; simpl; intros s Hf stk; try reflexivity.
+  rewrite IHn.
+  cutrewrite (f1 s = f2 s); [reflexivity|].
+  pose proof (Hf 0); rewrite plus_O_n in H; rewrite H; omega.
+  intros x Hx; rewrite <-Nat.add_succ_comm; apply Hf; omega.
+Qed.
+
+Lemma is_tup_array_change (e : list loc_exp) (f1 f2 : nat -> list Z) n p:
+  forall s, (forall x, x < n -> f1 (x + s) = f2(x + s)) ->
+            forall stc,
+              stc ||= is_tuple_array_p e n f1 s p <=> is_tuple_array_p e n f2 s p.
+Proof.
+  revert f1 f2; induction e; simpl; intros f1 f2 s Hf stk; try reflexivity.
+  rewrite IHe, is_array_p_change; try reflexivity.
+  - intros; unfold fst_of_vals; rewrite Hf; eauto.
+  - intros; unfold tl_of_vals; rewrite Hf; eauto.
 Qed.
 
 Lemma is_array_concat e f f1 f2 len1 len2 : forall s stc,
@@ -236,11 +264,45 @@ Proof.
     intros off ?; cutrewrite (S s + off = s + S off); [rewrite H; repeat destruct lt_dec|]; omega.
 Qed.
 
-Lemma Binv_ok fc n stk:
-  stk ||= @Bdiv.Aistar_v ntrd (MyVector.init (fun i => Binv fc n (nf i))) <=>
-          is_array (Sh sdata) ntrd fc 0.
+Lemma is_array_p_concat e f f1 f2 len1 len2 p : forall s stc,
+    (forall off, off < len1 + len2 ->
+     f (s + off) = if lt_dec off len1 then f1 (s + off) else f2 (s + off)) ->
+    stc||=
+       is_array_p e (len1 + len2) f s p <=>
+       is_array_p e len1 f1 s p ** is_array_p e len2 f2 (s + len1) p.
 Proof.
-  unfold Binv.
+  induction len1; simpl; intros s stc H.
+  - rewrite emp_unit_l, <-plus_n_O.
+    rewrite is_array_p_change; [reflexivity|..].
+    intros; rewrite plus_comm; eauto.
+  - intros. rewrite <-Nat.add_succ_comm, <-sep_assoc, IHlen1.
+    cutrewrite (f s = f1 s); [reflexivity|].
+    cutrewrite (s = s + 0); [apply H; omega|omega].
+    intros off ?; cutrewrite (S s + off = s + S off); [rewrite H; repeat destruct lt_dec|]; omega.
+Qed.
+
+Lemma is_tuple_array_p_concat e f f1 f2 len1 len2 p : forall s stc,
+    (forall off, off < len1 + len2 ->
+     f (s + off) = if lt_dec off len1 then f1 (s + off) else f2 (s + off)) ->
+    stc||=
+       is_tuple_array_p e (len1 + len2) f s p <=>
+       is_tuple_array_p e len1 f1 s p ** is_tuple_array_p e len2 f2 (s + len1) p.
+Proof.
+  revert f f1 f2; induction e; simpl; intros f f1 f2 s stc H.
+  - rewrite emp_unit_l; reflexivity.
+  - rewrite (IHe _ (tl_of_vals f1) (tl_of_vals f2)).
+    rewrite (is_array_p_concat _ _ (fst_of_vals f1) (fst_of_vals f2)).
+    rewrite <-!sep_assoc; split; intros; repeat sep_cancel.
+    unfold fst_of_vals; intros; rewrite H; eauto; destruct (lt_dec _ _); eauto.
+    unfold tl_of_vals; intros; rewrite H; eauto; destruct (lt_dec _ _); eauto.
+Qed.
+
+Lemma Binv_ok fc n stk:
+  (forall i : nat, Datatypes.length (fc i) = dim) ->
+  stk ||= @Bdiv.Aistar_v ntrd (MyVector.init (fun i => Binv fc n (nf i))) <=>
+          is_tuple_array_p sdata' ntrd fc 0 1.
+Proof.
+  intros Hfcwf; unfold Binv.
   rewrite sc_v2l; rewrite (vec_to_list_init0 _ emp); erewrite ls_init_eq0.
   2: intros i Hi; destruct (Fin.of_nat i ntrd) as [|[? Hex]] eqn:Heq; try omega.
   2: apply Fin_nat_inv in Heq; rewrite Heq; reflexivity.
@@ -256,7 +318,7 @@ Proof.
     cutrewrite (emp = id (fun _ => emp) (1 + i)); eauto. } Unfocus.
   unfold id.
   rewrite init_emp_emp; rewrite emp_unit_l.
-  rewrite <-(firstn_skipn (min (l - s (S n)) (s (S n)))) at 1.
+  rewrite <-(firstn_skipn (min (l - s (S n)) (s (S n))) (ls_init _ _ _)).
   rewrite firstn_init, skipn_init, conj_xs_app, <-plus_n_O.
   erewrite (ls_init_eq' _ _ (min (l - s (S n)) (s (S n)))).
   Focus 2. {
@@ -275,61 +337,103 @@ Proof.
     assert (s (S n) <= ntrd \/ ntrd < s (S n)) as [H | H] by omega.
     + rewrite min_l in Heqmsnt; subst msnt; try omega.
       assert (Heq : ntrd = s (S n) + (ntrd - s (S n))) by omega; rewrite Heq at 2.
-      rewrite is_array_concat; simpl; [rewrite emp_unit_r; reflexivity|intros; destruct lt_dec; eauto].
+      rewrite is_tuple_array_p_concat; simpl; [rewrite emp_unit_r; reflexivity|intros; destruct lt_dec; eauto].
     + rewrite min_r in Heqmsnt; subst msnt; try omega.
       cutrewrite (ntrd - s (S n) = 0); [|omega].
-      simpl; rewrite !emp_unit_r; reflexivity.
+      simpl; rewrite is_array_tup_0, !emp_unit_r; reflexivity.
   - assert (l - s (S n)  <= s (S n) \/ s (S n) <= l - s (S n)) as [Hsnl | Hsnl] by omega.
     + rewrite !min_l; try omega.
       erewrite ls_init_eq0.
       Focus 2. { intros i Hi; destruct Sumbool.sumbool_and; try omega; reflexivity. } Unfocus.
       rewrite ls_star.
-      Lemma is_array_distr e n (f' : nat -> Z) :
+      Lemma is_array_p_distr e n (f' : nat -> Z) p:
         forall s stk,
-          stk ||= conj_xs (ls_init s n (fun i => e +o Zn i -->p (1, f' i))) <=>
-              is_array e n f' s.
+          stk ||= conj_xs (ls_init s n (fun i => e +o Zn i -->p (p, f' i))) <=>
+              is_array_p e n f' s p.
       Proof.
         induction n; intros s stk; simpl.
         - reflexivity.
         - rewrite IHn; reflexivity.
       Qed.
-      Lemma is_array_distr_off e n off (f' : nat -> Z) :
+      Lemma is_tuple_array_p_distr e n (f' : nat -> list Z) p:
+        (forall i, length (f' i) = length e) ->
         forall s stk,
-          stk ||= conj_xs (ls_init s n (fun i => e +o (Zn i + Zn off)%Z -->p (1, f' (i + off)))) <=>
-              is_array e n f' (s + off).
+          stk ||= conj_xs (ls_init s n (fun i => e +ol Zn i -->l (p, vs2es (f' i)))) <=>
+              is_tuple_array_p e n f' s p.
+      Proof.
+        revert f'; induction e; intros f' Hf' s stk; simpl.
+        - erewrite ls_init_eq'.
+          2: intros; destruct vs2es; cutrewrite (emp = id (fun _ => emp) (s + i)); eauto.
+          unfold id; rewrite init_emp_emp; reflexivity.
+        - rewrite <-IHe, <-is_array_p_distr, <-ls_star.
+          lazymatch goal with [|- _ ||= conj_xs ?l <=> conj_xs ?l'] => 
+            cutrewrite (l = l'); try reflexivity end.
+          apply ls_init_eq'; intros i Hi; unfold fst_of_vals, tl_of_vals;
+            specialize (Hf' (s + i)); destruct (f' (s + i)); simpl; try reflexivity.
+          simpl in *; omega.
+          intros i; lets: (Hf' i); unfold tl_of_vals; destruct (f' i); simpl in *; try omega.
+      Qed.
+      Lemma is_array_p_distr_off e n off (f' : nat -> Z) p:
+        forall s stk,
+          stk ||= conj_xs (ls_init s n (fun i => e +o (Zn i + Zn off)%Z -->p (p, f' (i + off)))) <=>
+              is_array_p e n f' (s + off) p.
       Proof.
         induction n; intros s stk; simpl.
         - reflexivity.
         - rewrite IHn.
           rewrite Nat2Z.inj_add; reflexivity.
       Qed.
-      rewrite is_array_distr.
-      rewrite is_array_distr_off; simpl.
+
+      Lemma is_tuple_array_p_distr_off e n off (f' : nat -> list Z) p:
+        (forall i, length (f' i) = length e) ->
+        forall s stk,
+          stk ||= conj_xs (ls_init s n (fun i => e +ol (Zn i + Zn off)%Z -->l (p, vs2es (f' (i + off))))) <=>
+              is_tuple_array_p e n f' (s + off) p.
+      Proof.
+        revert f'; induction e; intros f' Hf' s stk; simpl.
+        - erewrite ls_init_eq'.
+          2: intros; destruct vs2es; cutrewrite (emp = id (fun _ => emp) (s + i)); eauto.
+          unfold id; rewrite init_emp_emp; reflexivity.
+        - rewrite <-IHe, <-is_array_p_distr_off, <-ls_star.
+          lazymatch goal with [|- _ ||= conj_xs ?l <=> conj_xs ?l'] => 
+            cutrewrite (l = l'); try reflexivity end.
+          apply ls_init_eq'; intros i Hi; unfold fst_of_vals, tl_of_vals;
+            specialize (Hf' (s+i+ off)); destruct (f' (s+i+ off)); simpl; try reflexivity.
+          simpl in *; omega.
+          intros i; lets: (Hf' i); unfold tl_of_vals; destruct (f' i); simpl in *; try omega.
+      Qed.
+      
+      rewrite is_tuple_array_p_distr.
+      rewrite is_tuple_array_p_distr_off; simpl.
       cutrewrite (l - s (S n) + s (S n) = l); [|omega].
       assert (Heq : ntrd = (l - s (S n)) + (s (S n) - (l - s (S n))) + (l - s (S n)) + (ntrd - l))
         by lia.
       rewrite Heq at 2.
-      repeat (rewrite is_array_concat; [|intros; destruct lt_dec; reflexivity]).
+      repeat (rewrite is_tuple_array_p_concat; [|intros; destruct lt_dec; reflexivity]).
       cutrewrite (l - s (S n) + (s (S n) - (l - s (S n))) = s (S n)); [|lia].
       cutrewrite (s (S n) + (l - s (S n)) = l); [|lia].
       simpl; rewrite <-!sep_assoc; split; intros; repeat sep_cancel.
+      intros; unfold es2shs, vars2es; rewrite !map_length, locals_length; eauto.
+      intros; unfold es2shs, vars2es; rewrite !map_length, locals_length; eauto.
     + repeat rewrite (min_l _ ntrd); try omega.
       2: rewrite Nat.min_le_iff; try omega.
       repeat rewrite min_r; try omega.
-      rewrite minus_diag; simpl; rewrite emp_unit_l.
+      rewrite minus_diag; simpl; rewrite is_array_tup_0, emp_unit_l.
       erewrite ls_init_eq0.
       Focus 2. { intros i Hi; destruct Sumbool.sumbool_and; try omega; reflexivity. } Unfocus.
-      rewrite ls_star, is_array_distr, is_array_distr_off; simpl.
+      rewrite ls_star, is_tuple_array_p_distr, is_tuple_array_p_distr_off; simpl.
       assert (Heq : ntrd = s (S n) + s (S n) + (ntrd - (s (S n) + s (S n)))) by lia.
       rewrite Heq at 2; clear Heq.
-      repeat (rewrite is_array_concat; [|intros; destruct lt_dec; reflexivity]).
+      repeat (rewrite is_tuple_array_p_concat; [|intros; destruct lt_dec; reflexivity]).
       simpl; rewrite <-!sep_assoc.
       split; intros; repeat sep_cancel.
+      intros; unfold es2shs, vars2es; rewrite !map_length, locals_length; eauto.
+      intros; unfold es2shs, vars2es; rewrite !map_length, locals_length; eauto.
 Qed.
 
 Definition BSpre n i :=
   match n with
-  | O => (Sh sdata +o (Zn i)) -->p (1, f_in i)
+  | O => (sdata' +ol (Zn i)) -->l (1, vs2es (f_in i))
   | S n => Binv (f (S n)) n i
   end.
 
@@ -342,12 +446,12 @@ Lemma reduce_body_ok n i:
   CSL BS i
     (!(tid === Zn (nf i)) **
      !(len === Zn l) **
-     !(x1 === f n (nf i)) **
+     !(vars2es x1 ==t f n (nf i)) **
      BSpre n (nf i))
     (reduce_body (S n) (s (S n)))
     (!(tid === Zn (nf i)) **
      !(len === Zn l) **
-     !(x1 === f (S n) (nf i)) **
+     !(vars2es x1 ==t f (S n) (nf i)) **
      BSpre (S n) (nf i)).
 Proof.
   remember (S n) as sn.
@@ -365,21 +469,21 @@ Proof.
       intros st h H.
       sep_split_in H.
       change_in H.
-      { unfold_pures.
+      { unfold_pures; unfold_conn_in (HP0, HP1); simpl in HP0, HP1.
         destruct Z_lt_dec; try congruence.
         destruct Sumbool.sumbool_and; unfold lt in *; try omega.
         sep_normal_in H.
-        assert ((Sh sdata +o Zn (nf i) ===l Sh sdata +o tid) st (emp_ph loc)).
-        { unfold_conn_all; simpl in *; f_equal; zify; unfold lt in *; omega. }
-        sep_rewrite_in mps_eq1 H; [|exact H0].
-        assert ((Sh sdata +o (Zn (nf i) + Zn (s (S n)))%Z ===l
-                 Sh sdata +o (tid +C Zn (s (S n)))) st (emp_ph loc)).
+        assert ((Zn (nf i) === tid) st (emp_ph loc)).
+        { unfold_conn_all; simpl in *; zify; unfold lt in *; omega. }
+        sep_rewrite_in mps_eq1_tup' H; [|exact H0].
+        assert (((Zn (nf i) + Zn (s (S n)))%Z ===
+                 (tid +C Zn (s (S n)))) st (emp_ph loc)).
         { unfold_conn_all; simpl in *; f_equal; zify; unfold lt in *; omega. }
         sep_lift_in H 1.
-        sep_rewrite_in mps_eq1 H; [|subst sn; exact H1].
+        sep_rewrite_in mps_eq1_tup' H; [|subst sn; exact H1].
         apply H. }
       sep_combine_in H; exact H. } Unfocus.
-    eapply rule_seq; [hoare_forward; eauto|].
+    eapply rule_seq; [apply rule_frame; [unfold es2shs; apply gen_read_correct|]; eauto|].
     eapply rule_seq.
     { hoare_forward.
       intros s h [? H]; subA_normalize_in H. simpl in H. apply H. }

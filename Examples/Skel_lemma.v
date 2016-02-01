@@ -376,9 +376,9 @@ Proof.
   revert es; induction arrs; intros [|e es]; simpl; eauto.
 Qed.
 
-Lemma gen_write_correct pl arrs ix es0 es ntrd i:
+Lemma gen_write_correct pl arrs ix es0 es ntrd (i : Fin.t ntrd) BS:
   length es0 = length arrs -> length es = length arrs ->
-  CSL (fun i => default ntrd) i
+  CSL BS i
     (is_tuple_p (tarr_idx (List.map pl arrs) ix) es0 1%Qc)
     (fold_right Cseq Cskip (gen_write pl arrs ix es))
     (is_tuple_p (tarr_idx (List.map pl arrs) ix) es 1%Qc).
@@ -547,13 +547,13 @@ Proof.
   apply IHes1; inverts H; inverts H0; auto.
 Qed.
 
-Lemma gen_read_correct nt i pl xs arrs ix vs q:
+Lemma gen_read_correct nt (i : Fin.t nt) BS pl xs arrs ix vs q:
   (pl = Sh \/ pl = Gl) ->
   ~In ix xs ->
   (forall x a, In x xs -> In a arrs -> ~In x (fv_E a)) ->
   disjoint_list xs ->
   length xs = length arrs -> length xs = length vs ->
-  CSL (fun _ => default nt) i
+  CSL BS i
     ( is_tuple_p (tarr_idx (List.map pl arrs) ix) (vs2es vs) q )
     (gen_read pl xs arrs ix)
     ( !(vars2es xs ==t vs) ** is_tuple_p (tarr_idx (List.map pl arrs) ix) (vs2es vs) q ).
@@ -884,11 +884,11 @@ Proof.
   intros; f_equal; eauto.
 Qed.
 
-Lemma read_tup_correct nt i es vs vars :
+Lemma read_tup_correct nt (i : Fin.t nt) BS es vs vars :
   (forall v e, In v vars -> In e es -> ~In v (fv_E e)) ->
   disjoint_list vars ->
   length vs = length es -> length vars = length es ->
-  CSL (fun _ => default nt) i
+  CSL BS i
     ( !(es ==t vs) )
     (read_tup vars es)
     ( !(vars2es vars ==t vs) ).
@@ -1552,3 +1552,4 @@ Proof.
   - apply IHn; auto.
     intros j ?; rewrite <-plus_n_Sm; simpl; apply (Hf (S j)); omega.
 Qed.
+
