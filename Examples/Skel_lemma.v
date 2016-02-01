@@ -397,6 +397,27 @@ Proof.
     intros; sep_cancel.
 Qed.
 
+(* A generating function xs := pl arr + ix. pl denotes array is on shared / global memory *)
+Fixpoint gen_read pl (xs : list var) (arrs : list exp) ix :=
+  match xs, arrs with
+  | x :: xs, a :: arrs => (x ::= [pl a +o ix]) ;; gen_read pl xs arrs ix 
+  | _, _ => Cskip
+  end.
+
+Lemma gen_read_writes pl xs arrs ix:
+  length xs = length arrs ->
+  writes_var (gen_read pl xs arrs ix) = xs.
+Proof.
+  revert arrs; induction xs; intros [|v vs]; simpl in *; try congruence.
+  intros; f_equal; eauto.
+Qed.
+
+Lemma gen_read_no_bars pl xs arrs ix :
+  barriers (gen_read pl xs arrs ix) = nil.
+Proof.
+  revert arrs; induction xs; intros [|? ?]; simpl; eauto.
+Qed.
+
 Definition ss2es := List.map (fun x => Evar (Var x)).
 
 Definition writeArray grp d pl : (list exp * exp * (exp -> list exp -> list cmd))  :=
@@ -503,6 +524,8 @@ Definition var_of_str v : string :=
 
 Notation string_eq s1 s2 := (if string_dec s1 s2 then true else false).
 
+Definition vars2es := List.map Evar.
+
 Lemma subE_vars2es x e vs :
   List.Forall (fun v => string_eq v (var_of_str x) = false) vs -> subEs x e (ss2es vs) = ss2es vs.
 Proof.  
@@ -513,7 +536,62 @@ Proof.
   simpl in H2; destruct string_dec; congruence.
 Qed.
 
+Lemma inde_is_tup es1 es2 vs p :
+  List.Forall (fun e => forall v, List.In v vs -> indelE e v) es1 ->
+  List.Forall (fun e => forall v, List.In v vs -> indeE e v) es2 ->
+  inde (is_tuple_p es1 es2 p) vs.
+Proof.
+  revert es2; induction es1; simpl; intros [| e es2 ]; simpl; intros; prove_inde.
+  inversion H; subst; rewrite Forall_forall; auto.
+  inversion H0; subst; rewrite Forall_forall; auto.
+  apply IHes1; inverts H; inverts H0; auto.
+Qed.
 
+Lemma gen_read_correct nt i pl xs arrs ix vs q:
+  (pl = Sh \/ pl = Gl) ->
+  ~In ix xs ->
+  (forall x a, In x xs -> In a arrs -> ~In x (fv_E a)) ->
+  disjoint_list xs ->
+  length xs = length arrs -> length xs = length vs ->
+  CSL (fun _ => default nt) i
+    ( is_tuple_p (tarr_idx (List.map pl arrs) ix) (vs2es vs) q )
+    (gen_read pl xs arrs ix)
+    ( !(vars2es xs ==t vs) ** is_tuple_p (tarr_idx (List.map pl arrs) ix) (vs2es vs) q ).
+Proof.
+  revert vs arrs; induction xs as [|x xs]; intros vs arrs Hpl Hixxs Hv0 Hv1 HL0 HL1;
+    destruct vs as [| v vs], arrs as [|a arrs]; simpl in *; try congruence.
+  - eapply Hforward; [apply rule_skip|intros; sep_normal; sep_cancel].
+    unfold_conn; split; eauto.
+  - eapply rule_seq.
+    { apply rule_frame; [apply rule_read|].
+      - destruct Hpl; subst; apply indelE_fv; simpl; rewrite in_app_iff; intros [Hc | Hc]; eauto;
+          first [apply Hv0 in Hc; eauto | simpl in *; destruct Hc; subst; eauto].
+      - apply indeE_fv; simpl; eauto.
+      - apply inde_is_tup; rewrite Forall_forall; simpl; intros; destruct H0; eauto; subst;
+          [apply indelE_fv | apply indeE_fv]; simpl; intros Hc; 
+            eauto; destruct Hpl; subst; simpl in *.
+        unfold tarr_idx in *; rewrite map_map, in_map_iff in H; destruct H as [? [? H]]; subst;
+          simpl in *; rewrite in_app_iff in Hc; destruct Hc as [Hc | Hc]; forwards: Hv0; eauto;
+            simpl in *; subst; destruct Hc; eauto.
+        unfold tarr_idx in *; rewrite map_map, in_map_iff in H; destruct H as [? [? H]]; subst;
+          simpl in *; rewrite in_app_iff in Hc; destruct Hc as [Hc | Hc]; forwards: Hv0; eauto;
+            simpl in *; subst; destruct Hc; eauto.
+        unfold vs2es in H; rewrite in_map_iff in H; destruct H as [? [? H]]; subst; simpl in *; eauto.
+        unfold vs2es in H; rewrite in_map_iff in H; destruct H as [? [? H]]; subst; simpl in *; eauto. }
+    eapply Hbackward.
+    2: intros; apply scC in H; apply H.
+    eapply Hforward; [eapply rule_frame; [apply IHxs|]|]; eauto; try tauto; try omega.
+    { rewrite gen_read_writes; prove_inde; try omega; rewrite Forall_forall; intros;
+      first [apply indeE_fv | apply indelE_fv]; simpl in *; eauto.
+     rewrite in_app_iff; intros [Hc|Hc]; destruct Hpl; subst; simpl in *;
+        forwards: Hv0; eauto; destruct Hc; subst; eauto.
+     intros [Hc | []]; subst; intuition. }
+    intros; sep_normal_in H; sep_normal; repeat sep_cancel.
+    apply scC; sep_cancel.
+    sep_rewrite pure_star; apply scC; sep_cancel.
+    repeat split; destruct H2; eauto.
+Qed.
+      
 Lemma names_of_array_compare x grp n :
   prefix "arr" (var_of_str x) = false ->
   List.Forall (fun v => string_eq v (var_of_str x) = false) (names_of_array grp n).
@@ -777,8 +855,6 @@ Qed.
 
 Definition catcmd := fold_right Cseq Cskip. 
 
-Definition vars2es := List.map Evar.
-
 Fixpoint read_tup (vs : list var) (es : list exp) :=
   match vs, es with
   | v :: vs, e :: es => (v ::= e) ;; read_tup vs es
@@ -975,18 +1051,6 @@ Qed.
 (*   destruct var_eq_dec; auto. *)
 (*   subst; apply H in H0; cbv in H0; congruence. *)
 (* Qed. *)
-
-
-Lemma inde_is_tup es1 es2 vs p :
-  List.Forall (fun e => forall v, List.In v vs -> indelE e v) es1 ->
-  List.Forall (fun e => forall v, List.In v vs -> indeE e v) es2 ->
-  inde (is_tuple_p es1 es2 p) vs.
-Proof.
-  revert es2; induction es1; simpl; intros [| e es2 ]; simpl; intros; prove_inde.
-  inversion H; subst; rewrite Forall_forall; auto.
-  inversion H0; subst; rewrite Forall_forall; auto.
-  apply IHes1; inverts H; inverts H0; auto.
-Qed.
 
 Lemma inde_distribute_tup nt es l f dist (i : nat) p vs : forall s,
     List.Forall (fun e => forall v, List.In v vs -> indelE e v) es ->

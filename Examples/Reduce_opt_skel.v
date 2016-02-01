@@ -8,139 +8,61 @@ Section Reduce0.
 Variable e_b : nat.
 Variable ntrd : nat.
 Variable l : nat.
-Variable f_in : nat -> Z.
+
+(* dimensions of input and output arrays *)
+Variable dim : nat.
+
+Variable f_in : nat -> list val.
+Hypothesis f_in_wf :
+  forall i, length (f_in i) = dim.
 
 Hypothesis l_neq_0 : l <> 0.
 Hypothesis ntrd_neq_0 : ntrd <> 0.
 Hypothesis max_th_size : ntrd <= 2 ^ e_b.
 Hypothesis l_leq_ntrd : l <= ntrd.
 Hypothesis eb_neq_0 : e_b <> 0.
-Section simfun.
 
-Definition s n := 2 ^ (e_b - n).
+(* compiled code of the mapping function *)
+Variable func : list var -> list var -> (cmd * list exp).
+(* code generators filling the function hole *)
+(* func : the argument variable ->
+    the command for getting the result and the return expression  *)
+Variable f_den : list val -> list val -> list val -> Prop.
 
-Fixpoint f n i :=
-  match n with
-  | O => f_in i
-  | S n => if Sumbool.sumbool_and _ _ _ _ (lt_dec (i + s (S n)) l) (lt_dec i (s (S n))) 
-           then (f n i + f n (i + s (S n))%nat)%Z
-           else f n i
-  end.
+Variable f_fun :
+  forall vs vs', 
+    length vs = dim -> length vs' = dim ->
+    {fv | f_den vs vs' fv}.
+Hypothesis f_fun_wf :
+  forall vs vs' H H', length (proj1_sig (f_fun vs vs' H H')) = dim.
 
-Lemma sn_decr n : s (S n) <= s n.
-Proof.
-  apply Nat.pow_le_mono_r; omega.
-Qed.
+Variable fout : nat -> list val.
 
-Lemma sum_of_split s n m f g:
-  s <= m -> m < s + n ->
-  sum_of s n (fun i => if lt_dec i m then f i else g i) =
-  (sum_of s (m - s) f + sum_of m (n - (m - s)) g)%Z.
-Proof.
-  revert s m; induction n.
-  - intros s m Hsm Hmn; assert (Heq : (m - s) = 0) by omega; rewrite Heq; simpl; eauto.
-  - intros s m Hsm Hmn; remember (S n - (m - s)); simpl.
-    assert (s = m \/ s < m) as [Hsm' | Hsm'] by omega; subst.
-    + destruct lt_dec; try omega.
-      rewrite minus_diag, <-minus_n_O; simpl.
-      f_equal; erewrite sum_of_eq; eauto.
-      intros i Hi; destruct lt_dec; omega.
-    + destruct lt_dec; try omega.
-      assert (exists ms, m - s = S ms) as [ms Hms] by (exists (m - s - 1); omega); rewrite Hms.
-      simpl.
-      rewrite IHn; try omega.
-      rewrite Zplus_assoc; repeat f_equal; omega.
-Qed.
+Definition Outs := fst (fst (writeArray "Out" dim Gl)).
+Definition Len := snd (fst (writeArray "Out" dim Gl)).
+Definition setOut ix es := snd (writeArray "Out" dim Gl) ix es.
 
-Lemma sn_double n : S n <= e_b -> s (S n) + s (S n) = s n.
-Proof.
-  intros Hsneb. unfold s.
-  assert (Heq : e_b - n = S (e_b - S n)) by omega; rewrite Heq; simpl; eauto. 
-Qed.
+Open Scope string_scope.
 
-Lemma f_inv n :
-  S n <= e_b ->
-  sum_of 0 (min l (s (S n))) (f (S n)) = sum_of 0 (min l (s n)) (f n).
-Proof.
-  intros Hsneb.
-  simpl.
-  lets Hsn : (>>sn_double n ___); try omega.
-  assert (l <= s (S n) \/ s (S n) < l < s n \/ s n <= l) as [HsSnl | [HsSnl | HsSnl] ] by omega.  
-  - erewrite (sum_of_eq (min l (s (S n)))).
-    Focus 2.
-    { simpl; intros i Hi.
-      assert (i <= l) by nia.
-      destruct Sumbool.sumbool_and; try omega.
-      reflexivity. } Unfocus.
-    rewrite !min_l; omega.
-  - erewrite (sum_of_eq (min l (s (S n)))).
-    Focus 2.
-    { simpl; intros i Hi.
-      instantiate (1 := fun i => if lt_dec i (min (l - s (S n)) (s (S n)))
-                        then (f n i + f n (i + s (S n))%nat)%Z
-                        else f n i); simpl.
-      destruct Sumbool.sumbool_and, lt_dec; rewrite Nat.min_glb_lt_iff in *; omega.
-    } Unfocus.
-    rewrite sum_of_split; try omega.
-    2: simpl; rewrite Nat.min_glb_lt_iff; repeat rewrite Nat.min_lt_iff; split; try omega.
-    rewrite <-minus_n_O.
-    rewrite (min_l _ (s n)); try omega.
-    rewrite min_l; try omega.
-    rewrite min_r; try omega.
-    cutrewrite (s (S n) - (l - s (S n)) = s n - l); [|omega].
-    rewrite <-shift_values; simpl.
-    rewrite Z.add_shuffle0.
-    assert (Heq : l = (l - s (S n)) + s (S n)) by omega; rewrite Heq at 5.
-    rewrite <-Zplus_assoc; rewrite sum_of_concat; f_equal; clear Heq.
-    assert (Heq : s (S n) = s n - l + (l - s (S n))) by omega; rewrite Heq.
-    rewrite <-plus_n_O.
-    rewrite sum_of_concat; f_equal.
-    rewrite <-Heq; f_equal; omega.
-  - repeat rewrite min_r; try omega.
-    erewrite (sum_of_eq (s (S n))).
-    Focus 2.
-    { simpl; intros i Hi.
-      destruct Sumbool.sumbool_and; try omega.
-      reflexivity. } Unfocus.
-    rewrite <-Hsn; rewrite sum_of_concat.
-    rewrite <-shift_values; f_equal.
-    f_equal; omega.
-Qed.
-
-Lemma fn_ok n :
-  n <= e_b ->
-  sum_of 0 (min l (s n)) (f n) = sum_of 0 l f_in.
-Proof.
-  induction n; simpl.
-  - unfold s; rewrite <-minus_n_O, min_l; try omega.
-    intros; apply sum_of_eq; intros; eauto.
-  - intros; rewrite f_inv; eauto.
-    apply IHn; omega.
-Qed.    
-
-Lemma feb_ok : f e_b 0 = sum_of 0 l f_in.
-Proof.
-  rewrite <-(fn_ok e_b); eauto.
-  unfold s; rewrite minus_diag; simpl.
-  rewrite min_r; try omega; simpl; omega.
-Qed.
-
-End simfun.
-
-Local Notation x0 := (Var "x0").
-Local Notation x1 := (Var "x1").
-Local Notation x2 := (Var "x2").
-Local Notation sdata := (Var "sdata").
+Local Notation x0 := (locals "x0" dim).
+Local Notation x1 := (locals "x1" dim).
+Local Notation x2 := (locals "x2" dim).
+Local Notation sdata := (vars2es (locals "sdata" dim)).
 Local Notation len := (Var "len").
 Local Notation tid := (Var "tid").
+
+Notation perm_n n := (1 / injZ (Zn n))%Qc.
+
+Definition s n := 2 ^ (e_b - n).
 
 Definition reduce_body n s :=
   (Cbarrier (n - 1) ;;
    Cif (Band (tid +C Zn s <C len) (tid <C Zn s)) (
-     x0 ::= [ Sh sdata +o (tid + Zn s) ];;
-     x2 ::= x1 +C x0 ;;
-     x1 ::= x2 ;;
-     [ Sh sdata +o tid] ::= x1
+     gen_read Sh x0 sdata (tid + Zn s) ;;
+     fst (func x0 x1) ;;
+     read_tup x2 (snd (func x0 x1)) ;;
+     read_tup x1 (vars2es x2) ;;
+     catcmd (gen_write Sh sdata tid (vars2es x1))
    ) Cskip
   )%exp.
 
@@ -153,7 +75,120 @@ Fixpoint reduce_aux t m :=
 
 Definition reduce := reduce_aux 1 e_b.  
 
-Notation perm_n n := (1 / injZ (Zn n))%Qc.
+Section simfun.
+
+Definition f : nat -> nat -> list val.
+  refine (let fix rec n i : {l | length l = dim} :=
+  match n with
+  | O => exist _ (f_in i) (f_in_wf i)
+  | S n => if Sumbool.sumbool_and _ _ _ _ (lt_dec (i + s (S n)) l) (lt_dec i (s (S n))) 
+           then (exist _ (proj1_sig (f_fun (proj1_sig (rec n i)) (proj1_sig (rec n (i + s (S n))))%nat _ _))%Z (f_fun_wf _ _ _ _))
+           else rec n i
+  end in (fun n i => proj1_sig (rec n i))).
+  Grab Existential Variables.
+  destruct (rec _ _); simpl; eauto.
+  destruct (rec _ _); simpl; eauto.
+Defined.
+
+Lemma sn_decr n : s (S n) <= s n.
+Proof.
+  apply Nat.pow_le_mono_r; omega.
+Qed.
+
+(* Lemma sum_of_split s n m f g: *)
+(*   s <= m -> m < s + n -> *)
+(*   sum_of s n (fun i => if lt_dec i m then f i else g i) = *)
+(*   (sum_of s (m - s) f + sum_of m (n - (m - s)) g)%Z. *)
+(* Proof. *)
+(*   revert s m; induction n. *)
+(*   - intros s m Hsm Hmn; assert (Heq : (m - s) = 0) by omega; rewrite Heq; simpl; eauto. *)
+(*   - intros s m Hsm Hmn; remember (S n - (m - s)); simpl. *)
+(*     assert (s = m \/ s < m) as [Hsm' | Hsm'] by omega; subst. *)
+(*     + destruct lt_dec; try omega. *)
+(*       rewrite minus_diag, <-minus_n_O; simpl. *)
+(*       f_equal; erewrite sum_of_eq; eauto. *)
+(*       intros i Hi; destruct lt_dec; omega. *)
+(*     + destruct lt_dec; try omega. *)
+(*       assert (exists ms, m - s = S ms) as [ms Hms] by (exists (m - s - 1); omega); rewrite Hms. *)
+(*       simpl. *)
+(*       rewrite IHn; try omega. *)
+(*       rewrite Zplus_assoc; repeat f_equal; omega. *)
+(* Qed. *)
+
+(* Lemma sn_double n : S n <= e_b -> s (S n) + s (S n) = s n. *)
+(* Proof. *)
+(*   intros Hsneb. unfold s. *)
+(*   assert (Heq : e_b - n = S (e_b - S n)) by omega; rewrite Heq; simpl; eauto.  *)
+(* Qed. *)
+
+(* Lemma f_inv n : *)
+(*   S n <= e_b -> *)
+(*   sum_of 0 (min l (s (S n))) (f (S n)) = sum_of 0 (min l (s n)) (f n). *)
+(* Proof. *)
+(*   intros Hsneb. *)
+(*   simpl. *)
+(*   lets Hsn : (>>sn_double n ___); try omega. *)
+(*   assert (l <= s (S n) \/ s (S n) < l < s n \/ s n <= l) as [HsSnl | [HsSnl | HsSnl] ] by omega.   *)
+(*   - erewrite (sum_of_eq (min l (s (S n)))). *)
+(*     Focus 2. *)
+(*     { simpl; intros i Hi. *)
+(*       assert (i <= l) by nia. *)
+(*       destruct Sumbool.sumbool_and; try omega. *)
+(*       reflexivity. } Unfocus. *)
+(*     rewrite !min_l; omega. *)
+(*   - erewrite (sum_of_eq (min l (s (S n)))). *)
+(*     Focus 2. *)
+(*     { simpl; intros i Hi. *)
+(*       instantiate (1 := fun i => if lt_dec i (min (l - s (S n)) (s (S n))) *)
+(*                         then (f n i + f n (i + s (S n))%nat)%Z *)
+(*                         else f n i); simpl. *)
+(*       destruct Sumbool.sumbool_and, lt_dec; rewrite Nat.min_glb_lt_iff in *; omega. *)
+(*     } Unfocus. *)
+(*     rewrite sum_of_split; try omega. *)
+(*     2: simpl; rewrite Nat.min_glb_lt_iff; repeat rewrite Nat.min_lt_iff; split; try omega. *)
+(*     rewrite <-minus_n_O. *)
+(*     rewrite (min_l _ (s n)); try omega. *)
+(*     rewrite min_l; try omega. *)
+(*     rewrite min_r; try omega. *)
+(*     cutrewrite (s (S n) - (l - s (S n)) = s n - l); [|omega]. *)
+(*     rewrite <-shift_values; simpl. *)
+(*     rewrite Z.add_shuffle0. *)
+(*     assert (Heq : l = (l - s (S n)) + s (S n)) by omega; rewrite Heq at 5. *)
+(*     rewrite <-Zplus_assoc; rewrite sum_of_concat; f_equal; clear Heq. *)
+(*     assert (Heq : s (S n) = s n - l + (l - s (S n))) by omega; rewrite Heq. *)
+(*     rewrite <-plus_n_O. *)
+(*     rewrite sum_of_concat; f_equal. *)
+(*     rewrite <-Heq; f_equal; omega. *)
+(*   - repeat rewrite min_r; try omega. *)
+(*     erewrite (sum_of_eq (s (S n))). *)
+(*     Focus 2. *)
+(*     { simpl; intros i Hi. *)
+(*       destruct Sumbool.sumbool_and; try omega. *)
+(*       reflexivity. } Unfocus. *)
+(*     rewrite <-Hsn; rewrite sum_of_concat. *)
+(*     rewrite <-shift_values; f_equal. *)
+(*     f_equal; omega. *)
+(* Qed. *)
+
+(* Lemma fn_ok n : *)
+(*   n <= e_b -> *)
+(*   sum_of 0 (min l (s n)) (f n) = sum_of 0 l f_in. *)
+(* Proof. *)
+(*   induction n; simpl. *)
+(*   - unfold s; rewrite <-minus_n_O, min_l; try omega. *)
+(*     intros; apply sum_of_eq; intros; eauto. *)
+(*   - intros; rewrite f_inv; eauto. *)
+(*     apply IHn; omega. *)
+(* Qed.     *)
+
+(* Lemma feb_ok : f e_b 0 = sum_of 0 l f_in. *)
+(* Proof. *)
+(*   rewrite <-(fn_ok e_b); eauto. *)
+(*   unfold s; rewrite minus_diag; simpl. *)
+(*   rewrite min_r; try omega; simpl; omega. *)
+(* Qed. *)
+
+End simfun.
 
 Definition Binv (fc : nat -> Z) n i :=
   (if Sumbool.sumbool_and _ _ _ _ (lt_dec (i + s (S n)) l) (lt_dec i (s (S n))) then
