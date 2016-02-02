@@ -376,9 +376,9 @@ Proof.
   revert es; induction arrs; intros [|e es]; simpl; eauto.
 Qed.
 
-Lemma gen_write_correct pl arrs ix es0 es ntrd i:
+Lemma gen_write_correct pl arrs ix es0 es ntrd (i : Fin.t ntrd) BS:
   length es0 = length arrs -> length es = length arrs ->
-  CSL (fun i => default ntrd) i
+  CSL BS i
     (is_tuple_p (tarr_idx (List.map pl arrs) ix) es0 1%Qc)
     (fold_right Cseq Cskip (gen_write pl arrs ix es))
     (is_tuple_p (tarr_idx (List.map pl arrs) ix) es 1%Qc).
@@ -547,13 +547,26 @@ Proof.
   apply IHes1; inverts H; inverts H0; auto.
 Qed.
 
-Lemma gen_read_correct nt i pl xs arrs ix vs q:
+Ltac simplify := repeat (simpl in *; lazymatch goal with
+  | [|- In _ (map _ _) -> _] =>
+    rewrite in_map_iff; intros [? [? ?]]; subst
+  | [H:In _ (map _ _) |-_] =>
+    rewrite in_map_iff in H; destruct H as [? [? H]]; subst
+  | [|- indeE _ _] => apply indeE_fv
+  | [|- indelE _ _] => apply indelE_fv
+  | [H : _ \/ False|-_] =>destruct H as [H|[]];subst
+  | [|- ~(_ \/ _)] => intros [?|?]
+  | [|- context [In _ (_ ++ _)]] => rewrite in_app_iff
+  | [|- forall _, _] => intros ?
+  end).
+
+Lemma gen_read_correct nt (i : Fin.t nt) BS pl xs arrs ix vs q:
   (pl = Sh \/ pl = Gl) ->
-  ~In ix xs ->
+  (forall x i, In x xs -> In i (fv_E ix) -> ~In x (fv_E i)) ->
   (forall x a, In x xs -> In a arrs -> ~In x (fv_E a)) ->
   disjoint_list xs ->
   length xs = length arrs -> length xs = length vs ->
-  CSL (fun _ => default nt) i
+  CSL BS i
     ( is_tuple_p (tarr_idx (List.map pl arrs) ix) (vs2es vs) q )
     (gen_read pl xs arrs ix)
     ( !(vars2es xs ==t vs) ** is_tuple_p (tarr_idx (List.map pl arrs) ix) (vs2es vs) q ).
@@ -565,27 +578,21 @@ Proof.
   - eapply rule_seq.
     { apply rule_frame; [apply rule_read|].
       - destruct Hpl; subst; apply indelE_fv; simpl; rewrite in_app_iff; intros [Hc | Hc]; eauto;
-          first [apply Hv0 in Hc; eauto | simpl in *; destruct Hc; subst; eauto].
+          try lets: (>>Hv0 Hc); try lets: (>>Hixxs Hc); eauto; tauto.
       - apply indeE_fv; simpl; eauto.
-      - apply inde_is_tup; rewrite Forall_forall; simpl; intros; destruct H0; eauto; subst;
-          [apply indelE_fv | apply indeE_fv]; simpl; intros Hc; 
-            eauto; destruct Hpl; subst; simpl in *.
-        unfold tarr_idx in *; rewrite map_map, in_map_iff in H; destruct H as [? [? H]]; subst;
-          simpl in *; rewrite in_app_iff in Hc; destruct Hc as [Hc | Hc]; forwards: Hv0; eauto;
-            simpl in *; subst; destruct Hc; eauto.
-        unfold tarr_idx in *; rewrite map_map, in_map_iff in H; destruct H as [? [? H]]; subst;
-          simpl in *; rewrite in_app_iff in Hc; destruct Hc as [Hc | Hc]; forwards: Hv0; eauto;
-            simpl in *; subst; destruct Hc; eauto.
-        unfold vs2es in H; rewrite in_map_iff in H; destruct H as [? [? H]]; subst; simpl in *; eauto.
-        unfold vs2es in H; rewrite in_map_iff in H; destruct H as [? [? H]]; subst; simpl in *; eauto. }
+      - apply inde_is_tup; rewrite Forall_forall; unfold tarr_idx, vs2es.
+        destruct Hpl; subst pl; simplify; first [now (forwards :Hv0; eauto) | 
+                                                 now (forwards :Hixxs; eauto)].
+        destruct Hpl; subst pl; simplify; first [now (forwards :Hv0; eauto) | 
+                                                 now (forwards :Hixxs; eauto)]. }
     eapply Hbackward.
     2: intros; apply scC in H; apply H.
     eapply Hforward; [eapply rule_frame; [apply IHxs|]|]; eauto; try tauto; try omega.
     { rewrite gen_read_writes; prove_inde; try omega; rewrite Forall_forall; intros;
       first [apply indeE_fv | apply indelE_fv]; simpl in *; eauto.
-     rewrite in_app_iff; intros [Hc|Hc]; destruct Hpl; subst; simpl in *;
-        forwards: Hv0; eauto; destruct Hc; subst; eauto.
-     intros [Hc | []]; subst; intuition. }
+      destruct Hpl; subst; simplify; first [now (forwards :Hv0; eauto) | 
+                                            now (forwards :Hixxs; eauto)].
+      simplify; eauto; subst; tauto. }
     intros; sep_normal_in H; sep_normal; repeat sep_cancel.
     apply scC; sep_cancel.
     sep_rewrite pure_star; apply scC; sep_cancel.
@@ -884,11 +891,11 @@ Proof.
   intros; f_equal; eauto.
 Qed.
 
-Lemma read_tup_correct nt i es vs vars :
+Lemma read_tup_correct nt (i : Fin.t nt) BS es vs vars :
   (forall v e, In v vars -> In e es -> ~In v (fv_E e)) ->
   disjoint_list vars ->
   length vs = length es -> length vars = length es ->
-  CSL (fun _ => default nt) i
+  CSL BS i
     ( !(es ==t vs) )
     (read_tup vars es)
     ( !(vars2es vars ==t vs) ).
@@ -1552,3 +1559,4 @@ Proof.
   - apply IHn; auto.
     intros j ?; rewrite <-plus_n_Sm; simpl; apply (Hf (S j)); omega.
 Qed.
+
