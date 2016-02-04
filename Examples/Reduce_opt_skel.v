@@ -44,6 +44,14 @@ Infix "|+|" := (f_fun) (at level 40).
 
 Variable fout : nat -> list val.
 
+Hypothesis func_local :
+  forall x y, forall z, In z (writes_var (fst (func x y))) -> prefix "l" (var_of_str z) = true.
+Hypothesis func_no_bars :
+  forall x y, barriers (fst (func x y)) = nil.
+Hypothesis func_res_fv :
+  forall x y e u, In e (snd (func x y)) -> In u (fv_E e) ->
+                  In u x \/ In u y \/ prefix "l" (var_of_str u) = true.
+
 Definition Outs := fst (fst (writeArray "Out" dim Gl)).
 Definition Len := snd (fst (writeArray "Out" dim Gl)).
 Definition setOut ix es := snd (writeArray "Out" dim Gl) ix es.
@@ -442,6 +450,16 @@ Definition BSpost n i := Binv (f n) n i.
 Definition BS n := (@MyVector.init _ ntrd (fun i =>(BSpre n (nf i))),
                     @MyVector.init _ ntrd (fun i =>(BSpost n (nf i)))).
 
+Hypothesis func_denote : forall (x y : list var) nt (tid : Fin.t nt) (vs us fv : list val),
+  f_den vs us fv -> 
+  length x = dim ->
+  disjoint x (writes_var (fst (func x y))) ->
+  disjoint y (writes_var (fst (func x y))) ->
+  CSL (fun _ => default nt) tid
+      ( !(vars2es x ==t vs ) ** !(vars2es y ==t us))
+      (fst (func x y))
+      (!((snd (func x y)) ==t fv)).
+
 Lemma reduce_body_ok n i:
   CSL BS i
     (!(tid === Zn (nf i)) **
@@ -483,13 +501,68 @@ Proof.
         sep_rewrite_in mps_eq1_tup' H; [|subst sn; exact H1].
         apply H. }
       sep_combine_in H; exact H. } Unfocus.
-    eapply rule_seq; [apply rule_frame; [apply gen_read_correct|]; eauto; simpl|].
-    - simplify; subst; eauto.
-      apply locals_pref in H; simpl in *; congruence; eauto.
-    - unfold vars2es; simplify; subst; eauto.
-      apply locals_pref in H; apply locals_pref in H1.
+    Ltac simplify :=
+      unfold vars2es, tarr_idx, vs2es in *;
+      repeat (simpl in *; subst; lazymatch goal with
+      | [|- In _ (map _ _) -> _] =>
+        rewrite in_map_iff; intros [? [? ?]]; subst
+      | [H:In _ (map _ _) |-_] =>
+        rewrite in_map_iff in H; destruct H as [? [? H]]; subst
+      | [|- indeE _ _] => apply indeE_fv
+      | [|- indelE _ _] => apply indelE_fv
+      | [H : _ \/ False|-_] =>destruct H as [H|[]];subst
+      | [H : _ \/ _ |-_] =>destruct H as [?|H]
+      | [|- ~(_ \/ _)] => intros [?|?]
+      | [|- context [In _ (_ ++ _)]] => rewrite in_app_iff
+      | [|- forall _, _] => intros ?
+      | [H : In _ (locals _ _) |- _] => apply locals_pref in H
+      | [H : prefix _ _ = true |- _] => apply prefix_ex in H as [? ?]; subst
+      | [|- disjoint_list (locals _ _)] => apply locals_disjoint_ls
+      | [|- context [length (locals _ _)]] => rewrite locals_length
+      | [H :context [length (locals _ _)]|- _] => rewrite locals_length in H
+      | [H :context [length (vars2es _)]|- _] => unfold vars2es in *; rewrite map_length
+      | [|- context [length (vars2es _)]] => unfold vars2es; rewrite map_length
+      | [H :context [In _ (vars2es _)]|- _] =>
+        unfold vars2es in *; rewrite in_map_iff in H;
+        destruct H as [? [? H]]; subst
+      | [|- context [In _ (vars2es _)]] => unfold vars2es; rewrite in_map_iff
+      | [|- Forall _ _] => rewrite Forall_forall; intros
+      | [|- indeE _ _] => apply indeE_fv
+      | [|- indelE _ _] => apply indelE_fv
+      | [|- indeB _ _] => apply indeB_fv
+      | [H : context [var_of_str ?x] |- _] => destruct x
+      | [|- inde (_ ==t _) _] => apply inde_eq_tup
+      | [|- inde (_ -->l (_, _)) _] => apply inde_is_tup
+      | [|- inde (is_tuple_array_p _ _ _ _ _) _] => apply inde_is_tup_arr
+      | [|- context [length (map _ _)]] => rewrite map_length
+      | [H : context [length (map _ _)] |- _] => rewrite map_length in H
+      | [|- ~_] => intros ?
+    end; simpl in *; subst).
+    eapply rule_seq; [apply rule_frame; [apply gen_read_correct|]; eauto; simpl|];
+    try now (simplify; prove_inde; simplify; try first [now eauto | congruence]).
+    { Lemma f_length n i : length (f n i) = dim.
+      Proof.
+        revert i; induction n; simpl; eauto.
+        intros i; destruct Sumbool.sumbool_and; eauto.
+      Qed.
+      rewrite f_length; simplify; eauto. }
+    { prove_inde; simplify; try (rewrite gen_read_writes in H; simplify; eauto; try congruence);
+        simplify; try (rewrite gen_read_writes in H0; simplify; try congruence). }
     eapply rule_seq.
-    { hoare_forward.
+    { eapply Hbackward.
+      Focus 2.
+      { intros stk h H; evar (P : assn);
+        assert (((!(vars2es x0 ==t f n (nf i + s sn)) ** !(vars2es x1 ==t f n (nf i))) ** P) stk h) by
+         (unfold P; sep_normal_in H; sep_normal; sep_split; sep_split_in H; auto;
+          sep_combine_in H; eauto). 
+        unfold P in *; exact H0. } Unfocus.
+      eapply rule_frame; [apply func_denote|].
+
+(* {v == val} func {ret == f_den val} *)
+
+      apply rule_frame; [apply func_denote|]; eauto; simpl;
+        try now (simplify; prove_inde; simplify; try first [now eauto | congruence]).
+      hoare_forward.
       intros s h [? H]; subA_normalize_in H. simpl in H. apply H. }
     eapply rule_seq; [hoare_forward|].
     intros s h [v H]; subA_normalize_in H. simpl in H.
