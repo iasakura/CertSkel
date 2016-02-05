@@ -63,7 +63,7 @@ Local Notation x1 := (locals "x1" dim).
 Local Notation x2 := (locals "x2" dim).
 Local Notation sdata := (vars2es (locals "sdata" dim)).
 Local Notation sdata' := (map Sh sdata).
-Local Notation len := (Var "len").
+Local Notation len := (Var "n").
 Local Notation tid := (Var "tid").
 
 Notation perm_n n := (1 / injZ (Zn n))%Qc.
@@ -74,8 +74,8 @@ Definition reduce_body n s :=
   (Cbarrier (n - 1) ;;
    Cif (Band (tid +C Zn s <C len) (tid <C Zn s)) (
      gen_read Sh x0 sdata (tid + Zn s) ;;
-     fst (func x0 x1) ;;
-     read_tup x2 (snd (func x0 x1)) ;;
+     fst (func x1 x0) ;;
+     read_tup x2 (snd (func x1 x0)) ;;
      read_tup x1 (vars2es x2) ;;
      catcmd (gen_write Sh sdata tid (vars2es x1))
    ) Cskip
@@ -83,7 +83,9 @@ Definition reduce_body n s :=
 
 Fixpoint reduce_aux t m :=
   match m with
-  | O => Cskip
+  | O => Cskip    assert (Heq :(tid === Zn (nf i)) st (emp_ph loc)) by (unfold_conn; eauto).
+    sep_rewrite_in mps_eq1_tup' H; [|exact H0]; clear Heq.
+
   | S m =>
     reduce_body t (s t) ;; reduce_aux (S t) m 
   end.
@@ -450,15 +452,18 @@ Definition BSpost n i := Binv (f n) n i.
 Definition BS n := (@MyVector.init _ ntrd (fun i =>(BSpre n (nf i))),
                     @MyVector.init _ ntrd (fun i =>(BSpost n (nf i)))).
 
-Hypothesis func_denote : forall (x y : list var) nt (tid : Fin.t nt) (vs us fv : list val),
+Hypothesis func_denote : forall (x y : list var) nt (tid : Fin.t nt) (vs us fv : list val) BS,
   f_den vs us fv -> 
   length x = dim ->
   disjoint x (writes_var (fst (func x y))) ->
   disjoint y (writes_var (fst (func x y))) ->
-  CSL (fun _ => default nt) tid
+  CSL BS tid
       ( !(vars2es x ==t vs ) ** !(vars2es y ==t us))
       (fst (func x y))
       (!((snd (func x y)) ==t fv)).
+
+Hypothesis func_wf : forall (x y : list var),
+  length (snd (func x y)) = dim.
 
 Lemma reduce_body_ok n i:
   CSL BS i
@@ -552,34 +557,92 @@ Proof.
     { eapply Hbackward.
       Focus 2.
       { intros stk h H; evar (P : assn);
-        assert (((!(vars2es x0 ==t f n (nf i + s sn)) ** !(vars2es x1 ==t f n (nf i))) ** P) stk h) by
+        assert (((!(vars2es x1 ==t f n (nf i)) ** !(vars2es x0 ==t f n (nf i + s sn))) ** P) stk h) by
          (unfold P; sep_normal_in H; sep_normal; sep_split; sep_split_in H; auto;
           sep_combine_in H; eauto). 
         unfold P in *; exact H0. } Unfocus.
-      eapply rule_frame; [apply func_denote|].
+      eapply rule_frame; [apply func_denote|]; eauto.
+      { apply f_fun_den; apply f_length. }
+      { apply locals_length. }
+      { apply not_in_disjoint; simplify.
+        forwards: func_local; eauto; simpl in *; congruence. }
+      { apply not_in_disjoint; simplify.
+        forwards: func_local; eauto; simpl in *; congruence. }
+      prove_inde; simplify; forwards: func_local; eauto; simpl in *; try congruence. }
+    eapply rule_seq.
+    { eapply Hbackward.
+      Focus 2.
+      { intros stk h H; evar (P : assn);
+        assert ((!(snd (func x1 x0) ==t  f n (nf i) |+| f n (nf i + s sn)) ** P) stk h) by 
+          (unfold P; sep_normal_in H; sep_normal; sep_split; sep_split_in H; auto;
+           sep_combine_in H; eauto). 
+        unfold P in *; exact H0. } Unfocus.
+      eapply rule_frame; [eapply read_tup_correct|].
+      { simplify; forwards: func_res_fv; eauto.
+        simplify; congruence. }
+      { apply locals_disjoint_ls. }
+      { lets H: (f_fun_den (f n (nf i)) (f n (nf i + s sn)));
+          try rewrite !f_length; eauto;
+            lets: (>> f_den_wf H); try rewrite !f_length; eauto.
+        lets: (func_wf x0 x1); congruence. }
+      { rewrite locals_length, func_wf; eauto. }
+      { lets H: (>>read_tup_writes x2 (snd (func x1 x0)) ___); [|rewrite H].
+        { rewrite locals_length, func_wf; eauto. }
+        prove_inde; simplify; eauto; simpl in *; try congruence.
+        forwards: func_res_fv; eauto; simplify; congruence. } }
+    eapply rule_seq.
+    { eapply Hbackward.
+      Focus 2.
+      { intros stk h H; evar (P : assn);
+        assert ((!(vars2es x2 ==t f n (nf i) |+| f n (nf i + s sn)) ** P) stk h).
+        { unfold P; sep_normal_in H; sep_normal; sep_split; sep_split_in H; auto.
+          clear HP0 HP5; sep_combine_in H; eauto. }
+        unfold P in *; exact H0. } Unfocus.
+      eapply rule_frame; [eapply read_tup_correct|].
+      { simplify; congruence. }
+      { apply locals_disjoint_ls. }
+      { lets H: (f_fun_den (f n (nf i)) (f n (nf i + s sn)));
+          try rewrite !f_length; eauto;
+            lets: (>> f_den_wf H); try rewrite !f_length; eauto.
+        unfold vars2es; rewrite map_length, locals_length; congruence. }
+      { lets H: (f_fun_den (f n (nf i + s sn)) (f n (nf i)));
+          try rewrite !f_length; eauto;
+            lets: (>> f_den_wf H); try rewrite !f_length; eauto.
+        unfold vars2es; rewrite map_length, !locals_length; congruence. }
+      { rewrite read_tup_writes.
+        prove_inde; simplify; eauto; simpl in *; try congruence.
+        { unfold vars2es; rewrite map_length, !locals_length; eauto. } } }
+    eapply Hbackward.
+    Focus 2.
+    { intros stk h H; evar (P : assn);
+      assert (((sdata' +ol tid -->l (1, vs2es (f n (nf i)))) ** P) stk h).
+      { unfold P, lt in *; clear P; sep_normal_in H; sep_normal; sep_split;
+        sep_split_in H; sep_cancel.
+        sep_combine_in H0; eauto. } 
+      unfold P; exact H0. } Unfocus.
 
-(* {v == val} func {ret == f_den val} *)
-
-      apply rule_frame; [apply func_denote|]; eauto; simpl;
+    apply rule_frame; [apply gen_write_correct|]; eauto; simpl;
         try now (simplify; prove_inde; simplify; try first [now eauto | congruence]).
-      hoare_forward.
-      intros s h [? H]; subA_normalize_in H. simpl in H. apply H. }
-    eapply rule_seq; [hoare_forward|].
-    intros s h [v H]; subA_normalize_in H. simpl in H.
-    ex_intro v H; simpl in H; apply H.
-    repeat hoare_forward.
-    intros s h H; ex_intro x H; exact H. }
+    unfold vs2es, vars2es; rewrite !map_length, f_length, !locals_length; auto.
+    Lemma inde_nil P : inde P nil.
+    Proof.
+      unfold inde; intros; inversion H.
+    Qed.
+    rewrite writes_var_gen_write; apply inde_nil. }
   { eapply rule_skip. }
-  intros st h [[v H] | H]; sep_split_in H; unfold_pures; sep_split; eauto; sep_cancel.
-  - unfold_conn; subst sn; simpl; eauto.
-    destruct Sumbool.sumbool_and; unfold lt in *; try omega.
-    destruct Z_lt_dec; try congruence; try omega.
+  intros st h  [H | H]; sep_split_in H; unfold_pures; sep_split; eauto; sep_cancel.
+  - destruct Z_lt_dec; try congruence; unfold_conn; subst sn; simpl; eauto.
+    destruct Sumbool.sumbool_and; unfold lt in *; try lia.
+    eauto.
   - unfold BSpre, Binv; subst sn; simpl.
     destruct Z_lt_dec; try congruence; try omega.
     destruct Sumbool.sumbool_and; unfold lt in *; try omega.
+    destruct Sumbool.sumbool_and; try omega.
+    assert (Heq :(tid === Zn (nf i)) st (emp_ph loc)) by (unfold_conn; eauto).
+    sep_rewrite_in mps_eq1_tup' H; [|exact Heq]; clear Heq.
+
     sep_normal_in H; sep_normal.
     repeat sep_cancel.
-    destruct Sumbool.sumbool_and; try omega.
     repeat sep_cancel.
     destruct Nat.eq_dec; eauto.
     sep_rewrite is_array_change; [sep_rewrite sep_comm; sep_rewrite is_array_change|].
