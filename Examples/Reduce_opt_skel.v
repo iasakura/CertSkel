@@ -83,9 +83,7 @@ Definition reduce_body n s :=
 
 Fixpoint reduce_aux t m :=
   match m with
-  | O => Cskip    assert (Heq :(tid === Zn (nf i)) st (emp_ph loc)) by (unfold_conn; eauto).
-    sep_rewrite_in mps_eq1_tup' H; [|exact H0]; clear Heq.
-
+  | O => Cskip    
   | S m =>
     reduce_body t (s t) ;; reduce_aux (S t) m 
   end.
@@ -640,49 +638,74 @@ Proof.
     destruct Sumbool.sumbool_and; try omega.
     assert (Heq :(tid === Zn (nf i)) st (emp_ph loc)) by (unfold_conn; eauto).
     sep_rewrite_in mps_eq1_tup' H; [|exact Heq]; clear Heq.
-
+    sep_rewrite_in mps_eq2_tup H; [|exact HP].
     sep_normal_in H; sep_normal.
-    repeat sep_cancel.
-    repeat sep_cancel.
+    unfold lt in *; sep_cancel.
+    assert (Heq :(tid +C Zn (s (S n)) === (Zn (nf i) + Zn (s (S n)))%Z) st (emp_ph loc)).
+    { unfold_conn; simpl; rewrite HP3; unfold lt; ring. }
+    sep_rewrite_in mps_eq1_tup' H0; [|exact Heq]. clear Heq.
+    unfold lt in *; repeat sep_cancel.
     destruct Nat.eq_dec; eauto.
-    sep_rewrite is_array_change; [sep_rewrite sep_comm; sep_rewrite is_array_change|].
+    sep_rewrite is_tup_array_change; [sep_rewrite sep_comm; sep_rewrite is_tup_array_change|].
     sep_rewrite sep_comm; eauto.
-    intros; destruct Sumbool.sumbool_and; try lia.
-    intros; destruct Sumbool.sumbool_and; try lia.
+    intros; destruct Sumbool.sumbool_and; try lia; eauto.
+    intros; destruct Sumbool.sumbool_and; try lia; eauto.
   - unfold_conn; subst sn; simpl; eauto.
-    destruct Sumbool.sumbool_and; unfold lt in *; try lia.
+    destruct Sumbool.sumbool_and; unfold lt in *; try lia; eauto.
     destruct Z_lt_dec; simpl in *; try congruence; try lia.
+    unfold_conn_all; simpl in *; try omega.
   - unfold BSpre, Binv; subst sn; simpl.
     destruct Z_lt_dec; simpl in *; try congruence; try omega.
+    unfold_conn_in (HP0, HP1); simpl in HP0, HP1; try omega.
     destruct Sumbool.sumbool_and; unfold lt in *; try omega.
     sep_normal_in H; sep_normal.
     destruct Nat.eq_dec; eauto.
-    sep_rewrite is_array_change; [sep_rewrite sep_comm; sep_rewrite is_array_change|].
+    sep_rewrite is_tup_array_change; [sep_rewrite sep_comm; sep_rewrite is_tup_array_change|].
     sep_rewrite sep_comm; eauto.
-    intros; destruct Sumbool.sumbool_and; try lia.
-    intros; destruct Sumbool.sumbool_and; try lia.
+    intros; destruct Sumbool.sumbool_and; try lia; eauto.
+    intros; destruct Sumbool.sumbool_and; try lia; eauto.
   - unfold_conn; subst sn; simpl; eauto.
-    destruct Sumbool.sumbool_and; unfold lt in *; try lia.
+    unfold_conn_in (HP0, HP1); simpl in HP0, HP1; try omega.
+    destruct Sumbool.sumbool_and; unfold lt in *; try lia; eauto.
   - unfold BSpre, Binv; subst sn; simpl.
+    unfold_conn_in (HP0, HP1); simpl in HP0, HP1; try omega.
     destruct Sumbool.sumbool_and; unfold lt in *; try omega.
     sep_normal_in H; sep_normal.
     destruct Nat.eq_dec; eauto.
-    sep_rewrite is_array_change; [sep_rewrite sep_comm; sep_rewrite is_array_change|].
+    sep_rewrite is_tup_array_change; [sep_rewrite sep_comm; sep_rewrite is_tup_array_change|].
     sep_rewrite sep_comm; eauto.
-    intros; destruct Sumbool.sumbool_and; try lia.
-    intros; destruct Sumbool.sumbool_and; try lia.
+    intros; destruct Sumbool.sumbool_and; try lia; eauto.
+    intros; destruct Sumbool.sumbool_and; try lia; eauto.
+Qed.
+
+Lemma is_tuple_array_cons es n f s q stk :
+  (forall i, length (f i) = length es) ->
+  stk ||= is_tuple_array_p es (S n) f s q <=>
+      is_tuple_p (es +ol Zn s) (vs2es (f s)) q ** is_tuple_array_p es n f (S s) q.
+Proof.
+  revert s f; induction es; intros s f Hl; simpl.
+  - destruct vs2es; rewrite emp_unit_l; reflexivity.
+  - lets: (>> Hl s).
+    assert (length (vs2es (f s)) = length (a :: es))
+      by (simpl; unfold vs2es; rewrite map_length; eauto); [simpl in *|..].
+    rewrite IHes, <-!sep_assoc.
+    unfold fst_of_vals, tl_of_vals.
+    destruct (f s); simpl in *; try omega.
+    rewrite <-!sep_assoc.
+    split; intros; repeat sep_cancel.
+    intros; lets: (Hl i); unfold tl_of_vals; destruct (f i); simpl in *; try omega.
 Qed.
 
 Lemma reduce_aux_ok i t m :
   CSL BS i
     (!(tid === Zn (nf i)) **
      !(len === Zn l) **
-     !(x1 === f t (nf i)) **
+     !(vars2es x1 ==t f t (nf i)) **
      BSpre t (nf i))
     (reduce_aux (S t) m)
     (!(tid === Zn (nf i)) **
      !(len === Zn l) **
-     !(x1 === f (t + m) (nf i)) **
+     !(vars2es x1 ==t f (t + m) (nf i)) **
      BSpre (t + m) (nf i)).
 Proof.
   revert t; induction m; simpl; intros t.
@@ -691,18 +714,19 @@ Proof.
     apply reduce_body_ok.
     cutrewrite (t + S m = S t + m); [|omega]; eauto.
 Qed.
+
 Require Import Program.
 Lemma reduce_ok0 i :
   CSL BS i
     (!(tid === Zn (nf i)) **
      !(len === Zn l) **
-     !(x1 === f_in (nf i)) **
-     (Sh sdata +o (Zn (nf i)) -->p (1, f_in (nf i))))
+     !(vars2es x1 ==t f_in (nf i)) **
+     (sdata' +ol (Zn (nf i)) -->l (1, vs2es (f_in (nf i)))))
     reduce
     (!(tid === Zn (nf i)) **
      !(len === Zn l) **
-     !(x1 === f e_b (nf i)) **
-     if Nat.eq_dec (nf i) 0 then is_array (Sh sdata) ntrd (f e_b) 0 else emp).
+     !(vars2es x1 ==t f e_b (nf i)) **
+     if Nat.eq_dec (nf i) 0 then is_tuple_array_p sdata' ntrd (f e_b) 0 1 else emp).
 Proof.
   unfold reduce.
   eapply rule_conseq; eauto using reduce_aux_ok.
@@ -722,11 +746,19 @@ Proof.
     rewrite min_r in H2; try omega; simpl in H2; sep_normal_in H2.
     simpl; sep_cancel.
     destruct n; simpl in *; try omega; repeat sep_cancel.
-    rewrite <-minus_n_O in H0; eauto.
+    rewrite <-minus_n_O in H2; eauto.
+    repeat sep_rewrite is_tuple_array_cons; eauto;
+      try (intros; unfold vars2es; rewrite f_length, !map_length, locals_length; eauto).
+    repeat sep_rewrite_r sep_assoc; repeat sep_cancel.
+    sep_rewrite_in is_array_tup_0 H2; sep_rewrite_in emp_unit_l H2.
+    apply H2.
   - destruct ntrd; sep_normal_in H2; try omega.
     assert (l = 1) by omega; subst.
     simpl in *.
     rewrite <-minus_n_O in H2; sep_normal_in H2; sep_cancel.
+    cutrewrite (S n = 1 + n); [|omega];
+      sep_rewrite (is_tuple_array_p_concat sdata' (f e_b') (f e_b') (f e_b')); simpl; eauto.
+    intros; destruct lt_dec; eauto.
 Qed.
 
 Theorem BS_ok b :
@@ -736,10 +768,13 @@ Proof.
   intros s h H.
   destruct b.
   - istar_simplify_in H.
-    apply is_array_distr in H.
-    apply Binv_ok; simpl.
-    eauto.
-  - apply Binv_ok.
+    apply is_tuple_array_p_distr in H.
+    apply Binv_ok; simpl; eauto.
+    intros; unfold vars2es; rewrite f_in_wf, !map_length, locals_length; auto.
+  - apply Binv_ok; try (intros; rewrite f_length; auto).
     apply Binv_ok in H; eauto.
+    intros; destruct Sumbool.sumbool_and; try (rewrite f_length; auto).
+    lets: (>>f_fun_den ___); try (apply f_length).
+    lets: (>>f_den_wf H0); try (rewrite f_length; auto); eauto.
 Qed.
 End Reduce0.
