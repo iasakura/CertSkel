@@ -883,7 +883,7 @@ Section Reduce.
   (** runtime values *)
   (* runtime value of the input arrays: length * elements *)
   Variable env_den : list (list Z * nat * (nat -> list val)).
-  Variable
+
   (* env is consistent with env_den *)
   Hypothesis env_env_den_same_len : length env = length env_den.
   
@@ -895,15 +895,18 @@ Section Reduce.
         (fst (get x))
         (!(snd (get x) ==t gv) ** input_spec env env_den (perm_n nt_gr)).
 
+  Variable l : nat.
+  Notation sh := (Var "sh").
+
   Section SeqReduce.
     Notation ix := (Var "ix").
     Definition seq_reduce inv :=
       ix ::= (tid +C bid *C Z.of_nat ntrd) ;;
-      Cif (ix <C Len) (
+      Cif (ix <C sh) (
         (fst (get ix)) ;;
         read_tup y (snd (get ix)) ;;
         ix ::= ix +C Z.of_nat ntrd *C Z.of_nat nblk ;;
-        WhileI inv (ix < Len) (
+        WhileI inv (ix < sh) (
           (fst (get ix)) ;;
           read_tup x (snd (get ix)) ;;
           (fst (func y x)) ;;
@@ -926,10 +929,29 @@ Section Reduce.
     Hypothesis get_safe :
       forall i, i < l -> exists v, get_den (Zn i) v.
     
-    Lemma seq_reduce_correct i j BS :
-      CSL BS i
-       (input_spec env env_den (perm_n nt_gr))
-       
-    .
+    Lemma get_ex : exists g, forall i, i < l -> get_den (Zn i) (g i).
+    Proof.
+      generalize l get_safe; intros len Hgs; induction len.
+      - exists (fun _ : nat => @nil val); intros; omega.
+      - lets (g & Hg): (>>IHlen ___); intros.
+        apply Hgs; try omega.
+        lets (gvl & Hgvl): (Hgs len); try omega.
+        exists (fun x => if Nat.eq_dec x len then gvl else g x); 
+          intros; destruct Nat.eq_dec; subst; intuition.
+    Qed.
     
+    Lemma seq_reduce_correct i j BS g:
+      (forall i, i < l -> get_den (Zn i) (g i)) ->
+      CSL BS i
+       (input_spec env env_den (perm_n nt_gr) ** (sh === Zn l))
+       (seq_reduce (inv g i j))
+       (input_spec env env_den (perm_n nt_gr) ** (sh === Zn l)).
+      Proof.
+        unfold seq_reduce; intros Hg.
+        eapply rule_seq; [hoare_forward|].
+        { intros ? ? [v H]; subA_normalize_in H with (fun H => first
+            [ apply subA_distribute_tup in H | apply subA_eq_tup in H
+              | apply subA_is_tuple_p in H | apply subA_input_spec in H; eauto ] ).
+          simpl in H; apply H. }
+        
   End SeqReduce.

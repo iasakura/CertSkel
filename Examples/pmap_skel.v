@@ -277,7 +277,7 @@ Proof.
     destruct H' as [v H'].
     subA_normalize_in H' with ( fun H => first
       [ apply subA_distribute_tup in H | apply subA_eq_tup in H
-      | apply subA_is_tuple_p in H | apply subA_input_spec in H; eauto ] ).
+        | apply subA_is_tuple_p in H | apply subA_input_spec in H; eauto ] ).
     repeat subE_simpl in *. simpl in H'. autounfold in H'. simpl in H'.
     rewrite subE_vars2es in H'; auto.
     exact H'. }
