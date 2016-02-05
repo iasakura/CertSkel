@@ -1,4 +1,4 @@
-Require Import GPUCSL.
+Require Import GPUCSL
 Require Import scan_lib.
 Require Import LibTactics.
 Require Import Skel_lemma.
