@@ -1559,4 +1559,3 @@ Proof.
   - apply IHn; auto.
     intros j ?; rewrite <-plus_n_Sm; simpl; apply (Hf (S j)); omega.
 Qed.
-
