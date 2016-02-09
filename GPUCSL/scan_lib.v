@@ -800,7 +800,7 @@ Fixpoint has_no_vars_E (e : exp) :=
   match e with
     | Evar _ => False
     | Enum _ => True
-    | (e1 +C e2) | (e1 *C e2) | (e1 -C e2) => has_no_vars_E e1 /\ has_no_vars_E e2
+    | Emin e1 e2 | (e1 +C e2) | (e1 *C e2) | (e1 -C e2) => has_no_vars_E e1 /\ has_no_vars_E e2
     | (e1 >>1) => has_no_vars_E e1
   end.
 

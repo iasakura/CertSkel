@@ -9,6 +9,7 @@ Fixpoint fv_E (e : exp) :=
   match e with
     | Evar v => v :: nil
     | Enum n => nil
+    | Emin e1 e2
     | e1 +C e2 
     | e1 *C e2
     | e1 -C e2 => fv_E e1 ++ fv_E e2

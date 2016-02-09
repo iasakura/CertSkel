@@ -929,7 +929,8 @@ Section Reduce.
           ix ::= ix +C Z.of_nat ntrd *C Z.of_nat nblk
         );;
         catcmd (gen_write Sh sdata tid (vars2es y))
-      ) Cskip.
+      ) Cskip ;;
+      len ::= Emin (sh -C bid *C Zn ntrd) (Zn ntrd).
 
     Notation sum_of_vs := (sum_of_f_opt (list val) f_fun).
     Close Scope exp_scope.
@@ -1083,7 +1084,6 @@ Section Reduce.
     Definition vi g := 
       maybe (skip_sum_of_vs nt_gr 0 l g (nf i + nf j * ntrd)) vi_ini.
 
-
     Lemma seq_reduce_correct BS g:
       (forall i, i < l -> get_den (Zn i) (g i)) ->
       CSL BS i
@@ -1093,7 +1093,9 @@ Section Reduce.
 
        (seq_reduce (inv g))
 
-       (sdata' +ol Zn (nf i) -->l (1, vs2es (vi g)) **
+       (!(tid === Zn (nf i)) ** !(len === Z.min (Zn l - Zn (nf j) * Zn ntrd) (Zn ntrd)) **
+        !(vars2es y ==t vi g) **
+        (sdata' +ol Zn (nf i) -->l (1, vs2es (vi g))) **
         input_spec env env_den (perm_n nt_gr) ** !(sh === Zn l)).
       Proof.
         unfold seq_reduce; intros Hg.
@@ -1102,6 +1104,7 @@ Section Reduce.
             [ apply subA_distribute_tup in H | apply subA_eq_tup in H
               | apply subA_is_tuple_p in H | apply subA_input_spec in H; eauto ] ).
           autorewrite with core in H; simpl in *; eauto; apply H. }
+        eapply rule_seq.
         hoare_forward; eauto using rule_skip.
 
         - eapply Hbackward.
@@ -1341,20 +1344,38 @@ Section Reduce.
                 apply Hnxt. } Unfocus.
               apply rule_frame; [apply gen_write_correct|]; simplify; eauto.
               rewrite writes_var_gen_write; apply inde_nil. } 
-        - intros stk h [H|H]; sep_normal_in H; sep_split_in H.
+        - eapply Hforward; [apply rule_disj; hoare_forward;
+            intros s h [v H]; subA_normalize_in H with (fun H => first
+            [ apply subA_distribute_tup in H | apply subA_eq_tup in H
+              | apply subA_is_tuple_p in H | apply subA_input_spec in H; eauto ] )|].
+          autorewrite with core in *; eauto. simpl in H. exact H.
+          autorewrite with core in *; eauto. simpl in H. exact H.
+          intros stk h [H|H]; sep_normal_in H; sep_split_in H.
           + unfold vi; destruct skip_sum_of_vs.
             * sep_rewrite_in mps_eq2_tup H; [|exact HP2].
               sep_rewrite_in mps_eq1_tup' H; [|exact HP].
               sep_split; eauto.
+              unfold_pures; unfold_conn_all; simpl in *.
+              congruence.
             * sep_rewrite_in mps_eq2_tup H; [|exact HP2].
               sep_rewrite_in mps_eq1_tup' H; [|exact HP].
               sep_split; eauto.
+              unfold_pures; unfold_conn_all; simpl in *.
+              congruence.
           + unfold vi.
             rewrites (>>skip_sum_opt_nil g l).
             unfold_pures; unfold_conn_all; simpl in *; intros;
               rewrite Nat.mod_small; lets: ntgr_gid; try nia.
             rewrite minus_diag; simpl; sep_split; eauto.
+            unfold_pures; unfold_conn_all; simpl in *.
+            congruence.
+            eauto.
             Grab Existential Variables.
             apply (fun _ => nil).
       Qed.
   End SeqReduce.
+
+  Definition mkFoldAll (rec : bool) (seed : exp) :=
+    seq_reduce inv ;;
+    
+End Reduce.

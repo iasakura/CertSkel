@@ -45,6 +45,7 @@ Inductive exp :=
 | Evar (x : var)
 | Enum (n : Z)
 | Eplus (e1: exp) (e2: exp)
+| Emin (e1: exp) (e2: exp)
 | Emult (e1 : exp) (e2 : exp)
 | Esub (e1 : exp) (e2 : exp)
 | Ediv2 (e : exp).
@@ -94,6 +95,7 @@ Fixpoint edenot e s :=
     | Evar v => s v
     | Enum n => n
     | Eplus e1 e2 => edenot e1 s + edenot e2 s
+    | Emin e1 e2 => Z.min (edenot e1 s) (edenot e2 s)
     | Emult e1 e2 => edenot e1 s * edenot e2 s
     | Esub e1 e2 => edenot e1 s - edenot e2 s
     | Ediv2 e1 => Z.div2 (edenot e1 s)
@@ -714,6 +716,9 @@ Section NonInter.
   Inductive typing_exp : exp -> type -> Prop := 
   | ty_var : forall (v : var) (ty : type), le_type (g v) ty = true -> typing_exp (Evar v) ty
   | ty_num : forall (n : Z) (ty : type), typing_exp (Enum n) ty
+  | ty_min : forall (e1 e2 : exp) (ty1 ty2 : type), 
+                typing_exp e1 ty1 -> typing_exp e2 ty2 ->
+                typing_exp (Emin e1 e2) (join ty1 ty2)
   | ty_plus : forall (e1 e2 : exp) (ty1 ty2 : type), 
                 typing_exp e1 ty1 -> typing_exp e2 ty2 ->
                 typing_exp (Eplus e1 e2) (join ty1 ty2)
@@ -1043,6 +1048,7 @@ Section Substitution.
     match e0 with 
       | Evar y => (if var_eq_dec x y then e else Evar y)
       | Enum n => Enum n
+      | Emin e1 e2 => Emin (subE x e e1) (subE x e e2)
       | Eplus e1 e2 => Eplus (subE x e e1) (subE x e e2)
       | Emult e1 e2 => Emult (subE x e e1) (subE x e e2)
       | Esub e1 e2 => Esub (subE x e e1) (subE x e e2)
