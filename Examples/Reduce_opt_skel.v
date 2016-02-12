@@ -214,9 +214,9 @@ Section Reduce.
   Local Notation bid := (Var "bid").
   
   Notation perm_n n := (1 / injZ (Zn n))%Qc.
+  Variable e_b : nat.
   
   Section ReduceBlock.
-    Variable e_b : nat.
     Variable l : nat.
     
     Variable f_in : nat -> list val.
@@ -1437,7 +1437,14 @@ Section Reduce.
       Qed.
   End SeqReduce.
 
+  Notation t := (locals "t" dim).
+
   Definition mkFoldAll (rec : bool) (seed : exp) :=
-    seq_reduce inv ;;
+    seq_reduce FalseP ;;
+    reduce ;;
+    Cif (tid == 0%Z) (
+      gen_read Sh t sdata 0%Z ;;
+      catcmd (setOut bid (vars2es t))
+    ) Cskip.
     
 End Reduce.
