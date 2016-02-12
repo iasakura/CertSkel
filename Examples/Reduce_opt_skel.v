@@ -915,6 +915,7 @@ Section Reduce.
   Section SeqReduce.
     Notation ix := (Var "ix").
     Definition seq_reduce inv :=
+      read_tup y (nseq dim (Enum 0%Z)) ;;
       ix ::= (tid +C bid *C Z.of_nat ntrd) ;;
       Cif (ix <C sh) (
         (fst (get ix)) ;;
@@ -1033,7 +1034,7 @@ Section Reduce.
         !(pure (0 < nl)) **
         !(tid === Zn (nf i)) ** !(bid === Zn (nf j)) ** !(sh === Zn l) **
         !(ix === (Zn (nl * nt_gr + (nf i + nf j * ntrd)))) **
-        !(vars2es y ==t maybe (skip_sum_of_vs nt_gr 0 (min (xix nl) l) g gid) vi_ini) **
+        !(vars2es y ==t maybe (skip_sum_of_vs nt_gr 0 (min (xix nl) l) g gid) (nseq dim 0%Z)) **
         (sdata' +ol Zn (nf i) -->l (1, vs2es vi_ini)) **
         input_spec env env_den (perm_n nt_gr).
 
@@ -1081,9 +1082,22 @@ Section Reduce.
     Lemma ntgr_gid : gid < nt_gr.
     Proof. eauto. Qed.
 
-    Definition vi g := 
-      maybe (skip_sum_of_vs nt_gr 0 l g (nf i + nf j * ntrd)) vi_ini.
+    Definition vi g v := 
+      maybe (skip_sum_of_vs nt_gr 0 l g (nf i + nf j * ntrd)) v.
 
+    Lemma eq_tup_nseq s x n : (nseq n (Enum x) ==t nseq n x) s (emp_ph loc).
+    Proof.
+      induction n; simpl; eauto.
+      sep_split; apply emp_emp_ph.
+      sep_normal; sep_split; try now (unfold_conn; eauto).
+    Qed.
+
+    Lemma nseq_in (A : Type) (x : A) y n : In x (nseq n y) -> x = y.
+    Proof.
+      induction n; simpl; try tauto.
+      intros [|]; intros; eauto; try congruence.
+    Qed.
+    
     Lemma seq_reduce_correct BS g:
       (forall i, i < l -> get_den (Zn i) (g i)) ->
       CSL BS i
@@ -1094,11 +1108,30 @@ Section Reduce.
        (seq_reduce (inv g))
 
        (!(tid === Zn (nf i)) ** !(len === Z.min (Zn l - Zn (nf j) * Zn ntrd) (Zn ntrd)) **
-        !(vars2es y ==t vi g) **
-        (sdata' +ol Zn (nf i) -->l (1, vs2es (vi g))) **
+        !(vars2es y ==t vi g (nseq dim 0%Z)) **
+        (sdata' +ol Zn (nf i) -->l (1, vs2es (vi g vi_ini))) **
         input_spec env env_den (perm_n nt_gr) ** !(sh === Zn l)).
       Proof.
         unfold seq_reduce; intros Hg.
+        eapply Hbackward.
+        Focus 2. {
+          intros s h H.
+          evar (P : assn); assert ((!(nseq dim (Enum 0%Z) ==t nseq dim 0%Z) ** P) s h).
+          { sep_split; eauto using eq_tup_nseq.
+            unfold P; eauto. }
+          unfold P; apply H0. } Unfocus.
+        eapply rule_seq.
+        eapply rule_frame.
+        eapply read_tup_correct.
+        { intros; simplify; forwards Heq: (>>nseq_in ___); eauto; rewrite Heq in *; simpl in *; tauto. }
+        { apply locals_disjoint_ls. }
+        { rewrite !length_nseq; auto. }
+        { rewrite locals_length, length_nseq; eauto. }
+        { rewrite read_tup_writes.
+          prove_inde; simplify; simpl in *; try congruence.
+          apply inde_input_spec; simplify; simpl; eauto.
+          rewrite locals_length, length_nseq; eauto. }
+
         eapply rule_seq; [hoare_forward|].
         { intros ? ? [v H]; subA_normalize_in H with (fun H => first
             [ apply subA_distribute_tup in H | apply subA_eq_tup in H
@@ -1110,6 +1143,7 @@ Section Reduce.
         - eapply Hbackward.
           Focus 2.
           { intros stk h H; sep_split_in H.
+            clear HP1.
             assert (pure (nf i + nf j * ntrd < l) stk (emp_ph loc))
               by (unfold_conn; simpl; unfold_pures; nia).
             assert ((ix=== Zn (nf i + nf j * ntrd)) stk (emp_ph loc))
@@ -1204,7 +1238,7 @@ Section Reduce.
                   clear HP0.
                   evar (P : assn);
                   assert (Hnxt : ((!(vars2es y ==t
-                                     maybe (skip_sum_of_vs nt_gr 0 (min (xix nl) l) g gid) vi_ini) **
+                                     maybe (skip_sum_of_vs nt_gr 0 (min (xix nl) l) g gid) (nseq dim 0%Z)) **
                                    !(vars2es x ==t g (xix nl))) **
                                    P) stk h)
                   by (unfold P; sep_normal; sep_split; auto; sep_combine_in H; eauto).
@@ -1232,6 +1266,7 @@ Section Reduce.
                   forwards : (>>skip_sum_of_vs_wf Heq); try congruence; eauto.
                   intros; erewrite get_den_wf; eauto.
                   apply Hg; try nia.
+                  rewrite length_nseq; eauto.
                 - apply not_in_disjoint; simplify; forwards: func_local; eauto; simpl in *; congruence.
                 - apply not_in_disjoint; simplify; forwards: func_local; eauto; simpl in *; congruence.
                 - prove_inde; simplify; try (forwards*: func_local; simpl in *; congruence).
@@ -1246,7 +1281,8 @@ Section Reduce.
                   apply Hg; try nia.
                   rewrite func_wf; forwards*: (f_fun_den l0 (g (xix nl))); try congruence.
                   forwards*: (f_den_wf l0 (g (xix nl))); congruence.
-                  rewrite func_wf; forwards*: (f_fun_den vi_ini (g (xix nl))); try congruence.
+                  lets: (>>length_nseq dim 0%Z); eauto.
+                  rewrite func_wf; forwards*: (f_fun_den (nseq dim 0%Z) (g (xix nl))); try congruence.
                 - rewrite func_wf, locals_length; eauto.
                 - rewrite read_tup_writes.
                   prove_inde; simplify; try now (simplify; simpl in *; congruence).
@@ -1261,7 +1297,8 @@ Section Reduce.
                   clear HP6.
                   evar (P : assn);
                   assert (Hnxt : ((!(vars2es z ==t
-                     maybe (skip_sum_of_vs nt_gr 0 (min (xix nl) l) g gid) vi_ini |+| g (xix nl)) **
+                     maybe (skip_sum_of_vs nt_gr 0 (min (xix nl) l) g gid) (nseq dim 0%Z) |+|
+                       g (xix nl)) **
                      P) stk h))
                   by (unfold P; sep_normal; sep_split; auto; sep_combine_in H; eauto).
                   unfold P in *; apply Hnxt. } Unfocus.
@@ -1278,7 +1315,8 @@ Section Reduce.
                   apply Hg; try nia.
                   forwards*: (f_fun_den l0 (g (xix nl))); try congruence.
                   forwards*: (f_den_wf l0 (g (xix nl))); congruence.
-                  forwards*: (f_den_wf vi_ini (g (xix nl))); congruence. 
+                  forwards*: (>>length_nseq dim 0%Z).
+                  forwards*: (f_den_wf (nseq dim 0%Z) (g (xix nl))); congruence. 
                 - unfold vars2es; rewrite map_length, !locals_length; eauto.
                 - rewrite read_tup_writes.
                   prove_inde; simplify; try (simpl in *; congruence).
@@ -1351,7 +1389,29 @@ Section Reduce.
           autorewrite with core in *; eauto. simpl in H. exact H.
           autorewrite with core in *; eauto. simpl in H. exact H.
           intros stk h [H|H]; sep_normal_in H; sep_split_in H.
-          + unfold vi; destruct skip_sum_of_vs.
+          Lemma skip_sum_of_small s sk len f k :
+            k < sk ->
+            skip_sum_of_vs sk s len f k = None ->
+            forall j : nat, j < len -> (s + j) mod sk <> k.
+          Proof.
+            revert s; induction len; simpl; intros; try omega.
+            destruct Nat.eq_dec; simpl in *; try omega.
+            - unfold op' in *; destruct skip_sum_of_vs; congruence.
+            - destruct j0; [ rewrite <- plus_n_O; eauto |].
+              cutrewrite (s0 + S j0 = S s0 + j0); [|ring].
+              apply IHlen; try omega; eauto.
+          Qed.
+
+          Lemma skip_sum_of_nil sk len f k :
+            sk <> 0 ->
+            k < sk -> skip_sum_of_vs sk 0 len f k = None -> len <= k.
+          Proof.
+            intros; lets*: (>>skip_sum_of_small 0 sk len f k __ __); eauto.
+            cut (~(len > k)); try omega; intros Hc; simpl in *.
+            assert (k mod sk = k) by (apply Nat.mod_small; omega).
+            forwards* : (>>H2 k); try omega.
+          Qed.
+          + unfold vi; destruct (skip_sum_of_vs nt_gr 0 l g (nf i + nf j * ntrd)) eqn:Heq.
             * sep_rewrite_in mps_eq2_tup H; [|exact HP2].
               sep_rewrite_in mps_eq1_tup' H; [|exact HP].
               sep_split; eauto.
@@ -1362,6 +1422,9 @@ Section Reduce.
               sep_split; eauto.
               unfold_pures; unfold_conn_all; simpl in *.
               congruence.
+              apply skip_sum_of_nil in Heq; eauto.
+              unfold_conn_in HP3; try omega.
+              nia.
           + unfold vi.
             rewrites (>>skip_sum_opt_nil g l).
             unfold_pures; unfold_conn_all; simpl in *; intros;
@@ -1369,7 +1432,6 @@ Section Reduce.
             rewrite minus_diag; simpl; sep_split; eauto.
             unfold_pures; unfold_conn_all; simpl in *.
             congruence.
-            eauto.
             Grab Existential Variables.
             apply (fun _ => nil).
       Qed.
