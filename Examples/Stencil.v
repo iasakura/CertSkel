@@ -35,7 +35,6 @@ Variable oloc : Z.
 Local Notation nt_gr := (nblk * ntrd).
 Notation perm_n n := (1 / injZ (Zn n))%Qc.
 Variable f : nat -> Z.
-Variable f_sm : nat -> Z.
 Variable f_out : nat -> Z.
 
 Definition f' k := if Sumbool.sumbool_or _ _ _ _ (le_dec k 0) (lt_dec nt_gr k) then 0%Z else f (k - 1).
@@ -44,16 +43,16 @@ Notation gi i j := (nf i + nf j * ntrd).
 
 Definition BS0 (j : Fin.t nblk)  : (Vector.t assn ntrd * Vector.t assn ntrd) := 
   (MyVector.init (fun i =>
-    (Sh sloc +o Zn (nf i + 1) -->p (1, f' (gi i j + 1))) **
-    (if Nat.eq_dec (nf i) 0 then Sh sloc -->p (1, f' ((nf j) * ntrd)) else emp) **
-    (if Nat.eq_dec (nf i) (ntrd - 1) then Sh sloc +o Zn (ntrd + 1) -->p (1, f' ((nf j + 1) * ntrd + 1)) else emp)),
+    (Sh "smem" +o Zn (nf i + 1) -->p (1, f' (gi i j + 1))) **
+    (if Nat.eq_dec (nf i) 0 then Sh "smem" -->p (1, f' ((nf j) * ntrd)) else emp) **
+    (if Nat.eq_dec (nf i) (ntrd - 1) then Sh "smem" +o Zn (ntrd + 1) -->p (1, f' ((nf j + 1) * ntrd + 1)) else emp)),
    MyVector.init (fun i =>
-    is_array_p (Sh sloc) (ntrd + 2) (fun k => f' (k + nf j * ntrd)) 0 (perm_n ntrd))).
+    is_array_p (Sh "smem") (ntrd + 2) (fun k => f' (k + nf j * ntrd)) 0 (perm_n ntrd))).
 
 Definition BS (j : Fin.t nblk) (n : nat) :=
   if Nat.eq_dec n 0 then BS0 j else default ntrd.
 
-Lemma stencil_ok_th (j : Fin.t nblk) (i : Fin.t ntrd) :
+Lemma stencil_ok_th (f_sm : nat -> Z) (j : Fin.t nblk) (i : Fin.t ntrd) :
   CSL (BS j) i 
     (!("tid" === Zn (nf i)) **
      !("bid" === Zn (nf j)) **
@@ -62,9 +61,9 @@ Lemma stencil_ok_th (j : Fin.t nblk) (i : Fin.t ntrd) :
      !("smem" === sloc ) **
      is_array_p (Gl aloc) nt_gr f 0 (perm_n nt_gr) **
      (Gl oloc +o Zn (nf i + nf j * ntrd) -->p (1, f_out (nf i + nf j * ntrd))) **
-     (Sh sloc +o Zn (nf i + 1) -->p (1, f_sm (nf i + 1))) **
-     (if Nat.eq_dec (nf i) 0 then Sh sloc -->p (1, f_sm 0) else emp) **
-     (if Nat.eq_dec (nf i) (ntrd - 1) then Sh sloc +o Zn (ntrd + 1) -->p (1, f_sm (ntrd + 1)) else emp))
+     (Sh "smem" +o Zn (nf i + 1) -->p (1, f_sm (nf i + 1))) **
+     (if Nat.eq_dec (nf i) 0 then Sh "smem" -->p (1, f_sm 0) else emp) **
+     (if Nat.eq_dec (nf i) (ntrd - 1) then Sh "smem" +o Zn (ntrd + 1) -->p (1, f_sm (ntrd + 1)) else emp))
     stencil 
     (is_array_p (Gl aloc) nt_gr f 0 (perm_n nt_gr) **
      (Gl oloc +o Zn (gi i j) -->p (1, (f' (gi i j) + f' (gi i j + 1) + f' (gi i j + 2)))%Z) **
@@ -80,7 +79,7 @@ Proof.
     assert (Heq : (Gl aloc +o (Zn (gi i j)) ===l Gl "arr" +o gid) s (emp_ph loc)).
     { sep_split_in H; unfold_conn; simpl; f_equal; unfold_pures; clear H; nia. }
     sep_rewrite_in mps_eq1 H; [|exact Heq]; clear Heq.
-    assert (Heq : (Sh sloc +o (Zn (nf i + 1)) ===l Sh "smem" +o ("tid" +C 1%Z)) s (emp_ph loc)).
+    assert (Heq : (Sh "smem" +o (Zn (nf i + 1)) ===l Sh "smem" +o ("tid" +C 1%Z)) s (emp_ph loc)).
     { sep_split_in H; unfold_conn; simpl; f_equal; unfold_pures; clear H; nia. }
     sep_lift_in H 9.
     sep_rewrite_in mps_eq1 H; [|exact Heq]; clear Heq.
@@ -96,7 +95,7 @@ Proof.
         intros s h H; sep_split_in H.
         change_in H.
         { unfold_pures; destruct Nat.eq_dec; try omega.
-          assert (Heq : (Sh sloc ===l Sh "smem" +o 0%Z) s (emp_ph loc)).
+          assert (Heq : (Sh "smem" ===l Sh "smem" +o 0%Z) s (emp_ph loc)).
           { sep_split_in H; unfold_conn; simpl; f_equal; unfold_pures; clear H; nia. }
           sep_lift_in H 5.
           sep_rewrite_in mps_eq1 H; [|exact Heq]; clear Heq.
@@ -108,7 +107,7 @@ Proof.
         intros s h H; sep_split_in H.
         change_in H.
         { unfold_pures; destruct Nat.eq_dec; try omega.
-          assert (Heq : (Sh sloc ===l Sh "smem" +o 0%Z) s (emp_ph loc)).
+          assert (Heq : (Sh "smem" ===l Sh "smem" +o 0%Z) s (emp_ph loc)).
           { sep_split_in H; unfold_conn; simpl; f_equal; unfold_pures; clear H; nia. }
           sep_lift_in H 5.
           sep_rewrite_in mps_eq1 H; [|exact Heq]; clear Heq.
@@ -139,7 +138,7 @@ Proof.
      (Gl oloc +o Zn (nf i + nf j * ntrd) -->p (1, f_out (nf i + nf j * ntrd))) **
      (Sh "smem" +o ("tid" +C 1%Z) -->p (1, f' (gi i j + 1))) **
      (if Nat.eq_dec (nf i) 0 then Sh "smem" -->p (1, f' (nf j * ntrd)) else emp) **
-     (if Nat.eq_dec (nf i) (ntrd - 1) then Sh sloc +o Zn (ntrd + 1) -->p (1, f_sm (ntrd + 1)) else emp)).
+     (if Nat.eq_dec (nf i) (ntrd - 1) then Sh "smem" +o Zn (ntrd + 1) -->p (1, f_sm (ntrd + 1)) else emp)).
     intros s h H; sep_rewrite (@is_array_unfold (Gl aloc) (gi i j)); [|eauto].
     sep_normal; sep_cancel.
     destruct H as [[H | H] | H]; sep_split_in H; sep_split; eauto; sep_cancel.
@@ -203,7 +202,7 @@ Proof.
         intros s h H; sep_split_in H.
         change_in H.
         { unfold_pures; destruct (Nat.eq_dec _ (ntrd - 1)); [|clear H; false; nia].
-          assert (Heq : (Sh sloc +o Zn (ntrd + 1) ===l Sh "smem" +o (Zn ntrd +C 1%Z)) s (emp_ph loc)).
+          assert (Heq : (Sh "smem" +o Zn (ntrd + 1) ===l Sh "smem" +o (Zn ntrd +C 1%Z)) s (emp_ph loc)).
           { sep_split_in H; unfold_conn; simpl; f_equal; unfold_pures; clear H; nia. }
           sep_lift_in H 5.
           sep_rewrite_in mps_eq1 H; [|exact Heq]; clear Heq.
@@ -286,50 +285,51 @@ Proof.
     sep_normal.
     change_in H.    
     { unfold_pures.
-      assert (Heq : (Sh "smem" +o ("tid" +C 1%Z) ===l Sh sloc +o (Zn (nf i + 1)) ) s (emp_ph loc)).
+      assert (Heq : (Sh "smem" +o ("tid" +C 1%Z) ===l Sh "smem" +o (Zn (nf i + 1)) ) s (emp_ph loc)).
       { unfold_conn; simpl; f_equal; clear H; unfold lt; nia. }
       sep_lift_in H 2.
       sep_rewrite_in mps_eq1 H; [|apply Heq]; clear Heq.
-      assert (Heq : s ||= (if Nat.eq_dec (nf i) 0 then Sh "smem" -->p (1,  f' (nf j * ntrd)) else emp) <=>
-                          (if Nat.eq_dec (nf i) 0 then Sh sloc -->p (1,  f' (nf j * ntrd)) else emp)).
-      { destruct (Nat.eq_dec _ 0); try reflexivity.
-        apply mps_eq1; unfold_conn; simpl; f_equal; nia. }
-      sep_rewrite_in Heq H; clear Heq.
-      assert (Heq : s ||=
-        (if Nat.eq_dec (nf i) (ntrd - 1) then Sh "smem" +o Zn (ntrd + 1) -->p (1,  f' ((nf j + 1) * ntrd + 1)) else emp)
-        <=>
-        (if Nat.eq_dec (nf i) (ntrd - 1) then Sh sloc +o Zn (ntrd + 1) -->p (1,  f' ((nf j + 1) * ntrd + 1)) else emp)).
-      { destruct (Nat.eq_dec _ (ntrd - 1)); try reflexivity.
-        apply mps_eq1; unfold_conn; simpl; f_equal; nia. }
-      sep_rewrite_in Heq H; clear Heq.
+      (* assert (Heq : s ||= (if Nat.eq_dec (nf i) 0 then Sh "smem" -->p (1,  f' (nf j * ntrd)) else emp) <=> *)
+      (*                     (if Nat.eq_dec (nf i) 0 then Sh "smem" -->p (1,  f' (nf j * ntrd)) else emp)). *)
+      (* { destruct (Nat.eq_dec _ 0); try reflexivity.  *)
+      (* sep_rewrite_in Heq H; clear Heq. *)
+      (* assert (Heq : s ||= *)
+      (*   (if Nat.eq_dec (nf i) (ntrd - 1) then Sh "smem" +o Zn (ntrd + 1) -->p (1,  f' ((nf j + 1) * ntrd + 1)) else emp) *)
+      (*   <=> *)
+      (*   (if Nat.eq_dec (nf i) (ntrd - 1) then Sh sloc +o Zn (ntrd + 1) -->p (1,  f' ((nf j + 1) * ntrd + 1)) else emp)). *)
+      (* { destruct (Nat.eq_dec _ (ntrd - 1)); try reflexivity. *)
+      (*   apply mps_eq1; unfold_conn; simpl; f_equal; nia. } *)
+      (* sep_rewrite_in Heq H; clear Heq. *)
       apply H. }
     sep_normal_in H0; do 2 sep_cancel.
-    sep_combine_in H1; apply H1. }
+    sep_lift_in H 2; revert H; apply scRw_stack; [intros ? H'; apply H'| intros ? ?].
+    sep_lift_in H 2; revert H; apply scRw_stack; [intros ? H'; apply H'| intros ? ?].
+    sep_combine_in H. apply H. }
   unfold BS at 2, BS0; simpl; rewrite MyVector.init_spec.
   eapply Hbackward.
   Focus 2. { 
     intros s h H.
     sep_split_in H.
-    sep_rewrite_in (@is_array_unfold (Sh sloc) (nf i)) H; [|destruct (Fin.to_nat i); clear H; simpl; omega].
+    sep_rewrite_in (@is_array_unfold (Sh "smem") (nf i)) H; [|destruct (Fin.to_nat i); clear H; simpl; omega].
     sep_normal_in H.
-    sep_lift_in H 2; sep_rewrite_in (@is_array_unfold (Sh sloc) 0) H; [|destruct (Fin.to_nat i); clear H; simpl; omega].
+    sep_lift_in H 2; sep_rewrite_in (@is_array_unfold (Sh "smem") 0) H; [|destruct (Fin.to_nat i); clear H; simpl; omega].
     sep_normal_in H.
-    sep_lift_in H 2; sep_rewrite_in (@is_array_unfold (Sh sloc) 0) H; [|destruct (Fin.to_nat i); clear H; simpl; omega].
+    sep_lift_in H 2; sep_rewrite_in (@is_array_unfold (Sh "smem") 0) H; [|destruct (Fin.to_nat i); clear H; simpl; omega].
     sep_normal_in H.
     change_in H.
     { unfold_pures.
-      assert (Heq : (Sh sloc +o Zn (0 + S (0 + S (nf i + 0))) ===l Sh sloc +o ("tid" +C 2%Z)) s (emp_ph loc)).
+      assert (Heq : (Sh "smem" +o Zn (0 + S (0 + S (nf i + 0))) ===l Sh "smem" +o ("tid" +C 2%Z)) s (emp_ph loc)).
       { rewrite !plus_O_n, <-plus_n_O, !Nat2Z.inj_succ, <-!Z.add_1_r.
         unfold_conn; simpl; f_equal; clear H; unfold lt; omega. }
       sep_rewrite_in mps_eq1 H; [|exact Heq]; clear Heq.
-      assert (Heq : (Sh sloc +o Zn (0 + S (nf i + 0)) ===l Sh sloc +o ("tid" +C 1%Z)) s (emp_ph loc)).
+      assert (Heq : (Sh "smem" +o Zn (0 + S (nf i + 0)) ===l Sh "smem" +o ("tid" +C 1%Z)) s (emp_ph loc)).
       { rewrite !plus_O_n, <-plus_n_O, !Nat2Z.inj_succ, <-!Z.add_1_r.
         unfold_conn; simpl; f_equal; clear H; unfold lt; omega. }
       sep_lift_in H 4; sep_rewrite_in mps_eq1 H; [|exact Heq]; clear Heq.
-      assert (Heq : (Sh sloc +o Zn (nf i + 0) ===l Sh sloc +o "tid") s (emp_ph loc)).
+      assert (Heq : (Sh "smem" +o Zn (nf i + 0) ===l Sh "smem" +o "tid") s (emp_ph loc)).
       { unfold_conn; simpl; f_equal; clear H; unfold lt in *; nia. }
       sep_lift_in H 6; sep_rewrite_in mps_eq1 H; [|exact Heq]; clear Heq.
-      assert (Heq : (Gl oloc +o Zn (gi i j) ===l Gl oloc +o gid) s (emp_ph loc)).
+      assert (Heq : (Gl oloc +o Zn (gi i j) ===l Gl "out" +o gid) s (emp_ph loc)).
       { unfold_conn; simpl; f_equal; clear H; unfold lt in *; nia. }
       sep_lift_in H 8; sep_rewrite_in mps_eq1 H; [|exact Heq]; clear Heq.
       apply H. } 
@@ -339,22 +339,22 @@ Proof.
   intros s h H.
   sep_split_in H; sep_cancel.
   unfold_pures.
-  sep_rewrite (@is_array_unfold (Sh sloc) (nf i)); [|destruct (Fin.to_nat i); clear H; simpl; omega].
+  sep_rewrite (@is_array_unfold (Sh "smem") (nf i)); [|destruct (Fin.to_nat i); clear H; simpl; omega].
   sep_normal.
-  sep_lift 3; sep_rewrite (@is_array_unfold (Sh sloc) 0); [|destruct (Fin.to_nat i); clear H; simpl; omega].
+  sep_lift 3; sep_rewrite (@is_array_unfold (Sh "smem") 0); [|destruct (Fin.to_nat i); clear H; simpl; omega].
   sep_normal.
-  sep_lift 2. sep_rewrite (@is_array_unfold (Sh sloc) 0). 2: destruct (Fin.to_nat i). 2: clear H H0. 2: simpl.
+  sep_lift 2. sep_rewrite (@is_array_unfold (Sh "smem") 0). 2: destruct (Fin.to_nat i). 2: clear H H0. 2: simpl.
   2: generalize dependent x. 2: clear. 2: intros. 2: omega.
   sep_normal_in H0. clear H. sep_normal.
-  assert (Heq : (Sh sloc +o Zn (0 + S (0 + S (nf i + 0))) ===l Sh "smem" +o ("tid" +C 2%Z)) s (emp_ph loc)).
+  assert (Heq : (Sh "smem" +o Zn (0 + S (0 + S (nf i + 0))) ===l Sh "smem" +o ("tid" +C 2%Z)) s (emp_ph loc)).
   { rewrite !plus_O_n, <-plus_n_O, !Nat2Z.inj_succ, <-!Z.add_1_r.
     unfold_conn; simpl; f_equal; unfold lt; omega. }
   sep_rewrite mps_eq1; [|exact Heq]; clear Heq.
-  assert (Heq : (Sh sloc +o Zn (0 + S (nf i + 0)) ===l Sh "smem" +o ("tid" +C 1%Z)) s (emp_ph loc)).
+  assert (Heq : (Sh "smem" +o Zn (0 + S (nf i + 0)) ===l Sh "smem" +o ("tid" +C 1%Z)) s (emp_ph loc)).
   { rewrite !plus_O_n, <-plus_n_O, !Nat2Z.inj_succ, <-!Z.add_1_r.
     unfold_conn; simpl; f_equal; unfold lt; omega. }
   sep_lift 4; sep_rewrite mps_eq1; [|exact Heq]; clear Heq.
-  assert (Heq : (Sh sloc +o Zn (nf i + 0) ===l Sh "smem" +o "tid") s (emp_ph loc)).
+  assert (Heq : (Sh "smem" +o Zn (nf i + 0) ===l Sh "smem" +o "tid") s (emp_ph loc)).
   { unfold_conn; simpl; f_equal; clear H0; unfold lt in *. nia. }
   sep_lift 7; sep_rewrite mps_eq1; [|exact Heq]; clear Heq.
   assert (Heq : (Gl oloc +o Zn (gi i j) ===l Gl "out" +o gid) s (emp_ph loc)).
@@ -521,21 +521,21 @@ Proof.
   - repeat destruct Nat.eq_dec; repeat apply precise_star; eauto using precise_pts, precise_emp, precise_is_array_p.
 Qed.
 
-Definition Pre_ij (j : Fin.t nblk)  (i : Fin.t ntrd) :=
+Definition Pre_ij (f_sm : nat -> Z)  (j : Fin.t nblk)  (i : Fin.t ntrd) :=
   !("bid" === Zn (nf j)) **
   !("arr" === aloc) **
   !("out" === oloc) **
   !("smem" === sloc ) **
   is_array_p (Gl aloc) nt_gr f 0 (perm_n nt_gr) **
   (Gl oloc +o Zn (nf i + nf j * ntrd) -->p (1, f_out (nf i + nf j * ntrd))) **
-  (Sh sloc +o Zn (nf i + 1) -->p (1, f_sm (nf i + 1))) **
-  (if Nat.eq_dec (nf i) 0 then Sh sloc -->p (1, f_sm 0) else emp) **
-  (if Nat.eq_dec (nf i) (ntrd - 1) then Sh sloc +o Zn (ntrd + 1) -->p (1, f_sm (ntrd + 1)) else emp).
+  (Sh "smem" +o Zn (nf i + 1) -->p (1, f_sm (nf i + 1))) **
+  (if Nat.eq_dec (nf i) 0 then Sh "smem" -->p (1, f_sm 0) else emp) **
+  (if Nat.eq_dec (nf i) (ntrd - 1) then Sh "smem" +o Zn (ntrd + 1) -->p (1, f_sm (ntrd + 1)) else emp).
 
 Definition Post_ij (j : Fin.t nblk) (i : Fin.t ntrd) :=
   (is_array_p (Gl aloc) nt_gr f 0 (perm_n nt_gr) **
   (Gl oloc +o Zn (gi i j) -->p (1, (f' (gi i j) + f' (gi i j + 1) + f' (gi i j + 2)))%Z) **
-  is_array_p (Sh sloc) (ntrd + 2) (fun k => f' (k + nf j * ntrd)) 0 (perm_n ntrd)).
+  is_array_p (Sh "smem") (ntrd + 2) (fun k => f' (k + nf j * ntrd)) 0 (perm_n ntrd)).
 
 Definition Pre_j (j : Fin.t nblk) :=
   !("arr" === aloc) **
@@ -545,10 +545,12 @@ Definition Pre_j (j : Fin.t nblk) :=
   conj_xs (ls_init 0 ntrd (fun (i : nat) =>
                              (Gl oloc +o Zn (i + nf j * ntrd) -->p (1, f_out (i + nf j * ntrd))))).
 
+Close Scope exp_scope.
+
 Definition Post_j (j : Fin.t nblk) :=
   conj_xs (ls_init 0 ntrd (fun i : nat => (is_array_p (Gl aloc) nt_gr f 0 (perm_n nt_gr)))) **
   conj_xs (ls_init 0 ntrd (fun i : nat =>
-    (Gl oloc +o Zn (i + nf j * ntrd) -->p (1, (f' (i + nf j * ntrd) + f' (i + nf j * ntrd + 1) + f' (i + nf j * ntrd + 2)))%Z))).
+    (Gl oloc +o Zn (i + nf j * ntrd) -->p (1, (f' (i + nf j * ntrd) + f' (i + nf j * ntrd + 1) + f' (i + nf j * ntrd + 2))%Z)))).
 
 Definition E (v : var) :=
   if var_eq_dec v "tid" then Hi
@@ -557,13 +559,13 @@ Definition E (v : var) :=
   else if var_eq_dec v "t2" then Hi
   else Lo.
 
-Lemma stencil_ok_bl (j : Fin.t nblk) :
+Lemma stencil_ok_bl (f_sm : nat -> Z) (j : Fin.t nblk) :
   CSLp ntrd E
-       (!("bid" === Zn (nf j)) ** is_array (Sh sloc) (ntrd + 2) f_sm 0 ** Pre_j j)
+       (!("bid" === Zn (nf j)) ** is_array (Sh "smem") (ntrd + 2) f_sm 0 ** Pre_j j)
        stencil
-       (is_array (Sh sloc) (ntrd + 2) (fun k => f' (k + nf j * ntrd)) 0 ** Post_j j).
+       (is_array (Sh "smem") (ntrd + 2) (fun k => f' (k + nf j * ntrd)) 0 ** Post_j j).
 Proof.
-  applys (>>(@rule_par) (BS j) (MyVector.init (Pre_ij j)) (MyVector.init (Post_ij j))).
+  applys (>>(@rule_par) (BS j) (MyVector.init (Pre_ij f_sm j)) (MyVector.init (Post_ij j))).
   - destruct ntrd; eexists; try omega; eauto.
   - unfold BS, BS0; intros n; split; intros; destruct n; simpl; rewrite MyVector.init_spec; simpl; unfold CSL.low_assn;
       repeat prove_low_assn; repeat econstructor; [equates 1; [repeat econstructor|]..].
@@ -597,9 +599,36 @@ Proof.
     repeat instantiate (1 := Hi); auto.
     repeat instantiate (1 := Hi); auto.
   - intros; eapply rule_conseq; eauto using stencil_ok_th;
-    unfold Pre_ij, Post_ij; rewrite MyVector.init_spec; intros; sep_normal_in H; sep_normal; repeat sep_cancel.
+    unfold Pre_ij, Post_ij; rewrite MyVector.init_spec; intros; sep_normal_in H; sep_normal; repeat sep_cancel; eauto.
     Grab Existential Variables.
     exact 0.
+Qed.
+
+Lemma low_eq_trans E x y z : low_eq E x y -> low_eq E y z -> low_eq E x z.
+Proof.
+  unfold low_eq; intros; intuition.
+  rewrite H, H0; eauto.
+Qed.
+  
+Lemma rule_ex_p n T E P C Q :
+  n <> 0 ->
+  (forall x, low_assn E (P x)) ->
+  (forall x : T, CSLp n E (P x) C Q) ->
+  CSLp n E (Ex x : T, P x) C Q.
+Proof.
+  unfold CSLp; intros.
+  unfold sat_k in H4.
+  destruct low_eq_repr; destruct H4 as [t H4].
+  forwards: (H1 t); eauto.
+  unfold sat_k; destruct low_eq_repr.
+  unfold low_assn, indeP in H0.
+  erewrite H0; eauto.
+  destruct n; try omega.
+  specialize (l Fin.F1); specialize (l0 Fin.F1).
+  apply low_eq_sym in l0.
+  eapply low_eq_trans; eauto.
+  Grab Existential Variables.
+  eauto.
 Qed.
 
 Lemma stencil_ok_gr :
@@ -610,13 +639,10 @@ Lemma stencil_ok_gr :
         is_array (Gl aloc) nt_gr f 0 **
         is_array (Gl oloc) nt_gr f_out 0)
        {| get_sh_decl := (Var "smem", ntrd+2) :: nil; get_cmd := stencil |}
-       (!("arr" === aloc) **
-        !("out" === oloc) **
-        !("smem" === sloc ) **
-        is_array (Gl aloc) nt_gr f 0 **
+       (is_array (Gl aloc) nt_gr f 0 **
         is_array (Gl oloc) nt_gr (fun i => (f' i + f' (i + 1) + f' (i + 2))%Z) 0).
 Proof.
-  applys (>>rule_grid E (MyVector.init Pre_j) (MyVector.init Post_j)).
+  applys (>>rule_grid E (MyVector.init Pre_j) (MyVector.init Post_j)); try now (simpl; eauto).
   - unfold Pre_j; intros.
     istar_simplify.
     repeat first [sep_rewrite (@ls_star nblk) | sep_rewrite (@ls_pure nblk)].
@@ -627,9 +653,79 @@ Proof.
     sep_rewrite_r is_array_is_array_p_1; try nia.
     sep_rewrite is_array_distr00; try nia.
     eauto.
-  - intros; eapply CSLp_backward; [eapply CSLp_forward; [apply (stencil_ok_bl bid)|]|];
-      unfold Pre_j, Post_j; rewrite MyVector.init_spec; simpl; intros s h H.
+  - simpl; intros.
+    eapply CSLp_backward.
+    Focus 2. {
+      intros; sep_lift_in H 1.
+      sep_rewrite_in emp_unit_r H.
+      apply ex_lift_l_in in H. eauto. } Unfocus.
+    apply rule_ex_p; eauto.
+    intros; unfold Pre_j.
+    rewrite MyVector.init_spec.
+    unfold E; repeat prove_low_assn;
+      lazymatch goal with
+        [|- context [typing_exp _ _ _ ]] => repeat econstructor
+      | [|- context [typing_lexp _ _ _ ]] => repeat econstructor
+      | _ => idtac end;
+    apply low_assn_conj_xs; intros;
+    rewrite init_length in H;
+    rewrite ls_init_spec; destruct lt_dec; try omega;
+    repeat prove_low_assn;       lazymatch goal with
+        [|- context [typing_exp _ _ _ ]] => repeat econstructor
+      | [|- context [typing_lexp _ _ _ ]] => repeat econstructor
+      | _ => idtac end.
+    equates 1; [repeat econstructor|].
+    repeat instantiate (1 := Lo); auto.
+    intros f_sm.
+    eapply CSLp_backward; [eapply CSLp_forward; [apply stencil_ok_bl|]|];
+    unfold Pre_j, Post_j; try rewrite MyVector.init_spec; intros s h H.
     + sep_rewrite emp_unit_r; apply ex_lift_l; eexists.
       repeat sep_cancel; eauto.
-
+    + repeat sep_cancel; eauto.
+  - unfold Post_j; intros.
+    istar_simplify_in H.
+    sep_rewrite_in (conj_xs_init_flatten0 nblk ntrd (fun v => is_array_p (Gl aloc) nt_gr f 0 (perm_n nt_gr))) H.
+    sep_rewrite_in_r is_array_is_array_p_1 H; try nia.
+    sep_rewrite_in (conj_xs_init_flatten0 nblk ntrd (fun v =>
+               Gl oloc +o Zn v -->p (1, (f' v + f' (v + 1))%Z +C f' (v + 2)))) H.
+    sep_rewrite_in (is_array_distr00 (Gl oloc) nt_gr (fun i => (f' i + f' (i + 1) + f' (i + 2))%Z)) H; try nia.
+    eauto.
+  - unfold stencil; simpl.
+    repeat prove_inde.
+    Lemma inde_ex {T : Type} (P : T -> assn) vs :
+      (forall x, inde (P x) vs) ->
+      inde (Ex x, P x) vs.
+    Proof.
+      unfold inde.
+      intros; simpl in *.
+      split; intros [t ?]; exists t; simpl in *.
+      rewrite <-H; auto.
+      rewrite H; eauto.
+    Qed.
+    apply inde_ex; intros; prove_inde.
+  - intros; unfold Pre_j; rewrite MyVector.init_spec; prove_inde; apply inde_conj_xs;
+    intros i; rewrite init_length, ls_init_spec; destruct lt_dec; try omega; intros; prove_inde.
+  - unfold E; intros; unfold Pre_j; rewrite MyVector.init_spec; repeat prove_low_assn;
+      lazymatch goal with
+        [|- context [typing_exp _ _ _ ]] => repeat econstructor
+      | [|- context [typing_lexp _ _ _ ]] => repeat econstructor
+      | _ => idtac end;
+    apply low_assn_conj_xs; intros;
+    rewrite init_length in H;
+    rewrite ls_init_spec; destruct lt_dec; try omega;
+    repeat prove_low_assn;       lazymatch goal with
+        [|- context [typing_exp _ _ _ ]] => repeat econstructor
+      | [|- context [typing_lexp _ _ _ ]] => repeat econstructor
+      | _ => idtac end.
+    equates 1; [repeat econstructor|].
+    repeat instantiate (1 := Lo); auto.
+  - unfold Post_j; intros; rewrite MyVector.init_spec.
+    repeat has_no_vars_assn;
+    apply has_no_vars_conj_xs; intros i; rewrite init_length; intros; rewrite ls_init_spec; destruct lt_dec; try omega;
+      repeat has_no_vars_assn.
+    apply has_no_vars_is_array_p; cbv; auto.
+  - simpl; intros; destruct H; try tauto; subst; eauto.
+  - simpl; intros [?|[]]; congruence.
+  - simpl; intros [?|[]]; congruence.
+Qed.    
 End Stencil.
