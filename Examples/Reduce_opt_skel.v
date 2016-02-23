@@ -1530,7 +1530,7 @@ Section Reduce.
       unfold_conn; simpl; eauto.
   Qed.
   
-  Definition mkFoldAll (rec : bool) (seed : exp) :=
+  Definition mkFoldAll :=
     seq_reduce FalseP ;;
     setToLen ;;
     reduce ;;
@@ -1587,7 +1587,7 @@ Section Reduce.
 
   Notation Outs' := (vars2es Outs). 
 
-  Theorem reduce_ok_th rec seed g:
+  Theorem reduce_ok_th g :
     (forall i, i < l -> get_den (Zn i) (g i)) ->
     CSL (BS' g) i
      (!(tid === Zn (nf i)) ** !(bid === Zn (nf j)) ** !(sh === Zn l) **
@@ -1596,7 +1596,7 @@ Section Reduce.
       if Nat.eq_dec (nf i) 0 then map Gl Outs' +ol Zn (nf j) -->l (1, vs2es (fout (nf j)))
       else emp)
         
-     (mkFoldAll rec seed)
+     mkFoldAll
      
      ((if Nat.eq_dec (nf i) 0 then sh_spec sh_decl else emp) **
       (if Nat.eq_dec (nf i) 0 then map Gl Outs' +ol Zn (nf j) -->l (1, vs2es (f (Nat.min (l - nf j * ntrd) ntrd) (f_seq g) e_b 0)) else emp) **
@@ -1725,7 +1725,7 @@ Section Reduce.
             congruence.
           + rewrite length_nseq; auto. 
         - rewrite gen_read_writes; [|unfold vars2es; rewrite map_length, !locals_length; eauto].
-          prove_inde; simplify; try congruence.
+          prove_inde; simplify; simpl in *; try congruence.
           apply inde_input_spec; simplify; simpl; congruence.
           unfold Outs in *; simplify; congruence. }
       
@@ -1790,5 +1790,104 @@ Section Reduce.
           unfold vs2es, vars2es, Outs; rewrite !map_length, fout_wf, locals_length; auto. }
         { unfold vs2es, vars2es, Outs; rewrite !map_length, !locals_length; auto. }
         rewrite writes_var_gen_write; apply inde_nil. } }
-    intros s h [H | H].
+    intros s h [H | H]; sep_normal_in H; sep_split_in H; unfold_pures.
+    - destruct Nat.eq_dec; try omega.
+      assert (Heq : (bid === Zn (nf j)) s (emp_ph loc)) by (unfold_conn; simpl; eauto).
+      sep_rewrite_in mps_eq1_tup' H; [|exact Heq]; clear Heq.
+      sep_rewrite_in mps_eq2_tup H; [|exact HP].
+      
+
+      Lemma sh_spec_is_tup_array d n sh stk:
+        stk ||= sh_spec (map (fun sv => (sv, n)) (locals sh d)) <=>
+            Ex f, is_tuple_array_p (map Sh (vars2es (locals sh d))) n f 0 1.
+      Proof.
+        induction d; simpl; eauto.
+        - split; intros.
+          + exists (fun _ : nat => @nil val); eauto.
+          + destruct H; eauto.
+        - simpl; rewrite IHd; split; intros H.
+          + apply ex_lift_l_in in H as [f0 H].
+            apply ex_lift_r_in in H as [f1 H].
+            exists (fun x => f0 x :: f1 x); simpl.
+            revert H; apply scRw; intros s h' H'; eauto.
+            apply is_array_p1; eauto.
+          + destruct H as [f H].
+            apply ex_lift_l; exists (fun x => hd 0%Z (f x)).
+            apply scC, ex_lift_l; exists (fun x => tl (f x)).
+            apply scC; revert H; apply scRw; intros s h' H'; eauto.
+            apply is_array_p1 in H'; eauto.
+      Qed.
+      unfold sh_decl; sep_rewrite sh_spec_is_tup_array.
+      apply ex_lift_l; exists (f (min (l - nf j * ntrd) ntrd) (f_seq g) e_b).
+      sep_rewrite (is_array_tup_unfold sdata' 0); try omega; simpl.
+      Focus 2. {
+        intros; unfold vars2es; rewrite f_length, !map_length, locals_length; eauto.
+        intros; unfold f_seq.
+        unfold maybe; destruct (skip_sum_of_vs _ _ _ _ _) eqn:Heq.
+        - erewrite skip_sum_of_vs_wf; eauto.
+          intros ix ?; forwards * : (>>get_den_wf (Zn ix)); rewrite vi_ini_wf.
+          congruence.
+        - rewrite length_nseq; auto. } Unfocus.
+      sep_normal; repeat sep_cancel.
+      revert H2; apply scRw; eauto; intros.
+      eapply input_spec_forget; eauto.
+    - destruct Nat.eq_dec; try omega.
+      repeat sep_rewrite emp_unit_l.
+      sep_rewrite_in emp_unit_l H; sep_rewrite_in emp_unit_r H.
+      eapply input_spec_forget; eauto.
+      Grab Existential Variables.
+      (* too ugly.. *)
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+  Qed.
 End Reduce.
