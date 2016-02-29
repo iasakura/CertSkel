@@ -2297,4 +2297,194 @@ Section Reduce.
     - unfold sh_decl; rewrite map_map; simpl.
       rewrite map_id; apply locals_disjoint_ls.
   Qed.
+
+  Notation sum_of_vs := (sum_of_f_opt (list val) f_fun).
+
+  Lemma feb_ok' ds len f_in:
+    0 < len -> len <= ntrd ->
+    (forall i : nat, Datatypes.length (f_in i) = dim) ->
+    f len f_in e_b 0 = maybe (sum_of_vs 0 len f_in) ds.
+  Proof.
+    intros.
+    forwards*: (>>feb_ok len f_in); simpl in *.
+    destruct len; simpl in *; try omega; intros.
+    destruct (sum_of_vs _ _ _) eqn:Heq; eauto.
+  Qed.
+  
+  Lemma reduce_res_ok g :
+    (forall i, i < l -> get_den (Zn i) (g i)) ->
+    sum_of_vs 0 (Nat.min (l / ntrd + 1) nblk )
+              (fun j => f (Nat.min (l - j * ntrd) ntrd) (f_seq g j) e_b 0) = 
+    sum_of_vs 0 l g.
+  Proof.
+    intros Hg.
+    assert (ntrd * nblk <= l \/ l < ntrd * nblk) as [Hntl | Hntl] by omega.
+    - assert (Hl0 : 0 < l) by nia.
+      rewrite Nat.min_r.
+      Focus 2.
+      { lets: (>>Nat.div_mod l ntrd __); eauto.
+        lets: (>>Nat.mod_upper_bound l ntrd __); eauto.
+        nia. } Unfocus.
+      erewrite sum_of_eq.
+      Focus 2.
+      { simpl; intros.
+        rewrite Nat.min_r; try nia.
+        rewrites* (feb_ok' (nseq dim 0%Z)); try nia.
+        intros; unfold f_seq, maybe; destruct (skip_sum_of_vs _ _ _ _ _) eqn:Heq.
+        + erewrite skip_sum_of_vs_wf; eauto.
+          intros ix ?; forwards * : (>>get_den_wf (Zn ix)); rewrite out_wf.
+          congruence.
+        + rewrite length_nseq; auto. } Unfocus.
+      unfold f_seq.
+      
+    
+      Lemma sum_of_vs_off s s' n f  :
+        s >= s' -> sum_of_vs s n f = sum_of_vs s' n (fun i => f ((s - s') + i)).
+      Proof.
+        revert s s'; induction n; simpl; intros; eauto.
+        rewrite (IHn (S s0) (S s')); try omega.
+        erewrite sum_of_eq.
+        Focus 2. {
+          intros; cutrewrite (S s0 - S s' + i = s0 - s' + i); [|omega].
+          reflexivity. } Unfocus.
+        destruct (sum_of_vs _ _ _); simpl; try omega.
+        cutrewrite (s0 - s' + s' = s0); [|omega]; eauto.
+        cutrewrite (s0 - s' + s' = s0); [|omega]; eauto.
+      Qed.
+
+      Lemma sum_of_vs_off0 s n f :
+        sum_of_vs s n f = sum_of_vs 0 n (fun i => f (s + i)).
+      Proof.
+        rewrite (sum_of_vs_off s 0); try omega.
+        erewrite sum_of_eq; eauto.
+        intros; simpl; f_equal; omega.
+      Qed.
+
+      Lemma sum_of_vs_nested s f d nt nb :
+        nt <> 0 ->
+        sum_of_vs s nb (fun j => maybe (sum_of_vs 0 nt (fun i => f (i + j * nt))) d) =
+        sum_of_vs (s * nt) (nt * nb) f.
+      Proof.
+        intros.
+        revert s; induction nb; intros; simpl.
+        - rewrite mult_0_r; auto.
+        - cutrewrite (nt * S nb = nt + nt * nb); [|ring].
+          rewrite sum_of_concat; eauto; unfold op', maybe.
+          rewrite IHnb.
+          cutrewrite (S s0 * nt = nt + s0 * nt); [|ring].
+          destruct (sum_of_vs (nt + s0 * nt) (nt * nb)); simpl.
+          rewrite (sum_of_vs_off0 (s0 * nt)).
+          erewrite sum_of_eq.
+          2: intros; rewrite plus_comm; reflexivity.
+          destruct (sum_of_vs _ _ _) eqn:Heq; eauto; simpl in *.
+          destruct nt; simpl in *; try congruence.
+          destruct (sum_of_vs _ _ _); simpl in *; try congruence.
+          rewrite (sum_of_vs_off0 (s0 * nt)).
+          erewrite sum_of_eq.
+          2: intros; rewrite plus_comm; reflexivity.
+          destruct (sum_of_vs _ _ _) eqn:Heq; eauto; simpl in *.
+          destruct nt as [|nt]; simpl in *; try congruence.
+          destruct (sum_of_vs _ _ _); try congruence.
+      Qed.
+
+      rewrite (sum_of_vs_nested 0 (fun x =>
+         maybe (skip_sum_of_vs nt_gr 0 l g x) (nseq dim 0%Z))); eauto.
+      simpl.
+      
+      cutrewrite (ntrd * nblk = nt_gr); [|ring].
+
+      Lemma sum_of_split s n f g :
+        sum_of_vs s n (fun i => f i |+| g i) = op' _ f_fun (sum_of_vs s n f) (sum_of_vs s n g).
+      Proof.
+        revert s; induction n; simpl; eauto.
+        intros; rewrite IHn.
+        unfold op'; 
+          repeat lazymatch goal with
+        | [|- context [sum_of_vs ?X ?Y ?Z]] => destruct (sum_of_vs X Y Z)
+        end; eauto.
+        rewrite !f_fun_assoc; do 2 f_equal.
+        rewrite <-f_fun_assoc, (f_fun_comm (g s0) l0), f_fun_assoc; eauto.
+        rewrite f_fun_assoc, (f_fun_comm (g s0) l0), <-f_fun_assoc; eauto.
+        rewrite f_fun_assoc, (f_fun_comm (g s0) l0), <-f_fun_assoc; eauto.
+      Qed.
+
+      Lemma skip_sum_of_sum_of n s d f none:
+        d <> 0 -> 
+        sum_of_vs 0 (min n d) (fun x => maybe (skip_sum_of_vs d (s * d) n f x) none) =
+        sum_of_vs (s * d) n f.
+      Proof.
+        intros Hd0; rewrite (Nat.div_mod n d); eauto.
+        generalize (n / d); intros n0.
+        revert n d Hd0 s; induction n0; simpl; intros n d Hd0 s.
+        - cutrewrite (d * 0 = 0); [|ring]; simpl.
+          rewrite Nat.min_l; [|lets: (Nat.mod_upper_bound n d); nia].
+          rewrite (sum_of_vs_off (s * d) 0); try nia.
+          simpl; erewrite sum_of_eq; eauto; intros; unfold maybe.
+          rewrites (>>skip_sum_opt_sum d i s 1); eauto; try (lets:(Nat.mod_upper_bound n d); nia).
+          simpl.
+          f_equal; nia.
+        - rewrite Nat.min_r; try nia.
+          erewrite sum_of_eq.
+          Focus 2. {
+            simpl; intros.
+            rewrite skip_sum_opt_unfold; eauto; try nia.
+            cutrewrite (d * S n0 + n mod d - d = d * n0 + n mod d); [|nia].
+            unfold op'.
+            instantiate (1 := fun i =>
+              if lt_dec i (d * n0 + n mod d)
+              then maybe (skip_sum_of_vs d (S s * d) (d * n0 + n mod d) f i) none |+| f (i + s * d)
+              else f (i + s * d)); simpl.
+            unfold maybe.
+            destruct lt_dec, (skip_sum_of_vs _ _ _ _ _) eqn:Heq'; eauto.
+            + assert (Heq'' : d + s * d = S s * d) by nia; rewrite Heq'' in Heq'; clear Heq''.
+              rewrite skip_sum_opt_unfold in Heq'; simpl in Heq'; eauto; try omega.
+              unfold op' in Heq'; destruct (skip_sum_of_vs _ _ _ _ _); congruence.
+            + rewrites* (>>skip_sum_opt_nil (d * n0 + n mod d)) in Heq'.
+              intros.
+              cutrewrite (d + s * d + j = j + S s * d); [|ring]; rewrite Nat.mod_add; eauto.
+              rewrite Nat.mod_small; nia.
+              rewrite minus_diag in Heq'; simpl in *; congruence. } Unfocus.
+          assert (d <= d * n0 + n mod d \/ d * n0 + n mod d < d) as [H | H] by omega.
+          + erewrite sum_of_eq; [|intros; destruct lt_dec; try omega; reflexivity].
+            rewrite sum_of_split.
+            forwards* Ht: (>>IHn0 n d (S s)); rewrite Nat.min_r in *; eauto.
+            rewrite Ht; clear Ht.
+            cutrewrite (d * S n0 + n mod d = d + (d * n0 + n mod d)); [|ring].
+            rewrites (>>sum_of_concat d (d * n0 + n mod d)); eauto.
+            rewrite opopt_comm; f_equal; eauto.
+            rewrite (sum_of_vs_off0 (s * d)); erewrite sum_of_eq; eauto.
+            simpl; intros; f_equal; ring.
+          + rewrite sum_of_f_split; eauto; try nia.
+            rewrite <-!minus_n_O.
+            rewrite sum_of_split.
+            erewrite sum_of_eq.
+            Focus 2.
+            { intros.
+              rewrites (>>skip_sum_opt_sum d i 1); eauto; try nia.
+              simpl; reflexivity. } Unfocus.
+            cutrewrite (d * S n0 + n mod d = (d * n0 + n mod d) + (d - (d * n0 + n mod d)) +
+                                             (d * n0 + n mod d)); [|nia].
+            remember (d * n0 + n mod d).
+            rewrite !sum_of_concat; eauto.
+            rewrite (sum_of_vs_off0 (s * d)), (sum_of_vs_off0 (n1 + s * d)),
+              (sum_of_vs_off0 (n1 + (d - n1) + s * d)), (sum_of_vs_off0 n1).
+            assert (forall x y z, op' _ f_fun (op' _ f_fun x y) z =
+                                  op' _ f_fun (op' _ f_fun y z) x).
+            { intros. rewrite opopt_assoc, opopt_comm; eauto. }
+            rewrite H0; [f_equal; [f_equal|]].
+            * erewrite sum_of_eq; eauto.
+              simpl; intros; f_equal; ring.
+            * erewrite sum_of_eq; eauto.
+              simpl; intros; f_equal; ring.
+            * erewrite sum_of_eq; eauto.
+              simpl; intros; f_equal; nia.
+      Qed.
+
+      assert (Heq : nt_gr = min l nt_gr) by (rewrite Nat.min_r; nia); rewrite Heq at 1; clear Heq.
+      assert (Heq : 0 = 0 * nt_gr) by (auto).
+      erewrite sum_of_eq; [|intros; rewrite Heq; reflexivity].
+      rewrite skip_sum_of_sum_of; eauto; nia.
+
+    -
+      
 End Reduce.
