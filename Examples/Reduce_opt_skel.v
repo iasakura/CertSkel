@@ -2131,20 +2131,22 @@ Section Reduce.
       intros; rewrite ls_init_spec; destruct lt_dec; try omega; f_equal; omega.
     - (* not completed!!!! *)
       unfold tr_posts, bth_post; intros s h H; istar_simplify_in H.
+      sep_lift_in H 2.
       rewrite <-(firstn_skipn 1) in H at 1; rewrite firstn_init, skipn_init in H.
+      sep_rewrite_in conj_xs_app H.
       rewrite Nat.min_l in H; try omega; simpl in H.
       erewrite (@ls_init_eq' _ _ _ _ 1) in H.
       2: intros; destruct Nat.eq_dec; try omega;
         cutrewrite (emp = id (fun _ => emp) (1 + i)); eauto.
       unfold id in H; sep_rewrite_in init_emp_emp H.
-      apply scC in H; rewrite <-(firstn_skipn 1) in H at 1; rewrite firstn_init, skipn_init in H.
+      sep_normal_in H; sep_lift_in H 2.
+      rewrite <-(firstn_skipn 1) in H at 1; rewrite firstn_init, skipn_init in H.
       rewrite Nat.min_l in H; try omega; simpl in H.
       erewrite ls_init_eq' in H.
       2: intros; destruct Nat.eq_dec; try omega;
         cutrewrite (emp = id (fun _ => emp) (1 + i)); eauto.
       unfold id in H; sep_rewrite_in init_emp_emp H.
       sep_normal_in H; repeat sep_cancel.
-      
     - intros; unfold low_assn, tr_pres; rewrite MyVector.init_spec.
       unfold E; repeat prove_low_assn;
         (try now (constructor; eauto));
@@ -2170,8 +2172,8 @@ Section Reduce.
         simpl; eauto.
         apply IHsdec; simpl in H; eauto.
       Qed.
-      apply sh_spec_low_assn; simplify; inverts H; simpl; rewrite prefix_nil; auto.
       apply low_assn_input_spec'.
+      apply sh_spec_low_assn; simplify; inverts H; simpl; rewrite prefix_nil; auto.
     - apply fold_has_type.
     - unfold tr_pres, tr_posts; intros; rewrite !MyVector.init_spec.
       eapply Hbackward.
@@ -2185,5 +2187,7 @@ Section Reduce.
       apply hback; intros Hvini.
       eapply rule_conseq; try apply (reduce_ok_th tid j vi_ini); intros; eauto; repeat sep_cancel.
   Qed.
+
+  
 
 End Reduce.
