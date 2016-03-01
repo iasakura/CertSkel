@@ -2313,7 +2313,7 @@ Section Reduce.
   
   Lemma reduce_res_ok g :
     (forall i, i < l -> get_den (Zn i) (g i)) ->
-    sum_of_vs 0 (Nat.min (l / ntrd + 1) nblk )
+    sum_of_vs 0 (Nat.min ((l + ntrd - 1) / ntrd) nblk )
               (fun j => f (Nat.min (l - j * ntrd) ntrd) (f_seq g j) e_b 0) = 
     sum_of_vs 0 l g.
   Proof.
@@ -2322,8 +2322,8 @@ Section Reduce.
     - assert (Hl0 : 0 < l) by nia.
       rewrite Nat.min_r.
       Focus 2.
-      { lets: (>>Nat.div_mod l ntrd __); eauto.
-        lets: (>>Nat.mod_upper_bound l ntrd __); eauto.
+      { lets: (>>Nat.div_mod (l + ntrd - 1) ntrd __); eauto.
+        lets: (>>Nat.mod_upper_bound (l + ntrd - 1) ntrd __); eauto.
         nia. } Unfocus.
       erewrite sum_of_eq.
       Focus 2.
@@ -2485,6 +2485,65 @@ Section Reduce.
       erewrite sum_of_eq; [|intros; rewrite Heq; reflexivity].
       rewrite skip_sum_of_sum_of; eauto; nia.
 
-    -
-      
+    - lets: (>>Nat.div_mod (l + ntrd - 1) ntrd __); eauto.
+      lets: (>>Nat.mod_upper_bound (l + ntrd - 1) ntrd __); eauto.
+      lets: (>>Nat.div_mod l ntrd __); eauto.
+      lets: (>>Nat.mod_upper_bound l ntrd __); eauto.
+      rewrite Nat.min_l; [|nia].
+      assert (l = 0 \/ l > 0) as [Hl0|Hl0] by omega.
+      { (* case l = 0 *)
+        subst; simpl.
+        rewrite Nat.div_small; [|omega]; eauto. }
+      erewrite sum_of_eq.
+      Focus 2. {
+        intros.
+        rewrite (feb_ok' (nseq dim 0%Z)).
+        2: apply Nat.min_glb_lt_iff.
+        2: nia.
+        2: apply Nat.le_min_r.
+        2: intros; unfold f_seq, maybe; destruct (skip_sum_of_vs _ _ _ _ _) eqn:Heq.
+        2: erewrite skip_sum_of_vs_wf; eauto.
+        2: intros ix ?; forwards * : (>>get_den_wf (Zn ix)); rewrite out_wf.
+        2: congruence.
+        2: rewrite length_nseq; auto.
+        unfold f_seq.
+        erewrite sum_of_eq.
+        Focus 2. {
+          simpl in *; intros.
+          rewrite Nat.min_glb_lt_iff in H4.
+          rewrites (>>skip_sum_sum0 1); [eauto|nia|nia|].
+          simpl; rewrite <-plus_n_O; reflexivity. } Unfocus.
+        reflexivity. } Unfocus.
+      assert ((l + ntrd - 1) / ntrd = l / ntrd \/
+              (l + ntrd - 1) / ntrd = l / ntrd + 1) as [H'|H']; [|rewrite H'..].
+      { assert ((l + ntrd - 1)  mod ntrd = 0 \/
+                (l + ntrd - 1)  mod ntrd > 0) as [|] by omega; nia. } 
+      + erewrite sum_of_eq.
+        Focus 2. { 
+          intros.
+          rewrite Nat.min_r; [|nia].
+          reflexivity. } Unfocus.
+        rewrite sum_of_vs_nested; eauto; simpl.
+        cutrewrite (ntrd * (l / ntrd) = l); eauto; nia.
+      + rewrite sum_of_concat; eauto; simpl.
+        erewrite sum_of_eq.
+        Focus 2. {
+          intros.
+          rewrite Nat.min_r; [|nia].
+          reflexivity. } Unfocus.
+        rewrite sum_of_vs_nested; eauto; simpl.
+        rewrite Nat.min_l; [|nia].
+        rewrite <-!plus_n_O.
+        cutrewrite (l - l / ntrd * ntrd = l mod ntrd); [|nia].
+        rewrite H1 at 3; rewrite sum_of_concat; eauto.
+        f_equal.
+        unfold maybe.
+        rewrite <-plus_n_O, (sum_of_vs_off0 (ntrd * (l / ntrd))).
+        erewrite sum_of_eq; [|intros;
+                              cutrewrite (i + l / ntrd * ntrd = ntrd * (l / ntrd) + i); [|ring];
+                              reflexivity].
+        destruct (sum_of_vs _ _ _) eqn:Heq; eauto.
+        destruct (l mod ntrd) eqn:Heq'; simpl in *; [|destruct (sum_of_vs _ _ _); congruence].
+        nia.
+  Qed.
 End Reduce.
