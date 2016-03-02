@@ -1,1 +1,3 @@
--R /home/asakura/src/autosubst/theories Autosubst
+-R ../tlc/src TLC
+-I ../GPUCSL
+-I ../Examples

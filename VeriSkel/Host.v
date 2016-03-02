@@ -199,3 +199,5 @@ Proof.
   unfold as_gheap; simpl; rewrite <-!phplus_as_gheap; eauto.
   f_equal; apply H20.
 Qed.
+
+Require Import Reduce_opt_skel.
