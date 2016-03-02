@@ -14,21 +14,22 @@ Qed.
 
 Ltac simplify :=
   unfold vars2es, tarr_idx, vs2es in *;
-  repeat (simpl in *; subst; lazymatch goal with
+  repeat (simpl in *; substs; lazymatch goal with
           | [|- In _ (map _ _) -> _] =>
-            rewrite in_map_iff; intros [? [? ?]]; subst
+            rewrite in_map_iff; intros [? [? ?]]; substs
           | [H:In _ (map _ _) |-_] =>
-            rewrite in_map_iff in H; destruct H as [? [? H]]; subst
+            rewrite in_map_iff in H; destruct H as [? [? H]]; substs
           | [|- indeE _ _] => apply indeE_fv
           | [|- indelE _ _] => apply indelE_fv
-          | [H : _ \/ False|-_] =>destruct H as [H|[]];subst
+          | [H : _ \/ False|-_] =>destruct H as [H|[]];substs
           | [H : _ \/ _ |-_] =>destruct H as [?|H]
           | [|- ~(_ \/ _)] => intros [?|?]
           | [|- context [In _ (_ ++ _)]] => rewrite in_app_iff
+          | [H : context [In _ (_ ++ _)] |- _] => rewrite in_app_iff in H
           | [|- forall _, _] => intros ?
           | [H : In _ (locals _ _) |- _] => apply locals_pref in H
           | [H : In _ (nseq _ _) |- _] => apply nseq_in in H
-          | [H : prefix _ _ = true |- _] => apply prefix_ex in H as [? ?]; subst
+          | [H : prefix _ _ = true |- _] => apply prefix_ex in H as [? ?]; substs
           | [|- disjoint_list (locals _ _)] => apply locals_disjoint_ls
           | [|- context [length (locals _ _)]] => rewrite locals_length
           | [H :context [length (locals _ _)]|- _] => rewrite locals_length in H
@@ -36,7 +37,7 @@ Ltac simplify :=
           | [|- context [length (vars2es _)]] => unfold vars2es; rewrite map_length
           | [H :context [In _ (vars2es _)]|- _] =>
             unfold vars2es in *; rewrite in_map_iff in H;
-            destruct H as [? [? H]]; subst
+            destruct H as [? [? H]]; substs
           | [|- context [In _ (vars2es _)]] => unfold vars2es; rewrite in_map_iff
           | [|- Forall _ _] => rewrite Forall_forall; intros
           | [|- indeE _ _] => apply indeE_fv
@@ -49,7 +50,7 @@ Ltac simplify :=
           | [|- context [length (map _ _)]] => rewrite map_length
           | [H : context [length (map _ _)] |- _] => rewrite map_length in H
           | [|- ~_] => intros ?
-          end; simpl in *; subst).
+          end; simpl in *; try substs).
 
 Section Sum_of.
   Variable T : Type.
@@ -204,8 +205,12 @@ Section Reduce.
 
   (* initial value of the output array *)
   Variable fout : nat -> list val.
-
+  Hypothesis fout_wf : forall i, length (fout i) = dim.
+  (* the top address of the output array *)
+  Variable out : list Z.
+  Hypothesis out_wf : length out = dim.
   Definition Outs := locals "Out" dim.
+  Notation Outs' := (vars2es Outs). 
   
   Open Scope string_scope.
   
@@ -1530,7 +1535,7 @@ Section Reduce.
       unfold_conn; simpl; eauto.
   Qed.
   
-  Definition mkFoldAll (rec : bool) (seed : exp) :=
+  Definition mkFoldAll :=
     seq_reduce FalseP ;;
     setToLen ;;
     reduce ;;
@@ -1539,67 +1544,27 @@ Section Reduce.
       catcmd (gen_write Gl (vars2es Outs) bid (vars2es t))
     ) Cskip.
 
-  Definition f_seq g i := maybe (skip_sum_of_vs nt_gr 0 l g (i + nf j * ntrd)) (nseq dim 0%Z).
+  Definition f_seq g j i := maybe (skip_sum_of_vs nt_gr 0 l g (i + j * ntrd)) (nseq dim 0%Z).
 
-  Definition BS' g := BS (Nat.min (l - nf j * ntrd) ntrd) (f_seq g).
+  Definition BS' g := BS (Nat.min (l - nf j * ntrd) ntrd) (f_seq g (nf j)).
 
   Definition sh_decl := map (fun sv => (sv, ntrd)) (locals "sdata" dim).
 
-  Ltac simplify :=
-    unfold vars2es, tarr_idx, vs2es in *;
-    repeat (simpl in *; substs; lazymatch goal with
-            | [|- In _ (map _ _) -> _] =>
-              rewrite in_map_iff; intros [? [? ?]]; substs
-            | [H:In _ (map _ _) |-_] =>
-              rewrite in_map_iff in H; destruct H as [? [? H]]; substs
-            | [|- indeE _ _] => apply indeE_fv
-            | [|- indelE _ _] => apply indelE_fv
-            | [H : _ \/ False|-_] =>destruct H as [H|[]];substs
-            | [H : _ \/ _ |-_] =>destruct H as [?|H]
-            | [|- ~(_ \/ _)] => intros [?|?]
-            | [|- context [In _ (_ ++ _)]] => rewrite in_app_iff
-            | [H : context [In _ (_ ++ _)] |- _] => rewrite in_app_iff in H
-            | [|- forall _, _] => intros ?
-            | [H : In _ (locals _ _) |- _] => apply locals_pref in H
-            | [H : In _ (nseq _ _) |- _] => apply nseq_in in H
-            | [H : prefix _ _ = true |- _] => apply prefix_ex in H as [? ?]; substs
-            | [|- disjoint_list (locals _ _)] => apply locals_disjoint_ls
-            | [|- context [length (locals _ _)]] => rewrite locals_length
-            | [H :context [length (locals _ _)]|- _] => rewrite locals_length in H
-            | [H :context [length (vars2es _)]|- _] => unfold vars2es in *; rewrite map_length
-            | [|- context [length (vars2es _)]] => unfold vars2es; rewrite map_length
-            | [H :context [In _ (vars2es _)]|- _] =>
-              unfold vars2es in *; rewrite in_map_iff in H;
-              destruct H as [? [? H]]; substs
-            | [|- context [In _ (vars2es _)]] => unfold vars2es; rewrite in_map_iff
-            | [|- Forall _ _] => rewrite Forall_forall; intros
-            | [|- indeE _ _] => apply indeE_fv
-            | [|- indelE _ _] => apply indelE_fv
-            | [|- indeB _ _] => apply indeB_fv
-            | [H : context [var_of_str ?x] |- _] => destruct x
-            | [|- inde (_ ==t _) _] => apply inde_eq_tup
-            | [|- inde (_ -->l (_, _)) _] => apply inde_is_tup
-            | [|- inde (is_tuple_array_p _ _ _ _ _) _] => apply inde_is_tup_arr
-            | [|- context [length (map _ _)]] => rewrite map_length
-            | [H : context [length (map _ _)] |- _] => rewrite map_length in H
-            | [|- ~_] => intros ?
-            end; simpl in *; try substs).
-
-  Notation Outs' := (vars2es Outs). 
-
-  Theorem reduce_ok_th rec seed g:
+  Theorem reduce_ok_th g :
     (forall i, i < l -> get_den (Zn i) (g i)) ->
     CSL (BS' g) i
-     (!(tid === Zn (nf i)) ** !(bid === Zn (nf j)) ** !(sh === Zn l) **
+     (!(tid === Zn (nf i)) ** !(bid === Zn (nf j)) ** !(sh === Zn l) ** !(Outs' ==t out) **
       (sdata' +ol Zn (nf i) -->l (1, vs2es vi_ini)) **
       input_spec env env_den (perm_n nt_gr) **
-      if Nat.eq_dec (nf i) 0 then map Gl Outs' +ol Zn (nf j) -->l (1, vs2es (fout (nf j)))
-      else emp)
+      if Nat.eq_dec (nf i) 0 then map Gl Outs' +ol Zn (nf j) -->l (1, vs2es (fout (nf j))) else emp)
         
-     (mkFoldAll rec seed)
+     mkFoldAll
      
      ((if Nat.eq_dec (nf i) 0 then sh_spec sh_decl else emp) **
-      (if Nat.eq_dec (nf i) 0 then map Gl Outs' +ol Zn (nf j) -->l (1, vs2es (f (Nat.min (l - nf j * ntrd) ntrd) (f_seq g) e_b 0)) else emp) **
+      (if Nat.eq_dec (nf i) 0 then
+         map Gl (vs2es out) +ol Zn (nf j) -->l
+             (1, vs2es (f (Nat.min (l - nf j * ntrd) ntrd) (f_seq g (nf j)) e_b 0))
+       else emp) **
       input_spec' env_den (perm_n nt_gr)).
   Proof.
     intros Hg.
@@ -1676,9 +1641,9 @@ Section Reduce.
           2: rewrite func_wf, locals_length; auto.
           rewrite !in_app_iff.
           lets: (func_local y x w).
-          simpl; intuition.
+          generalize dependent IHm; generalize dependent H; clear; intros; simpl; intuition.
           apply IHm in H1; destruct m; simpl in *; intuition.
-          rewrite !in_app_iff in H2; eauto.
+          rewrite !in_app_iff in H0; eauto.
         Qed.
         prove_inde; simplify;
           try now (forwards * : reduce_writes; destruct e_b; try omega; simpl in *;
@@ -1687,6 +1652,8 @@ Section Reduce.
           try omega; simpl in *; simplify; simpl; try congruence.
         unfold Outs in *.
         forwards * : reduce_writes; destruct e_b; 
+          try omega; simpl in *; simplify; simpl; try congruence.
+        unfold Outs in *; forwards * : reduce_writes; destruct e_b; 
           try omega; simpl in *; simplify; simpl; try congruence. } }
     hoare_forward; eauto using rule_skip.
     { eapply rule_seq.
@@ -1695,7 +1662,7 @@ Section Reduce.
         { intros s h H.
           sep_normal_in H; sep_split_in H.
           change_in H.
-          { destruct Nat.eq_dec; [|unfold_pures; try omega].
+          { destruct Nat.eq_dec; [|clear HP6; unfold_pures; try omega].
             sep_rewrite_in (is_array_tup_unfold sdata' 0) H; try omega.
             Focus 2. {
               intros; unfold vars2es; rewrite f_length, !map_length, locals_length; eauto.
@@ -1710,7 +1677,7 @@ Section Reduce.
             eauto. }
           clear  HP0 HP1 HP3 HP4 HP5; sep_combine_in H.
           evar (P : assn);
-            assert (((sdata' +ol 0%Z -->l (1, vs2es (f (min (l - ` (Fin.to_nat j) * ntrd) ntrd) (f_seq g) e_b 0))) ** P) s h). 
+            assert (((sdata' +ol 0%Z -->l (1, vs2es (f (min (l - nf j * ntrd) ntrd) (f_seq g (nf j)) e_b 0))) ** P) s h). 
           { sep_normal_in H; sep_cancel; unfold P; eauto. }
           unfold P in *; eauto. } Unfocus.
         
@@ -1725,9 +1692,8 @@ Section Reduce.
             congruence.
           + rewrite length_nseq; auto. 
         - rewrite gen_read_writes; [|unfold vars2es; rewrite map_length, !locals_length; eauto].
-          prove_inde; simplify; try congruence.
-          apply inde_input_spec; simplify; simpl; congruence.
-          unfold Outs in *; simplify; congruence. }
+          unfold Outs in *; prove_inde; simplify; simpl in *; try congruence.
+          apply inde_input_spec; simplify; simpl; congruence. }
       
       { eapply Hbackward.
         Focus 2. {
@@ -1786,9 +1752,798 @@ Section Reduce.
           { sep_cancel; unfold P; eauto. }
           unfold P in *; eauto. } Unfocus.
         apply rule_frame; [apply gen_write_correct|].
-        { assert (fout_wf : forall i, length (fout i) = dim) by admit.
-          unfold vs2es, vars2es, Outs; rewrite !map_length, fout_wf, locals_length; auto. }
+        { unfold vs2es, vars2es, Outs; rewrite !map_length, fout_wf, locals_length; auto. }
         { unfold vs2es, vars2es, Outs; rewrite !map_length, !locals_length; auto. }
         rewrite writes_var_gen_write; apply inde_nil. } }
-    intros s h [H | H].
+    intros s h [H | H]; sep_normal_in H; sep_split_in H; unfold_pures.
+    - destruct Nat.eq_dec; [|clear HP2; unfold_pures; omega].
+      assert (Heq : (bid === Zn (nf j)) s (emp_ph loc)) by (unfold_conn; simpl; eauto).
+      sep_rewrite_in mps_eq1_tup' H; [|exact Heq]; clear Heq.
+      sep_rewrite_in mps_eq2_tup H; [|exact HP].
+
+      Lemma sh_spec_is_tup_array d n sh stk:
+        stk ||= sh_spec (map (fun sv => (sv, n)) (locals sh d)) <=>
+            Ex f, (is_tuple_array_p (map Sh (vars2es (locals sh d))) n f 0 1).
+      Proof.
+        induction d; simpl; eauto.
+        - split; intros.
+          + exists (fun _ : nat => @nil val); sep_split; unfold_conn; eauto.
+          + destruct H; sep_split_in H; eauto.
+        - simpl; rewrite IHd; split; intros H.
+          + apply ex_lift_l_in in H as [f0 H].
+            apply ex_lift_r_in in H as [f1 H].
+            exists (fun x => f0 x :: f1 x); simpl.
+            revert H; apply scRw; intros s h' H'; eauto.
+            apply is_array_p1; eauto.
+          + destruct H as [f H].
+            sep_split_in H.
+            apply ex_lift_l; exists (fun x => hd 0%Z (f x)).
+            apply scC, ex_lift_l; exists (fun x => tl (f x)).
+            apply scC; revert H; apply scRw; intros s h' H'; eauto.
+            apply is_array_p1 in H'; eauto.
+      Qed.
+
+      Lemma sh_spec_is_tup_array_with_l d n sh stk:
+        stk ||= sh_spec (map (fun sv => (sv, n)) (locals sh d)) <=>
+            Ex f, (is_tuple_array_p (map Sh (vars2es (locals sh d))) n f 0 1 **
+                   !(pure (forall i, length (f i) = d))).
+      Proof.
+        induction d; simpl; eauto.
+        - split; intros.
+          + exists (fun _ : nat => @nil val); sep_split; unfold_conn; eauto.
+          + destruct H; sep_split_in H; eauto.
+        - simpl; rewrite IHd; split; intros H.
+          + apply ex_lift_l_in in H as [f0 H].
+            apply ex_lift_r_in in H as [f1 H].
+            exists (fun x => f0 x :: f1 x); simpl.
+            sep_split; [|revert H; apply scRw; intros s h' H'; eauto].
+            2: apply is_array_p1; eauto.
+            sep_split_in H; unfold_conn_all; intros; rewrite HP; congruence.
+            sep_split_in H'; auto.
+          + destruct H as [f H].
+            sep_split_in H.
+            apply ex_lift_l; exists (fun x => hd 0%Z (f x)).
+            apply scC, ex_lift_l; exists (fun x => tl (f x)).
+            apply scC; revert H; apply scRw; intros s h' H'; eauto.
+            apply is_array_p1 in H'; eauto.
+            sep_split; eauto.
+            unfold_conn_all; simpl; intros.
+            lets: (HP i0); destruct (f i0); simpl in *; try omega.
+      Qed.
+      unfold sh_decl; sep_rewrite sh_spec_is_tup_array.
+      apply ex_lift_l; exists (f (min (l - nf j * ntrd) ntrd) (f_seq g (nf j)) e_b).
+      sep_rewrite (is_array_tup_unfold sdata' 0); try omega; simpl.
+      Focus 2. {
+        intros; unfold vars2es; rewrite f_length, !map_length, locals_length; eauto.
+        intros; unfold f_seq.
+        unfold maybe; destruct (skip_sum_of_vs _ _ _ _ _) eqn:Heq.
+        - erewrite skip_sum_of_vs_wf; eauto.
+          intros ix ?; forwards * : (>>get_den_wf (Zn ix)); rewrite vi_ini_wf.
+          congruence.
+        - rewrite length_nseq; auto. } Unfocus.
+      sep_normal; repeat sep_cancel.
+      revert H2; apply scRw_stack; eauto; intros.
+      lets Heq : (Skel_lemma.mps_eq1_tup Outs' out); unfold es2gls in Heq; eauto.
+      sep_rewrite_in Heq H2; eauto.
+      (* sep_rewrite_in mps_eq1_tup *)
+      eapply input_spec_forget; eauto.
+    - destruct Nat.eq_dec; [clear HP6; unfold_pures; omega|].
+      repeat sep_rewrite emp_unit_l.
+      sep_rewrite_in emp_unit_l H; sep_rewrite_in emp_unit_r H.
+      eapply input_spec_forget; eauto.
+      Grab Existential Variables.
+      (* too ugly.. *)
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+  Qed.
+  End SeqReduce.
+
+  Definition bth_pre (j : Fin.t nblk) :=
+    !(sh === Zn l) ** !(Outs' ==t out) **
+    conj_xs (ls_init 0 ntrd (fun i => input_spec env env_den (perm_n nt_gr))) **
+    (map Gl Outs' +ol Zn (nf j) -->l (1, vs2es (fout (nf j)))).
+
+  Definition tr_pres (j : Fin.t nblk) := MyVector.init (fun i : Fin.t ntrd =>
+    Ex vi_ini, 
+      !(bid === Zn (nf j)) ** !(sh === Zn l) ** !(Outs' ==t out) ** !(pure (length vi_ini = dim)) **
+      (sdata' +ol Zn (nf i) -->l (1, vs2es vi_ini)) **
+      input_spec env env_den (perm_n nt_gr) **
+      if Nat.eq_dec (nf i) 0 then map Gl Outs' +ol Zn (nf j) -->l (1, vs2es (fout (nf j))) else emp).
+
+  Definition tr_posts g (j : Fin.t nblk) := MyVector.init (fun i : Fin.t ntrd =>
+    input_spec' env_den (perm_n nt_gr) **
+    (if Nat.eq_dec (nf i) 0 then sh_spec sh_decl else emp) **
+    (if Nat.eq_dec (nf i) 0 then
+       map Gl (vs2es out) +ol Zn (nf j) -->l
+           (1, vs2es (f (Nat.min (l - nf j * ntrd) ntrd) (f_seq g (nf j)) e_b 0))
+     else emp)).
+
+  Definition bth_post g (j : Fin.t nblk) := 
+    (map Gl (vs2es out) +ol Zn (nf j) -->l
+        (1, vs2es (f (Nat.min (l - nf j * ntrd) ntrd) (f_seq g (nf j)) e_b 0))) **
+    conj_xs (ls_init 0 ntrd (fun i => input_spec' env_den (perm_n nt_gr))).
+
+  Definition E (t : var) :=
+    if var_eq_dec t (Var "bid") then Lo
+    else if var_eq_dec t (Var "sh") then Lo
+    else if prefix "sdata" (var_of_str t) then Lo
+    else if prefix "Out" (var_of_str t) then Lo
+    else if prefix "sh" (var_of_str t) then Lo
+    else if prefix "arr" (var_of_str t) then Lo
+    else Hi.
+
+  Lemma read_tup_no_bars xs es : barriers (read_tup xs es) = nil.
+  Proof.
+    revert es; induction xs; destruct es; simpl; eauto.
+  Qed.
+
+  Ltac env_dec :=
+    repeat lazymatch goal with
+      | [|- context [prefix ?X ?Y]] => destruct (prefix X Y) eqn:?
+      | [|- context [var_eq_dec ?X ?Y]] => destruct (var_eq_dec X Y) eqn:?
+      end.
+    
+  Lemma reduce_aux_Lo a b : typing_cmd E (reduce_aux a b) Lo.
+  Proof.
+    revert a; induction b; simpl; constructor; eauto.
+    unfold E, reduce_body.
+    constructor; [constructor|].
+    repeat econstructor; repeat instantiate (1 := Hi); eauto; unfold join;
+      apply typing_cmd_Hi; try rewrite read_tup_no_bars; try rewrite gen_read_no_bars;
+        try rewrite gen_write_no_bars; auto;
+          try rewrite read_tup_writes; try rewrite writes_var_gen_write;
+            try rewrite gen_read_writes; try destruct var_eq_dec; subst;
+              intros; repeat destruct var_eq_dec; substs; simpl in *; try congruence; eauto;
+                (try now (forwards*: locals_pref; simpl in *; congruence));
+                (try now (forwards * : func_local; simpl in *; congruence));
+                (try now (unfold vars2es; repeat rewrite map_length; repeat rewrite locals_length;
+                         repeat rewrite get_wf; repeat rewrite func_wf; eauto));
+                env_dec; eauto; simplify; simpl; try congruence;
+    forwards* : func_local; simpl in *; congruence.
+    Grab Existential Variables.
+    apply (Var "").
+    apply 1.
+    apply "".
+    apply (Var "").
+    apply 1.
+    apply "".
+    apply (Var "").
+    apply 1.
+    apply "".
+  Qed.
+ 
+  Lemma fold_has_type : typing_cmd E mkFoldAll Lo.
+  Proof.
+    unfold mkFoldAll, seq_reduce, reduce, setToLen, E.
+    repeat constructor.
+    - eapply weaken_type; try apply read_tup_hi; eauto.
+      intros; env_dec; simplify; try congruence.
+    - eapply weaken_type; try apply typing_cmd_Hi; eauto.
+      + apply gen_write_no_bars.
+      + intros; rewrite writes_var_gen_write in H; simpl in *; tauto.
+    - econstructor; repeat constructor; simpl.
+      instantiate (1 := Hi); eauto.
+      repeat instantiate (1 := Hi); eauto.
+    - eapply weaken_type; try apply typing_cmd_Hi; eauto; simpl.
+      + rewrite get_no_bar, func_no_bars, !read_tup_no_bars, gen_write_no_bars; eauto.
+      + rewrite !read_tup_writes;
+        try now (unfold vars2es; repeat rewrite map_length; repeat rewrite locals_length;
+                 repeat rewrite get_wf; repeat rewrite func_wf; eauto).
+        rewrite !writes_var_gen_write;
+        intros; env_dec; substs;
+        repeat (rewrite in_app_iff in H; simpl in H);
+        simplify; try congruence;
+        (try now (forwards*: get_wr; eauto; simplify; simpl in *; congruence));
+        (try now (forwards*: func_local; eauto; simplify; simpl in *; congruence)).
+    - eapply weaken_type; try apply typing_cmd_Hi; simpl; eauto.
+      intros; simplify; eauto; destruct var_eq_dec; congruence.
+    - apply reduce_aux_Lo.
+    - applys (>>weaken_type Hi); eauto.
+      apply typing_cmd_Hi; simpl; eauto.
+      rewrite gen_read_no_bars, gen_write_no_bars; auto.
+      rewrite gen_read_writes, writes_var_gen_write; simpl.
+      intros; repeat rewrite in_app_iff in H;
+        env_dec; substs; simplify; congruence.
+      unfold vars2es; rewrite map_length, !locals_length; auto.
+      Grab Existential Variables.
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+  Qed.
+
+  Lemma prefix_nil s : prefix "" s = true. destruct s; eauto. Qed.
+  Notation skip_sum_of_vs := (skip_sum_of_opt (list val) f_fun).
+
+  Lemma reduce_ok_bl g (j : Fin.t nblk) :
+    (forall i, i < l -> get_den (Zn i) (g i)) ->
+    CSLp ntrd E
+         (!(bid === Zn (nf j)) ** sh_spec sh_decl ** bth_pre j)
+         mkFoldAll 
+         (sh_spec sh_decl ** bth_post g j).
+  Proof.
+    intros Hg.
+    applys (>> rule_par (BS' j g) (tr_pres j) (tr_posts g j)).
+    - destruct ntrd; try omega; eexists; eauto.
+    - intros; split; intros;
+      unfold BS', BS, BSpre, BSpost, Binv, E, CSL.low_assn; simpl;
+      rewrite MyVector.init_spec; simpl;
+      destruct i; repeat prove_low_assn;
+        (try now (first [apply low_assn_is_tuple|apply low_assn_is_tup_arr]; simplify; repeat econstructor;
+                  cutrewrite (Lo = join Lo Lo); [|auto]; repeat econstructor; simpl;
+                  rewrite prefix_nil; auto)).
+    - unfold BS'; intros; apply BS_ok; eauto.
+      rewrite Nat.le_min_r; auto.
+      intros; unfold f_seq, maybe; destruct (skip_sum_of_vs _ _ _ _ _) eqn:Heq.
+      + erewrite skip_sum_of_vs_wf; eauto.
+        intros ix ?; forwards * : (>>get_den_wf (Zn ix)); rewrite out_wf.
+        congruence.
+      + rewrite length_nseq; auto.
+    - Lemma precise_pts : forall (e1 : loc_exp) (e2 : exp) (q : Qc), precise (e1 -->p (q,  e2)).
+      Proof.
+        intros; unfold precise; simpl; intros; unfold_conn_all.
+        destruct h1, h1'; apply pheap_eq; extensionality x; simpl in *.
+        rewrite H, H0; destruct (eq_dec _ _); eauto.
+      Qed.
+
+      Lemma is_tup_precise E q v : precise (E -->l (q, v)).
+      Proof.
+        revert v; induction E; simpl; destruct v; eauto using precise_emp.
+        apply precise_star; eauto using precise_pts.
+      Qed.
+      
+      Lemma precise_is_array_p e len s f' p : precise (is_array_p e len f' s p).
+      Proof.
+        revert s; induction len; simpl; intros; eauto using precise_emp, precise_star, precise_pts.
+      Qed.  
+
+      Lemma is_tup_arr_precise E len f s q  : precise (is_tuple_array_p E len f s q).
+      Proof.
+        revert f; induction E; simpl; eauto using precise_emp.
+        intros f; eauto using precise_star, precise_is_array_p.
+      Qed.
+        
+      split; unfold BS', BS, BSpre, BSpost, Binv; simpl; rewrite MyVector.init_spec;
+        destruct i; repeat destruct Sumbool.sumbool_and; repeat destruct Nat.eq_dec;
+      repeat apply precise_star; eauto using precise_emp, is_tup_precise, is_tup_arr_precise.
+
+    - unfold bth_pre, tr_pres; intros; istar_simplify.
+      sep_rewrite (@ls_exists0 _ (ls_init 0 dim (fun i => 0%Z))).
+      unfold sh_decl in H.
+      sep_rewrite_in sh_spec_is_tup_array_with_l H.
+      sep_split_in H.
+      apply ex_lift_l_in in H as [f_sm H].
+      sep_normal_in H; sep_split_in H.
+      exists (ls_init 0 ntrd f_sm).
+      sep_split; [unfold_conn; simpl; rewrite init_length; auto|].
+      repeat sep_rewrite (@ls_star); repeat sep_rewrite (@ls_pure); sep_split.
+      apply ls_emp'; intros; rewrite ls_init_spec; destruct lt_dec; eauto; cbv; auto.
+      apply ls_emp'; intros; rewrite ls_init_spec; destruct lt_dec; eauto; cbv; auto.
+      apply ls_emp'; intros; rewrite ls_init_spec; destruct lt_dec; eauto; cbv; auto.
+      apply ls_emp'; intros; rewrite ls_init_spec; destruct lt_dec; unfold_conn; eauto;[| cbv; auto].
+      rewrite ls_init_spec; destruct lt_dec; try omega; unfold_conn_in HP2; rewrite HP2; auto.
+      sep_cancel.
+      sep_rewrite is_tuple_array_p_distr; sep_cancel.
+      2: intros; rewrite ls_init_spec; destruct lt_dec; try rewrite init_length.
+      2: unfold_conn_in HP2; unfold vars2es; rewrite HP2, !map_length, !locals_length; auto.
+      2: unfold vars2es; rewrite !map_length, locals_length; auto.
+      2: instantiate (1 := nseq dim 0%Z); rewrite length_nseq; auto.
+      apply scC; rewrite <-(@firstn_skipn assn 1) at 1; rewrite firstn_init, skipn_init.
+      rewrite Nat.min_l; try omega; simpl; sep_normal.
+      erewrite ls_init_eq'.
+      2: intros; destruct Nat.eq_dec; try omega;
+        cutrewrite (emp = id (fun _ => emp) (1 + i)); eauto.
+      unfold id; sep_rewrite init_emp_emp.
+      sep_rewrite emp_unit_l; sep_normal.
+      sep_cancel.
+      eapply is_tup_array_change; eauto.
+      intros; rewrite ls_init_spec; destruct lt_dec; try omega; f_equal; omega.
+    - (* not completed!!!! *)
+      unfold tr_posts, bth_post; intros s h H; istar_simplify_in H.
+      sep_lift_in H 2.
+      rewrite <-(firstn_skipn 1) in H at 1; rewrite firstn_init, skipn_init in H.
+      sep_rewrite_in conj_xs_app H.
+      rewrite Nat.min_l in H; try omega; simpl in H.
+      erewrite (@ls_init_eq' _ _ _ _ 1) in H.
+      2: intros; destruct Nat.eq_dec; try omega;
+        cutrewrite (emp = id (fun _ => emp) (1 + i)); eauto.
+      unfold id in H; sep_rewrite_in init_emp_emp H.
+      sep_normal_in H; sep_lift_in H 2.
+      rewrite <-(firstn_skipn 1) in H at 1; rewrite firstn_init, skipn_init in H.
+      rewrite Nat.min_l in H; try omega; simpl in H.
+      erewrite ls_init_eq' in H.
+      2: intros; destruct Nat.eq_dec; try omega;
+        cutrewrite (emp = id (fun _ => emp) (1 + i)); eauto.
+      unfold id in H; sep_rewrite_in init_emp_emp H.
+      sep_normal_in H; repeat sep_cancel.
+    - intros; unfold low_assn, tr_pres; rewrite MyVector.init_spec.
+      unfold E; repeat prove_low_assn;
+        (try now (constructor; eauto));
+        try now (unfold Outs; first [apply low_assn_eqt | apply low_assn_is_tuple];
+                 simplify; cutrewrite (Lo = join Lo Lo); repeat econstructor; simpl;
+                 try rewrite prefix_nil; auto).
+      apply low_assn_input_spec;
+      intros; env_dec; simplify; simpl in *; congruence.
+    - intros; unfold low_assn, tr_posts; rewrite MyVector.init_spec.
+      unfold E, sh_decl; simpl.
+      repeat prove_low_assn;
+        (try now (constructor; eauto));
+        try now (unfold Outs; first [apply low_assn_eqt | apply low_assn_is_tuple];
+                 simplify; cutrewrite (Lo = join Lo Lo); repeat econstructor; simpl;
+                 try rewrite prefix_nil; auto).
+
+      Lemma sh_spec_low_assn E sdec :
+        (forall x y, In (x, y) sdec -> E x = Lo) -> low_assn E (sh_spec sdec).
+      Proof.
+        intros.
+        induction sdec as [|[? ?] ?]; simpl; unfold low_assn; repeat prove_low_assn.
+        repeat constructor; erewrite H; eauto.
+        simpl; eauto.
+        apply IHsdec; simpl in H; eauto.
+      Qed.
+      apply low_assn_input_spec'.
+      apply sh_spec_low_assn; simplify; inverts H; simpl; rewrite prefix_nil; auto.
+    - apply fold_has_type.
+    - unfold tr_pres, tr_posts; intros; rewrite !MyVector.init_spec.
+      eapply Hbackward.
+      Focus 2. {
+        intros; apply ex_lift_l_in in H as [? H].
+        sep_normal_in H.
+        evar (P : assn); assert ((!(pure (Datatypes.length x = dim)) ** P) s0 h) by
+                           (sep_cancel; unfold P; eauto).
+        unfold P in *; ex_intro x H0; eauto. } Unfocus.
+      apply rule_ex; intros vi_ini.
+      apply hback; intros Hvini.
+      eapply rule_conseq; try apply (reduce_ok_th tid j vi_ini); intros; eauto; repeat sep_cancel.
+  Qed.
+
+  Theorem reduce_ok_gl g :
+    (forall i, i < l -> get_den (Zn i) (g i)) ->
+    CSLg _ _ ntrd_neq_0 nblk_neq_0
+         (!(sh === Zn l) **
+          !(Outs' ==t out) **
+          input_spec env env_den 1 **
+          is_tuple_array_p (map Gl Outs') nblk fout 0 1)
+
+         (Pr sh_decl mkFoldAll)
+
+         (input_spec' env_den 1 **
+          is_tuple_array_p (map Gl (vs2es out)) nblk
+          (fun j => f (Nat.min (l - j * ntrd) ntrd) (f_seq g j) e_b 0) 0 1).
+  Proof.
+    intros Hg.
+    applys (>> rule_grid E (MyVector.init bth_pre) (MyVector.init (bth_post g))).
+    - intros s h H.
+      unfold bth_pre; sep_split_in H; istar_simplify.
+      repeat sep_rewrite (@ls_star nblk).
+      repeat sep_rewrite (@ls_pure nblk); sep_split.
+      apply ls_emp'; intros; rewrite ls_init_spec; destruct lt_dec; auto; cbv; auto.
+      apply ls_emp'; intros; rewrite ls_init_spec; destruct lt_dec; auto; cbv; auto.
+      sep_rewrite conj_xs_init_flatten; simpl.
+      sep_rewrite input_spec_p1; eauto; try nia.
+      sep_rewrite (is_tuple_array_p_distr); eauto.
+      intros; unfold vars2es, Outs; rewrite fout_wf, !map_length, locals_length; auto.
+    - intros; eapply CSLp_backward; [eapply CSLp_forward|]; try applys* (>> reduce_ok_bl g bid).
+      + rewrite MyVector.init_spec; auto.
+      + rewrite MyVector.init_spec; intros; repeat sep_cancel.
+    - unfold bth_post; intros s h H; istar_simplify_in H.
+      sep_rewrite_in conj_xs_init_flatten H; simpl in H.
+      sep_rewrite_in input_spec'_p1 H; eauto; try nia.
+      sep_rewrite_in (is_tuple_array_p_distr) H; repeat sep_cancel.
+      unfold vs2es; intros; rewrite f_length; [rewrite !map_length, out_wf; auto|].
+      unfold f_seq, maybe; intros; destruct (skip_sum_of_vs _ _ _ _ _) eqn:Heq.
+      + erewrite skip_sum_of_vs_wf; eauto.
+        intros ix ?; forwards * : (>>get_den_wf (Zn ix)); rewrite out_wf.
+        congruence.
+      + rewrite length_nseq; auto. 
+    - unfold sh_decl, mkFoldAll; simpl.
+      Lemma inde_ex T P xs :
+        (forall x : T, inde (P x) xs) ->
+        inde (Ex x, (P x)) xs.
+      Proof.
+        unfold inde; simpl; intros.
+        split; intros [w Pw]; exists w.
+        - rewrite <-H; auto.
+        - rewrite <-H in Pw; auto.
+      Qed.          
+          
+      Lemma sh_spec_inde sdec xs :
+        (disjoint (map fst sdec) xs) -> inde (sh_spec sdec) xs.
+      Proof.
+        intros.
+        induction sdec as [|[? ?] ?]; simpl; unfold low_assn; repeat prove_inde.
+        2: simpl in *; jauto.
+        apply inde_ex; intros; apply inde_is_array.
+        simpl in *; rewrite Forall_forall; intros.
+        apply indelE_fv; simpl; intros [Hc |[]]; subst; tauto.
+      Qed.
+      apply sh_spec_inde; rewrite map_map; simpl.
+      rewrite read_tup_writes; [|rewrite locals_length, length_nseq; auto].
+      rewrite !writes_var_gen_write; simpl.
+      repeat (rewrite read_tup_writes; [|rewrite locals_length, get_wf; auto]).
+      repeat (rewrite read_tup_writes; [|rewrite locals_length, func_wf; auto]).
+      rewrite gen_read_writes; [|unfold vars2es; rewrite map_length, !locals_length; auto].
+      rewrite read_tup_writes; [|unfold vars2es; rewrite map_length, !locals_length; auto].
+      apply not_in_disjoint; simpl; intros; simplify; try congruence;
+        (try now (forwards*: get_wr; eauto; simplify; simpl in *; congruence));
+        (try now (forwards*: func_local; eauto; simplify; simpl in *; congruence)).
+      unfold reduce in H0.
+      apply reduce_writes in H0; destruct Nat.eq_dec; try omega; simplify; try congruence.
+    - intros; rewrite MyVector.init_spec; unfold bth_pre.
+      prove_inde.
+      + apply inde_eq_tup; simpl; unfold Outs; simplify; try congruence.
+      + apply inde_conj_xs; simpl; rewrite init_length; intros.
+        rewrite ls_init_spec; destruct lt_dec; try omega.
+        apply inde_input_spec; simplify; eauto.
+      + unfold Outs; apply inde_is_tup; simplify; try congruence.
+    - intros; rewrite MyVector.init_spec; unfold bth_pre.
+      unfold E; repeat prove_low_assn;
+        try now (constructor; eauto).
+      + unfold Outs; apply low_assn_eqt; simplify; constructor; simpl; rewrite prefix_nil; auto.
+      + apply low_assn_conj_xs; rewrite init_length; intros.
+        rewrite ls_init_spec; destruct lt_dec; try omega.
+        apply low_assn_input_spec;
+        introv Hpre; apply prefix_ex in Hpre as [? Hpre]; destruct v; simpl in Hpre; subst.
+        * simpl; rewrite prefix_nil; auto.
+        * repeat (destruct var_eq_dec; try congruence).
+          simpl; rewrite prefix_nil; auto.
+      + unfold Outs; apply low_assn_is_tuple; simplify.
+        equates 1; [repeat constructor|].
+        instantiate (1 := Lo); simpl; rewrite prefix_nil; eauto.
+        instantiate (1 := Lo); auto.
+        constructor.
+    - intros; rewrite MyVector.init_spec; unfold bth_post.
+      repeat has_no_vars_assn.
+      apply has_no_vars_is_tup; simplify; auto.
+      apply has_no_vars_conj_xs; intros; rewrite ls_init_spec; destruct lt_dec;
+        eauto using has_no_vars_input_spec, has_no_vars_emp.
+    - unfold sh_decl; rewrite map_map; simpl.
+      simplify.
+      unfold E; simpl; rewrite prefix_nil; auto.
+    - cbv; auto.
+    - cbv; auto.
+    - unfold sh_decl; rewrite map_map; simpl.
+      simplify; congruence.
+    - unfold sh_decl; rewrite map_map; simpl.
+      simplify; congruence.
+    - unfold sh_decl; rewrite map_map; simpl.
+      rewrite map_id; apply locals_disjoint_ls.
+  Qed.
+
+  Notation sum_of_vs := (sum_of_f_opt (list val) f_fun).
+
+  Lemma feb_ok' ds len f_in:
+    0 < len -> len <= ntrd ->
+    (forall i : nat, Datatypes.length (f_in i) = dim) ->
+    f len f_in e_b 0 = maybe (sum_of_vs 0 len f_in) ds.
+  Proof.
+    intros.
+    forwards*: (>>feb_ok len f_in); simpl in *.
+    destruct len; simpl in *; try omega; intros.
+    destruct (sum_of_vs _ _ _) eqn:Heq; eauto.
+  Qed.
+  
+  Lemma reduce_res_ok g :
+    (forall i, i < l -> get_den (Zn i) (g i)) ->
+    sum_of_vs 0 (Nat.min ((l + ntrd - 1) / ntrd) nblk )
+              (fun j => f (Nat.min (l - j * ntrd) ntrd) (f_seq g j) e_b 0) = 
+    sum_of_vs 0 l g.
+  Proof.
+    intros Hg.
+    assert (ntrd * nblk <= l \/ l < ntrd * nblk) as [Hntl | Hntl] by omega.
+    - assert (Hl0 : 0 < l) by nia.
+      rewrite Nat.min_r.
+      Focus 2.
+      { lets: (>>Nat.div_mod (l + ntrd - 1) ntrd __); eauto.
+        lets: (>>Nat.mod_upper_bound (l + ntrd - 1) ntrd __); eauto.
+        nia. } Unfocus.
+      erewrite sum_of_eq.
+      Focus 2.
+      { simpl; intros.
+        rewrite Nat.min_r; try nia.
+        rewrites* (feb_ok' (nseq dim 0%Z)); try nia.
+        intros; unfold f_seq, maybe; destruct (skip_sum_of_vs _ _ _ _ _) eqn:Heq.
+        + erewrite skip_sum_of_vs_wf; eauto.
+          intros ix ?; forwards * : (>>get_den_wf (Zn ix)); rewrite out_wf.
+          congruence.
+        + rewrite length_nseq; auto. } Unfocus.
+      unfold f_seq.
+      
+    
+      Lemma sum_of_vs_off s s' n f  :
+        s >= s' -> sum_of_vs s n f = sum_of_vs s' n (fun i => f ((s - s') + i)).
+      Proof.
+        revert s s'; induction n; simpl; intros; eauto.
+        rewrite (IHn (S s0) (S s')); try omega.
+        erewrite sum_of_eq.
+        Focus 2. {
+          intros; cutrewrite (S s0 - S s' + i = s0 - s' + i); [|omega].
+          reflexivity. } Unfocus.
+        destruct (sum_of_vs _ _ _); simpl; try omega.
+        cutrewrite (s0 - s' + s' = s0); [|omega]; eauto.
+        cutrewrite (s0 - s' + s' = s0); [|omega]; eauto.
+      Qed.
+
+      Lemma sum_of_vs_off0 s n f :
+        sum_of_vs s n f = sum_of_vs 0 n (fun i => f (s + i)).
+      Proof.
+        rewrite (sum_of_vs_off s 0); try omega.
+        erewrite sum_of_eq; eauto.
+        intros; simpl; f_equal; omega.
+      Qed.
+
+      Lemma sum_of_vs_nested s f d nt nb :
+        nt <> 0 ->
+        sum_of_vs s nb (fun j => maybe (sum_of_vs 0 nt (fun i => f (i + j * nt))) d) =
+        sum_of_vs (s * nt) (nt * nb) f.
+      Proof.
+        intros.
+        revert s; induction nb; intros; simpl.
+        - rewrite mult_0_r; auto.
+        - cutrewrite (nt * S nb = nt + nt * nb); [|ring].
+          rewrite sum_of_concat; eauto; unfold op', maybe.
+          rewrite IHnb.
+          cutrewrite (S s0 * nt = nt + s0 * nt); [|ring].
+          destruct (sum_of_vs (nt + s0 * nt) (nt * nb)); simpl.
+          rewrite (sum_of_vs_off0 (s0 * nt)).
+          erewrite sum_of_eq.
+          2: intros; rewrite plus_comm; reflexivity.
+          destruct (sum_of_vs _ _ _) eqn:Heq; eauto; simpl in *.
+          destruct nt; simpl in *; try congruence.
+          destruct (sum_of_vs _ _ _); simpl in *; try congruence.
+          rewrite (sum_of_vs_off0 (s0 * nt)).
+          erewrite sum_of_eq.
+          2: intros; rewrite plus_comm; reflexivity.
+          destruct (sum_of_vs _ _ _) eqn:Heq; eauto; simpl in *.
+          destruct nt as [|nt]; simpl in *; try congruence.
+          destruct (sum_of_vs _ _ _); try congruence.
+      Qed.
+
+      rewrite (sum_of_vs_nested 0 (fun x =>
+         maybe (skip_sum_of_vs nt_gr 0 l g x) (nseq dim 0%Z))); eauto.
+      simpl.
+      
+      cutrewrite (ntrd * nblk = nt_gr); [|ring].
+
+      Lemma sum_of_split s n f g :
+        sum_of_vs s n (fun i => f i |+| g i) = op' _ f_fun (sum_of_vs s n f) (sum_of_vs s n g).
+      Proof.
+        revert s; induction n; simpl; eauto.
+        intros; rewrite IHn.
+        unfold op'; 
+          repeat lazymatch goal with
+        | [|- context [sum_of_vs ?X ?Y ?Z]] => destruct (sum_of_vs X Y Z)
+        end; eauto.
+        rewrite !f_fun_assoc; do 2 f_equal.
+        rewrite <-f_fun_assoc, (f_fun_comm (g s0) l0), f_fun_assoc; eauto.
+        rewrite f_fun_assoc, (f_fun_comm (g s0) l0), <-f_fun_assoc; eauto.
+        rewrite f_fun_assoc, (f_fun_comm (g s0) l0), <-f_fun_assoc; eauto.
+      Qed.
+
+      Lemma skip_sum_of_sum_of n s d f none:
+        d <> 0 -> 
+        sum_of_vs 0 (min n d) (fun x => maybe (skip_sum_of_vs d (s * d) n f x) none) =
+        sum_of_vs (s * d) n f.
+      Proof.
+        intros Hd0; rewrite (Nat.div_mod n d); eauto.
+        generalize (n / d); intros n0.
+        revert n d Hd0 s; induction n0; simpl; intros n d Hd0 s.
+        - cutrewrite (d * 0 = 0); [|ring]; simpl.
+          rewrite Nat.min_l; [|lets: (Nat.mod_upper_bound n d); nia].
+          rewrite (sum_of_vs_off (s * d) 0); try nia.
+          simpl; erewrite sum_of_eq; eauto; intros; unfold maybe.
+          rewrites (>>skip_sum_opt_sum d i s 1); eauto; try (lets:(Nat.mod_upper_bound n d); nia).
+          simpl.
+          f_equal; nia.
+        - rewrite Nat.min_r; try nia.
+          erewrite sum_of_eq.
+          Focus 2. {
+            simpl; intros.
+            rewrite skip_sum_opt_unfold; eauto; try nia.
+            cutrewrite (d * S n0 + n mod d - d = d * n0 + n mod d); [|nia].
+            unfold op'.
+            instantiate (1 := fun i =>
+              if lt_dec i (d * n0 + n mod d)
+              then maybe (skip_sum_of_vs d (S s * d) (d * n0 + n mod d) f i) none |+| f (i + s * d)
+              else f (i + s * d)); simpl.
+            unfold maybe.
+            destruct lt_dec, (skip_sum_of_vs _ _ _ _ _) eqn:Heq'; eauto.
+            + assert (Heq'' : d + s * d = S s * d) by nia; rewrite Heq'' in Heq'; clear Heq''.
+              rewrite skip_sum_opt_unfold in Heq'; simpl in Heq'; eauto; try omega.
+              unfold op' in Heq'; destruct (skip_sum_of_vs _ _ _ _ _); congruence.
+            + rewrites* (>>skip_sum_opt_nil (d * n0 + n mod d)) in Heq'.
+              intros.
+              cutrewrite (d + s * d + j = j + S s * d); [|ring]; rewrite Nat.mod_add; eauto.
+              rewrite Nat.mod_small; nia.
+              rewrite minus_diag in Heq'; simpl in *; congruence. } Unfocus.
+          assert (d <= d * n0 + n mod d \/ d * n0 + n mod d < d) as [H | H] by omega.
+          + erewrite sum_of_eq; [|intros; destruct lt_dec; try omega; reflexivity].
+            rewrite sum_of_split.
+            forwards* Ht: (>>IHn0 n d (S s)); rewrite Nat.min_r in *; eauto.
+            rewrite Ht; clear Ht.
+            cutrewrite (d * S n0 + n mod d = d + (d * n0 + n mod d)); [|ring].
+            rewrites (>>sum_of_concat d (d * n0 + n mod d)); eauto.
+            rewrite opopt_comm; f_equal; eauto.
+            rewrite (sum_of_vs_off0 (s * d)); erewrite sum_of_eq; eauto.
+            simpl; intros; f_equal; ring.
+          + rewrite sum_of_f_split; eauto; try nia.
+            rewrite <-!minus_n_O.
+            rewrite sum_of_split.
+            erewrite sum_of_eq.
+            Focus 2.
+            { intros.
+              rewrites (>>skip_sum_opt_sum d i 1); eauto; try nia.
+              simpl; reflexivity. } Unfocus.
+            cutrewrite (d * S n0 + n mod d = (d * n0 + n mod d) + (d - (d * n0 + n mod d)) +
+                                             (d * n0 + n mod d)); [|nia].
+            remember (d * n0 + n mod d).
+            rewrite !sum_of_concat; eauto.
+            rewrite (sum_of_vs_off0 (s * d)), (sum_of_vs_off0 (n1 + s * d)),
+              (sum_of_vs_off0 (n1 + (d - n1) + s * d)), (sum_of_vs_off0 n1).
+            assert (forall x y z, op' _ f_fun (op' _ f_fun x y) z =
+                                  op' _ f_fun (op' _ f_fun y z) x).
+            { intros. rewrite opopt_assoc, opopt_comm; eauto. }
+            rewrite H0; [f_equal; [f_equal|]].
+            * erewrite sum_of_eq; eauto.
+              simpl; intros; f_equal; ring.
+            * erewrite sum_of_eq; eauto.
+              simpl; intros; f_equal; ring.
+            * erewrite sum_of_eq; eauto.
+              simpl; intros; f_equal; nia.
+      Qed.
+
+      assert (Heq : nt_gr = min l nt_gr) by (rewrite Nat.min_r; nia); rewrite Heq at 1; clear Heq.
+      assert (Heq : 0 = 0 * nt_gr) by (auto).
+      erewrite sum_of_eq; [|intros; rewrite Heq; reflexivity].
+      rewrite skip_sum_of_sum_of; eauto; nia.
+
+    - lets: (>>Nat.div_mod (l + ntrd - 1) ntrd __); eauto.
+      lets: (>>Nat.mod_upper_bound (l + ntrd - 1) ntrd __); eauto.
+      lets: (>>Nat.div_mod l ntrd __); eauto.
+      lets: (>>Nat.mod_upper_bound l ntrd __); eauto.
+      rewrite Nat.min_l; [|nia].
+      assert (l = 0 \/ l > 0) as [Hl0|Hl0] by omega.
+      { (* case l = 0 *)
+        subst; simpl.
+        rewrite Nat.div_small; [|omega]; eauto. }
+      erewrite sum_of_eq.
+      Focus 2. {
+        intros.
+        rewrite (feb_ok' (nseq dim 0%Z)).
+        2: apply Nat.min_glb_lt_iff.
+        2: nia.
+        2: apply Nat.le_min_r.
+        2: intros; unfold f_seq, maybe; destruct (skip_sum_of_vs _ _ _ _ _) eqn:Heq.
+        2: erewrite skip_sum_of_vs_wf; eauto.
+        2: intros ix ?; forwards * : (>>get_den_wf (Zn ix)); rewrite out_wf.
+        2: congruence.
+        2: rewrite length_nseq; auto.
+        unfold f_seq.
+        erewrite sum_of_eq.
+        Focus 2. {
+          simpl in *; intros.
+          rewrite Nat.min_glb_lt_iff in H4.
+          rewrites (>>skip_sum_sum0 1); [eauto|nia|nia|].
+          simpl; rewrite <-plus_n_O; reflexivity. } Unfocus.
+        reflexivity. } Unfocus.
+      assert ((l + ntrd - 1) / ntrd = l / ntrd \/
+              (l + ntrd - 1) / ntrd = l / ntrd + 1) as [H'|H']; [|rewrite H'..].
+      { assert ((l + ntrd - 1)  mod ntrd = 0 \/
+                (l + ntrd - 1)  mod ntrd > 0) as [|] by omega; nia. } 
+      + erewrite sum_of_eq.
+        Focus 2. { 
+          intros.
+          rewrite Nat.min_r; [|nia].
+          reflexivity. } Unfocus.
+        rewrite sum_of_vs_nested; eauto; simpl.
+        cutrewrite (ntrd * (l / ntrd) = l); eauto; nia.
+      + rewrite sum_of_concat; eauto; simpl.
+        erewrite sum_of_eq.
+        Focus 2. {
+          intros.
+          rewrite Nat.min_r; [|nia].
+          reflexivity. } Unfocus.
+        rewrite sum_of_vs_nested; eauto; simpl.
+        rewrite Nat.min_l; [|nia].
+        rewrite <-!plus_n_O.
+        cutrewrite (l - l / ntrd * ntrd = l mod ntrd); [|nia].
+        rewrite H1 at 3; rewrite sum_of_concat; eauto.
+        f_equal.
+        unfold maybe.
+        rewrite <-plus_n_O, (sum_of_vs_off0 (ntrd * (l / ntrd))).
+        erewrite sum_of_eq; [|intros;
+                              cutrewrite (i + l / ntrd * ntrd = ntrd * (l / ntrd) + i); [|ring];
+                              reflexivity].
+        destruct (sum_of_vs _ _ _) eqn:Heq; eauto.
+        destruct (l mod ntrd) eqn:Heq'; simpl in *; [|destruct (sum_of_vs _ _ _); congruence].
+        nia.
+  Qed.
 End Reduce.
