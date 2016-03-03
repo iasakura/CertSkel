@@ -632,7 +632,7 @@ Proof.
 Qed.
 
 Lemma stencil_ok_gr :
-  CSLg _ _ ntrd_neq_0 nblk_neq_0
+  CSLg ntrd nblk
        (!("arr" === aloc) **
         !("out" === oloc) **
         !("smem" === sloc ) **

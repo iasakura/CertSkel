@@ -108,7 +108,7 @@ Section verification_example.
   Theorem gen_code_correct :
     exists fgi, 
       (forall i : nat, i < len -> exists t, get_den (Zn i) t /\ func_den t (fgi i)) /\
-    CSLg ntrd nblk ntrd_neq_0 nblk_neq_0 
+    CSLg ntrd nblk 
     (!(Outs outDim ==t out_ptr :: nil) **
      !(Len outDim === Zn len) **
      input_spec env env_den 1 **

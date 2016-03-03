@@ -326,7 +326,7 @@ Definition bl_posts (arr out : val) : Vector.t assn nblk :=
   init (fun b : Fin.t nblk => (bth_post b arr out)).
 
 Theorem map_correct_g (arr out : val) fout :
-  CSLg ntrd nblk ntrd_neq0 nblk_neq0
+  CSLg ntrd nblk 
     (!(ARR === arr) ** !(OUT === out) ** 
      is_array (Gl arr) len f 0 **
      is_array (Gl out) len fout 0)
@@ -334,7 +334,7 @@ Theorem map_correct_g (arr out : val) fout :
     (is_array (Gl arr) len f 0 **
      is_array (Gl out) len (fun v => f v + 1)%Z 0).
 Proof.
-  applys (>> rule_grid E (bl_pres arr out fout) (bl_posts arr out)).
+  applys (>> rule_grid E (bl_pres arr out fout) (bl_posts arr out)); eauto.
   - intros s h H.
     unfold bl_pres, bth_pre.
     sep_split_in H.
@@ -386,10 +386,6 @@ Proof.
     apply has_no_vars_is_array_p; cbv; auto.
     apply has_no_vars_skip_arr; simpl; eauto.
   - simpl; tauto.
-  - unfold E; eauto.
-  - unfold E; eauto.
-  - eauto.
-  - eauto.
   - simpl; eauto.
 Qed.
     
