@@ -1,4 +1,4 @@
-Require Import GPUCSL
+Require Import GPUCSL.
 Require Import scan_lib.
 Require Import LibTactics.
 Require Import Skel_lemma.
@@ -753,7 +753,7 @@ Qed.
 Theorem map_correct_g  :
   (exists fgi,
     (forall i, i < len -> fg_den (Zn i) (fgi i)) /\
-    CSLg ntrd nblk ntrd_neq0 nblk_neq0
+    CSLg ntrd nblk 
          (!(Outs ==t out) ** !(Len === Zn len) **
      input_spec env env_den 1 ** is_tuple_array_p (es2gls (vs2es out)) len fout 0 1)
 
@@ -764,7 +764,7 @@ Theorem map_correct_g  :
 Proof.
   lets (fgi & Hfgi) : ex_fgi.
   exists fgi; split; eauto.
-  applys (>> rule_grid E bl_pres (bl_posts fgi)).
+  applys (>> rule_grid E bl_pres (bl_posts fgi)); eauto.
   - intros s h H.
     unfold bl_pres, bth_pre.
     sep_split_in H.
@@ -864,11 +864,7 @@ Proof.
     rewrite Forall_forall; rewrite map_map; intros ? H'; rewrite in_map_iff in H';
     destruct H' as [? [? ?]]; subst; prove_inde.
   - simpl; tauto.
-  - unfold E; eauto.
-  - unfold E; eauto.
-  - eauto.
-  - eauto.
-  - simpl; eauto.
+  - simpl; tauto.
 Qed.
     
 End Map.

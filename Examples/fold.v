@@ -1434,7 +1434,7 @@ Definition bid_post (arr out : Z) (bid : Fin.t nblk) :=
 
 Theorem fold_ker_correct_g (arr out : val) :
   nt_gr <= len ->
-  CSLg ntrd nblk ntrd_neq_0 nblk_neq_0
+  CSLg ntrd nblk 
   (Ex fout, 
    !(ARR === arr) ** !(OUT === out) **
    is_array (Gl arr) len f 0 ** is_array (Gl out) nblk fout 0)
@@ -1442,7 +1442,7 @@ Theorem fold_ker_correct_g (arr out : val) :
   (is_array (Gl arr) len f 0 ** is_array (Gl out) nblk (fun b => (sum_of 0 ntrd (f_ss' b))) 0).
 Proof.
   intros Hlen.
-  applys (>>rule_grid ty_env_fold (MyVector.init (bid_pre arr out)) (MyVector.init (bid_post arr out))).
+  applys (>>rule_grid ty_env_fold (MyVector.init (bid_pre arr out)) (MyVector.init (bid_post arr out))); eauto.
   - intros s h [fout H].
     unfold bid_pre; istar_simplify.
     sep_split_in H.
@@ -1514,10 +1514,8 @@ Proof.
     apply has_no_vars_skip_arr; cbv; auto.
   - simpl; intros v [? | [ ] ].
     subst; cbv; auto.
-  - auto.
-  - auto.
-  - cbv; destruct 1; try congruence.
-  - cbv; destruct 1; try congruence.
-  - cbv; eauto.
+  - simpl; intros [|  ]; congruence.
+  - simpl; intros [|  ]; congruence.
+  - simpl; eauto.
 Qed.
 End Fold.

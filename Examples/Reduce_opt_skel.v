@@ -2187,7 +2187,7 @@ Section Reduce.
 
   Theorem reduce_ok_gl g :
     (forall i, i < l -> get_den (Zn i) (g i)) ->
-    CSLg _ _ ntrd_neq_0 nblk_neq_0
+    CSLg ntrd nblk
          (!(sh === Zn l) **
           !(Outs' ==t out) **
           input_spec env env_den 1 **
@@ -2200,7 +2200,7 @@ Section Reduce.
           (fun j => f (Nat.min (l - j * ntrd) ntrd) (f_seq g j) e_b 0) 0 1).
   Proof.
     intros Hg.
-    applys (>> rule_grid E (MyVector.init bth_pre) (MyVector.init (bth_post g))).
+    applys (>> rule_grid E (MyVector.init bth_pre) (MyVector.init (bth_post g))); eauto.
     - intros s h H.
       unfold bth_pre; sep_split_in H; istar_simplify.
       repeat sep_rewrite (@ls_star nblk).
@@ -2288,8 +2288,8 @@ Section Reduce.
     - unfold sh_decl; rewrite map_map; simpl.
       simplify.
       unfold E; simpl; rewrite prefix_nil; auto.
-    - cbv; auto.
-    - cbv; auto.
+    (* - cbv; auto. *)
+    (* - cbv; auto. *)
     - unfold sh_decl; rewrite map_map; simpl.
       simplify; congruence.
     - unfold sh_decl; rewrite map_map; simpl.

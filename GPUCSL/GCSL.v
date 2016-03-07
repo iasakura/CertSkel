@@ -1,7 +1,31 @@
 Require Export CSL.
-Require Import array_dist Bdiv MyList.
+Require Import array_dist Bdiv MyList MyVector NPeano.
 Import PHeap Lang assertion_lemmas.
 Require Import TLC.LibTactics.
+Import ZArith.
+Import List.ListNotations.
+Import List.
+  
+
+Lemma Z_range_dec (x y z : Z) : ({x <= y < z} + {y < x \/ z <= y})%Z.
+Proof.
+  destruct (Z_le_dec x y), (Z_lt_dec y z); first [left; omega | right; omega].
+Qed.
+
+Inductive decl_sh : list (var * nat) -> stack -> simple_heap -> Prop :=
+| decl_nil : forall stk, decl_sh nil stk (fun _ => None) 
+| decl_cons : forall ds stk sh v len loc,
+    decl_sh ds stk sh ->
+    (forall i, i < len -> sh (loc + Z.of_nat i)%Z = None) ->
+    decl_sh ((v, len) :: ds) (fun v' => if var_eq_dec v' v then loc else stk v')
+            (fun l => if Z_range_dec loc l (loc + Z.of_nat len) then Some 0%Z else sh l).
+
+
+Fixpoint sh_spec (sh_decl : list (var * nat)) : assn :=
+  match sh_decl with
+  | nil => emp
+  | (sh, len) :: sh_decl => (Ex f, is_array (Sh sh) len f 0) ** sh_spec sh_decl
+  end.
 
 Section GlobalCSL.
 Variable ntrd : nat.
@@ -19,7 +43,6 @@ Definition heap_of_sheap (h : simple_heap) :=
 
 Definition default_stack : stack := fun x => 0%Z.
 
-Require Import MyVector.
 Import VectorNotations.
 
 Notation zpheap := (PHeap.gen_pheap Z).
@@ -108,30 +131,6 @@ Record program : Set := Pr {
   get_cmd : cmd}.
 
 Section For_List_Notation.
-  Import List.
-  Import List.ListNotations.
-  Import ZArith.
-
-  Lemma Z_range_dec (x y z : Z) : ({x <= y < z} + {y < x \/ z <= y})%Z.
-  Proof.
-    destruct (Z_le_dec x y), (Z_lt_dec y z); first [left; omega | right; omega].
-  Qed.
-    
-  Inductive decl_sh : list (var * nat) -> stack -> simple_heap -> Prop :=
-  | decl_nil : forall stk, decl_sh nil stk (fun _ => None) 
-  | decl_cons : forall ds stk sh v len loc,
-      decl_sh ds stk sh ->
-      (forall i, i < len -> sh (loc + Z.of_nat i)%Z = None) ->
-      decl_sh ((v, len) :: ds) (fun v' => if var_eq_dec v' v then loc else stk v')
-              (fun l => if Z_range_dec loc l (loc + Z.of_nat len) then Some 0%Z else sh l).
-
-
-  Fixpoint sh_spec (sh_decl : list (var * nat)) : assn :=
-    match sh_decl with
-      | nil => emp
-      | (sh, len) :: sh_decl => (Ex f, is_array (Sh sh) len f 0) ** sh_spec sh_decl
-    end.
-  
   Notation TID := (Var "tid").
   Notation BID := (Var "bid").
   Notation nf i := (nat_of_fin i).
@@ -859,7 +858,6 @@ Section For_List_Notation.
             destruct (eq_dec (ledenot e1 stk) (ledenot e1 stk)); try congruence. }
           assert (exists v, this h2 (ledenot e1 stk) = Some (1, v)) as [v2 Hv2].
           { apply H in Hv1; eauto. }
-          Require Import NPeano.
           exists v2%Z; intros.
           unfold htop, htop'; simpl.
           destruct (eq_dec x (ledenot _ _)); subst; eauto.
@@ -1180,6 +1178,8 @@ Definition CSLg (P : assn) (prog : program) (Q : assn) :=
        P stk (as_gheap gh)) ->
   forall n, safe_ng n ks (Vector.const sh nblk) gh Q.
 
+Import List.
+
 Theorem rule_grid (P : assn) Ps C Qs (Q : assn) sh_decl :
   let sinv := sh_spec sh_decl in
   P |= Aistar_v Ps ->
@@ -1189,7 +1189,7 @@ Theorem rule_grid (P : assn) Ps C Qs (Q : assn) sh_decl :
                  (sinv ** Qs[@bid])) ->
   Aistar_v Qs |= Q ->
   inde sinv (writes_var C) ->
-  (forall bid, inde Ps[@bid] (BID :: TID :: nil)) ->
+  (forall bid, inde Ps[@bid] ((BID :: TID :: nil))) ->
   (forall bid, low_assn E Ps[@bid]) ->
   (forall bid : Fin.t nblk, has_no_vars Qs[@bid]) ->
   (forall v : var, List.In v (map fst sh_decl) -> E v = Lo) ->
