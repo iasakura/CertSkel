@@ -6,6 +6,7 @@ Require Import GPUCSL.
 Require Import LibTactics.
 Definition name := string. 
 
+
 (* general enviroment *)
 Section Environment.
   Definition Env (A B : Type) (eqt : eq_type A) := A -> B.
@@ -20,6 +21,7 @@ End Environment.
 
 (* variables for scalar expressions/arrays *)
 Inductive varE : Set := VarE (name : string).
+
 Inductive varA : Set := VarA (name : string).
 
 Instance eq_varA : eq_type varA.
@@ -504,19 +506,39 @@ Section TestCompiler.
   
 End TestCompiler.
 
+Require Import MSets.
+Module VarE_eq : DecidableType with Definition t := varE with Definition eq := fun (x y : varE) => x = y.
+  Definition t := varE.
+  Definition eq (x y : t) := x = y.
+  Definition eq_equiv : Equivalence eq.
+  Proof.
+    split; cbv; intros; congruence. 
+  Qed.
+  Definition eq_dec := eq_dec.
+End VarE_eq.
+Module VarA_eq : DecidableType with Definition t := varA with Definition eq := fun (x y : varA) => x = y.
+  Definition t := varA.
+  Definition eq (x y : t) := x = y.
+  Definition eq_equiv : Equivalence eq.
+  Proof.
+    split; cbv; intros; congruence. 
+  Qed.
+  Definition eq_dec := @eq_dec t _.
+End VarA_eq.
+
+Module SE := MSetWeakList.Make VarE_eq.
+Module SA := MSetWeakList.Make VarA_eq.
+
 Section CorrectnessProof.
   Import Skel_lemma.
   (* the set of free variables *)
-  Variable free_avs : list varA.
+  Variable free_avs : SA.t.
   (* the evaluation environment *)
   Variable aeval_env : Env varA (option array) _.
   (* the typing environment *)
   Variable aty_env : Env varA Typ _.
   (* the variable mapping environment between source and dest. *)
   Variable avar_env : Env varA (list var) _ .
-  
-  (* free variables lists does not have any duplicated variables *)
-  Hypothesis nodup_favs : NoDup free_avs.
   
   (* source lang. values -> dest. lang. values *)
   Fixpoint vs_of_sval sval : list Z :=
@@ -527,17 +549,13 @@ Section CorrectnessProof.
     end%list.
 
   (* precondition of free variable arrays *)
-  Fixpoint assn_of_avs (favs : list varA) :=
-    match favs with
-    | nil => emp
-    | x_a :: avs =>
+  Definition assn_of_avs (favs : SA.t) : assn :=
+    SA.fold (fun x_a rec =>
       match aeval_env x_a with
       | None => FalseP
       | Some a =>
-        S.is_tuple_array_p (S.es2gls (S.vars2es (avar_env x_a))) (len_of a) (fun i => vs_of_sval (nth i (arr_of a) (VZ 0))) 0 1 **
-        assn_of_avs avs
-      end
-    end.
+        S.is_tuple_array_p (S.es2gls (S.vars2es (avar_env x_a))) (len_of a) (fun i => vs_of_sval (nth i (arr_of a) (VZ 0))) 0 1 ** rec
+      end) favs emp.
 
   (* (* the set of free variables of scalar exp *) *)
   (* Variable free_svs : list varE. *)
@@ -549,102 +567,180 @@ Section CorrectnessProof.
   (* Variable svar_env : Env varE (list var) _ . *)
 
   (* preconditions of scalar variables *)
-  Fixpoint assn_of_svs (seval_env : Env varE (option SVal) _) (svar_env : Env varE (list var) _)  (fsvs : list varE) :=
-    match fsvs with
-    | nil => emp
-    | x_e :: svs =>
+  Definition assn_of_svs (seval_env : Env varE (option SVal) _) (svar_env : Env varE (list var) _)  (fsvs : SE.t) :=
+    SE.fold (fun x_e rec =>
       match seval_env x_e with
-      | Some v => !(vars2es (svar_env x_e) ==t vs_of_sval v) ** assn_of_svs seval_env svar_env svs
+      | Some v => !(vars2es (svar_env x_e) ==t vs_of_sval v) ** rec
       | None => FalseP
-      end
-    end.
+      end) fsvs emp.
+
+  (* Section UniqList. *)
+  (*   Variable A : Type. *)
+  (*   Variable eqt : eq_type A. *)
+  (*   Definition equiv_ls (ls1 ls2 : list A) := (incl ls1 ls2) /\ (incl ls2 ls1). *)
+    
+  (*   Require Import Recdef. *)
+  (*   Lemma remove_length (xs : list A) x: *)
+  (*     length (remove eq_dec x xs) <= length xs. *)
+  (*   Proof. *)
+  (*     induction xs; simpl; try omega. *)
+  (*     destruct eq_dec; simpl; try omega. *)
+  (*   Qed. *)
   
+  (*   Function uniq (xs : list A) {measure length xs} := *)
+  (*     match xs with *)
+  (*     | nil => nil *)
+  (*     | x :: xs => x :: uniq (remove eq_dec x xs) *)
+  (*     end. *)
+  (*   Proof. *)
+  (*     intros; simpl. *)
+  (*     lets: (>> remove_length xs0 x); simpl in *; try omega. *)
+  (*   Defined. *)
+
+  (*   Lemma remove_incl x (xs : list A) : *)
+  (*     incl (remove eq_dec x xs) xs. *)
+  (*   Proof. *)
+  (*     induction xs; unfold incl in *; simpl; eauto. *)
+  (*     destruct (eq_dec _ _); substs; simpl in *; jauto. *)
+  (*     intros ? [? | ?]; eauto. *)
+  (*   Qed. *)
+    
+  (*   Lemma uniq_incl (xs : list A) : incl (uniq xs) xs. *)
+  (*   Proof. *)
+  (*     functional induction (uniq xs). *)
+  (*     - unfold incl; eauto. *)
+  (*     - unfold incl in *; simpl. *)
+  (*       intros ? [? | ?]; eauto. *)
+  (*       forwards* : IHl. *)
+  (*       forwards* : remove_incl. *)
+  (*   Qed. *)
+
+  (*   Lemma remove_neq (x y : A) (xs : list A) : x <> y -> In x xs -> In x (remove eq_dec y xs). *)
+  (*   Proof. *)
+  (*     revert y; induction xs; simpl; intros y Hneq Hin; auto. *)
+  (*     destruct Hin as [Hin | Hin]; substs. *)
+  (*     - destruct eq_dec; try congruence. *)
+  (*       simpl; eauto. *)
+  (*     - destruct eq_dec; substs. *)
+  (*       + apply IHxs; eauto. *)
+  (*       + simpl; right; eauto. *)
+  (*   Qed. *)
+        
+  (*   Lemma uniq_incl' (xs : list A) : incl xs (uniq xs). *)
+  (*   Proof. *)
+  (*     functional induction (uniq xs); unfold incl; simpl; eauto. *)
+  (*     intros a [Hin|Hin]; substs; eauto. *)
+  (*     destruct (eq_dec x a); eauto. *)
+  (*     right; apply IHl. *)
+  (*     apply remove_neq; eauto. *)
+  (*   Qed. *)
+
+  (*   Lemma uniq_no_dup (xs : list A) : NoDup (uniq xs). *)
+  (*   Proof. *)
+  (*     functional induction (uniq xs). *)
+  (*     - constructor. *)
+  (*     - constructor; eauto. *)
+  (*       intros Hc. *)
+  (*       forwards*: uniq_incl; unfold incl in *; eauto. *)
+  (*       apply H in Hc; forwards*: remove_In; eauto. *)
+  (*   Qed. *)
+
+  (*   Lemma eq_ls_nil_l xs : equiv_ls nil xs -> xs = nil. *)
+  (*   Proof. *)
+  (*     unfold equiv_ls, incl; simpl; intros [? ?]. *)
+  (*     destruct xs; simpl in *; eauto. *)
+  (*     lets *: (H0 a). *)
+  (*   Qed. *)
+
+  (*   Lemma eq_ls_nil_r xs : equiv_ls xs nil -> xs = nil. *)
+  (*   Proof. *)
+  (*     unfold equiv_ls, incl; simpl; intros [? ?]. *)
+  (*     destruct xs; simpl in *; eauto. *)
+  (*     lets *: (H a). *)
+  (*   Qed. *)
+
+  (*   Lemma equiv_ls_refl xs : equiv_ls xs xs. *)
+  (*   Proof. *)
+  (*     unfold equiv_ls; lets: (incl_refl xs); eauto. *)
+  (*   Qed. *)
+
+  (*   Lemma equiv_ls_symm xs ys : equiv_ls xs ys -> equiv_ls ys xs. *)
+  (*   Proof. *)
+  (*     unfold equiv_ls; jauto. *)
+  (*   Qed. *)
+
+
+  (*   Lemma equiv_ls_cons x xs ys : equiv_ls (x :: xs) ys -> *)
+  (*                                 exists ys', ys = x :: ys'. *)
+  (*   Proof. *)
+  (*     revert xs; induction ys; simpl; intros xs. *)
+  (*     - intros; forwards*: (eq_ls_nil_r (x :: xs)). *)
+  (*     -  *)
+      
+
+  (*   Hint Resolve equiv_ls_refl equiv_ls_symm. *)
+
+  (*   Lemma equiv_ls_cons x xs ys : *)
+  (*     equiv_ls xs ys -> equiv_ls (x :: xs) (x :: ys). *)
+  (*   Proof. *)
+  (*     revert ys; induction xs; simpl. *)
+  (*     - intros; rewrites* (eq_ls_nil_r ys). *)
+  (*     -  *)
+      
+
+  (*     Lemma equive_ls_reorder x xs : *)
+  (*       In x xs -> *)
+  (*       equiv_ls _ xs (x :: (remove eq_dec x xs)). *)
+  (*     Proof. *)
+  (*       induction xs; simpl; forwards*: tt. *)
+  (*       intros [?|Hin]; substs. *)
+  (*       destruct eq_dec; try congruence. *)
+
+  (* End UniqList. *)
+  
+  Import scan_lib.
+
+  Fixpoint free_sv (e : SExp) : SE.t :=
+    match e with
+    | EVar v _ => SE.singleton v
+    | Enum _   => SE.empty
+    | ELet x e1 e2 _ => 
+      SE.union (free_sv e1) (SE.remove x (free_sv e2))
+    | EBin _ e1 e2 _ => SE.union (free_sv e1) (free_sv e2)
+    | EA _ e _ => free_sv e
+    | EPrj e _ _ => free_sv e
+    | ECons es _ => fold_right (fun e xs => SE.union (free_sv e) xs) SE.empty es
+    | EIf e e' e'' _ => SE.union (free_sv e) (SE.union (free_sv e') (free_sv e''))
+    end.
+
+  Fixpoint free_av (e : SExp) : SA.t :=
+    match e with
+    | EVar v _ => SA.empty
+    | Enum _   => SA.empty
+    | ELet x e1 e2 _ => 
+      SA.union (free_av e1) (free_av e2)
+    | EBin _ e1 e2 _ => SA.union (free_av e1) (free_av e2)
+    | EA x e _ => SA.add x (free_av e)
+    | EPrj e _ _ => free_av e
+    | ECons es _ => fold_right (fun e xs => SA.union (free_av e) xs) SA.empty es
+    | EIf e e' e'' _ => SA.union (free_av e) (SA.union (free_av e') (free_av e''))
+    end.
+
+  (* Arguments uniq {A} {eqt} x. *)
+
+  (* Definition free_sv e := uniq (free_sv' e). *)
+  (* Definition free_av e := uniq (free_av' e). *)
+
   Variable ntrd : nat.
   Variable tid : Fin.t ntrd.
   Variable BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd.
+  Arguments assn_of_svs _ _ _ _ _ : simpl never.
+  Arguments assn_of_avs _ _ _ : simpl never.
+  Arguments flip / _ _ _ _ _ _.
+  Tactic Notation "simpl_avs" "in" hyp(HP) := unfold assn_of_svs, assn_of_avs, SE.fold in HP; simpl in HP.
+  Tactic Notation "simpl_avs" := unfold assn_of_svs, assn_of_avs, SE.fold; simpl.
+  Tactic Notation "simpl_avs" "in" "*" := unfold assn_of_svs, assn_of_avs, SE.fold in *; simpl in *.
   
-  Definition equiv_ls {A : Type} (ls1 ls2 : list A) := (incl ls1 ls2) /\ (incl ls2 ls1).
-
-  Require Import Recdef.
-  Lemma remove_length {A : Type} {eqt : eq_type A} (xs : list A) x:
-    length (remove eq_dec x xs) <= length xs.
-  Proof.
-    induction xs; simpl; try omega.
-    destruct eq_dec; simpl; try omega.
-  Qed.
-  
-  Function uniq {A} {eqt : eq_type A} (xs : list A) {measure length xs} :=
-    match xs with
-    | nil => nil
-    | x :: xs => x :: uniq (remove eq_dec x xs)
-    end.
-  Proof.
-    intros; simpl.
-    lets: (>> remove_length xs0 x); simpl in *; try omega.
-  Defined.
-  Arguments uniq {A eqt} xs : rename.
-
-  Lemma remove_incl {A} {eqt : eq_type A} x (xs : list A) :
-    incl (remove eq_dec x xs) xs.
-  Proof.
-    induction xs; unfold incl in *; simpl; eauto.
-    destruct (eq_dec _ _); substs; simpl in *; jauto.
-    intros ? [? | ?]; eauto.
-  Qed.
-  
-  Lemma uniq_incl {A} {eqt : eq_type A} (xs : list A) :
-    incl (uniq xs) xs.
-  Proof.
-    functional induction (uniq xs).
-    - unfold incl; eauto.
-    - unfold incl in *; simpl.
-      intros ? [? | ?]; eauto.
-      forwards* : IHl.
-      forwards* : remove_incl.
-  Qed.
-
-  Lemma uniq_no_dup {A} {eqt : eq_type A} (xs : list A) :
-    NoDup (uniq xs).
-  Proof.
-    functional induction (uniq xs).
-    - constructor.
-    - constructor; eauto.
-      intros Hc.
-      forwards*: uniq_incl; unfold incl in *; eauto.
-      apply H in Hc; forwards*: remove_In; eauto.
-  Qed.
-
-  Import scan_lib.
-
-  Fixpoint free_sv' (e : SExp) :=
-    match e with
-    | EVar v _ => v :: nil
-    | Enum _   => nil
-    | ELet x e1 e2 _ => 
-      free_sv' e1 ++ remove eq_dec x (free_sv' e2)
-    | EBin _ e1 e2 _ => free_sv' e1 ++ free_sv' e2
-    | EA _ e _ => free_sv' e
-    | EPrj e _ _ => free_sv' e
-    | ECons es _ => fold_right (fun e xs => free_sv' e ++ xs) nil es
-    | EIf e e' e'' _ => free_sv' e ++ free_sv' e' ++ free_sv' e''
-    end.
-
-  Fixpoint free_av' (e : SExp) :=
-    match e with
-    | EVar v _ => nil
-    | Enum _   => nil
-    | ELet x e1 e2 _ => 
-      free_av' e1 ++ free_av' e2
-    | EBin _ e1 e2 _ => free_av' e1 ++ free_av' e2
-    | EA x e _ => x :: free_av' e
-    | EPrj e _ _ => free_av' e
-    | ECons es _ => fold_right (fun e xs => free_av' e ++ xs) nil es
-    | EIf e e' e'' _ => free_av' e ++ free_av' e' ++ free_av' e''
-    end.
-
-  Definition free_sv e := uniq (free_sv' e).
-  Definition free_av e := uniq (free_av' e).
-
   Lemma compile_ok (se : SExp) (seval_env : Env varE (option SVal) _)
         (svar_env : Env varE (list var) _) (n m : nat)
         (sv : SVal) c es :
@@ -665,33 +761,11 @@ Section CorrectnessProof.
       inversion Heval; substs; simpl in *.
       eapply Hforward; eauto using rule_skip.
       intros; sep_split; sep_split_in H; repeat sep_cancel.
+      simpl_avs in HP.
       destruct (seval_env x); sep_split_in H; sep_split; eauto.
       + inverts H1; sep_normal_in HP; sep_split_in HP; eauto.
       + destruct HP.
-      (* assert (Hin : In x ) by (destruct Heq1; unfold incl in *; simpl in *; eauto). *)
-      
-      (* Lemma assn_of_svs_in seval_env svar_env x fv v : *)
-      (*   In x fv -> *)
-      (*   seval_env x = Some v -> *)
-      (*   !(assn_of_svs seval_env svar_env fv) |= !(S.vars2es (svar_env x) ==t vs_of_sval v). *)
-      (* Proof. *)
-      (*   induction fv; simpl in *; destruct 1; substs; intros Heq. *)
-      (*   - rewrite Heq. *)
-      (*     intros. *)
-      (*     sep_rewrite_in pure_star H; sep_rewrite_in pure_pure H. *)
-      (*     sep_split_in H; sep_split; eauto. *)
-      (*   - destruct (seval_env a); [|intros ? ? [? []]]. *)
-      (*     intros stk h H'. *)
-      (*     sep_rewrite_in pure_star H'; sep_rewrite_in pure_pure H'. *)
-      (*     sep_split_in H'. *)
-      (*     apply IHfv; eauto; sep_split; eauto. *)
-      (* Qed. *)
-
-      (* forwards: (>>assn_of_svs_in s (emp_ph loc)); eauto. *)
-      (* sep_split; eauto using emp_emp_ph. *)
-      (* sep_split_in H0; eauto. *)
-
-    - intros _; introv Heval Hcompile.
+    - introv Heval Hcompile.
       inversion Hcompile; substs.
       eapply Hforward; [apply rule_skip|].
       intros; sep_split; sep_split_in H; eauto.
@@ -706,4 +780,241 @@ Section CorrectnessProof.
       inverts Heval; substs.
       
       forwards*: IHse1.
-      
+
+      Infix "==" := SE.Equal.
+
+      Lemma eqset_empty s s' : SE.Empty s -> s == s' -> SE.Empty s'.
+      Proof.
+        unfold not, SE.Empty, "=="; firstorder.
+      Qed.
+
+      Lemma assn_empty s seval_env svar_env stk : SE.Empty s -> stk ||= assn_of_svs seval_env svar_env s <=> emp.
+      Proof.
+        destruct s as [[| ? ?] ?]; rewrite <-SE.is_empty_spec; simpl; 
+          unfold SE.is_empty; simpl; try congruence.
+        simpl_avs; split; eauto.
+      Qed.
+
+      Lemma choose_remove s x : SE.In x s -> s == SE.add x (SE.remove x s).
+      Proof.
+        revert s x; clear; intros s x.
+        unfold "=="; intros.
+        rewrite SE.add_spec, SE.remove_spec.
+        lets [? | ?]: (VarE_eq.eq_dec a x); split; intros; substs; intuition.
+        substs; eauto.
+      Qed.
+
+      Lemma equal_in x s s' : SE.In x s -> s == s' -> SE.In x s'.
+      Proof.
+        unfold "==", SE.In; intros.
+        rewrite <-H0; auto.
+      Qed.
+
+      Lemma cardinal0_empty s : SE.cardinal s = 0 <-> SE.Empty s.
+      Proof.
+        unfold SE.Empty, SE.cardinal; intros; split; intros H.
+        - destruct s as [[|? ?] ?]; simpl in *; try congruence.
+          cbv; inversion 1.
+        - destruct s as [[| ? ? ] ?]; simpl; auto.
+          false; lets: (H e); apply H0; left; auto.
+      Qed.
+
+      Lemma cardinal_add x s : ~SE.In x s -> SE.cardinal (SE.add x s) = S (SE.cardinal s).
+      Proof.
+        destruct s as [s ?]; unfold SE.In, SE.add, SE.cardinal; simpl.
+        remember (SE.Raw.cardinal s) as car_s eqn:Heqc.
+        clear is_ok.
+        revert s Heqc; induction car_s using lt_wf_ind; intros s Heqc Hnin.
+        destruct car_s.
+        - unfold SE.cardinal in *; destruct s as [|? ?]; simpl in *; congruence.
+        - unfold SE.cardinal in *; destruct s as [|? ?]; simpl in *; try congruence.
+          destruct VarE_eq.eq_dec; unfold VarE_eq.eq in *; simpl in *; substs.
+          + false; unfold SE.Raw.In in Hnin; apply Hnin.
+            constructor; auto.
+          + forwards* :(>>H car_s s).
+            intros Hc; apply Hnin; right; auto.
+      Qed.  
+
+      Lemma remove_nin x s : ~SE.In x (SE.remove x s).
+      Proof.
+        rewrite SE.remove_spec; intros [? ?]; congruence.
+      Qed.
+
+      Lemma eqset_cardinal s s' : s == s' -> SE.cardinal s = SE.cardinal s'.
+      Proof.
+        destruct s as [s oks], s' as [s' oks'].
+        unfold "==", SE.In, SE.cardinal; simpl.
+        revert s' oks'; induction s; simpl in *; intros s' oks'.
+        - destruct s'; simpl; auto.
+          intros H; lets [? ?]: (H e); unfold SE.Raw.In in *; simpl in *.
+          false; forwards: H1; [left; auto|inversion H2].
+        - intros Heq.
+          inverts oks.
+          assert (SE.Raw.Ok s) by apply H2.
+          cutrewrite (SE.Raw.cardinal s' = S (SE.Raw.cardinal (SE.Raw.remove a s'))).
+          erewrite IHs; eauto using SE.Raw.remove_ok.
+          { intros b; rewrite SE.Raw.remove_spec; eauto.
+            split; intros.
+            + split.
+              rewrite <-Heq; right; auto.
+              intros Hc; substs; unfold SE.Raw.In in *; auto.
+            + destruct H0.
+              rewrite <-Heq in H0; inverts H0; try congruence.
+              unfold SE.Raw.In; auto. }
+          { assert (SE.Raw.In a s').
+            { rewrite <-Heq; left; auto. }
+            revert H0 oks'; clear.
+            induction s'; simpl.
+            - inversion 1.
+            - destruct VarE_eq.eq_dec as [Heq | Heq]; unfold VarE_eq.eq in Heq; substs; auto.
+              simpl.
+              intros; rewrite <-IHs'; eauto.
+              inversion H0; substs; eauto; congruence.
+              inversion oks'; substs; auto. }
+      Qed.
+
+      Lemma eqset_remove a s s' : s == s' -> SE.remove a s == SE.remove a s'.
+      Proof.
+        unfold "=="; intros; rewrite !SE.remove_spec.
+        firstorder.
+      Qed.
+
+      Lemma add_eq a s :
+        ~In a s ->
+        SE.Raw.add a s = s ++ a :: nil.
+      Proof.
+        induction s; simpl; eauto.
+        intros Hc.
+        destruct VarE_eq.eq_dec; simpl.
+        - false; apply Hc; left; auto.
+        - f_equal; rewrite IHs; auto.
+      Qed.
+
+      Lemma add_equiv seval_env svar_env a s stk :
+        ~SE.In a s ->
+        stk ||= assn_of_svs seval_env svar_env (SE.add a s) <=>
+            match seval_env a with
+            | Some v => !((vars2es (svar_env a)) ==t vs_of_sval v) ** assn_of_svs seval_env svar_env s
+            | None => FalseP 
+            end.
+      Proof.
+        unfold assn_of_svs, SE.add, SE.In; rewrite !SE.fold_spec.
+        destruct s as [s oks]; simpl.
+        intros; rewrite add_eq; [|intros Hc; eapply In_InA in Hc; eauto using SE.E.eq_equiv].
+        rewrite fold_left_app; simpl.
+        destruct (seval_env a); [|reflexivity].
+        reflexivity.
+      Qed.        
+
+      Lemma add_remove_equiv seval_env svar_env a s stk :
+        SE.In a s ->
+        stk ||= assn_of_svs seval_env svar_env (SE.add a (SE.remove a s)) <=>
+                assn_of_svs seval_env svar_env s.
+      Proof.
+      Admitted.
+
+      Lemma eqset_equiv seval_env svar_env s s' stk :
+        SE.Equal s s' ->
+        stk ||= assn_of_svs seval_env svar_env s <=> assn_of_svs seval_env svar_env s'.
+      Proof.
+        remember (SE.cardinal s) as car_s eqn:Heqc.
+        revert s s' Heqc; induction car_s using lt_wf_ind; intros s s' Heqc Heqss'.
+        destruct car_s.
+        - assert (SE.Empty s).
+          { unfold SE.Empty; intros.
+            rewrite SE.cardinal_spec in Heqc.
+            destruct s as [[|? ?] ?]; simpl in *; try congruence.
+            cbv; inversion 1. }
+          forwards* : (eqset_empty).
+          forwards* Heq: (assn_empty s); rewrite Heq.
+          forwards* Heq': (assn_empty s'); rewrite Heq'; reflexivity.
+        - destruct (SE.choose s) as [a |] eqn:Hchoose.
+          forwards*: SE.choose_spec1.
+          forwards* Heq: choose_remove.
+          assert (SE.cardinal s = S (SE.cardinal (SE.remove a s))).
+          { lets: (remove_nin a s).
+            rewrites (>>eqset_cardinal Heq).
+            rewrites cardinal_add; eauto using remove_nin. }
+          forwards*: (>>H (SE.cardinal (SE.remove a s)) (SE.remove a s) (SE.remove a s')); try omega;
+            eauto using eqset_remove.
+          assert (SE.In a s') by eauto using equal_in.
+          
+          
+          
+          { apply SE.choose_spec2 in Hchoose.
+            rewrite <-cardinal0_empty in Hchoose; congruence. }
+      Qed.          
+        
+
+      Lemma union_emp_l s : SE.Equal (SE.union s SE.empty) s.
+      Proof.
+        unfold SE.Equal; intros a.
+        rewrite SE.union_spec.
+        lets: (SE.empty_spec); unfold SE.Empty in H.
+        split; [intros [|]|intros]; eauto.
+        intros; false; eapply H; eauto.
+      Qed.
+
+      Lemma uniq_subset A (eqt : eq_type A) (xs ys : list A) :
+        incl xs ys -> incl (uniq xs) (uniq ys).
+      Proof.
+        revert ys; functional induction (uniq xs); unfold incl; simpl; intros ys Hin z Hinz;
+          destruct Hinz; substs.
+        - forwards *: (Hin z).
+          apply uniq_incl'; eauto.
+        - apply IHl; eauto.
+          unfold incl; intros; apply Hin.
+          right.
+          lets: remove_incl; unfold incl in *; eauto.
+      Qed.
+
+      Lemma assn_of_svs_subset xs ys (seval_env : Env varE (option SVal) _) (svar_env : Env varE (list var) _) stk :
+        incl xs ys ->
+        exists zs,
+          stk ||= !(assn_of_svs seval_env svar_env ys) <=>
+                  !(assn_of_svs seval_env svar_env xs) ** !(assn_of_svs seval_env svar_env zs).
+      Proof.
+        revert xs; induction ys; simpl; unfold incl; intros xs Hin.
+        - assert (xs = nil); [|substs].
+          { destruct xs; eauto; simpl in *.
+            forwards* : (Hin v). }
+          exists (@nil varE); simpl.
+          split; intros; sep_split_in H; sep_split; eauto.
+        - simpl in Hin.
+          assert (incl (remove eq_dec a xs) ys).
+          { unfold incl; intros b Hin'.
+            destruct (eq_dec a b) as [|Hneq]; substs.
+            - apply remove_In in Hin' as [].
+            - forwards* : (Hin b).
+              Lemma remove_neq' a b xs :
+                a <> b -> In a (remove eq_dec b xs) -> In a xs.
+              Proof.
+                induction xs; simpl; eauto.
+                destruct eq_dec; eauto.
+                simpl; intros ? [? | ?]; eauto.
+              Qed.
+              eapply remove_neq'; eauto. }
+          forwards* [zs IH]: (>>IHys H).
+
+              
+
+          Lemma assn_of_svs_equiv xs ys (seval_env : Env varE (option SVal) _) (svar_env : Env varE (list var) _) stk :
+            equiv_ls _ xs ys ->
+            stk ||= !(assn_of_svs seval_env svar_env xs) <=> !(assn_of_svs seval_env svar_env ys).
+          Proof.
+            revert ys; induction xs; simpl; simpl; intros ys Heq.
+            - assert (ys = nil); [|substs; simpl].
+              { unfold equiv_ls, incl in Heq; destruct Heq, ys; simpl in *; eauto.
+                forwards*: (H0 v). }
+              reflexivity.
+            - destruct ys as [|y ys].
+              { unfold equiv_ls, incl in Heq; destruct Heq; simpl in *.
+                forwards*: (H a). }
+              
+
+          exists zs; simpl.
+          destruct (seval_env a).
+          2: split; intros H'; sep_split_in H'; sep_split; try destruct HP; eauto.
+          rewrite !pure_star, !pure_pure.
+          rewrite IH.
+          split; intros; repeat sep_cancel.
