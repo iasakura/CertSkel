@@ -390,18 +390,71 @@ Section compiler.
 
   Notation SVEnv := (Env varE (list var) _).
 
+  Definition str_of_pnat n m :=
+    ("l" ++ S.nat_to_string n ++ "_" ++ S.nat_to_string m).
+
   Definition freshes dim : M (list var) :=
     let fix f dim n :=
         match dim with
         | O => ret nil
         | S dim =>
           f dim n >>= fun fs =>
-           ret (Var ("l" ++ S.nat_to_string n ++ "_" ++ S.nat_to_string dim) :: fs)
+           ret (Var (str_of_pnat n dim) :: fs)
         end in
     get >>= fun n =>
     set (n + 1) >>= fun _ =>
     f dim n.
 
+  Definition char a := String a EmptyString.
+  Definition str_in s c := exists s1 s2, s = s1 ++ char c ++ s2.
+  Lemma sep_var_inj s1 s1' c s2 s2' :
+    s1 ++ char c ++ s2 = s1' ++ char c ++ s2' ->
+    ~str_in s1 c -> ~str_in s1' c ->
+    s1 = s1'.
+  Proof.
+    revert s1' s2 s2'; induction s1; simpl; introv Heq Hin Hin'.
+    - destruct s1'; simpl in *; eauto.
+      assert (c <> a).
+      { intros Hc; substs.
+        apply Hin'.
+        exists "" (s1'); eauto. }
+      inverts Heq; congruence.
+    - destruct s1'; simpl in *; inverts Heq.
+      { false; apply Hin; exists "" s1; eauto. }
+      forwards*: (>>IHs1 s1'); try congruence.
+      { intros (t1 & t2 & Heq'); apply Hin; exists (char a0 ++ t1) t2; simpl in *; congruence. }
+      { intros (t1 & t2 & Heq'); apply Hin'; exists (char a0 ++ t1) t2; simpl in *; congruence. }
+  Qed.
+
+  Definition char_of_string s := match s with
+                                 | String c _ => c
+                                 | _ => Ascii.zero
+                                 end.
+  
+  Lemma nat_to_str_underbar n :
+    ~str_in (S.nat_to_string n) (char_of_string "_").
+  Proof.
+    induction n; simpl; intros (s1 & s2 & Heq).
+    - destruct s1; simpl in *; try congruence.
+      inverts Heq.
+      destruct s1; simpl in *; try congruence.
+    - destruct s1; simpl in *; try congruence.
+      inverts Heq.
+      apply IHn; exists s1 s2; eauto.
+  Qed.
+
+  Lemma str_of_pnat_inj n m n' m' :
+    str_of_pnat n m = str_of_pnat n' m' ->
+    n = n' /\ m = m'.
+  Proof.
+    intros H; unfold str_of_pnat in H.
+    inverts H as Heq.
+    forwards*: (sep_var_inj (S.nat_to_string n) (S.nat_to_string n')); simpl; eauto using nat_to_str_underbar.
+    split; apply S.nat_to_string_inj; auto.
+    cut (String "_" (S.nat_to_string m) = String "_" (S.nat_to_string m')); [intros H'; inversion H'; auto|].
+    eapply S.string_inj2; eauto.
+  Qed.
+  
   (* compiler of scalar expressions *)
   Fixpoint compile_sexp (se : SExp) (env : SVEnv) : M (cmd * list exp) := match se with
     | EVar v _ => ret (Cskip, S.vars2es (env v))
@@ -443,11 +496,8 @@ Section compiler.
         let (c, es) := ces in
         if le_dec (off + l) (len_of_ty (TTup tys)) then
           ret (Cskip, firstn l (skipn off es))
-        else fail ("overflow the index " ++ S.nat_to_string i ++ " of tuple:
-" ++               "type of tuple: " ++ string_of_ty ty ++
-
-                   "expected length = " ++ S.nat_to_string (len_of_ty ty) ++ "
-" ++
+        else fail ("overflow the index " ++ S.nat_to_string i ++ " of tuple:" ++ "type of tuple: " ++ string_of_ty ty ++
+                   "expected length = " ++ S.nat_to_string (len_of_ty ty) ++
                    "actual length = " ++ S.nat_to_string off ++ " + " ++ S.nat_to_string l)
       end
     | ECons es _ => 
@@ -507,27 +557,6 @@ Section TestCompiler.
 End TestCompiler.
 
 Require Import MSets.
-Module VarE_eq : DecidableType with Definition t := varE with Definition eq := fun (x y : varE) => x = y.
-  Definition t := varE.
-  Definition eq (x y : t) := x = y.
-  Definition eq_equiv : Equivalence eq.
-  Proof.
-    split; cbv; intros; congruence. 
-  Qed.
-  Definition eq_dec := eq_dec.
-End VarE_eq.
-Module VarA_eq : DecidableType with Definition t := varA with Definition eq := fun (x y : varA) => x = y.
-  Definition t := varA.
-  Definition eq (x y : t) := x = y.
-  Definition eq_equiv : Equivalence eq.
-  Proof.
-    split; cbv; intros; congruence. 
-  Qed.
-  Definition eq_dec := @eq_dec t _.
-End VarA_eq.
-
-Module SE := MSetWeakList.Make VarE_eq.
-Module SA := MSetWeakList.Make VarA_eq.
 
 Module Type DecType <: DecidableType.
   Parameter t : Type.
@@ -538,13 +567,31 @@ Module Type DecType <: DecidableType.
   Parameter eq_dec : forall x y : t, {x = y} + {x <> y}.
 End DecType.
 
+Module VarE_eq : DecType with Definition t := varE.
+  Definition t := varE.
+  Definition eq (x y : t) := x = y.
+  Definition eq_equiv : Equivalence eq.
+  Proof.
+    split; cbv; intros; congruence.
+  Qed.
+  Definition eq_dec := eq_dec.
+End VarE_eq.
+Module VarA_eq : DecType with Definition t := varA.
+  Definition t := varA.
+  Definition eq (x y : t) := x = y.
+  Definition eq_equiv : Equivalence eq.
+  Proof.
+    split; cbv; intros; congruence. 
+  Qed.
+  Definition eq_dec := @eq_dec t _.
+End VarA_eq.
+
 Require Import SetoidClass.
 
-Module VarsCondition (D : DecType) (Val : DecType).
-  Instance eq_type_dt : eq_type D.t := {| eq_dec := D.eq_dec |}.
-  Instance eq_type_vt : eq_type Val.t := {| eq_dec := Val.eq_dec |}.
-  
+Module VarsProps (D : DecType).
   Module SE := MSetWeakList.Make D.
+
+  Instance eq_type_dt : eq_type D.t := {| eq_dec := D.eq_dec |}.
 
   Close Scope exp_scope.
   Infix "==" := equiv.
@@ -772,8 +819,10 @@ Module VarsCondition (D : DecType) (Val : DecType).
     rewrite !SE.add_spec; firstorder.
   Qed.
 
-  Variable find : D.t -> option Val.t.
-  Variable den : D.t -> Val.t -> assn.
+  Section Assns.
+  Variable Vals : Type.
+  Variable find : D.t -> option Vals.
+  Variable den : D.t -> Vals -> assn.
 
   Definition assn_of_vs s :=
     SE.fold (fun x rec =>
@@ -958,7 +1007,12 @@ Module VarsCondition (D : DecType) (Val : DecType).
       rewrite Heq''.
       rewrite <-!sep_assoc; split; intros; repeat sep_cancel.
   Qed.
-End VarsCondition.
+  End Assns.
+  Include SE.
+End VarsProps.
+
+Module SA := VarsProps VarA_eq.
+Module SE := VarsProps VarE_eq.
 
 Section CorrectnessProof.
   Import Skel_lemma.
@@ -981,13 +1035,10 @@ Section CorrectnessProof.
 
   (* precondition of free variable arrays *)
   Definition assn_of_avs (favs : SA.t) : assn :=
-    SA.fold (fun x_a rec =>
-      match aeval_env x_a with
-      | None => FalseP
-      | Some a =>
-        S.is_tuple_array_p (S.es2gls (S.vars2es (avar_env x_a))) (len_of a) (fun i => vs_of_sval (nth i (arr_of a) (VZ 0))) 0 1 ** rec
-      end) favs emp.
-
+    SA.assn_of_vs array aeval_env (fun x_a a =>
+       S.is_tuple_array_p (S.es2gls (S.vars2es (avar_env x_a))) (len_of a)
+                          (fun i => vs_of_sval (nth i (arr_of a) (VZ 0))) 0 1) favs.
+  
   (* (* the set of free variables of scalar exp *) *)
   (* Variable free_svs : list varE. *)
   (* (* the evaluation environment of scalar exp *) *)
@@ -998,13 +1049,10 @@ Section CorrectnessProof.
   (* Variable svar_env : Env varE (list var) _ . *)
 
   (* preconditions of scalar variables *)
-  Definition assn_of_svs (seval_env : Env varE (option SVal) _) (svar_env : Env varE (list var) _)  (fsvs : SE.t) :=
-    SE.fold (fun x_e rec =>
-      match seval_env x_e with
-      | Some v => !(vars2es (svar_env x_e) ==t vs_of_sval v) ** rec
-      | None => FalseP
-      end) fsvs emp.
-
+  Definition assn_of_svs (seval_env : Env varE (option SVal) _) (svar_env : Env varE (list var) _)  (fsvs : SE.t) : assn :=
+    SE.assn_of_vs SVal seval_env (fun x_e v =>
+                !(vars2es (svar_env x_e) ==t vs_of_sval v)) fsvs.
+  
   (* Section UniqList. *)
   (*   Variable A : Type. *)
   (*   Variable eqt : eq_type A. *)
@@ -1167,7 +1215,16 @@ Section CorrectnessProof.
   Variable BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd.
   Arguments assn_of_svs _ _ _ _ _ : simpl never.
   Arguments assn_of_avs _ _ _ : simpl never.
-
+  Tactic Notation "simpl_avs" "in" hyp(HP) := unfold assn_of_svs, SE.assn_of_vs, SE.fold in HP; simpl in HP.
+  Tactic Notation "simpl_avs" := unfold assn_of_svs, SE.assn_of_vs, SE.fold; simpl.
+  Tactic Notation "simpl_avs" "in" "*" := unfold assn_of_svs, SE.assn_of_vs, SE.fold in *; simpl in *.
+  Arguments flip / _ _ _ _ _ _.
+  Instance ban_proper stk : Proper (equiv_sep stk ==> equiv_sep stk) ban.
+  Proof.
+    intros P1 P2 Heq h; lets:(Heq h).
+    unfold ban, Aconj; rewrite H; split; eauto.
+  Qed.
+    
   Lemma compile_ok (se : SExp) (seval_env : Env varE (option SVal) _)
         (svar_env : Env varE (list var) _) (n m : nat)
         (sv : SVal) c es :
@@ -1207,9 +1264,38 @@ Section CorrectnessProof.
       inverts Heval; substs.
       
       forwards*: IHse1.
-
-          
-
+      eapply Hbackward.
+      Focus 2. {
+        intros.
+        unfold assn_of_svs in H0; sep_rewrite_in SE.union_assns H0; sep_rewrite_in pure_star H0.
+        unfold assn_of_avs in H0; sep_rewrite_in SA.union_assns H0.
+        Lemma fold_assn_svs se sv :
+          SE.assn_of_vs SVal se (fun (x_e : VarE_eq.t) (v : SVal) => !(vars2es (sv x_e) ==t vs_of_sval v)) =
+          assn_of_svs se sv. auto. Qed.
+        Lemma fold_assn_avs :
+          SA.assn_of_vs array aeval_env
+          (fun (x_a : VarA_eq.t) (a : array) =>
+           S.is_tuple_array_p (S.es2gls (S.vars2es (avar_env x_a))) 
+             (len_of a) (fun i : nat => vs_of_sval (nth i (arr_of a) (VZ 0))) 0 1) =
+          assn_of_avs. auto. Qed.
+        rewrite !fold_assn_svs, !fold_assn_avs in H0.
+        
+        sep_normal_in H0; sep_normal; repeat sep_cancel.
+        assert (((!(assn_of_svs seval_env svar_env (free_sv se1)) ** assn_of_avs (free_av se1)) **
+                 (!(assn_of_svs seval_env svar_env (SE.SE.diff (SE.remove x (free_sv se2)) (free_sv se1))) **
+                 assn_of_avs (SA.SE.diff (free_av se2) (free_av se1)))) s h).
+        { sep_normal; repeat sep_cancel. }
+        exact H1. } Unfocus.
+      eapply rule_seq; [eapply rule_frame|].
+      apply H.
+      { admit. }
+      eapply rule_seq.
+      
+      destruct (compile_sexp _ _ se1 _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hcompile].
+      destruct (freshes (length es1) _) as [[fvs1 | ?] n''] eqn:Hfeq1; [|inversion Hcompile].
+      destruct (compile_sexp _ _ se2 _ _) as [[(cs2 & es2) | ?] n'''] eqn:Hceq2; [|inversion Hcompile].
+      
+      
       (* Lemma uniq_subset A (eqt : eq_type A) (xs ys : list A) : *)
       (*   incl xs ys -> incl (uniq xs) (uniq ys). *)
       (* Proof. *)
