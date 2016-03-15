@@ -1230,6 +1230,10 @@ Section CorrectnessProof.
         (sv : SVal) c es :
     evalSE aeval_env seval_env se (inl sv) ->
     compile_sexp aty_env avar_env se svar_env n =  (inl (c, es), m) ->
+    (forall x, SE.In x (free_sv se) -> 
+       forall k l, In (Var (str_of_pnat k l)) (svar_env x) -> k < n) -> (* fvs are not in the future generated vars *)
+    (forall x, In x (writes_var c) -> 
+       exists k l, (Var (str_of_pnat k l)) = x -> n <= k < m) -> (* written vars are generated with the managed effect *)
     CSL BS tid
         (!(assn_of_svs seval_env svar_env (free_sv se)) **
           (assn_of_avs (free_av se)))
