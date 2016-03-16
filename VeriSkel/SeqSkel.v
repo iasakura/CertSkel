@@ -4,6 +4,7 @@ Require Import List.
 Require Import ZArith.
 Require Import GPUCSL.
 Require Import LibTactics.
+Require Import Psatz.
 Definition name := string. 
 
 
@@ -82,7 +83,7 @@ Defined.
 (* scalar expressions *)
 Inductive SExp :=
 | EVar (x : varE) (typ : Typ)
-| Enum (x : Z)
+| ENum (x : Z)
 | ELet (x : varE) (e e' : SExp) (typ : Typ)
 | EBin (op : SOp) (e1 e2 : SExp) (typ : Typ)
 | EA (x : varA) (e : SExp) (typ : Typ)
@@ -91,10 +92,10 @@ Inductive SExp :=
 | EIf (e e' e'' : SExp) (typ : Typ).
 
 (* getter of the type informations *)
-Definition typ_of e :=
+Definition typ_of_sexp e :=
   match e with
   | EVar _ ty => ty
-  | Enum _ => TZ
+  | ENum _ => TZ
   | ELet _ _ _ ty => ty
   | EBin _ _ _ ty => ty
   | EA _ _ ty => ty
@@ -105,7 +106,7 @@ Definition typ_of e :=
 
 Lemma SExp_ind' : forall P : SExp -> Prop,
     (forall (x : varE) ty, P (EVar x ty)) ->
-    (forall (x : Z), P (Enum x)) ->
+    (forall (x : Z), P (ENum x)) ->
     (forall (x : varE) (e : SExp) ty, P e -> forall e' : SExp, P e' -> P (ELet x e e' ty)) ->
     (forall (op : SOp) (e1 : SExp) ty, P e1 -> forall e2 : SExp, P e2 -> P (EBin op e1 e2 ty)) ->
     (forall (x : varA) (e : SExp) ty, P e -> P (EA x e ty)) ->
@@ -118,7 +119,7 @@ Proof.
   refine (fix rec (e : SExp) := 
     match e return P e with
     | EVar x _ => H _ _
-    | Enum x => H0 _
+    | ENum x => H0 _
     | ELet x e e' _ => H1 _ _ _ (rec _) _ (rec _)
     | EBin op e1 e2 _ => H2 _ _ _ (rec _) _ (rec _)
     | EA x e _ => H3 _ _ _ (rec _)
@@ -146,7 +147,7 @@ Inductive AE :=
 Inductive SVal : Set :=
 | VB (b : bool) | VZ (n : Z) | VTup (vs : list SVal).
 Record array :=
-  Arr {len_of : nat; dim_of : nat; arr_of : list SVal}.
+  Arr {len_of : nat; arr_of : list SVal}.
 
 (* environments for variables *)
 Definition AEnv (A : Type) := Env varA A _.
@@ -167,55 +168,48 @@ Definition op_denote (op : SOp) (v1 v2 : SVal) :=
 Section Semantics.
   Variable aenv : AEnv_eval.
 
-  Inductive abort := AB.
-
   (* semantics of scalar expressions *)
-  Inductive evalSE : Env varE (option SVal) _  -> SExp -> SVal + abort -> Prop :=
+  Inductive evalSE : Env varE (option SVal) _  -> SExp -> SVal  -> Prop :=
   | EvalSE_var senv sx v ty :
-      senv sx = Some v -> evalSE senv (EVar sx ty) (inl v)
+      senv sx = Some v -> evalSE senv (EVar sx ty) v
   | EvalSE_Z senv n :
-      evalSE senv (Enum n) (inl (VZ n))
+      evalSE senv (ENum n) (VZ n)
   | EvalSE_elet senv sx e1 e2 v1 v2 ty:
-      evalSE senv e1 (inl v1) ->
+      evalSE senv e1 v1 ->
       evalSE (upd_opt senv sx v1) e2 v2 ->
       evalSE senv (ELet sx e1 e2 ty) v2
   | EvalSE_EBin senv op e1 e2 v1 v2 v ty:
-      evalSE senv e1 (inl v1) ->
-      evalSE senv e2 (inl v2) ->
+      evalSE senv e1 v1 ->
+      evalSE senv e2 v2 ->
       op_denote op v1 v2 = Some v ->
-      evalSE senv (EBin op e1 e2 ty) (inl v)
-  | EvalSE_EA_safe senv varA va e ix ty:
-      evalSE senv e (inl (VZ ix)) ->
+      evalSE senv (EBin op e1 e2 ty) v
+  | EvalSE_EA senv varA va e ix ty:
+      evalSE senv e (VZ ix) ->
       aenv varA = Some va ->
       (0 <= ix)%Z -> (ix < Z.of_nat (len_of va))%Z -> 
-      evalSE senv (EA varA e ty) (inl (List.nth (Z.to_nat ix) (arr_of va) (VZ 0)))
-  | EvalSE_EA_abort senv varA va e ix ty :
-      evalSE senv e (inl (VZ ix)) ->
-      aenv varA = Some va ->
-      (ix < 0 \/ Z.of_nat (len_of va) < ix)%Z ->
-      evalSE senv (EA varA e ty) (inl (List.nth (Z.to_nat ix) (arr_of va) (VZ 0)))
+      evalSE senv (EA varA e ty) (List.nth (Z.to_nat ix) (arr_of va) (VZ 0))
   | EvalSE_EPrj senv e tup i ty :
-      evalSE senv e (inl (VTup tup)) ->
+      evalSE senv e (VTup tup) ->
       i < List.length (tup) ->
-      evalSE senv (EPrj e i ty) (inl (List.nth i tup (VZ 0)))
+      evalSE senv (EPrj e i ty) (List.nth i tup (VZ 0))
   | EvalSE_ECons senv es vs ty :
-      evalTup senv es (inl vs) ->
-      evalSE senv (ECons es ty) (inl (VTup vs))
+      evalTup senv es vs ->
+      evalSE senv (ECons es ty) (VTup vs)
   | EvalSE_Eif_true senv e e' e'' v ty :
-      evalSE senv e (inl (VB true)) ->
+      evalSE senv e (VB true) ->
       evalSE senv e' v ->
       evalSE senv (EIf e e' e'' ty) v
   | EvalSE_Eif_false senv e e' e'' v ty :
-      evalSE senv e (inl (VB false)) ->
+      evalSE senv e (VB false) ->
       evalSE senv e'' v ->
       evalSE senv (EIf e e' e'' ty) v
   with
-  evalTup : (SEnv_eval) -> list SExp -> list SVal + abort -> Prop :=
-  | EvalTup_nil senv : evalTup senv nil (inl nil)
+  evalTup : (SEnv_eval) -> list SExp -> list SVal  -> Prop :=
+  | EvalTup_nil senv : evalTup senv nil nil
   | EvalTup_cons senv e es v vs :
-      evalTup senv es (inl vs) ->
-      evalSE senv e (inl v) ->
-      evalTup senv (e :: es) (inl (v :: vs)).
+      evalTup senv es vs ->
+      evalSE senv e v ->
+      evalTup senv (e :: es) (v :: vs).
 
   (* semantics of functions *)
   Fixpoint bind_vars (xs : list varE) (vs : list SVal) :=
@@ -229,19 +223,19 @@ Section Semantics.
     | _, _ => None
     end.
 
-  Inductive evalFunc : list SVal -> Func -> SVal + abort -> Prop :=
+  Inductive evalFunc : list SVal -> Func -> SVal -> Prop :=
   | EvalFunc_app xs vs e v bnd : 
       bind_vars xs vs = Some bnd ->
       evalSE bnd e v ->
       evalFunc vs (F xs e) v.
 
-  Variable eval_skel : AEnv_eval -> name -> list Func -> list varA -> array + abort -> Prop.
+  Variable eval_skel : AEnv_eval -> name -> list Func -> list varA -> array -> Prop.
   
-  Inductive evalAE : AEnv_eval -> AE -> array + abort -> Prop :=
+  Inductive evalAE : AEnv_eval -> AE -> array -> Prop :=
   | EvalAE_ret aenv ax v :
-      aenv ax = Some v -> evalAE aenv (ARet ax) (inl v)
+      aenv ax = Some v -> evalAE aenv (ARet ax) v
   | EvalAE_alet (aenv : AEnv_eval) ax skl fs axs e2 v1 v2 :
-      eval_skel aenv skl fs axs (inl v1) ->
+      eval_skel aenv skl fs axs v1 ->
       evalAE (upd_opt aenv ax v1) e2 v2 ->
       evalAE aenv (ALet ax skl fs axs e2) v2.
 End Semantics.
@@ -279,7 +273,7 @@ Section typing_rule.
   Fixpoint typing (atyenv : Env varA (option Typ) _) (styenv : Env varE (option Typ) _) (e : SExp) : option (SExp * Typ) :=
     match e with
     | EVar x _ => match styenv x with Some ty => Some (EVar x ty, ty) | None => None end
-    | Top.Enum n => Some (Top.Enum n, TZ)
+    | Top.ENum n => Some (Top.ENum n, TZ)
     | ELet x e1 e2 _ =>
       match typing atyenv styenv e1 with
       | Some (e1, tye1) =>
@@ -339,6 +333,44 @@ Section typing_rule.
       | _, _, _ => None
       end
     end.
+
+  Inductive has_type (atyenv : Env varA (option Typ) _) :
+    Env varE (option Typ) _ -> SExp -> Typ -> Prop :=
+  | tyEVar : forall env x typ, env x = Some typ -> has_type atyenv env (EVar x typ) typ
+  | tyENum : forall env n, has_type atyenv env (ENum n) TZ
+  | tyELet : forall env x e1 e2 ty1 ty2,
+      has_type atyenv env e1 ty1 ->
+      has_type atyenv (upd_opt env x ty1) e2 ty2 ->
+      has_type atyenv env (ELet x e1 e2 ty2) ty2
+  | tyEBin : forall env e1 e2 op ty1 ty2 ty,
+      has_type atyenv env e1 ty1 ->
+      has_type atyenv env e2 ty2 ->
+      ty_of_SOp op (ty1 :: ty2 :: nil) = Some ty ->
+      has_type atyenv env (EBin op e1 e2 ty) ty
+  | tyEA : forall env x e ty,
+      has_type atyenv env e TZ ->
+      atyenv x = Some ty ->
+      has_type atyenv env (EA x e ty) ty
+  | tyEPrj : forall env e i tys,
+      has_type atyenv env e (TTup tys) ->
+      i < length tys ->
+      has_type atyenv env (EPrj e i (nth i tys TZ)) (nth i tys TZ)
+  | tyECons : forall env es tys,
+      has_type' atyenv env es tys ->
+      has_type atyenv env (ECons es (TTup tys)) (TTup tys)
+  | tyEIf : forall env e1 e2 e3 ty,
+      has_type atyenv env e1 TBool ->
+      has_type atyenv env e2 ty ->
+      has_type atyenv env e3 ty ->
+      has_type atyenv env (EIf e1 e2 e3 ty) ty
+  with
+  has_type' (atyenv : Env varA (option Typ) _) :
+    Env varE (option Typ) _ -> list SExp -> list Typ -> Prop :=
+  | tyNil env : has_type' atyenv env nil nil
+  | tyCons env e ty es tys :
+      has_type' atyenv env es tys ->
+      has_type atyenv env e ty ->
+      has_type' atyenv env (e :: es) (ty :: tys).
 End typing_rule.
 
 Section codegen.
@@ -382,7 +414,7 @@ Section compiler.
   Fixpoint len_until_i tys i : nat :=
     fold_right (fun ty n => len_of_ty ty + n) 0 (firstn i tys).
   
-  Fixpoint len_at_i (tys : list Typ) i : nat :=
+  Definition len_at_i (tys : list Typ) i : nat :=
     len_of_ty (nth i tys TZ).
   
   Import Lang.
@@ -396,14 +428,13 @@ Section compiler.
   Definition freshes dim : M (list var) :=
     let fix f dim n :=
         match dim with
-        | O => ret nil
+        | O => nil
         | S dim =>
-          f dim n >>= fun fs =>
-           ret (Var (str_of_pnat n dim) :: fs)
+          Var (str_of_pnat n dim) :: f dim n
         end in
     get >>= fun n =>
     set (n + 1) >>= fun _ =>
-    f dim n.
+    ret (f dim n).
 
   Definition char a := String a EmptyString.
   Definition str_in s c := exists s1 s2, s = s1 ++ char c ++ s2.
@@ -458,7 +489,7 @@ Section compiler.
   (* compiler of scalar expressions *)
   Fixpoint compile_sexp (se : SExp) (env : SVEnv) : M (cmd * list exp) := match se with
     | EVar v _ => ret (Cskip, S.vars2es (env v))
-    | Top.Enum z => ret (Cskip, Enum z :: nil)
+    | Top.ENum z => ret (Cskip, Enum z :: nil)
     | ELet x e1 e2 _ =>
       compile_sexp e1 env >>= fun ces1 => 
       let (c1, es1) := ces1 in
@@ -487,7 +518,7 @@ Section compiler.
       | _ => fail ""
       end
     | EPrj e i ty =>
-      match typ_of e with
+      match typ_of_sexp e with
       | TBool | TZ => fail ""
       | TTup tys => 
         let off := len_until_i tys i in
@@ -495,7 +526,7 @@ Section compiler.
         compile_sexp e env >>= fun ces =>
         let (c, es) := ces in
         if le_dec (off + l) (len_of_ty (TTup tys)) then
-          ret (Cskip, firstn l (skipn off es))
+          ret (c, firstn l (skipn off es))
         else fail ("overflow the index " ++ S.nat_to_string i ++ " of tuple:" ++ "type of tuple: " ++ string_of_ty ty ++
                    "expected length = " ++ S.nat_to_string (len_of_ty ty) ++
                    "actual length = " ++ S.nat_to_string off ++ " + " ++ S.nat_to_string l)
@@ -541,7 +572,7 @@ Section TestCompiler.
   Open Scope string_scope.
 
   Coercion VarE : string >-> varE.
-  Coercion Top.Enum : Z >-> SExp.
+  Coercion Top.ENum : Z >-> SExp.
   Coercion EVar' : varE >-> SExp.
 
   Definition test1 :=
@@ -1182,7 +1213,7 @@ Section CorrectnessProof.
   Fixpoint free_sv (e : SExp) : SE.t :=
     match e with
     | EVar v _ => SE.singleton v
-    | Enum _   => SE.empty
+    | ENum _   => SE.empty
     | ELet x e1 e2 _ => 
       SE.union (free_sv e1) (SE.remove x (free_sv e2))
     | EBin _ e1 e2 _ => SE.union (free_sv e1) (free_sv e2)
@@ -1195,7 +1226,7 @@ Section CorrectnessProof.
   Fixpoint free_av (e : SExp) : SA.t :=
     match e with
     | EVar v _ => SA.empty
-    | Enum _   => SA.empty
+    | ENum _   => SA.empty
     | ELet x e1 e2 _ => 
       SA.union (free_av e1) (free_av e2)
     | EBin _ e1 e2 _ => SA.union (free_av e1) (free_av e2)
@@ -1209,6 +1240,39 @@ Section CorrectnessProof.
 
   (* Definition free_sv e := uniq (free_sv' e). *)
   (* Definition free_av e := uniq (free_av' e). *)
+
+  (* some lemma for generetated variables *)
+  Lemma freshes_vars d n m xs:
+    freshes d n = (inl xs, m) -> 
+    m = n + 1 /\
+    (forall x, In x xs -> exists l, x = Var (str_of_pnat n l) /\ l < d).
+  Proof.
+    revert n m xs; induction d; simpl; intros n m xs.
+    - unfold get, set, ">>=", ret; simpl; intros H; inverts H.
+      split; eauto; destruct 1.
+    - unfold freshes, get, set, ">>=", ret in *; simpl.
+      lazymatch goal with [|- context [(Var _ :: ?E) ]] => remember E eqn:Heq end.
+      intros H; inverts H.
+      forwards* (? & ?): IHd.
+      split; eauto.
+      intros ? H'; apply in_inv in H' as [? | ?]; eauto.
+      substs; forwards* (? & ?): H0; eexists; split; eauto.
+  Qed.
+  
+  Lemma freshes_len d n m xs:
+    freshes d n = (inl xs, m) -> length xs = d.
+  Proof.
+    revert n m xs; induction d; unfold freshes, get, set, ">>=", ret in *;
+      simpl; inversion 1; simpl in *; try omega.
+    forwards * : IHd.
+  Qed.
+
+  Lemma var_pnat_inj n m n' m' : Var (str_of_pnat n m) = Var (str_of_pnat n' m') -> n = n' /\ m = m'.
+  Proof.
+    intros Heq.
+    apply str_of_pnat_inj; inversion Heq.
+    unfold str_of_pnat; f_equal; eauto.
+  Qed.
 
   Variable ntrd : nat.
   Variable tid : Fin.t ntrd.
@@ -1224,17 +1288,54 @@ Section CorrectnessProof.
     intros P1 P2 Heq h; lets:(Heq h).
     unfold ban, Aconj; rewrite H; split; eauto.
   Qed.
+
+  Lemma compile_don't_decrease se c es (svar_env : Env varE (list var) _) n m :
+    compile_sexp aty_env avar_env se svar_env n = (inl (c, es), m) ->
+    n <= m.
+  Proof.
+    revert n m svar_env c es; induction se using SExp_ind'; simpl;
+      intros n m svar_env c es' Hsuc; eauto; try inverts Hsuc as Hsuc;
+    eauto; unfold ">>=" in *;
+          (repeat lazymatch type of Hsuc with
+             | context [compile_sexp ?X ?Y ?Z ?W ?n] => destruct (compile_sexp X Y Z W n) as [[(? & ?) | ?] ?] eqn:?
+             | context [freshes ?X ?Y] => destruct (freshes X Y) as ([? | ?] & ?) eqn:?
+             end);
+    (repeat lazymatch goal with [H : context [match ?E with | _ => _ end]|- _] => destruct E eqn:? end);
+          try now (inverts Hsuc; first
+            [forwards*: IHse1; forwards*: IHse2; forwards*: freshes_vars; omega |
+             forwards*: IHse1; forwards*: IHse2; forwards*: IHse3; forwards*: freshes_vars; omega |
+             forwards*: IHse; forwards*: freshes_vars; omega |
+             forwards*: IHse; omega]).
+    revert n m c es' Hsuc; induction es; introv; intros Hsuc; [inverts Hsuc; eauto|].
+    repeat lazymatch type of Hsuc with
+      | context [compile_sexp ?X ?Y ?Z ?W ?n] => destruct (compile_sexp X Y Z W n) as [[(? & ?) | ?] ?] eqn:?
+      end; try now inverts Hsuc.
+    repeat lazymatch type of Hsuc with
+      | context [let (_, _) := ?E in _] => destruct E as [[(? & ?)|?] ?] eqn:?
+      end; try now inverts Hsuc.
+    forwards*: IHes.
+    inverts H; eauto.
+    inverts Hsuc.
+    rewrite Forall_forall in H; forwards*: H; [left; auto|omega].
+
+    Grab Existential Variables.
+    apply 1. apply 1.
+  Qed.
     
+      
   Lemma compile_ok (se : SExp) (seval_env : Env varE (option SVal) _)
         (svar_env : Env varE (list var) _) (n m : nat)
         (sv : SVal) c es :
-    evalSE aeval_env seval_env se (inl sv) ->
+    evalSE aeval_env seval_env se sv ->
     compile_sexp aty_env avar_env se svar_env n =  (inl (c, es), m) ->
     (forall x, SE.In x (free_sv se) -> 
        forall k l, In (Var (str_of_pnat k l)) (svar_env x) -> k < n) -> (* fvs are not in the future generated vars *)
+    (* fvs are not in the future generated vars *)
+    (forall x y, SA.In x (free_av se) -> In y (avar_env x) -> prefix "l" (S.var_of_str y) = false) ->
     (forall x, In x (writes_var c) -> 
-       exists k l, (Var (str_of_pnat k l)) = x -> n <= k < m) -> (* written vars are generated with the managed effect *)
-    CSL BS tid
+       exists k l, (Var (str_of_pnat k l)) = x /\ n <= k < m) /\ (* (ii) written vars are generated with the freshes func.  *)
+    (forall e k l , In e es -> In (Var (str_of_pnat k l)) (fv_E e) -> k < m) /\ (* (iii) return exps. don't have future generated vars*)
+    CSL BS tid  (* (iii) correctness of gen. code *)
         (!(assn_of_svs seval_env svar_env (free_sv se)) **
           (assn_of_avs (free_av se)))
         c
@@ -1244,35 +1345,67 @@ Section CorrectnessProof.
     revert se seval_env svar_env n m sv c es.
     induction se using SExp_ind'; simpl;
     introv.
-    - intros Heval Hcompile.
+    - intros Heval Hcompile Hsvar Havar.
       unfold ret in Hcompile; inversion Hcompile; substs.
       inversion Heval; substs; simpl in *.
-      eapply Hforward; eauto using rule_skip.
-      intros; sep_split; sep_split_in H; repeat sep_cancel.
-      simpl_avs in HP.
-      destruct (seval_env x); sep_split_in H; sep_split; eauto.
-      + inverts H1; sep_normal_in HP; sep_split_in HP; eauto.
-      + destruct HP.
-    - introv Heval Hcompile.
+      splits; (try now destruct 1); eauto.
+      { simplify; forwards*: Hsvar; rewrite SE.singleton_spec; auto. }
+      { eapply Hforward; eauto using rule_skip.
+        intros; sep_split; sep_split_in H; repeat sep_cancel.
+        simpl_avs in HP.
+        destruct (seval_env x); sep_split_in H; sep_split; eauto.
+        + inverts H3; sep_normal_in HP; sep_split_in HP; eauto.
+        + destruct HP. }
+    - introv Heval Hcompile Hvar1 Havar.
       inversion Hcompile; substs.
-      eapply Hforward; [apply rule_skip|].
-      intros; sep_split; sep_split_in H; eauto.
-      inversion Heval; substs.
-      simpl; sep_split; eauto using emp_emp_ph; unfold_conn; simpl; auto.
-    - introv Heval Hcompile.
+      splits; (try now destruct 1); eauto.
+      { simplify; destruct H. }
+      { eapply Hforward; [apply rule_skip|].
+        intros; sep_split; sep_split_in H; eauto.
+        inversion Heval; substs.
+        simpl; sep_split; eauto using emp_emp_ph; unfold_conn; simpl; auto. }
+    - introv Heval Hcompile Hvar Havar.
       unfold bind_opt in Hcompile.
       destruct (compile_sexp _ _ se1 _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hcompile].
       destruct (freshes (length es1) _) as [[fvs1 | ?] n''] eqn:Hfeq1; [|inversion Hcompile].
       destruct (compile_sexp _ _ se2 _ _) as [[(cs2 & es2) | ?] n'''] eqn:Hceq2; [|inversion Hcompile].
       inverts Hcompile; substs.
-      inverts Heval; substs.
+      inverts Heval as Heval1 Heval2; substs.
       
-      forwards*: IHse1.
+      forwards* (Hwr1 & Hres1 & Htri1): IHse1.
+      { intros; eapply Hvar; eauto; rewrite SE.union_spec; eauto. }
+      { intros; applys* Havar; rewrite SA.union_spec; eauto. }
+      
+      forwards* (? & Hfvs): (>>freshes_vars Hfeq1); substs.
+      
+      forwards* (Hwr2 & Hres2 & Htri2): IHse2.
+      { intros y Hyin k l Hin; unfold upd in Hin.
+        destruct (eq_dec x y); substs.
+        forwards* (? & ? & ?): Hfvs.
+        forwards* (? & ?): (>>var_pnat_inj H); substs.
+        omega.
+        forwards*: Hvar; [rewrite SE.union_spec, SE.remove_spec; eauto|].
+        forwards*:(>>compile_don't_decrease Hceq1).
+        forwards* (? & ?): (>>freshes_vars Hfeq1); omega. }
+      { intros; applys* Havar; rewrite SA.union_spec; eauto. }
+      splits; try omega.
+
+      assert (Hlfvs : length fvs1 = length es1).
+      { forwards*: freshes_len. }
+      
+      { forwards*: (>>compile_don't_decrease Hceq1).
+        forwards*: (>>compile_don't_decrease Hceq2).
+        simpl; intros y; rewrite !in_app_iff; rewrites* S.read_tup_writes; intros  [? | [? | ?]];
+          [forwards* (? & ? & ?): Hwr1 |
+           forwards* (? & ? & ?): Hfvs |
+           forwards* (? & ? & ?): Hwr2 ];
+          repeat eexists; jauto; try omega. }
+      { simplify; forwards*: Hres2; eauto. }
       eapply Hbackward.
       Focus 2. {
         intros.
-        unfold assn_of_svs in H0; sep_rewrite_in SE.union_assns H0; sep_rewrite_in pure_star H0.
-        unfold assn_of_avs in H0; sep_rewrite_in SA.union_assns H0.
+        unfold assn_of_svs in H; sep_rewrite_in SE.union_assns H; sep_rewrite_in pure_star H.
+        unfold assn_of_avs in H; sep_rewrite_in SA.union_assns H.
         Lemma fold_assn_svs se sv :
           SE.assn_of_vs SVal se (fun (x_e : VarE_eq.t) (v : SVal) => !(vars2es (sv x_e) ==t vs_of_sval v)) =
           assn_of_svs se sv. auto. Qed.
@@ -1282,84 +1415,182 @@ Section CorrectnessProof.
            S.is_tuple_array_p (S.es2gls (S.vars2es (avar_env x_a))) 
              (len_of a) (fun i : nat => vs_of_sval (nth i (arr_of a) (VZ 0))) 0 1) =
           assn_of_avs. auto. Qed.
-        rewrite !fold_assn_svs, !fold_assn_avs in H0.
+        rewrite !fold_assn_svs, !fold_assn_avs in H.
         
-        sep_normal_in H0; sep_normal; repeat sep_cancel.
+        sep_normal_in H.
         assert (((!(assn_of_svs seval_env svar_env (free_sv se1)) ** assn_of_avs (free_av se1)) **
                  (!(assn_of_svs seval_env svar_env (SE.SE.diff (SE.remove x (free_sv se2)) (free_sv se1))) **
                  assn_of_avs (SA.SE.diff (free_av se2) (free_av se1)))) s h).
         { sep_normal; repeat sep_cancel. }
-        exact H1. } Unfocus.
+        exact H0. } Unfocus.
       eapply rule_seq; [eapply rule_frame|].
-      apply H.
-      { admit. }
+      apply Htri1.
+      { Lemma inde_assn_of_svs seval_env svar_env fvs (xs : list var) :
+          (forall x y, In x xs -> SE.In y fvs -> ~In x (svar_env y)) ->
+          inde (assn_of_svs seval_env svar_env fvs) xs.
+        Proof.
+          destruct fvs as [fvs ok]; simpl.
+          simpl_avs.
+          induction fvs; simpl; repeat prove_inde.
+          destruct (seval_env a).
+          unfold SE.SE.Raw.fold; simpl.
+          Lemma inde_equiv P P' xs :
+            (forall stk, stk ||= P <=> P') ->
+            (inde P xs <-> inde P' xs).
+          Proof.
+            unfold inde, equiv_sep.
+            intros; simpl.
+            split; intros; split; intros; intuition;
+              try (apply H, H0, H); eauto.
+            apply H; apply <-H0; eauto; apply H; eauto.
+            apply H; apply <-H0; eauto; apply H; eauto.
+          Qed.
+          intros H.
+          rewrites (>>inde_equiv).
+          { intros; rewrite SE.fold_left_assns; reflexivity. }
+          repeat prove_inde.
+          apply inde_eq_tup.
+          rewrite Forall_forall; intros; simplify; simpl; eauto.
+          apply H in H0; eauto.
+          left; auto.
+          eauto.
+          inverts keep ok as ? Hok; applys* (IHfvs Hok).
+          intros; apply H; eauto.
+          right; auto.
+          simpl_avs. rewrites (>>inde_equiv).
+          { intros; unfold SE.SE.Raw.fold; simpl.
+            rewrite SE.fold_left_assns.
+            instantiate (1 := FalseP).
+            split; [intros (? & ? & [] & ? & ? & ?) | destruct 1]. }
+          intros; prove_inde.
+        Qed.
+        
+        Lemma inde_assn_of_avs fvs (xs : list var) :
+          (forall x y, In x xs -> SA.In y fvs -> ~In x (avar_env y)) ->
+          inde (assn_of_avs fvs) xs.
+        Proof.
+          destruct fvs as [fvs ok]; simpl.
+          unfold assn_of_avs, SA.assn_of_vs, SA.SE.fold, SA.SE.Raw.fold; simpl.
+          induction fvs; simpl; repeat prove_inde.
+          destruct (aeval_env a).
+          intros H.
+          rewrites (>>inde_equiv).
+          { intros; rewrite SA.fold_left_assns; reflexivity. }
+          repeat prove_inde.
+          apply inde_is_tup_arr.
+          intros; simplify.
+          unfold S.es2gls in *; simplify.
+          apply H in H0; eauto.
+          left; auto.
+          inverts keep ok as ? Hok; applys* (IHfvs Hok).
+          intros; apply H; eauto.
+          right; auto.
+          simpl_avs. rewrites (>>inde_equiv).
+          { intros; unfold SE.SE.Raw.fold; simpl.
+            rewrite SA.fold_left_assns.
+            instantiate (1 := FalseP).
+            split; [intros (? & ? & [] & ? & ? & ?) | destruct 1]. }
+          intros; prove_inde.
+        Qed.
+
+        prove_inde.
+        - apply inde_assn_of_svs.
+          intros ? ?; rewrite SE.diff_spec, SE.remove_spec; intros ? H ?; simplify.
+          destruct H as ((? & ?) & ?).
+          forwards* (? & ? & ? & ?): Hwr1; substs.
+          forwards*: Hvar; [rewrite SE.union_spec, SE.remove_spec; eauto|..].
+          omega.
+        - apply inde_assn_of_avs.
+          intros ? ?; rewrite SA.diff_spec; intros ? [? ?]; simplify.
+          forwards*: Havar.
+          rewrite SA.union_spec; eauto.
+          forwards* (? & ? & ? & ?) : Hwr1; substs.
+          unfold str_of_pnat in *; simpl in H3; rewrite S.prefix_nil in *; congruence. }
       eapply rule_seq.
-      
-      destruct (compile_sexp _ _ se1 _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hcompile].
-      destruct (freshes (length es1) _) as [[fvs1 | ?] n''] eqn:Hfeq1; [|inversion Hcompile].
-      destruct (compile_sexp _ _ se2 _ _) as [[(cs2 & es2) | ?] n'''] eqn:Hceq2; [|inversion Hcompile].
-      
-      
-      (* Lemma uniq_subset A (eqt : eq_type A) (xs ys : list A) : *)
-      (*   incl xs ys -> incl (uniq xs) (uniq ys). *)
-      (* Proof. *)
-      (*   revert ys; functional induction (uniq xs); unfold incl; simpl; intros ys Hin z Hinz; *)
-      (*     destruct Hinz; substs. *)
-      (*   - forwards *: (Hin z). *)
-      (*     apply uniq_incl'; eauto. *)
-      (*   - apply IHl; eauto. *)
-      (*     unfold incl; intros; apply Hin. *)
-      (*     right. *)
-      (*     lets: remove_incl; unfold incl in *; eauto. *)
-      (* Qed. *)
+      eapply Hbackward.
+      Focus 2.
+      { intros; sep_normal_in H.
+        assert ((!(es1 ==t vs_of_sval v1) **
+                 !(assn_of_svs seval_env svar_env (free_sv se1)) **
+                 assn_of_avs (free_av se1) **
+                 !(assn_of_svs seval_env svar_env (SE.SE.diff (SE.remove x (free_sv se2)) (free_sv se1))) **
+                 assn_of_avs (SA.SE.diff (free_av se2) (free_av se1))) s h).
+        { repeat sep_cancel. }
+        apply H0. } Unfocus.
+      eapply rule_frame; [applys* read_tup_correct|].
+      { intros.
+        forwards* (? & ? & ?): Hfvs; substs.
+        intros Hc; forwards*: Hres1; try omega. }
+      { admit. }
+      { 
+        Scheme evalSE_ind' := Minimality for evalSE Sort Prop with
+               evalTup_ind' := Minimality for evalTup Sort Prop.
 
-      (* Lemma assn_of_svs_subset xs ys (seval_env : Env varE (option SVal) _) (svar_env : Env varE (list var) _) stk : *)
-      (*   incl xs ys -> *)
-      (*   exists zs, *)
-      (*     stk ||= !(assn_of_svs seval_env svar_env ys) <=> *)
-      (*             !(assn_of_svs seval_env svar_env xs) ** !(assn_of_svs seval_env svar_env zs). *)
-      (* Proof. *)
-      (*   revert xs; induction ys; simpl; unfold incl; intros xs Hin. *)
-      (*   - assert (xs = nil); [|substs]. *)
-      (*     { destruct xs; eauto; simpl in *. *)
-      (*       forwards* : (Hin v). } *)
-      (*     exists (@nil varE); simpl. *)
-      (*     split; intros; sep_split_in H; sep_split; eauto. *)
-      (*   - simpl in Hin. *)
-      (*     assert (incl (remove eq_dec a xs) ys). *)
-      (*     { unfold incl; intros b Hin'. *)
-      (*       destruct (eq_dec a b) as [|Hneq]; substs. *)
-      (*       - apply remove_In in Hin' as []. *)
-      (*       - forwards* : (Hin b). *)
-      (*         Lemma remove_neq' a b xs : *)
-      (*           a <> b -> In a (remove eq_dec b xs) -> In a xs. *)
-      (*         Proof. *)
-      (*           induction xs; simpl; eauto. *)
-      (*           destruct eq_dec; eauto. *)
-      (*           simpl; intros ? [? | ?]; eauto. *)
-      (*         Qed. *)
-      (*         eapply remove_neq'; eauto. } *)
-      (*     forwards* [zs IH]: (>>IHys H). *)
-
-              
-
-      (*     Lemma assn_of_svs_equiv xs ys (seval_env : Env varE (option SVal) _) (svar_env : Env varE (list var) _) stk : *)
-      (*       equiv_ls _ xs ys -> *)
-      (*       stk ||= !(assn_of_svs seval_env svar_env xs) <=> !(assn_of_svs seval_env svar_env ys). *)
-      (*     Proof. *)
-      (*       revert ys; induction xs; simpl; simpl; intros ys Heq. *)
-      (*       - assert (ys = nil); [|substs; simpl]. *)
-      (*         { unfold equiv_ls, incl in Heq; destruct Heq, ys; simpl in *; eauto. *)
-      (*           forwards*: (H0 v). } *)
-      (*         reflexivity. *)
-      (*       - destruct ys as [|y ys]. *)
-      (*         { unfold equiv_ls, incl in Heq; destruct Heq; simpl in *. *)
-      (*           forwards*: (H a). } *)
-              
-
-      (*     exists zs; simpl. *)
-      (*     destruct (seval_env a). *)
-      (*     2: split; intros H'; sep_split_in H'; sep_split; try destruct HP; eauto. *)
-      (*     rewrite !pure_star, !pure_pure. *)
-      (*     rewrite IH. *)
-      (*     split; intros; repeat sep_cancel. *)
+        Lemma compile_wt (se : SExp) (seval_env : Env varE (option SVal) _)
+              (svar_env : Env varE (list var) _) (n m : nat)
+              (sv : SVal) c es :
+          (forall x v, SE.In x (free_sv se) ->
+                       seval_env x = Some v ->
+                       length (vs_of_sval v) = length (svar_env x)) ->
+          (forall x i arr, SA.In x (free_av se) ->
+                           aeval_env x = Some arr ->
+                           i < len_of arr ->
+                           forall v, length (vs_of_sval (nth i (arr_of arr) v)) = len_of_ty (aty_env x)) ->
+          evalSE aeval_env seval_env se sv ->
+          compile_sexp aty_env avar_env se svar_env n =  (inl (c, es), m) ->
+          length (vs_of_sval sv) = length es.
+        Proof.
+          intros Hsty Haty H; revert svar_env n m c es Hsty Haty.
+          pattern seval_env, se, sv.
+          applys (>>evalSE_ind' aeval_env seval_env H); simpl.
+          - simpl; introv.
+            intros _ Heq; introv Hsty Haty Heq'.
+            inverts Heq'.
+            simplify; apply Hsty; auto.
+            rewrite SE.singleton_spec; auto.
+          - introv Hsty Haty Heq'.
+            inverts Heq'; simpl; auto.
+          - introv _ Heval1 IH1 Heval2 IH2; introv Hsty Haty Hsuc.
+            unfold ">>=" in Hsuc.
+            destruct (compile_sexp _ _ e1 _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsuc].
+            destruct (freshes (length es1) _) as [[fvs1 | ?] n''] eqn:Hfeq1; [|inversion Hsuc].
+            destruct (compile_sexp _ _ e2 _ _) as [[(cs2 & es2) | ?] n'''] eqn:Hceq2; [|inversion Hsuc].
+            
+            forwards*: IH1.
+            { intros; applys* Hsty.
+              rewrite SE.union_spec; eauto. }
+            { intros; applys* Haty.
+              rewrites* SA.union_spec; eauto. }
+            forwards*: IH2.
+            { unfold upd, upd_opt; introv; destruct (eq_dec _ _); substs.
+              - intros ? H'; inverts H'.
+                rewrites* (>>freshes_len Hfeq1).
+              - intros ? H'; inverts H'.
+                forwards*: Hsty; rewrite SE.union_spec, SE.remove_spec; eauto. }
+            { intros; applys* Haty; rewrites* SA.union_spec; eauto. }
+            inverts Hsuc; eauto.
+          - introv _ Heval1 IH1 Heval2 IH2 Hop; introv Hsty Haty Hsuc.
+            unfold ">>=" in Hsuc.
+            destruct (compile_sexp _ _ e1 _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsuc].
+            destruct (compile_sexp _ _ e2 _ _) as [[(cs2 & es2) | ?] n'''] eqn:Hceq2; [|inversion Hsuc].
+            asserts_rewrite ( length (vs_of_sval v) = 1).
+            { unfold op_denote in *; destruct op, v1, v2; inverts Hop; simpl; eauto. }
+            repeat lazymatch type of Hsuc with
+            | context [match ?E with _ => _ end ] => destruct E end; inverts* Hsuc.
+          - introv _ Heval1 IH1 Hfetch Hge Hlt; introv Hsty Haty Hsuc.
+            unfold ">>=" in Hsuc.
+            destruct (compile_sexp _ _ e _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsuc].
+            destruct (freshes _ _) as [[fvs1 | ?] n''] eqn:Hfeq1; [|inversion Hsuc].
+            repeat lazymatch type of Hsuc with
+            | context [match ?E with _ => _ end ] => destruct E end; inverts* Hsuc.
+            simplify; rewrites* (>>freshes_len fvs1).  
+            rewrites* (>>Haty varA0); [rewrite SA.add_spec; eauto|].
+            zify; rewrite Z2Nat.id; nia.
+          - introv Heval1 IH1 Hlt; introv Hsty Haty Hsuc.
+            destruct (typ_of_sexp e) eqn:Heq; try now inverts Hsuc.
+            unfold ">>=" in Hsuc.
+            destruct (compile_sexp _ _ e _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsuc].
+            destruct (le_dec _ _) as [Hlt' | ?]; [|inverts Hsuc].
+            forwards*: IH1.
+            inverts Hsuc.
+            rewrite firstn_length, skipn_length.

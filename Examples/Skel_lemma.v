@@ -548,7 +548,7 @@ Proof.
   apply IHes1; inverts H; inverts H0; auto.
 Qed.
 
-Ltac simplify := repeat (simpl in *; lazymatch goal with
+Ltac simplify' := repeat (simpl in *; lazymatch goal with
   | [|- In _ (map _ _) -> _] =>
     rewrite in_map_iff; intros [? [? ?]]; subst
   | [H:In _ (map _ _) |-_] =>
@@ -582,18 +582,18 @@ Proof.
           try lets: (>>Hv0 Hc); try lets: (>>Hixxs Hc); eauto; tauto.
       - apply indeE_fv; simpl; eauto.
       - apply inde_is_tup; rewrite Forall_forall; unfold tarr_idx, vs2es.
-        destruct Hpl; subst pl; simplify; first [now (forwards :Hv0; eauto) | 
+        destruct Hpl; subst pl; simplify'; first [now (forwards :Hv0; eauto) | 
                                                  now (forwards :Hixxs; eauto)].
-        destruct Hpl; subst pl; simplify; first [now (forwards :Hv0; eauto) | 
+        destruct Hpl; subst pl; simplify'; first [now (forwards :Hv0; eauto) | 
                                                  now (forwards :Hixxs; eauto)]. }
     eapply Hbackward.
     2: intros; apply scC in H; apply H.
     eapply Hforward; [eapply rule_frame; [apply IHxs|]|]; eauto; try tauto; try omega.
     { rewrite gen_read_writes; prove_inde; try omega; rewrite Forall_forall; intros;
       first [apply indeE_fv | apply indelE_fv]; simpl in *; eauto.
-      destruct Hpl; subst; simplify; first [now (forwards :Hv0; eauto) | 
+      destruct Hpl; subst; simplify'; first [now (forwards :Hv0; eauto) | 
                                             now (forwards :Hixxs; eauto)].
-      simplify; eauto; subst; tauto. }
+      simplify'; eauto; subst; tauto. }
     intros; sep_normal_in H; sep_normal; repeat sep_cancel.
     apply scC; sep_cancel.
     sep_rewrite pure_star; apply scC; sep_cancel.
@@ -1560,3 +1560,54 @@ Proof.
   - apply IHn; auto.
     intros j ?; rewrite <-plus_n_Sm; simpl; apply (Hf (S j)); omega.
 Qed.
+
+Notation "l '+ol' i" := (tarr_idx l i) (at level 40).
+Notation "l '-->l' ( p , e )" := (is_tuple_p l e p) (at level 75, right associativity).
+
+Lemma nseq_in (A : Type) (x : A) y n : In x (nseq n y) -> x = y.
+Proof.
+  induction n; simpl; try tauto.
+  intros [|]; intros; eauto; try congruence.
+Qed.
+
+Ltac simplify :=
+  unfold vars2es, tarr_idx, vs2es in *;
+  repeat (simpl in *; substs; lazymatch goal with
+          | [|- In _ (map _ _) -> _] =>
+            rewrite in_map_iff; intros [? [? ?]]; substs
+          | [H:In _ (map _ _) |-_] =>
+            rewrite in_map_iff in H; destruct H as [? [? H]]; substs
+          | [|- indeE _ _] => apply indeE_fv
+          | [|- indelE _ _] => apply indelE_fv
+          | [H : _ \/ False|-_] =>destruct H as [H|[]];substs
+          | [H : _ \/ _ |-_] =>destruct H as [?|H]
+          | [|- ~(_ \/ _)] => intros [?|?]
+          | [|- context [In _ (_ ++ _)]] => rewrite in_app_iff
+          | [H : context [In _ (_ ++ _)] |- _] => rewrite in_app_iff in H
+          | [|- forall _, _] => intros ?
+          | [H : In _ (locals _ _) |- _] => apply locals_pref in H
+          | [H : In _ (nseq _ _) |- _] => apply nseq_in in H
+          | [H : prefix _ _ = true |- _] => apply prefix_ex in H as [? ?]; substs
+          | [|- disjoint_list (locals _ _)] => apply locals_disjoint_ls
+          | [|- context [length (locals _ _)]] => rewrite locals_length
+          | [H :context [length (locals _ _)]|- _] => rewrite locals_length in H
+          | [H :context [length (vars2es _)]|- _] => unfold vars2es in *; rewrite map_length
+          | [|- context [length (vars2es _)]] => unfold vars2es; rewrite map_length
+          | [H :context [In _ (vars2es _)]|- _] =>
+            unfold vars2es in *; rewrite in_map_iff in H;
+            destruct H as [? [? H]]; substs
+          | [|- context [In _ (vars2es _)]] => unfold vars2es; rewrite in_map_iff
+          | [|- Forall _ _] => rewrite Forall_forall; intros
+          | [|- indeE _ _] => apply indeE_fv
+          | [|- indelE _ _] => apply indelE_fv
+          | [|- indeB _ _] => apply indeB_fv
+          | [H : context [var_of_str ?x] |- _] => destruct x
+          | [|- inde (_ ==t _) _] => apply inde_eq_tup
+          | [|- inde (_ -->l (_, _)) _] => apply inde_is_tup
+          | [|- inde (is_tuple_array_p _ _ _ _ _) _] => apply inde_is_tup_arr
+          | [|- context [length (map _ _)]] => rewrite map_length
+          | [H : context [length (map _ _)] |- _] => rewrite map_length in H
+          | [|- ~_] => intros ?
+          end; simpl in *; try substs).
+
+Lemma prefix_nil s : prefix "" s = true. destruct s; eauto. Qed.

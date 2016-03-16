@@ -3,55 +3,6 @@ Require Import scan_lib.
 Require Import LibTactics Psatz.
 Require Import Skel_lemma.
 
-Notation "l '+ol' i" := (tarr_idx l i) (at level 40).
-Notation "l '-->l' ( p , e )" := (is_tuple_p l e p) (at level 75, right associativity).
-
-Lemma nseq_in (A : Type) (x : A) y n : In x (nseq n y) -> x = y.
-Proof.
-  induction n; simpl; try tauto.
-  intros [|]; intros; eauto; try congruence.
-Qed.
-
-Ltac simplify :=
-  unfold vars2es, tarr_idx, vs2es in *;
-  repeat (simpl in *; substs; lazymatch goal with
-          | [|- In _ (map _ _) -> _] =>
-            rewrite in_map_iff; intros [? [? ?]]; substs
-          | [H:In _ (map _ _) |-_] =>
-            rewrite in_map_iff in H; destruct H as [? [? H]]; substs
-          | [|- indeE _ _] => apply indeE_fv
-          | [|- indelE _ _] => apply indelE_fv
-          | [H : _ \/ False|-_] =>destruct H as [H|[]];substs
-          | [H : _ \/ _ |-_] =>destruct H as [?|H]
-          | [|- ~(_ \/ _)] => intros [?|?]
-          | [|- context [In _ (_ ++ _)]] => rewrite in_app_iff
-          | [H : context [In _ (_ ++ _)] |- _] => rewrite in_app_iff in H
-          | [|- forall _, _] => intros ?
-          | [H : In _ (locals _ _) |- _] => apply locals_pref in H
-          | [H : In _ (nseq _ _) |- _] => apply nseq_in in H
-          | [H : prefix _ _ = true |- _] => apply prefix_ex in H as [? ?]; substs
-          | [|- disjoint_list (locals _ _)] => apply locals_disjoint_ls
-          | [|- context [length (locals _ _)]] => rewrite locals_length
-          | [H :context [length (locals _ _)]|- _] => rewrite locals_length in H
-          | [H :context [length (vars2es _)]|- _] => unfold vars2es in *; rewrite map_length
-          | [|- context [length (vars2es _)]] => unfold vars2es; rewrite map_length
-          | [H :context [In _ (vars2es _)]|- _] =>
-            unfold vars2es in *; rewrite in_map_iff in H;
-            destruct H as [? [? H]]; substs
-          | [|- context [In _ (vars2es _)]] => unfold vars2es; rewrite in_map_iff
-          | [|- Forall _ _] => rewrite Forall_forall; intros
-          | [|- indeE _ _] => apply indeE_fv
-          | [|- indelE _ _] => apply indelE_fv
-          | [|- indeB _ _] => apply indeB_fv
-          | [H : context [var_of_str ?x] |- _] => destruct x
-          | [|- inde (_ ==t _) _] => apply inde_eq_tup
-          | [|- inde (_ -->l (_, _)) _] => apply inde_is_tup
-          | [|- inde (is_tuple_array_p _ _ _ _ _) _] => apply inde_is_tup_arr
-          | [|- context [length (map _ _)]] => rewrite map_length
-          | [H : context [length (map _ _)] |- _] => rewrite map_length in H
-          | [|- ~_] => intros ?
-          end; simpl in *; try substs).
-
 Section Sum_of.
   Variable T : Type.
   Variable op : T -> T -> T.
@@ -2040,7 +1991,6 @@ Section Reduce.
       apply (Var "").
   Qed.
 
-  Lemma prefix_nil s : prefix "" s = true. destruct s; eauto. Qed.
   Notation skip_sum_of_vs := (skip_sum_of_opt (list val) f_fun).
 
   Lemma reduce_ok_bl g (j : Fin.t nblk) :
