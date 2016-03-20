@@ -1291,22 +1291,32 @@ Section CorrectnessProof.
   (* Definition free_sv e := uniq (free_sv' e). *)
   (* Definition free_av e := uniq (free_av' e). *)
 
+  Lemma freshes_incr d m n xs :
+    freshes d n = (inl xs, m) -> 
+    m = n + 1.
+  Proof.
+    revert n m xs; induction d; simpl; intros n m xs.
+    - unfold get, set, ">>=", ret; simpl; intros H; inverts H; eauto.
+    - unfold freshes, get, set, ">>=", ret in *; simpl.
+      lazymatch goal with [|- context [(Var _ :: ?E) ]] => remember E eqn:Heq end.
+      intros H; inverts H.
+      forwards*: (>>IHd n).
+  Qed.
+  
   (* some lemma for generetated variables *)
   Lemma freshes_vars d n m xs:
     freshes d n = (inl xs, m) -> 
-    m = n + 1 /\
     (forall x, In x xs -> exists l, x = Var (str_of_pnat n l) /\ l < d).
   Proof.
     revert n m xs; induction d; simpl; intros n m xs.
     - unfold get, set, ">>=", ret; simpl; intros H; inverts H.
-      split; eauto; destruct 1.
+      destruct 1.
     - unfold freshes, get, set, ">>=", ret in *; simpl.
       lazymatch goal with [|- context [(Var _ :: ?E) ]] => remember E eqn:Heq end.
       intros H; inverts H.
-      forwards* (? & ?): IHd.
-      split; eauto.
       intros ? H'; apply in_inv in H' as [? | ?]; eauto.
-      substs; forwards* (? & ?): H0; eexists; split; eauto.
+      forwards* (? & ?): IHd.
+      substs; eauto.
   Qed.
   
   Lemma freshes_len d n m xs:
@@ -1352,9 +1362,9 @@ Section CorrectnessProof.
              end);
     (repeat lazymatch goal with [H : context [match ?E with | _ => _ end]|- _] => destruct E eqn:? end);
           try now (inverts Hsuc; first
-            [forwards*: IHse1; forwards*: IHse2; forwards*: freshes_vars; omega |
-             forwards*: IHse1; forwards*: IHse2; forwards*: IHse3; forwards*: freshes_vars; omega |
-             forwards*: IHse; forwards*: freshes_vars; omega |
+            [forwards*: IHse1; forwards*: IHse2; forwards*: freshes_incr; omega |
+             forwards*: IHse1; forwards*: IHse2; forwards*: IHse3; forwards*: freshes_incr; omega |
+             forwards*: IHse; forwards*: freshes_incr; omega |
              forwards*: IHse; omega]).
     revert n m c es' Hsuc; induction es; introv; intros Hsuc; [inverts Hsuc; eauto|].
     repeat lazymatch type of Hsuc with
@@ -1682,7 +1692,160 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
   Proof.
     intros s1 s2 Heq; apply SA.eqset_equiv; auto.
   Qed.
+
+  Lemma compile_sexps_don't_decrease svar_env cs2 es2 n' m l:
+    (fix compile_sexps (es : list SExp) (env : Env varE (list var) eq_varE) : 
+       M (cmd * list exp) :=
+       match es with
+       | Datatypes.nil => ret (SKIP, Datatypes.nil)
+       | e :: es0 =>
+         fun n0 : nat =>
+           let (s, n1) := compile_sexp avar_env e env n0 in
+           match s with
+           | inl v =>
+             (let (c, ge) := v in
+              fun n2 : nat =>
+                let (s0, n3) := compile_sexps es0 env n2 in
+                match s0 with
+                | inl v0 => (let (c', ges) := v0 in ret (c;; c', ge ++ ges)) n3
+                | inr msg => (inr msg, n3)
+                end) n1
+           | inr msg => (inr msg, n1)
+           end
+       end) l svar_env n' = (inl (cs2, es2), m) ->
+    n' <= m.
+  Proof.
+    revert cs2 es2 n' m; induction l; simpl; introv Hsuc.
+    - inverts Hsuc; eauto.
+    - destruct (compile_sexp _ _ _ _) as [[(cs1 & es1) | ?]  n''] eqn:Hceq1; [|inversion Hsuc].
+      lazymatch type of Hsuc with
+      | context [let (_, _) := ?X in _]  =>
+        destruct X as [[(? & ?) | ?] ?] eqn:Hceq2; [|inversion Hsuc]
+      end.
+      forwards*: IHl.
+      forwards*: compile_don't_decrease.
+      inverts Hsuc.
+      omega.
+  Qed.
+
+  Lemma compile_wr_vars (se : SExp)
+        (svar_env : Env varE (list var) _) (n m : nat) c es :
+    compile_sexp avar_env se svar_env n =  (inl (c, es), m) ->
+    (forall x, In x (writes_var c) -> 
+       exists k l, (Var (str_of_pnat k l)) = x /\ n <= k < m).
+  Proof.
+    Lemma id_mark A (x : A) :
+      x = id x. eauto. Qed.
+    Ltac t := do 2 eexists; splits*; omega.
+    Ltac des H := first [forwards* (? & ? & ? & ?): H | forwards* (? & ? & ?): H ].
+    revert n m svar_env c es; induction se using SExp_ind'; simpl;
+      intros n m svar_env c es' Hsuc; eauto; try inverts Hsuc as Hsuc;
+    eauto; unfold ">>=" in *;
+          (repeat lazymatch type of Hsuc with
+             | context [compile_sexp ?X ?Y ?Z ?n] => destruct (compile_sexp X Y Z n) as [[(? & ?) | ?] ?] eqn:?
+             | context [freshes ?X ?Y] => destruct (freshes X Y) as ([? | ?] & ?) eqn:?
+             end); 
+    (repeat lazymatch goal with [H : context [match ?E with | _ => _ end]|- _] => destruct E eqn:? end);
+    (try inverts Hsuc); simpl;
+      introv; try rewrite !in_app_iff; intros;
+        repeat lazymatch goal with
+        | [H : False |- _] => destruct H
+        | [H : _ \/ _ |- _] => destruct H
+        end;
+    repeat lazymatch goal with
+      | [H : compile_sexp ?A ?B ?C ?D = ?E |- _] =>
+          forwards*: (>>compile_don't_decrease H);
+            rewrite (id_mark _ (compile_sexp A B C D = E)) in H
+      | [H : freshes ?A ?B = ?C |- _] =>
+        forwards*: (>>freshes_incr H);
+            rewrite (id_mark _ (freshes A B = C)) in H
+      end; unfold id in *.
+    - forwards* (? & ? & ? & ?): (>>IHse1 H); t.
+    - rewrite read_tup_writes in *; [|forwards*: (>>freshes_len Heqp0)].
+      forwards* (? & ? & ?): freshes_vars; t.
+    - forwards* (? & ? & ? & ?): (>>IHse2 Heqp1). t.
+    - forwards* (? & ? & ? & ?): (>>IHse1 Heqp). t.
+    - forwards* (? & ? & ? & ?): (>>IHse2 Heqp0). t.
+    - destruct op; simpl in *; inverts Heqp1; substs; simpl in *; destruct H.
+    - forwards* (? & ? & ? & ?): (>>IHse Heqp). t.
+    - rewrite gen_read_writes in *; [|simplify; forwards*: (>>freshes_len Heqp0)].
+      forwards* (? & ? & ?): freshes_vars; t.
+    - revert n c es' H1 H0; induction H;
+      introv Hsuc Hin; [inverts Hsuc; simpl in *|].
+      + destruct Hin.
+      + unfold ">>=" in *.
+        destruct (compile_sexp _ x0 _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsuc].
+        lazymatch type of Hsuc with
+        | context [let (_, _) := ?X in _]  =>
+          destruct X as [[(cs2 & es2) | ?] n''] eqn:Hceq2; [|inversion Hsuc]
+        end.
+        inverts Hsuc.
+        forwards*: compile_sexps_don't_decrease.
+        simpl in Hin; rewrite in_app_iff in *.
+        destruct Hin as [Hin | Hin].
+        * forwards* (? & ? & ? & ?): H.
+          t.
+        * forwards* (? & ? & ? & ?): IHForall; substs.
+          forwards*: compile_don't_decrease.
+          t.
+    - substs.
+      forwards* (? & ? & ? & ?): (>>IHse2 Heqp0). t.
+    - rewrite S.read_tup_writes in *; [|forwards*: freshes_len].
+      forwards* (? & ? & ?) : freshes_vars.
+      t.
+    - forwards* (? & ? & ? & ?): (>>IHse3).
+      t.
+    - Lemma read_tup_writes' (vs : list var) (es : list exp) :
+        forall x,  In x (writes_var (read_tup vs es)) -> In x vs.
+      Proof.
+        revert es; induction vs; simpl in *; introv; eauto.
+        destruct es; simpl.
+        - destruct 1.
+        - simpl in *; intros [? | ?]; eauto.
+      Qed.
       
+      apply read_tup_writes' in H.
+      forwards* (? & ? & ?) : freshes_vars; t.
+  Qed.
+
+  Lemma compile_sexps_wr_vars svar_env cs es n m l:
+    (fix compile_sexps (es : list SExp) (env : Env varE (list var) eq_varE) : 
+       M (cmd * list exp) :=
+       match es with
+       | Datatypes.nil => ret (SKIP, Datatypes.nil)
+       | e :: es0 =>
+         fun n0 : nat =>
+           let (s, n1) := compile_sexp avar_env e env n0 in
+           match s with
+           | inl v =>
+             (let (c, ge) := v in
+              fun n2 : nat =>
+                let (s0, n3) := compile_sexps es0 env n2 in
+                match s0 with
+                | inl v0 => (let (c', ges) := v0 in ret (c;; c', ge ++ ges)) n3
+                | inr msg => (inr msg, n3)
+                end) n1
+           | inr msg => (inr msg, n1)
+           end
+       end) l svar_env n = (inl (cs, es), m) ->
+    (forall x, In x (writes_var cs) -> 
+       exists k l, (Var (str_of_pnat k l)) = x /\ n <= k < m).
+  Proof.
+    revert cs es n m; induction l; simpl; introv Hsuc.
+    - inverts Hsuc; simpl; eauto.
+      destruct 1.
+    - destruct (compile_sexp _ _ _ _) as [[(cs1 & es1) | ?]  n''] eqn:Hceq1; [|inversion Hsuc].
+      lazymatch type of Hsuc with
+      | context [let (_, _) := ?X in _]  =>
+        destruct X as [[(? & ?) | ?] ?] eqn:Hceq2; [|inversion Hsuc]
+      end.
+      inverts Hsuc; simpl; introv; rewrite in_app_iff; intros [? | ?].
+      forwards*: compile_sexps_don't_decrease.
+      forwards* (? & ? & ? & ?) : (compile_wr_vars). t.
+      forwards*: compile_don't_decrease.
+      forwards* (? & ? & ? & ?) : (IHl). t.
+  Qed.
+  
   Lemma compile_ok (se : SExp)
         (sty_env : Env varE (option Typ) _)
         (seval_env : Env varE (option SVal) _)
@@ -1701,8 +1864,6 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
        forall k l, In (Var (str_of_pnat k l)) (svar_env x) -> k < n) -> (* fvs are not in the future generated vars *)
     (* fvs are not in the future generated vars *)
     (forall x y, SA.In x (free_av se) -> In y (avar_env x) -> prefix "l" (S.var_of_str y) = false) ->
-    (forall x, In x (writes_var c) -> 
-       exists k l, (Var (str_of_pnat k l)) = x /\ n <= k < m) /\ (* (ii) written vars are generated with the freshes func.  *)
     (forall e k l , In e es -> In (Var (str_of_pnat k l)) (fv_E e) -> k < m) /\ (* (iii) return exps. don't have future generated vars*)
     CSL BS tid  (* (iii) correctness of gen. code *)
         (!(assn_of_svs seval_env svar_env (free_sv se)) **
@@ -1742,15 +1903,15 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       inverts Htyp as Htyp1 Htyp2.
       
       (* obtaining induction hypothesis1 *)
-      forwards* (Hwr1 & Hres1 & Htri1): IHse1.
+      forwards* (Hres1 & Htri1): IHse1.
       { intros; eapply Hsvar; eauto; rewrite SE.union_spec; eauto. }
       { intros; applys* Havar; rewrite SA.union_spec; eauto. }
 
       (* freshness of generated variables *)
-      forwards* (? & Hfvs): (>>freshes_vars Hfeq1); substs.
+      forwards* : (>>freshes_incr Hfeq1); substs.
 
       (* obtaining induction hypothesis 2 *)
-      forwards* (Hwr2 & Hres2 & Htri2): IHse2.
+      forwards* (Hres2 & Htri2): IHse2.
       { unfold upd_opt, upd; intros; case_if*.
         rewrites* (>>freshes_len Hfeq1).
         inverts H; forwards*: compile_preserve. }
@@ -1759,12 +1920,11 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
         forwards*: type_preservation. }
       { intros y Hyin k l Hin; unfold upd in Hin.
         destruct (eq_dec x y); substs.
-        forwards* (? & ? & ?): Hfvs.
+        forwards* (? & ? & ?): (>>freshes_vars).
         forwards* (? & ?): (>>var_pnat_inj H); substs.
         omega.
         forwards*: Hsvar; [rewrite SE.union_spec, SE.remove_spec; eauto|].
-        forwards*:(>>compile_don't_decrease Hceq1).
-        forwards* (? & ?): (>>freshes_vars Hfeq1); omega. }
+        forwards*:(>>compile_don't_decrease Hceq1); omega. }
       { intros; applys* Havar; rewrite SA.union_spec; eauto. }
 
       (* prove goals *)
@@ -1773,17 +1933,13 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       assert (Hlfvs : length fvs1 = length es1).
       { forwards*: freshes_len. }
 
-      (* written vars are generated vars *)
-      { forwards*: (>>compile_don't_decrease Hceq1).
-        forwards*: (>>compile_don't_decrease Hceq2).
-        simpl; intros y; rewrite !in_app_iff; rewrites* S.read_tup_writes; intros  [? | [? | ?]];
-          [forwards* (? & ? & ?): Hwr1 |
-           forwards* (? & ? & ?): Hfvs |
-           forwards* (? & ? & ?): Hwr2 ];
-          repeat eexists; jauto; try omega. }
       (* return variables do not conflict with variables generated later *)
       { simplify; forwards*: Hres2; eauto. }
       
+      lets* Hwr1: (>>compile_wr_vars Hceq1).
+      lets* Hwr2: (>>compile_wr_vars Hceq2).
+      lets* Hfvs: (>>freshes_vars Hfeq1).
+
       (* 1st commands *)
       eapply Hbackward.
       Focus 2. {
@@ -1842,18 +1998,17 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
         Hint Rewrite SE.add_spec SE.union_spec SE.remove_spec SE.diff_spec
              SA.add_spec SA.union_spec SA.remove_spec SA.diff_spec : setop.
 
-        forwards* (? & Hvar) : (>>freshes_vars).
         prove_inde; first [apply inde_assn_of_svs | apply inde_assn_of_avs];
           introv; repeat autorewrite with setop;
-            intros ? ? ?; forwards* (? & ? & ?): Hvar; substs.
+            intros ? ? ?; forwards* (? & ? & ?): Hfvs; substs.
         - forwards*: Hsvar; [repeat autorewrite with setop; eauto|].
           forwards*: (>>compile_don't_decrease Hceq1); omega.
         - forwards*: Havar; [repeat autorewrite with setop; eauto|].
-          simpl in H3; rewrite S.prefix_nil in *; congruence.
+          simpl in *; rewrite S.prefix_nil in *; congruence.
         - forwards*: Hsvar; [repeat autorewrite with setop; jauto|].
           forwards*: (>>compile_don't_decrease Hceq1); omega.
         - forwards*: Havar; [repeat autorewrite with setop; jauto|].
-          simpl in H3; rewrite S.prefix_nil in *; congruence. }
+          simpl in *; rewrite S.prefix_nil in *; congruence. }
       
       eapply Hbackward.
       Focus 2. {
@@ -1936,22 +2091,22 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
 
       inverts Heval as Heval1 Heval2; substs.
       inverts Htyp as Htyp1 Htyp2; substs.
-      forwards* (Hwr1 & Hres1 & Htri1): IHse1.
+      forwards* (Hres1 & Htri1): IHse1.
       { intros; eapply Hsvar; eauto; autorewrite with setop; eauto. }
       { intros; applys* Havar; rewrite SA.union_spec; eauto. }
-      forwards* (Hwr2 & Hres2 & Htri2): IHse2.
+      forwards* ( Hres2 & Htri2): IHse2.
       { intros; forwards*: Hsvar; eauto; autorewrite with setop; eauto.
         forwards*: (>>compile_don't_decrease se1); omega. }
       { intros; applys* Havar; rewrite SA.union_spec; eauto. }
 
       splits; try omega.
-      { simpl; destruct op; simpl in *;
-        [inverts H0; simpl;
-         introv; rewrite !in_app_iff; intros [? | [? | []]];
-         [forwards* (? & ? & ? & ?): Hwr1| forwards* (? & ? & ? & ?): Hwr2];
-         do 2 eexists; splits; eauto; try omega;
-         [forwards*: (>>compile_don't_decrease Hceq2); omega|
-          forwards*: (>>compile_don't_decrease Hceq1); omega]..]. }
+      (* { simpl; destruct op; simpl in *; *)
+      (*   [inverts H0; simpl; *)
+      (*    introv; rewrite !in_app_iff; intros [? | [? | []]]; *)
+      (*    [forwards* (? & ? & ? & ?): Hwr1| forwards* (? & ? & ? & ?): Hwr2]; *)
+      (*    do 2 eexists; splits; eauto; try omega; *)
+      (*    [forwards*: (>>compile_don't_decrease Hceq2); omega| *)
+      (*     forwards*: (>>compile_don't_decrease Hceq1); omega]..]. } *)
       { simpl; destruct op; simpl in *;
         [inverts H0; simpl; simplify..];
         lazymatch goal with
@@ -1977,7 +2132,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       eapply rule_seq; [eapply rule_frame; eauto|].
       { prove_inde; first [apply inde_assn_of_svs | apply inde_assn_of_avs];
         introv; repeat autorewrite with setop; intros ? (? & ?) ?;
-          forwards* (? & ? & ? & ?): Hwr1; substs.
+          forwards* (? & ? & ? & ?): (>> compile_wr_vars Hceq1); substs. 
         forwards*: Hsvar; autorewrite with setop; eauto. omega.
         forwards*: Havar; autorewrite with setop; eauto.
         unfold S.var_of_str in *; simpl in *; rewrite prefix_nil in *; congruence. }
@@ -2004,7 +2159,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       eapply rule_seq; [eapply rule_frame; eauto|].
       { prove_inde; first [apply inde_assn_of_svs | apply inde_assn_of_avs | apply inde_eq_tup; rewrite Forall_forall];
         simpl; introv; repeat autorewrite with setop; intros; simplify;
-        forwards* (? & ? & ? & ?): Hwr2; substs.
+        forwards* (? & ? & ? & ?): (>>compile_wr_vars Hceq2); substs.
         - forwards*: Hres1; omega.
         - forwards*: Hsvar; autorewrite with setop; jauto.
           forwards*: (>>compile_don't_decrease se1). omega.
@@ -2034,22 +2189,23 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       destruct (freshes (length _) _) as [[fvs1 | ?] n''] eqn:Hfeq1; [|inversion Hcompile].
       destruct es1 as [|? [|? ?]]; inverts Hcompile.
       inverts Htyp as Htyp Hatyp; inverts Heval as Heval Haeval Hle Hgt.
-      forwards* (Hwr & Hres & Htri): IHse.
+      forwards* (Hres & Htri): IHse.
       { intros; applys* Havar; autorewrite with setop; eauto. }
       assert (Hlenfv : length fvs1 = length (avar_env x)).
       { forwards*: (>>freshes_len Hfeq1); simplify; eauto. }
       splits.
-      { introv; simpl; rewrite gen_read_writes.
-        2: simplify; eauto.
-        rewrite in_app_iff; intros [? | ?].
-        - forwards* (? & ? & ? & ?): Hwr; do 2 eexists; splits*; try omega.
-          forwards*: (>>freshes_vars Hfeq1); omega.
-        - forwards* (? & Hgenv): (>>freshes_vars Hfeq1).
-          forwards* (? & ? & ?): Hgenv.
-          do 2 eexists; splits*; try omega.
-          forwards*: (>>compile_don't_decrease). }
+      (* { introv; simpl; rewrite gen_read_writes. *)
+      (*   2: simplify; eauto. *)
+      (*   rewrite in_app_iff; intros [? | ?]. *)
+      (*   - forwards* (? & ? & ? & ?): Hwr; do 2 eexists; splits*; try omega. *)
+      (*     forwards*: (>>freshes_vars Hfeq1); omega. *)
+      (*   - forwards* (? & Hgenv): (>>freshes_vars Hfeq1). *)
+      (*     forwards* (? & ? & ?): Hgenv. *)
+      (*     do 2 eexists; splits*; try omega. *)
+      (*     forwards*: (>>compile_don't_decrease). } *)
       { intros; simplify;
-        forwards* (? & Hgenv): (>>freshes_vars Hfeq1); forwards* (? & ? & ?): Hgenv.
+        forwards*: (>>freshes_incr Hfeq1).
+        forwards* (? & ? & ?): (>>freshes_vars Hfeq1).
         forwards* (? & ?): (>>var_pnat_inj H1); omega. }
       eapply Hbackward.
       Focus 2. {
@@ -2071,7 +2227,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
         sep_normal; sep_normal_in H; repeat sep_cancel. } Unfocus.
       eapply rule_seq; [eapply rule_frame; eauto|].
       { prove_inde; apply inde_assn_of_avs; unfold not; intros.
-        forwards* (? & ? & ? & ?) : Hwr; substs.
+        forwards* (? & ? & ? & ?) : (>>compile_wr_vars Hceq1); substs.
         forwards*: Havar; autorewrite with setop in *; jauto.
         simpl in *; rewrite prefix_nil in *; congruence. }
       eapply Hbackward.
@@ -2111,13 +2267,11 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
         apply H0. } Unfocus.
       eapply Hforward; [eapply rule_frame; [apply S.gen_read_correct|]; eauto|].
       { simpl; intros.
-        forwards* (? & Hgvars): (>>freshes_vars Hfeq1).
-        forwards* (? & ? & ?): Hgvars; substs.
+        forwards* (? & ? & ?): (>>freshes_vars Hfeq1).
         simplify; eauto.
         forwards*: Hres; omega. }
       { unfold not; intros; simplify.
-        forwards* (? & Hgvars): (>>freshes_vars Hfeq1).
-        forwards* (? & ? & ?): Hgvars; substs.
+        forwards* (? & ? & ?): (>>freshes_vars Hfeq1); substs.
         forwards*: Havar; autorewrite with setop; eauto.
         simpl in *; rewrite prefix_nil in *; congruence. }
       { admit. }
@@ -2129,11 +2283,11 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
         unfold val in *; forwards*: Havctx.
         congruence. }
       { rewrites* S.gen_read_writes; [|simplify; eauto].
-        unfold S.es2gls; forwards* (? & Hgvars): (>>freshes_vars Hfeq1).
+        unfold S.es2gls.
         prove_inde; simplify; eauto;
           try (apply inde_assn_of_svs; unfold not; intros);
           try (apply inde_assn_of_avs; unfold not; intros);
-          forwards* (? & ? & ?): Hgvars; substs;
+          forwards* (? & ? & ?): (>>freshes_vars Hfeq1); substs;
           try now (lazymatch goal with
                    | [H : In _ (avar_env _) |- _] =>
                      forwards*: (Havar); autorewrite with setop; eauto;
@@ -2168,7 +2322,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       destruct (le_dec _ _); inverts Hcompile.
       inverts Htyp as Htyp Hlt.
       inverts Heval as Heval Hlt'.
-      forwards* (Hwr & Hres & Htri): IHse.
+      forwards* (Hres & Htri): IHse.
       splits*.
       Lemma firstn_in (A: Type) n (x : A) xs  : In x (firstn n xs) -> In x xs.
       Proof.
@@ -2274,21 +2428,21 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
             forwards*: compile_don't_decrease.
             forwards*: IHl.
             omega. }
-        forwards* (Hwr & Hres & Htri): IHForall; try now constructor; eauto.
+        forwards* (Hres & Htri): IHForall; try now constructor; eauto.
         { intros.
           forwards*: Havar; simpl; autorewrite with setop; eauto. }
         { intros.
           forwards*: Hsvar; simpl; autorewrite with setop; eauto.
           forwards*: compile_don't_decrease; omega. }
-        forwards* (Hwr0 & Hres0 & Htri0): H.
+        forwards* (Hres0 & Htri0): H.
         { intros.
           forwards*: Hsvar; simpl; autorewrite with setop; eauto. }
         { intros.
           forwards*: Havar; simpl; autorewrite with setop; eauto. }
         splits.
-        { introv; simpl; rewrite in_app_iff; intros [? | ?];
-          [ forwards* (? & ? & ? & ?): Hwr0 | forwards*(? & ? & ? & ?): Hwr]; do 2 eexists; splits*;
-          omega. }
+        (* { introv; simpl; rewrite in_app_iff; intros [? | ?]; *)
+        (*   [ forwards* (? & ? & ? & ?): Hwr0 | forwards*(? & ? & ? & ?): Hwr]; do 2 eexists; splits*; *)
+        (*   omega. } *)
         { introv; rewrite in_app_iff; intros [? | ?] ?;
           [ forwards*: Hres0 | forwards*: Hres]; try omega. }
         simpl.
@@ -2307,7 +2461,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
         eapply rule_seq; [eapply rule_frame; eauto|].
         { prove_inde; first [apply inde_assn_of_avs | apply inde_assn_of_svs];
           introv; autorewrite with setop; intros ? [? ?] ?;
-          forwards* (? & ? & ? & ?): Hwr0; substs.
+          forwards* (? & ? & ? & ?): (>>compile_wr_vars Hceq1); substs.
           - forwards*: Hsvar; simpl; autorewrite with setop; eauto; omega.
           - forwards*: Havar; simpl; autorewrite with setop; eauto.
             simpl in *; rewrite prefix_nil in *; congruence. }
@@ -2340,7 +2494,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
         eapply Hforward; [eapply rule_frame; eauto|].
         { prove_inde; first [apply inde_assn_of_avs | apply inde_assn_of_svs | apply inde_eq_tup; simplify];
           introv; autorewrite with setop; try intros ? [? ?] ?;
-          forwards* (? & ? & ? & ?): Hwr; substs.
+          forwards* (? & ? & ? & ?): (>> compile_sexps_wr_vars); substs.
           - forwards*: Hres0; omega.
           - forwards*: Hsvar; simpl; autorewrite with setop; eauto; omega.
           - forwards*: Havar; simpl; autorewrite with setop; eauto.
@@ -2365,5 +2519,17 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
             sep_split; eauto.
         Qed.
         apply eq_tup_app'; eauto.
-    - admit.
+    - unfold ">>=" in Hcompile.
+      destruct (compile_sexp _ se1 _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hcompile].
+      destruct (compile_sexp _ se2 _ _) as [[(cs2 & es2) | ?] n''] eqn:Hceq2; [|inversion Hcompile].
+      destruct (compile_sexp _ se3 _ _) as [[(cs3 & es3) | ?] n'''] eqn:Hceq3; [|inversion Hcompile].
+      destruct (freshes _ _) as [[fvs1 | ?] n''''] eqn:Hfeq1; [|inversion Hcompile].
+      destruct es1 as [| e [| ? ?]]; inverts Hcompile.
+      inverts Htyp as Htyp1 Htyp2 Htyp3.
+      splits.
+      { intros; simplify.
+        forwards* (? & ? & ?): (>>freshes_vars Hfeq1).
+        apply var_pnat_inj in H0 as (? & ?); substs.
+        forwards*: (>>freshes_incr); omega. }
+      
   Qed.
