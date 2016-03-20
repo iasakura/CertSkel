@@ -408,7 +408,7 @@ Section compiler.
     | TTup ls => fold_right (fun x y => len_of_ty x + y) 0 ls
     end.
   
-  Fixpoint len_until_i tys i : nat :=
+  Definition len_until_i tys i : nat :=
     fold_right (fun ty n => len_of_ty ty + n) 0 (firstn i tys).
   
   Definition len_at_i (tys : list Typ) i : nat :=
@@ -2162,7 +2162,86 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       { unfold_conn_in HP1; unfold_conn; simpl in *; rewrite Z2Nat.id; eauto. }
       sep_rewrite S.mps_eq1_tup'; [|exact H1].
       sep_normal; repeat sep_cancel. 
-    - admit.
+    - unfold ">>=" in Hcompile.
+      destruct (typ_of_sexp se) eqn:Heqty; try now inverts Hcompile.
+      destruct (compile_sexp _ se _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hcompile].
+      destruct (le_dec _ _); inverts Hcompile.
+      inverts Htyp as Htyp Hlt.
+      inverts Heval as Heval Hlt'.
+      forwards* (Hwr & Hres & Htri): IHse.
+      splits*.
+      Lemma firstn_in (A: Type) n (x : A) xs  : In x (firstn n xs) -> In x xs.
+      Proof.
+        revert xs; induction n; simpl; [destruct 1|].
+        destruct xs; simpl; eauto.
+        simpl in *; intros [? | ?]; eauto.
+      Qed.
+
+      Lemma skipn_in (A : Type) n (x : A) xs : In x (skipn n xs) -> In x xs.
+      Proof.
+        revert xs; induction n; simpl; eauto.
+        destruct xs; simpl; eauto.
+      Qed.
+      Hint Resolve firstn_in skipn_in.
+      intros; forwards*: Hres.
+      eapply Hforward; eauto.
+      simpl; intros s h H; sep_split_in H; sep_split; eauto.
+      forwards*: type_preservation.
+      forwards*: compile_preserve.
+      forwards*: (>>has_type_val_len H0).
+      assert (Hlen : length es1 = length (vs_of_sval (VTup tup))) by congruence.
+      inverts H0.
+      rewrites* (>>typ_of_sexp_ok) in Heqty; inverts Heqty.
+      revert H5 Hlt Hlen HP0.
+      clear.
+      intros Hty; revert i es1.
+      induction Hty; simpl; introv Hlt Hlen Heq.
+      + destruct es1; simpl in *; try congruence; intros; omega.
+      + destruct i; simpl.
+        * unfold len_at_i; simpl.
+          forwards*: (>>has_type_val_len H); rewrite <-H0.
+          revert Heq; clear; revert es1; induction (vs_of_sval x); introv.
+          { intros; simpl; apply emp_emp_ph. }
+          { destruct es1; simpl; eauto.
+            intros H; sep_split_in H; sep_split; eauto. }
+        * unfold len_at_i; simpl.
+          forwards*: (>>has_type_val_len H).
+          assert (exists es es1', es1 = es ++ es1' /\ length es = len_of_ty y) as
+              (es & es1' & ? & Hlen'); [|substs].
+          { exists (firstn (len_of_ty y) es1) (skipn (len_of_ty y) es1).
+            split; eauto using firstn_skipn.
+            rewrite firstn_length, Nat.min_l; eauto.
+            rewrite app_length in *; omega. }
+          Lemma eq_tup_app es1 es2 es1' es2' stk :
+            length es1 = length es1' ->
+            (es1 ++ es2 ==t es1' ++ es2') stk (emp_ph loc) ->
+            (es1 ==t es1') stk (emp_ph loc) /\
+            (es2 ==t es2') stk (emp_ph loc).
+          Proof.
+            revert es2 es1' es2'; induction es1; introv Hlen Heq.
+            - destruct es1'; simpl in *; try congruence.
+              split; eauto using emp_emp_ph.
+            - destruct es1'; simpl in *; try congruence.
+              sep_split_in Heq.
+              forwards*: IHes1.
+              split; sep_split; jauto.
+          Qed.
+          forwards* (? & ?): (>>eq_tup_app Heq).
+          { unfold val; rewrite H0; eauto. }
+          forwards*: (>>IHHty i); try omega.
+          { simpl; rewrite !app_length in Hlen; omega. }
+          Lemma skipn_app (A : Type) n (xs ys : list A) :
+            skipn n (xs ++ ys) = if lt_dec n (length xs) then (skipn n xs) ++ ys else skipn (n - length xs) ys.
+          Proof.
+            revert xs ys; induction n; simpl; introv.
+            - destruct lt_dec; eauto.
+              destruct xs; simpl in *; try omega; eauto.
+            - introv; destruct xs; simpl; eauto.
+              rewrite IHn; repeat destruct lt_dec; try omega; eauto.
+          Qed.
+          unfold val, len_until_i in *; simpl in *; rewrite skipn_app; destruct lt_dec; try omega.
+          unfold val in *; rewrite Hlen', <-H0, minus_plus.
+          eauto.
     - admit.
     - admit.
   Qed.
