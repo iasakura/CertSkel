@@ -7,7 +7,6 @@ Require Import LibTactics.
 Require Import Psatz.
 Definition name := string. 
 
-
 (* general enviroment *)
 Section Environment.
   Definition Env (A B : Type) (eqt : eq_type A) := A -> B.
@@ -488,8 +487,8 @@ Section compiler.
     match op with
     | Top.Eplus => (Cskip, Lang.Eplus e1 e2 :: nil)
     | Top.Emin => (Cskip, Lang.Emin e1 e2 :: nil)
-    | BEq => (Cskip, Lang.Esub e1 e2 :: nil)
-    | Top.Blt => (Cskip, Lang.Emin (Lang.Esub e2 e1) 0%Z :: nil)
+    | BEq => (Cskip, Lang.Eeq e1 e2 :: nil)
+    | Top.Blt => (Cskip, Lang.Elt e1 e2 :: nil)
     end.
   
   (* compiler of scalar expressions *)
@@ -510,7 +509,9 @@ Section compiler.
       compile_sexp e2 env >>= fun ces2 =>
       let (c2, es2) := ces2 in
       match es1, es2 with
-      | e1 :: nil, e2 :: nil => ret (compile_op op e1 e2)
+      | e1 :: nil, e2 :: nil =>
+        let (c, es) := compile_op op e1 e2 in
+        ret (c1;; c2;; c, es)
       | _, _ => fail ""
       end
     | EA va e _ =>
@@ -1927,7 +1928,107 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
           sep_rewrite SE.assn_of_vs_eq; eauto;
           introv; autorewrite with setop_spec; intros [? ?]; unfold upd, upd_opt;
             destruct eq_dec; substs; eauto; congruence.
-    -   
+    - unfold ">>=" in Hcompile.
+      destruct (compile_sexp _ se1 _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hcompile].
+      destruct (compile_sexp _ se2 _ _) as [[(cs2 & es2) | ?] n'''] eqn:Hceq2; [|inversion Hcompile].
+      destruct es1 as [|e1 [|? ?]]; try now inverts Hcompile.
+      destruct es2 as [|e2 [|? ?]]; inverts Hcompile.
+
+      inverts Heval as Heval1 Heval2; substs.
+      inverts Htyp as Htyp1 Htyp2; substs.
+      forwards* (Hwr1 & Hres1 & Htri1): IHse1.
+      { intros; eapply Hsvar; eauto; autorewrite with setop_spec; eauto. }
+      { intros; applys* Havar; rewrite SA.union_spec; eauto. }
+      forwards* (Hwr2 & Hres2 & Htri2): IHse2.
+      { intros; forwards*: Hsvar; eauto; autorewrite with setop_spec; eauto.
+        forwards*: (>>compile_don't_decrease se1); omega. }
+      { intros; applys* Havar; rewrite SA.union_spec; eauto. }
+
+      splits; try omega.
+      { simpl; destruct op; simpl in *;
+        [inverts H0; simpl;
+         introv; rewrite !in_app_iff; intros [? | [? | []]];
+         [forwards* (? & ? & ? & ?): Hwr1| forwards* (? & ? & ? & ?): Hwr2];
+         do 2 eexists; splits; eauto; try omega;
+         [forwards*: (>>compile_don't_decrease Hceq2); omega|
+          forwards*: (>>compile_don't_decrease Hceq1); omega]..]. }
+      { simpl; destruct op; simpl in *;
+        [inverts H0; simpl; simplify..];
+        lazymatch goal with
+        | [H : context [In (Var (str_of_pnat _ _)) (fv_E e1)] |- _] =>
+          forwards*: Hres1
+        | [H : context [In (Var (str_of_pnat _ _)) (fv_E e2)] |- _] =>
+          forwards*: Hres2
+        end;
+        first [forwards*: (>>compile_don't_decrease Hceq2); omega | forwards*: (>>compile_don't_decrease Hceq1); omega]. }
+      eapply Hbackward.
+      Focus 2.
+      { unfold assn_of_svs, assn_of_avs; intros;
+        sep_rewrite_in (SE.union_assns) H; sep_rewrite_in (SA.union_assns) H;
+        rewrite !fold_assn_svs, !fold_assn_avs in H;
+        sep_rewrite_in pure_star H; sep_normal_in H.
+        assert (((!(assn_of_svs seval_env svar_env (free_sv se1)) ** assn_of_avs (free_av se1)) **
+                 !(assn_of_svs seval_env svar_env (SE.SE.diff (free_sv se2) (free_sv se1))) **
+                 assn_of_avs (SA.SE.diff (free_av se2) (free_av se1))) s h).
+        { sep_normal; repeat sep_cancel. }
+        apply H1. } Unfocus.
+      assert (c = (cs1 ;; cs2 ;; fst (compile_op op e1 e2) )); [|substs].
+      { destruct op; simpl in *; inverts H0; eauto. }
+      eapply rule_seq; [eapply rule_frame; eauto|].
+      { prove_inde; first [apply inde_assn_of_svs | apply inde_assn_of_avs];
+        introv; repeat autorewrite with setop_spec; intros ? (? & ?) ?;
+          forwards* (? & ? & ? & ?): Hwr1; substs.
+        forwards*: Hsvar; autorewrite with setop_spec; eauto. omega.
+        forwards*: Havar; autorewrite with setop_spec; eauto.
+        unfold S.var_of_str in *; simpl in *; rewrite prefix_nil in *; congruence. }
+      eapply Hbackward.
+      Focus 2. {
+        intros s h H.
+        assert ((!(e1 :: Datatypes.nil ==t vs_of_sval v1) **
+                 !(assn_of_svs seval_env svar_env (SE.union (free_sv se1) (free_sv se2))) **
+                 assn_of_avs (SA.union (free_av se1) (free_av se2))) s h).
+        { unfold assn_of_svs, assn_of_avs;
+          sep_rewrite SE.union_assns; sep_rewrite SA.union_assns;
+          sep_rewrite pure_star; sep_normal; sep_normal_in H;
+          rewrite !fold_assn_svs, !fold_assn_avs; repeat sep_cancel. }
+        sep_rewrite_in SE.union_comm H1; sep_rewrite_in SA.union_comm H1;
+          unfold assn_of_svs, assn_of_avs in H1;
+          sep_rewrite_in SE.union_assns H1; sep_rewrite_in SA.union_assns H1;
+            rewrite !fold_assn_svs, !fold_assn_avs in H1.
+        instantiate (1 :=
+         (!(assn_of_svs seval_env svar_env (free_sv se2)) ** assn_of_avs (free_av se2)) ** 
+         !(e1 :: Datatypes.nil ==t vs_of_sval v1) **
+         !(assn_of_svs seval_env svar_env (SE.SE.diff (free_sv se1) (free_sv se2))) **
+         assn_of_avs (SA.SE.diff (free_av se1) (free_av se2))).
+        sep_normal; sep_rewrite_in pure_star H1; sep_normal_in H1; repeat sep_cancel. } Unfocus.
+      eapply rule_seq; [eapply rule_frame; eauto|].
+      { prove_inde; first [apply inde_assn_of_svs | apply inde_assn_of_avs | apply inde_eq_tup; rewrite Forall_forall];
+        simpl; introv; repeat autorewrite with setop_spec; intros; simplify;
+        forwards* (? & ? & ? & ?): Hwr2; substs.
+        - forwards*: Hres1; omega.
+        - forwards*: Hsvar; autorewrite with setop_spec; jauto.
+          forwards*: (>>compile_don't_decrease se1). omega.
+        - forwards*: Havar; autorewrite with setop_spec; jauto. 
+          unfold S.var_of_str in *; simpl in *; rewrite prefix_nil in *; congruence. }
+      (* TODO: modular lemma for compile_op *)
+      assert (Heq: fst (compile_op op e1 e2) = Cskip); [|rewrite Heq; clear Heq ].
+      { unfold compile_op; destruct op; eauto. }
+      eapply Hforward; eauto using rule_skip.
+      intros s h H.
+      sep_rewrite SE.union_comm; sep_rewrite SA.union_comm;
+        unfold assn_of_svs, assn_of_avs;
+        sep_rewrite SE.union_assns; sep_rewrite SA.union_assns.
+      rewrite !fold_assn_svs, !fold_assn_avs;
+        sep_rewrite pure_star; sep_normal; sep_normal_in H;
+          sep_split_in H; sep_split; eauto; sep_cancel.
+      asserts_rewrite (es = snd (compile_op op e1 e2)).
+      { destruct op; simpl in *; inverts* H0. }
+      destruct op, v1, v2; simpl in *; inverts H9;
+        sep_split_in HP0; sep_split_in HP1; unfold_conn_in (HP3, HP4); simpl in *;
+          sep_split; eauto; unfold_conn; simpl; try congruence;
+      rewrite HP3, HP4.
+      destruct (Z.eqb_spec n0 n1); destruct (eq_dec n0 n1); eauto; congruence.
+      destruct (Z.ltb_spec0 n0 n1); destruct (Z_lt_dec n0 n1); eauto; congruence.
     - admit.
     - admit.
     - admit.
