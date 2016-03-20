@@ -1838,21 +1838,21 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
         rewrites* (>>has_type_val_len). }
       { rewrites* (>>freshes_len). }
       { rewrite S.read_tup_writes; [|rewrites* (>>freshes_len)].
-        Create HintDb setop_spec.
+        Create HintDb setop.
         Hint Rewrite SE.add_spec SE.union_spec SE.remove_spec SE.diff_spec
-             SA.add_spec SA.union_spec SA.remove_spec SA.diff_spec : setop_spec.
+             SA.add_spec SA.union_spec SA.remove_spec SA.diff_spec : setop.
 
         forwards* (? & Hvar) : (>>freshes_vars).
         prove_inde; first [apply inde_assn_of_svs | apply inde_assn_of_avs];
-          introv; repeat autorewrite with setop_spec;
+          introv; repeat autorewrite with setop;
             intros ? ? ?; forwards* (? & ? & ?): Hvar; substs.
-        - forwards*: Hsvar; [repeat autorewrite with setop_spec; eauto|].
+        - forwards*: Hsvar; [repeat autorewrite with setop; eauto|].
           forwards*: (>>compile_don't_decrease Hceq1); omega.
-        - forwards*: Havar; [repeat autorewrite with setop_spec; eauto|].
+        - forwards*: Havar; [repeat autorewrite with setop; eauto|].
           simpl in H3; rewrite S.prefix_nil in *; congruence.
-        - forwards*: Hsvar; [repeat autorewrite with setop_spec; jauto|].
+        - forwards*: Hsvar; [repeat autorewrite with setop; jauto|].
           forwards*: (>>compile_don't_decrease Hceq1); omega.
-        - forwards*: Havar; [repeat autorewrite with setop_spec; jauto|].
+        - forwards*: Havar; [repeat autorewrite with setop; jauto|].
           simpl in H3; rewrite S.prefix_nil in *; congruence. }
       
       eapply Hbackward.
@@ -1884,26 +1884,26 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
           destruct (SE.in_dec (free_sv se2) x).
           - sep_rewrite (SE.choose_remove _ _ i).
             unfold assn_of_svs.
-            sep_rewrite SE.add_equiv; [|autorewrite with setop_spec; intros [Hc Hc']; congruence].
+            sep_rewrite SE.add_equiv; [|autorewrite with setop; intros [Hc Hc']; congruence].
             unfold upd, upd_opt; destruct eq_dec; [|congruence].
             sep_rewrite pure_star; sep_rewrite pure_pure.
             sep_cancel.
             sep_rewrite SE.assn_of_vs_eq;
-              [unfold assn_of_svs in *; eauto | introv; autorewrite with setop_spec;
+              [unfold assn_of_svs in *; eauto | introv; autorewrite with setop;
                                                 intros [? ?]; try destruct eq_dec; try congruence..].
           - sep_rewrite (SE.remove_id (free_sv se2) x); eauto.
             unfold assn_of_svs in *; sep_rewrite SE.assn_of_vs_eq;
               [ sep_split_in H3; sep_split; eauto |
-                introv; autorewrite with setop_spec;
+                introv; autorewrite with setop;
                 unfold upd, upd_opt; case_if; intros [? ?]; eauto; congruence..]. }
         exact H1. } Unfocus.
       eapply Hforward; [eapply rule_frame; [apply Htri2|]| ].
       + prove_inde; first [apply inde_assn_of_svs | apply inde_assn_of_avs];
-          introv; repeat autorewrite with setop_spec; intros ? (? & ?) ?;
+          introv; repeat autorewrite with setop; intros ? (? & ?) ?;
             forwards* (? & ? & ? & ?): Hwr2; substs.
-        forwards*: Hsvar; autorewrite with setop_spec; eauto.
+        forwards*: Hsvar; autorewrite with setop; eauto.
         forwards*: (>>compile_don't_decrease se1); omega.
-        forwards*: Havar; autorewrite with setop_spec; eauto.
+        forwards*: Havar; autorewrite with setop; eauto.
         simpl in *; rewrite prefix_nil in *; congruence.
       + intros s h H; simpl.
         sep_rewrite SE.union_comm; sep_rewrite SA.union_comm.
@@ -1916,17 +1916,17 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
         destruct (SE.in_dec (free_sv se2) x).
         * sep_rewrite_in (SE.choose_remove _ _ i) H3.
           unfold assn_of_svs in H3.
-          sep_rewrite_in SE.add_equiv H3; [|autorewrite with setop_spec; intros [Hc Hc']; congruence].
+          sep_rewrite_in SE.add_equiv H3; [|autorewrite with setop; intros [Hc Hc']; congruence].
           unfold upd, upd_opt in H3; destruct (eq_dec x x); [|congruence].
           sep_rewrite_in pure_star H3; sep_split_in H3.
           sep_split; unfold assn_of_svs; eauto.
           sep_rewrite SE.assn_of_vs_eq;
-              [unfold assn_of_svs in *; eauto | introv; autorewrite with setop_spec;
+              [unfold assn_of_svs in *; eauto | introv; autorewrite with setop;
                                                 intros [? ?]; try destruct eq_dec; try congruence..].
         * sep_rewrite_in (SE.remove_id _ _ n0) H3.
           unfold assn_of_svs in *;
           sep_rewrite SE.assn_of_vs_eq; eauto;
-          introv; autorewrite with setop_spec; intros [? ?]; unfold upd, upd_opt;
+          introv; autorewrite with setop; intros [? ?]; unfold upd, upd_opt;
             destruct eq_dec; substs; eauto; congruence.
     - unfold ">>=" in Hcompile.
       destruct (compile_sexp _ se1 _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hcompile].
@@ -1937,10 +1937,10 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       inverts Heval as Heval1 Heval2; substs.
       inverts Htyp as Htyp1 Htyp2; substs.
       forwards* (Hwr1 & Hres1 & Htri1): IHse1.
-      { intros; eapply Hsvar; eauto; autorewrite with setop_spec; eauto. }
+      { intros; eapply Hsvar; eauto; autorewrite with setop; eauto. }
       { intros; applys* Havar; rewrite SA.union_spec; eauto. }
       forwards* (Hwr2 & Hres2 & Htri2): IHse2.
-      { intros; forwards*: Hsvar; eauto; autorewrite with setop_spec; eauto.
+      { intros; forwards*: Hsvar; eauto; autorewrite with setop; eauto.
         forwards*: (>>compile_don't_decrease se1); omega. }
       { intros; applys* Havar; rewrite SA.union_spec; eauto. }
 
@@ -1976,10 +1976,10 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       { destruct op; simpl in *; inverts H0; eauto. }
       eapply rule_seq; [eapply rule_frame; eauto|].
       { prove_inde; first [apply inde_assn_of_svs | apply inde_assn_of_avs];
-        introv; repeat autorewrite with setop_spec; intros ? (? & ?) ?;
+        introv; repeat autorewrite with setop; intros ? (? & ?) ?;
           forwards* (? & ? & ? & ?): Hwr1; substs.
-        forwards*: Hsvar; autorewrite with setop_spec; eauto. omega.
-        forwards*: Havar; autorewrite with setop_spec; eauto.
+        forwards*: Hsvar; autorewrite with setop; eauto. omega.
+        forwards*: Havar; autorewrite with setop; eauto.
         unfold S.var_of_str in *; simpl in *; rewrite prefix_nil in *; congruence. }
       eapply Hbackward.
       Focus 2. {
@@ -2003,12 +2003,12 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
         sep_normal; sep_rewrite_in pure_star H1; sep_normal_in H1; repeat sep_cancel. } Unfocus.
       eapply rule_seq; [eapply rule_frame; eauto|].
       { prove_inde; first [apply inde_assn_of_svs | apply inde_assn_of_avs | apply inde_eq_tup; rewrite Forall_forall];
-        simpl; introv; repeat autorewrite with setop_spec; intros; simplify;
+        simpl; introv; repeat autorewrite with setop; intros; simplify;
         forwards* (? & ? & ? & ?): Hwr2; substs.
         - forwards*: Hres1; omega.
-        - forwards*: Hsvar; autorewrite with setop_spec; jauto.
+        - forwards*: Hsvar; autorewrite with setop; jauto.
           forwards*: (>>compile_don't_decrease se1). omega.
-        - forwards*: Havar; autorewrite with setop_spec; jauto. 
+        - forwards*: Havar; autorewrite with setop; jauto. 
           unfold S.var_of_str in *; simpl in *; rewrite prefix_nil in *; congruence. }
       (* TODO: modular lemma for compile_op *)
       assert (Heq: fst (compile_op op e1 e2) = Cskip); [|rewrite Heq; clear Heq ].
@@ -2029,7 +2029,139 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       rewrite HP3, HP4.
       destruct (Z.eqb_spec n0 n1); destruct (eq_dec n0 n1); eauto; congruence.
       destruct (Z.ltb_spec0 n0 n1); destruct (Z_lt_dec n0 n1); eauto; congruence.
-    - admit.
+    - unfold ">>=" in Hcompile.
+      destruct (compile_sexp _ se _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hcompile].
+      destruct (freshes (length _) _) as [[fvs1 | ?] n''] eqn:Hfeq1; [|inversion Hcompile].
+      destruct es1 as [|? [|? ?]]; inverts Hcompile.
+      inverts Htyp as Htyp Hatyp; inverts Heval as Heval Haeval Hle Hgt.
+      forwards* (Hwr & Hres & Htri): IHse.
+      { intros; applys* Havar; autorewrite with setop; eauto. }
+      assert (Hlenfv : length fvs1 = length (avar_env x)).
+      { forwards*: (>>freshes_len Hfeq1); simplify; eauto. }
+      splits.
+      { introv; simpl; rewrite gen_read_writes.
+        2: simplify; eauto.
+        rewrite in_app_iff; intros [? | ?].
+        - forwards* (? & ? & ? & ?): Hwr; do 2 eexists; splits*; try omega.
+          forwards*: (>>freshes_vars Hfeq1); omega.
+        - forwards* (? & Hgenv): (>>freshes_vars Hfeq1).
+          forwards* (? & ? & ?): Hgenv.
+          do 2 eexists; splits*; try omega.
+          forwards*: (>>compile_don't_decrease). }
+      { intros; simplify;
+        forwards* (? & Hgenv): (>>freshes_vars Hfeq1); forwards* (? & ? & ?): Hgenv.
+        forwards* (? & ?): (>>var_pnat_inj H1); omega. }
+      eapply Hbackward.
+      Focus 2. {
+        intros s h H.
+        unfold assn_of_svs, assn_of_avs in H.
+        Hint Rewrite SE.singleton_spec SA.singleton_spec: setop.
+        Lemma add_union x s :
+          SA.add x s == SA.union (SA.singleton x) s.
+        Proof.
+          simpl; unfold SA.Equal; introv.
+          autorewrite with setop; split; eauto.
+        Qed.
+        sep_rewrite_in add_union H; sep_rewrite_in SA.union_comm H.
+        sep_rewrite_in SA.union_assns H.
+        rewrite !fold_assn_svs, !fold_assn_avs in H.
+        instantiate (1 :=
+          (!(assn_of_svs seval_env svar_env (free_sv se)) **  assn_of_avs (free_av se)) **
+            assn_of_avs (SA.SE.diff (SA.singleton x) (free_av se))).
+        sep_normal; sep_normal_in H; repeat sep_cancel. } Unfocus.
+      eapply rule_seq; [eapply rule_frame; eauto|].
+      { prove_inde; apply inde_assn_of_avs; unfold not; intros.
+        forwards* (? & ? & ? & ?) : Hwr; substs.
+        forwards*: Havar; autorewrite with setop in *; jauto.
+        simpl in *; rewrite prefix_nil in *; congruence. }
+      eapply Hbackward.
+      Focus 2.
+      { intros s h H.
+        sep_normal_in H; sep_split_in H; simpl in *.
+        sep_split_in HP0.
+        assert (assn_of_avs (SA.add x (SA.remove x (free_av se))) s h).
+        { Lemma add_remove x s :
+            SA.add x (SA.remove x s) == SA.add x s.
+          Proof.
+            simpl; unfold SA.Equal; introv; autorewrite with setop; split;
+              intros.
+            - destruct H as [? | [? ?]]; eauto.
+            - destruct (eq_dec a x); eauto.
+              destruct H; eauto.
+          Qed.
+          sep_rewrite add_remove; sep_rewrite add_union; sep_rewrite SA.union_comm.
+          unfold assn_of_avs; sep_rewrite SA.union_assns.
+          apply H. }
+        unfold assn_of_avs in H0;
+          sep_rewrite_in SA.add_equiv H0; [|autorewrite with setop; intros [? ?]; congruence].
+        rewrite Haeval in H0.
+        sep_rewrite_in (is_array_tup_unfold (S.es2gls (S.vars2es (avar_env x))) (Z.to_nat ix)) H0.
+        Focus 2. {
+          simpl; intros; unfold S.es2gls; simplify.
+          forwards* Htyv: (>> Haectx (VZ 0) i).
+          unfold val in *; rewrites* (>>has_type_val_len Htyv).
+          rewrites* (>>Havctx). } Unfocus.
+        2: zify; rewrite Z2Nat.id; omega.
+        simpl in H0.
+        assert ((Zn (Z.to_nat ix) === e) s (emp_ph loc)).
+        { unfold_conn_in HP1; unfold_conn; simpl in *; rewrite Z2Nat.id; eauto. }
+        sep_rewrite_in S.mps_eq1_tup' H0; [|exact H1].
+        clear HP0; sep_combine_in H0; sep_normal_in H0.
+        sep_lift_in H0 1.
+        apply H0. } Unfocus.
+      eapply Hforward; [eapply rule_frame; [apply S.gen_read_correct|]; eauto|].
+      { simpl; intros.
+        forwards* (? & Hgvars): (>>freshes_vars Hfeq1).
+        forwards* (? & ? & ?): Hgvars; substs.
+        simplify; eauto.
+        forwards*: Hres; omega. }
+      { unfold not; intros; simplify.
+        forwards* (? & Hgvars): (>>freshes_vars Hfeq1).
+        forwards* (? & ? & ?): Hgvars; substs.
+        forwards*: Havar; autorewrite with setop; eauto.
+        simpl in *; rewrite prefix_nil in *; congruence. }
+      { admit. }
+      { simplify; eauto. }
+      { simpl; intros; unfold S.es2gls; simplify.
+        forwards* Htyv: (>> Haectx (VZ 0) (Z.to_nat ix)).
+        zify; rewrite Z2Nat.id; omega.
+        unfold val in *; rewrites* (>>has_type_val_len Htyv).
+        unfold val in *; forwards*: Havctx.
+        congruence. }
+      { rewrites* S.gen_read_writes; [|simplify; eauto].
+        unfold S.es2gls; forwards* (? & Hgvars): (>>freshes_vars Hfeq1).
+        prove_inde; simplify; eauto;
+          try (apply inde_assn_of_svs; unfold not; intros);
+          try (apply inde_assn_of_avs; unfold not; intros);
+          forwards* (? & ? & ?): Hgvars; substs;
+          try now (lazymatch goal with
+                   | [H : In _ (avar_env _) |- _] =>
+                     forwards*: (Havar); autorewrite with setop; eauto;
+                     simpl in *; rewrite prefix_nil in *; congruence
+                   | [H : In _ (fv_E e) |- _ ] =>
+                     forwards*: Hres; autorewrite with setop; eauto; omega 
+                   end).
+        forwards*: Hsvar.
+        forwards*: (>>compile_don't_decrease Hceq1); omega.
+        forwards*: Havar; autorewrite with setop in *; jauto.
+        simpl in *; rewrite prefix_nil in *; congruence. }
+      intros; sep_normal_in H; sep_split_in H; sep_split; eauto.
+      sep_rewrite_r add_remove.
+      unfold assn_of_avs; sep_rewrite SA.add_equiv; [|autorewrite with setop; intros [? ?]; congruence].
+      rewrite Haeval.
+      apply scC; sep_cancel.
+      sep_rewrite (is_array_tup_unfold (S.es2gls (S.vars2es (avar_env x))) (Z.to_nat ix)).
+      Focus 2. {
+        simpl; intros; unfold S.es2gls; simplify.
+        forwards* Htyv: (>> Haectx (VZ 0) i).
+        unfold val in *; rewrites* (>>has_type_val_len Htyv).
+        rewrites* (>>Havctx). } Unfocus.
+      2: zify; rewrite Z2Nat.id; omega.
+      unfold S.es2gls in *; simpl.
+      assert ((Zn (Z.to_nat ix) === e) s (emp_ph loc)).
+      { unfold_conn_in HP1; unfold_conn; simpl in *; rewrite Z2Nat.id; eauto. }
+      sep_rewrite S.mps_eq1_tup'; [|exact H1].
+      sep_normal; repeat sep_cancel. 
     - admit.
     - admit.
     - admit.
