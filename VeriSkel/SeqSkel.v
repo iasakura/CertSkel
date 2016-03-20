@@ -2242,6 +2242,55 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
           unfold val, len_until_i in *; simpl in *; rewrite skipn_app; destruct lt_dec; try omega.
           unfold val in *; rewrite Hlen', <-H0, minus_plus.
           eauto.
-    - admit.
+    - assert (ty = ty0); [|substs].
+      { forwards*: typ_of_sexp_ok. }
+      revert n m c es0 sv ty0 Hsvar Htyp Heval Hcompile; induction H; introv Hsvar Htyp Heval Hcompile.
+      + inverts Hcompile; simpl.
+        inverts Htyp as Htyp; inverts Htyp.
+        inverts Heval as Heval; inverts Heval.
+        splits; try now destruct 1.
+        eapply Hforward; eauto using rule_skip.
+        simpl; intros; sep_split_in H; sep_split; repeat sep_cancel.
+      + inverts Heval as Heval; inverts Heval as Heval0 Heval.
+        inverts Htyp as Htyp; inverts Htyp as Htyp0 Htyp.
+        unfold ">>=" in Hcompile.
+        destruct (compile_sexp _ x _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hcompile].
+        lazymatch type of Hcompile with
+        | context [let (_, _) := ?X in _] =>
+          destruct X as [[(cs' & es') | ?] n''] eqn:Hceq2; inversion Hcompile
+        end; substs.
+        assert (n <= n').
+        { forwards*: compile_don't_decrease. }
+        assert (n' <= m).
+        { revert Hceq2; clear; intros Hceq2.
+          revert es' cs' n' m Hceq2; induction l; introv Hceq.
+          - inverts Hceq; eauto.
+          - unfold ">>=" in *.
+            destruct (compile_sexp _ _ _ _)  as [[(cs1 & es1) | ?] k] eqn:Hceq1; [|inversion Hceq].
+            lazymatch type of Hceq with
+              | context [let (_, _) := ?X in _] =>
+                destruct X as [[(cs'' & es'') | ?] n'''] eqn:Hceq2; inversion Hceq
+            end; substs.
+            forwards*: compile_don't_decrease.
+            forwards*: IHl.
+            omega. }
+        forwards* (Hwr & Hres & Htri): IHForall; try now constructor; eauto.
+        { intros.
+          forwards*: Havar; simpl; autorewrite with setop; eauto. }
+        { intros.
+          forwards*: Hsvar; simpl; autorewrite with setop; eauto.
+          forwards*: compile_don't_decrease; omega. }
+        forwards* (Hwr0 & Hres0 & Htri0): H.
+        { intros.
+          forwards*: Hsvar; simpl; autorewrite with setop; eauto. }
+        { intros.
+          forwards*: Havar; simpl; autorewrite with setop; eauto. }
+        splits.
+        { introv; simpl; rewrite in_app_iff; intros [? | ?];
+          [ forwards* (? & ? & ? & ?): Hwr0 | forwards*(? & ? & ? & ?): Hwr]; do 2 eexists; splits*;
+          omega. }
+        { introv; rewrite in_app_iff; intros [? | ?] ?;
+          [ forwards*: Hres0 | forwards*: Hres]; try omega. }
+        simpl.
     - admit.
   Qed.
