@@ -2259,9 +2259,9 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
         | context [let (_, _) := ?X in _] =>
           destruct X as [[(cs' & es') | ?] n''] eqn:Hceq2; inversion Hcompile
         end; substs.
-        assert (n <= n').
+        assert (Hnn' : n <= n').
         { forwards*: compile_don't_decrease. }
-        assert (n' <= m).
+        assert (Hn'm : n' <= m).
         { revert Hceq2; clear; intros Hceq2.
           revert es' cs' n' m Hceq2; induction l; introv Hceq.
           - inverts Hceq; eauto.
@@ -2292,5 +2292,78 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
         { introv; rewrite in_app_iff; intros [? | ?] ?;
           [ forwards*: Hres0 | forwards*: Hres]; try omega. }
         simpl.
+        eapply Hbackward.
+        Focus 2. {
+          unfold assn_of_svs, assn_of_avs; intros s h Hsat.
+          sep_rewrite_in SE.union_assns Hsat; sep_rewrite_in pure_star Hsat.
+          sep_rewrite_in SA.union_assns Hsat.
+          rewrite !fold_assn_svs, !fold_assn_avs in Hsat.
+          instantiate (1 :=
+            ((!(assn_of_svs seval_env svar_env (free_sv x)) ** assn_of_avs (free_av x)) **
+             !(assn_of_svs seval_env svar_env
+               (SE.SE.diff (fold_right (fun (e : SExp) (xs : SE.t) => SE.union (free_sv e) xs) SE.empty l) (free_sv x))) **
+          assn_of_avs (SA.SE.diff (fold_right (fun (e : SExp) (xs : SA.t) => SA.union (free_av e) xs) SA.empty l) (free_av x)))).
+          sep_normal; sep_normal_in Hsat; repeat sep_cancel. } Unfocus.
+        eapply rule_seq; [eapply rule_frame; eauto|].
+        { prove_inde; first [apply inde_assn_of_avs | apply inde_assn_of_svs];
+          introv; autorewrite with setop; intros ? [? ?] ?;
+          forwards* (? & ? & ? & ?): Hwr0; substs.
+          - forwards*: Hsvar; simpl; autorewrite with setop; eauto; omega.
+          - forwards*: Havar; simpl; autorewrite with setop; eauto.
+            simpl in *; rewrite prefix_nil in *; congruence. }
+        eapply Hbackward.
+        Focus 2. {
+          intros s h Hsat.
+          assert (Hsat' : (!(es1 ==t vs_of_sval v) **
+                   !(assn_of_svs seval_env svar_env
+                     (SE.union (free_sv x) (fold_right (fun (e : SExp) (xs : SE.t) => SE.union (free_sv e) xs) SE.empty l))) **
+                    assn_of_avs (SA.union (free_av x) (fold_right (fun (e : SExp) (xs : SA.t) => SA.union (free_av e) xs) SA.empty l)))
+                    s h).
+          { unfold assn_of_svs, assn_of_avs in *.
+            sep_rewrite SE.union_assns; sep_rewrite SA.union_assns; sep_rewrite pure_star.
+            sep_normal_in Hsat; sep_normal; repeat sep_cancel. }
+          sep_rewrite_in SE.union_comm Hsat'; sep_rewrite_in SA.union_comm Hsat'.
+          unfold assn_of_svs, assn_of_avs in *.
+          sep_rewrite_in SE.union_assns Hsat';
+          sep_rewrite_in SA.union_assns Hsat'; sep_rewrite_in pure_star Hsat'.
+          rewrite !fold_assn_svs, !fold_assn_avs in Hsat'.
+          instantiate (1 :=
+            ((!(assn_of_svs seval_env svar_env
+                            (fold_right (fun (e : SExp) (xs : SE.t) => SE.union (free_sv e) xs) SE.empty l)) **
+              assn_of_avs (fold_right (fun (e : SExp) (xs : SA.t) => SA.union (free_av e) xs) SA.empty l)) **
+             !(es1 ==t vs_of_sval v) **
+             !(assn_of_svs seval_env svar_env
+                  (SE.SE.diff (free_sv x) (fold_right (fun (e : SExp) (xs : SE.t) => SE.union (free_sv e) xs) SE.empty l))) **
+             assn_of_avs (SA.SE.diff (free_av x)
+                                     (fold_right (fun (e : SExp) (xs : SA.t) => SA.union (free_av e) xs) SA.empty l)))).
+         sep_normal; sep_normal_in Hsat'; repeat sep_cancel. } Unfocus.
+        eapply Hforward; [eapply rule_frame; eauto|].
+        { prove_inde; first [apply inde_assn_of_avs | apply inde_assn_of_svs | apply inde_eq_tup; simplify];
+          introv; autorewrite with setop; try intros ? [? ?] ?;
+          forwards* (? & ? & ? & ?): Hwr; substs.
+          - forwards*: Hres0; omega.
+          - forwards*: Hsvar; simpl; autorewrite with setop; eauto; omega.
+          - forwards*: Havar; simpl; autorewrite with setop; eauto.
+            simpl in *; rewrite prefix_nil in *; congruence. }
+        intros s h Hsat.
+        sep_rewrite SE.union_comm; sep_rewrite SA.union_comm;
+          unfold assn_of_svs, assn_of_avs in *;
+          sep_rewrite SE.union_assns;
+          sep_rewrite SA.union_assns; sep_rewrite pure_star.
+        sep_normal_in Hsat; sep_normal; repeat sep_cancel.
+        sep_split_in H4; sep_split; eauto; simpl in *.
+        Lemma eq_tup_app' es1 es2 es1' es2' stk :
+          (es1 ==t es1') stk (emp_ph loc) ->
+          (es2 ==t es2') stk (emp_ph loc) ->
+          (es1 ++ es2 ==t es1' ++ es2') stk (emp_ph loc).
+        Proof.
+          revert es2 es1' es2'; induction es1; introv Heq1 Heq2.
+          - destruct es1'; simpl in *; eauto; destruct Heq1.
+          - destruct es1'; simpl in *; [destruct Heq1|].
+            sep_split_in Heq1.
+            forwards*: IHes1.
+            sep_split; eauto.
+        Qed.
+        apply eq_tup_app'; eauto.
     - admit.
   Qed.
