@@ -561,7 +561,7 @@ Section compiler.
       freshes dim >>= fun xs =>
       match e1 with
       | e :: nil =>
-        ret (Cif (e == 0%Z) (c2 ;; S.read_tup xs e2) (c3 ;; S.read_tup xs e3), S.vars2es xs)
+        ret (c1;; Cif (Bnot (e == 0%Z)) (c2 ;; S.read_tup xs e2) (c3 ;; S.read_tup xs e3), S.vars2es xs)
       | _ => fail ""
       end
     end%list.
@@ -1789,7 +1789,8 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
           forwards*: compile_don't_decrease.
           t.
     - substs.
-      forwards* (? & ? & ? & ?): (>>IHse2 Heqp0). t.
+      forwards* (? & ? & ? & ?): (>>IHse1 Heqp). t.
+    - forwards* (? & ? & ? & ?): (>>IHse2 Heqp0). t.
     - rewrite S.read_tup_writes in *; [|forwards*: freshes_len].
       forwards* (? & ? & ?) : freshes_vars.
       t.
@@ -1803,7 +1804,6 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
         - destruct 1.
         - simpl in *; intros [? | ?]; eauto.
       Qed.
-      
       apply read_tup_writes' in H.
       forwards* (? & ? & ?) : freshes_vars; t.
   Qed.
@@ -1844,6 +1844,31 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       forwards* (? & ? & ? & ?) : (compile_wr_vars). t.
       forwards*: compile_don't_decrease.
       forwards* (? & ? & ? & ?) : (IHl). t.
+  Qed.
+  
+
+  Lemma freshes_disjoint d n m xs :
+    freshes d n = (inl xs, m) ->
+    disjoint_list xs.
+  Proof.
+    revert n m xs; induction d; simpl; introv.
+    - intros H; inverts H; simpl; eauto.
+    - unfold freshes, ">>=", get, set, ret in *.
+      intros H; inverts H; simpl.
+      split; eauto.
+      intros Hin; clear IHd.
+      assert (forall k, In (Var (str_of_pnat n k)) ((fix f (dim n : nat) :=
+                                                       match dim with
+                                                       | 0 => nil
+                                                       | S d => Var (str_of_pnat n d) :: f d n
+                                                       end) d n) ->
+                        k < d).
+      { clear Hin; induction d; simpl.
+        - destruct 1.
+        - intros k [H1 | H2].
+          + lets* [? ?]: (>>var_pnat_inj H1); omega.
+          + forwards*: IHd. }
+      forwards*: H; omega.
   Qed.
   
   Lemma compile_ok (se : SExp)
@@ -1988,7 +2013,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       { intros.
         forwards* (? & ? & ?): Hfvs; substs.
         intros Hc; forwards*: Hres1; try omega. }
-      { admit. }
+      { forwards*: freshes_disjoint. }
       { forwards*: (compile_preserve se1).
         forwards*: (type_preservation se1).
         rewrites* (>>has_type_val_len). }
@@ -2274,7 +2299,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
         forwards* (? & ? & ?): (>>freshes_vars Hfeq1); substs.
         forwards*: Havar; autorewrite with setop; eauto.
         simpl in *; rewrite prefix_nil in *; congruence. }
-      { admit. }
+      { forwards*: freshes_disjoint. }
       { simplify; eauto. }
       { simpl; intros; unfold S.es2gls; simplify.
         forwards* Htyv: (>> Haectx (VZ 0) (Z.to_nat ix)).
@@ -2531,5 +2556,248 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
         forwards* (? & ? & ?): (>>freshes_vars Hfeq1).
         apply var_pnat_inj in H0 as (? & ?); substs.
         forwards*: (>>freshes_incr); omega. }
-      
+      assert (n <= n' /\ n' <= n'' /\ n'' <= n''' /\ n''' + 1 = m).
+      { splits; [forwards*: (>>compile_don't_decrease Hceq1) |
+                 forwards*: (>>compile_don't_decrease Hceq2) |
+                 forwards*: (>>compile_don't_decrease Hceq3) |
+                 forwards*: (>>freshes_incr Hfeq1) ]. }
+      inverts Heval as Heval1 Heval2.
+      + forwards* (Hres1 & Htri1): IHse1.
+        { intros; forwards*: Hsvar; autorewrite with setop; eauto. }
+        { intros; forwards*: Havar; autorewrite with setop; eauto. }
+        forwards* (Hres2 & Htri2): IHse2.
+        { intros; forwards*: Hsvar; autorewrite with setop; eauto; omega. }
+        { intros; forwards*: Havar; autorewrite with setop; eauto. }
+        
+        eapply Hbackward.
+        Focus 2. {
+          intros s h Hsat.
+          unfold assn_of_svs, assn_of_avs in Hsat.
+          sep_rewrite_in SE.union_assns Hsat.
+          sep_rewrite_in SA.union_assns Hsat.
+          sep_rewrite_in pure_star Hsat.
+          rewrite !fold_assn_avs, !fold_assn_svs in Hsat.
+          instantiate (1 := (
+             (!(assn_of_svs seval_env svar_env (free_sv se1)) ** assn_of_avs (free_av se1)) ** 
+             !(assn_of_svs seval_env svar_env (SE.SE.diff (SE.union (free_sv se2) (free_sv se3)) (free_sv se1))) **
+             assn_of_avs (SA.SE.diff (SA.union (free_av se2) (free_av se3)) (free_av se1)))).
+          sep_normal; sep_normal_in Hsat; repeat sep_cancel. } Unfocus.
+        eapply rule_seq; [eapply rule_frame; eauto|].
+        { prove_inde; first [apply inde_assn_of_avs | apply inde_assn_of_svs | apply inde_eq_tup; simplify];
+          introv; autorewrite with setop; try intros ? [? ?] ?.
+          - destruct H1;
+              forwards*(? & ? & ? & ?): (>>compile_wr_vars H0); substs;
+                forwards*: Hsvar; autorewrite with setop; eauto; omega.
+          - destruct H1;
+              forwards*(? & ? & ? & ?): (>>compile_wr_vars H0); substs;
+                forwards*: Havar; autorewrite with setop; eauto; simpl in *; rewrite prefix_nil in *; congruence. }
+        eapply Hforward; [eapply rule_if_disj|]; simpl in *.
+        eapply Hbackward.
+        Focus 2. {
+          intros s h Hsat.
+          assert ((!(assn_of_svs seval_env svar_env (SE.union (free_sv se1) (SE.union (free_sv se2) (free_sv se3)))) **
+                    assn_of_avs (SA.union (free_av se1) (SA.union (free_av se2) (free_av se3)))) s h).
+          { unfold assn_of_svs, assn_of_avs in *.
+            sep_rewrite SE.union_assns; sep_rewrite pure_star.
+            sep_rewrite SA.union_assns.
+            sep_normal_in Hsat; sep_normal; sep_split_in Hsat; sep_split; repeat sep_cancel. }
+          Lemma se_union_assoc s1 s2 s3 :
+            SE.union (SE.union s1 s2) s3 == SE.union s1 (SE.union s2 s3).
+          Proof.
+            simpl; unfold SE.Equal; introv; autorewrite with setop.
+            split; intros; eauto.
+            destruct H as [[? | ?] | ?]; eauto.
+            destruct H as [? | [? | ?]]; eauto.
+          Qed.
+          Lemma sa_union_assoc s1 s2 s3 :
+            SA.union (SA.union s1 s2) s3 == SA.union s1 (SA.union s2 s3).
+          Proof.
+            simpl; unfold SA.Equal; introv; autorewrite with setop.
+            split; intros; eauto.
+            destruct H as [[? | ?] | ?]; eauto.
+            destruct H as [? | [? | ?]]; eauto.
+          Qed.
+          sep_rewrite_in (SE.union_comm (free_sv se1)) H0.
+          sep_rewrite_in se_union_assoc H0.
+          sep_rewrite_in (SA.union_comm (free_av se1)) H0.
+          sep_rewrite_in sa_union_assoc H0.
+          unfold assn_of_svs, assn_of_avs in H0.
+          sep_rewrite_in SE.union_assns H0; sep_rewrite_in pure_star H0.
+          sep_rewrite_in SA.union_assns H0.
+          rewrite !fold_assn_svs, !fold_assn_avs in H0.
+          instantiate (1 :=
+            ((!(assn_of_svs seval_env svar_env (free_sv se2)) ** assn_of_avs (free_av se2)) **
+            !(assn_of_svs seval_env svar_env (SE.SE.diff (SE.union (free_sv se3) (free_sv se1)) (free_sv se2))) **
+            assn_of_avs (SA.SE.diff (SA.union (free_av se3) (free_av se1)) (free_av se2)))).
+          sep_normal; sep_normal_in H0; repeat sep_cancel. } Unfocus.
+        eapply rule_seq; [eapply rule_frame; eauto|].
+        { prove_inde; first [apply inde_assn_of_avs | apply inde_assn_of_svs | apply inde_eq_tup; simplify];
+          introv; autorewrite with setop; try intros ? [? ?] ?.
+          - destruct H1;
+              forwards*(? & ? & ? & ?): (>>compile_wr_vars H0); substs;
+                forwards*: Hsvar; autorewrite with setop; eauto; omega.
+          - destruct H1;
+              forwards*(? & ? & ? & ?): (>>compile_wr_vars H0); substs;
+                forwards*: Havar; autorewrite with setop; eauto; simpl in *; rewrite prefix_nil in *; congruence. }
+        eapply Hbackward.
+        Focus 2. {
+          intros s h Hsat.
+          instantiate (1 :=
+            !(es2 ==t vs_of_sval sv) **
+            !(assn_of_svs seval_env svar_env (free_sv se2)) ** assn_of_avs (free_av se2) **
+            !(assn_of_svs seval_env svar_env (SE.SE.diff (SE.union (free_sv se3) (free_sv se1)) (free_sv se2))) **
+            assn_of_avs (SA.SE.diff (SA.union (free_av se3) (free_av se1)) (free_av se2))).
+          sep_normal_in Hsat; sep_normal; repeat sep_cancel. } Unfocus.
+        eapply rule_frame; [apply read_tup_correct|].
+        { unfold not; intros.
+          forwards* (? & ? & ?): freshes_vars; substs.
+          forwards*: (Hres2); omega. }
+        { forwards*: freshes_disjoint. }
+        { forwards*: (>>type_preservation Htyp2).
+          unfold val in * ; rewrites* (>> has_type_val_len H0).
+          forwards*: (>>compile_preserve Hceq2). }
+        { forwards*: (>>freshes_len Hfeq1). }
+        { prove_inde; first [apply inde_assn_of_avs | apply inde_assn_of_svs];
+          introv; autorewrite with setop; unfold not; intros; forwards*: (read_tup_writes');
+          forwards* (? & ? & ?): (>>freshes_vars Hfeq1); substs.
+          - forwards*: Hsvar; autorewrite with setop; eauto; omega.
+          - forwards*: Havar; autorewrite with setop; eauto; simpl in *; rewrite prefix_nil in *; congruence.
+          - forwards*: Hsvar; autorewrite with setop.
+            destruct H1 as ([? | ?] & _); eauto.
+            omega.
+          - forwards*: Havar; autorewrite with setop.
+            destruct H1 as ([? | ?] & _); eauto.
+            simpl in *; rewrite prefix_nil in *; congruence. }
+        eapply Hbackward.
+        Focus 2. {
+          intros s h Hsat.
+          sep_normal_in Hsat; sep_split_in Hsat.
+          sep_split_in HP0.
+          unfold_pures.
+          instantiate (1 := FalseP).
+          congruence. } Unfocus.
+        instantiate (1 := FalseP).
+        intros x; destruct 1.
+        intros s h [Hsat | []].
+        sep_rewrite (SE.union_comm (free_sv se1)).
+        sep_rewrite se_union_assoc.
+        sep_rewrite (SA.union_comm (free_av se1)).
+        sep_rewrite sa_union_assoc.
+        unfold assn_of_svs, assn_of_avs in *; sep_rewrite SE.union_assns; sep_rewrite SA.union_assns; sep_rewrite pure_star.
+        sep_normal_in Hsat; sep_normal; repeat sep_cancel.
+      + forwards* (Hres1 & Htri1): IHse1.
+        { intros; forwards*: Hsvar; autorewrite with setop; eauto. }
+        { intros; forwards*: Havar; autorewrite with setop; eauto. }
+        forwards* (Hres3 & Htri3): IHse3.
+        { intros; forwards*: Hsvar; autorewrite with setop; eauto; omega. }
+        { intros; forwards*: Havar; autorewrite with setop; eauto. }
+        
+        eapply Hbackward.
+        Focus 2. {
+          intros s h Hsat.
+          unfold assn_of_svs, assn_of_avs in Hsat.
+          sep_rewrite_in SE.union_assns Hsat.
+          sep_rewrite_in SA.union_assns Hsat.
+          sep_rewrite_in pure_star Hsat.
+          rewrite !fold_assn_avs, !fold_assn_svs in Hsat.
+          instantiate (1 := (
+             (!(assn_of_svs seval_env svar_env (free_sv se1)) ** assn_of_avs (free_av se1)) ** 
+             !(assn_of_svs seval_env svar_env (SE.SE.diff (SE.union (free_sv se2) (free_sv se3)) (free_sv se1))) **
+             assn_of_avs (SA.SE.diff (SA.union (free_av se2) (free_av se3)) (free_av se1)))).
+          sep_normal; sep_normal_in Hsat; repeat sep_cancel. } Unfocus.
+        eapply rule_seq; [eapply rule_frame; eauto|].
+        { prove_inde; first [apply inde_assn_of_avs | apply inde_assn_of_svs | apply inde_eq_tup; simplify];
+          introv; autorewrite with setop; try intros ? [? ?] ?.
+          - destruct H1;
+              forwards*(? & ? & ? & ?): (>>compile_wr_vars H0); substs;
+                forwards*: Hsvar; autorewrite with setop; eauto; omega.
+          - destruct H1;
+              forwards*(? & ? & ? & ?): (>>compile_wr_vars H0); substs;
+                forwards*: Havar; autorewrite with setop; eauto; simpl in *; rewrite prefix_nil in *; congruence. }
+        eapply Hforward; [eapply rule_if_disj|]; simpl in *.
+        eapply Hbackward.
+        Focus 2. {
+          intros s h Hsat.
+          sep_normal_in Hsat; sep_split_in Hsat.
+          sep_split_in HP0.
+          unfold_pures.
+          instantiate (1 := FalseP).
+          congruence. } Unfocus.
+        instantiate (1 := FalseP).
+        intros x; destruct 1.
+
+        eapply Hbackward.
+        Focus 2. {
+          intros s h Hsat.
+          assert ((!(assn_of_svs seval_env svar_env (SE.union (free_sv se1) (SE.union (free_sv se2) (free_sv se3)))) **
+                    assn_of_avs (SA.union (free_av se1) (SA.union (free_av se2) (free_av se3)))) s h).
+          { unfold assn_of_svs, assn_of_avs in *.
+            sep_rewrite SE.union_assns; sep_rewrite pure_star.
+            sep_rewrite SA.union_assns.
+            sep_normal_in Hsat; sep_normal; sep_split_in Hsat; sep_split; repeat sep_cancel. }
+          sep_rewrite_in (SE.union_comm (free_sv se2)) H0.
+          sep_rewrite_in (SE.union_comm (free_sv se1)) H0.
+          sep_rewrite_in se_union_assoc H0.
+          sep_rewrite_in (SA.union_comm (free_av se2)) H0.
+          sep_rewrite_in (SA.union_comm (free_av se1)) H0.
+          sep_rewrite_in sa_union_assoc H0.
+          unfold assn_of_svs, assn_of_avs in H0.
+          sep_rewrite_in SE.union_assns H0; sep_rewrite_in pure_star H0.
+          sep_rewrite_in SA.union_assns H0.
+          rewrite !fold_assn_svs, !fold_assn_avs in H0.
+          instantiate (1 :=
+            ((!(assn_of_svs seval_env svar_env (free_sv se3)) ** assn_of_avs (free_av se3)) **
+            !(assn_of_svs seval_env svar_env (SE.SE.diff (SE.union (free_sv se2) (free_sv se1)) (free_sv se3))) **
+            assn_of_avs (SA.SE.diff (SA.union (free_av se2) (free_av se1)) (free_av se3)))).
+          sep_normal; sep_normal_in H0; repeat sep_cancel. } Unfocus.
+        eapply rule_seq; [eapply rule_frame; eauto|].
+        { prove_inde; first [apply inde_assn_of_avs | apply inde_assn_of_svs | apply inde_eq_tup; simplify];
+          introv; autorewrite with setop; try intros ? [? ?] ?.
+          - destruct H1;
+              forwards*(? & ? & ? & ?): (>>compile_wr_vars H0); substs;
+                forwards*: Hsvar; autorewrite with setop; eauto; omega.
+          - destruct H1;
+              forwards*(? & ? & ? & ?): (>>compile_wr_vars H0); substs;
+                forwards*: Havar; autorewrite with setop; eauto; simpl in *; rewrite prefix_nil in *; congruence. }
+        eapply Hbackward.
+        Focus 2. {
+          intros s h Hsat.
+          instantiate (1 :=
+            !(es3 ==t vs_of_sval sv) **
+            !(assn_of_svs seval_env svar_env (free_sv se3)) ** assn_of_avs (free_av se3) **
+            !(assn_of_svs seval_env svar_env (SE.SE.diff (SE.union (free_sv se2) (free_sv se1)) (free_sv se3))) **
+            assn_of_avs (SA.SE.diff (SA.union (free_av se2) (free_av se1)) (free_av se3))).
+          sep_normal_in Hsat; sep_normal; repeat sep_cancel. } Unfocus.
+        eapply rule_frame; [apply read_tup_correct|].
+        { unfold not; intros.
+          forwards* (? & ? & ?): freshes_vars; substs.
+          forwards*: (Hres3); omega. }
+        { forwards*: freshes_disjoint. }
+        { forwards*: (>>type_preservation Htyp3).
+          unfold val in * ; rewrites* (>> has_type_val_len H0).
+          forwards*: (>>compile_preserve Hceq3). }
+        { forwards*: (>>freshes_len Hfeq1).
+          forwards*: (>>compile_preserve Hceq3).
+          forwards*: (>>compile_preserve Hceq2).
+          congruence. }
+        { prove_inde; first [apply inde_assn_of_avs | apply inde_assn_of_svs];
+          introv; autorewrite with setop; unfold not; intros; forwards*: (read_tup_writes');
+          forwards* (? & ? & ?): (>>freshes_vars Hfeq1); substs.
+          - forwards*: Hsvar; autorewrite with setop; eauto; omega.
+          - forwards*: Havar; autorewrite with setop; eauto; simpl in *; rewrite prefix_nil in *; congruence.
+          - forwards*: Hsvar; autorewrite with setop.
+            destruct H1 as ([? | ?] & _); eauto.
+            omega.
+          - forwards*: Havar; autorewrite with setop.
+            destruct H1 as ([? | ?] & _); eauto.
+            simpl in *; rewrite prefix_nil in *; congruence. }
+        intros s h [[] | Hsat].
+        sep_rewrite (SE.union_comm (free_sv se2)).
+        sep_rewrite (SE.union_comm (free_sv se1)).
+        sep_rewrite se_union_assoc.
+        sep_rewrite (SA.union_comm (free_av se2)).
+        sep_rewrite (SA.union_comm (free_av se1)).
+        sep_rewrite sa_union_assoc.
+        unfold assn_of_svs, assn_of_avs in *; sep_rewrite SE.union_assns; sep_rewrite SA.union_assns; sep_rewrite pure_star.
+        sep_normal_in Hsat; sep_normal; repeat sep_cancel. 
   Qed.
