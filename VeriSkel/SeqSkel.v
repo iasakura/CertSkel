@@ -2801,3 +2801,4 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
         unfold assn_of_svs, assn_of_avs in *; sep_rewrite SE.union_assns; sep_rewrite SA.union_assns; sep_rewrite pure_star.
         sep_normal_in Hsat; sep_normal; repeat sep_cancel. 
   Qed.
+End CorrectnessProof.
