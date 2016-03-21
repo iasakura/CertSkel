@@ -23,7 +23,7 @@ Variable nblk : nat.
 
 (* Variable arr : val. *)
 Variable len : nat.
-Hypothesis len_neq_0 : len <> 0.
+(* Hypothesis len_neq_0 : len <> 0. *)
 Variable out : list val.
 
 (* free variable environment (de-bruijn indices, dimensions) *)
