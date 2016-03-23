@@ -1,4 +1,4 @@
-Require Import LibTactics GPUCSL Relations.
+Require Import LibTactics GPUCSL Relations SeqSkel.
 
 Record kernel := BuildKer { params_of : list var; body_of : program }.
 

@@ -36,136 +36,135 @@ Proof.
   repeat decide equality. 
 Defined.
 
-(* scalar operations *)
-Inductive SOp : Set := Eplus | Emin | BEq | Blt.
-
-(* types of scala expressions *)
-Inductive Typ := TBool | TZ | TTup (typs : list Typ).  
-
-Inductive Forall_rect (A : Type) (P : A -> Type) : list A -> Type :=
+Module Syntax.
+  (* scalar operations *)
+  Inductive SOp : Set := Eplus | Emin | BEq | Blt.
+  
+  (* types of scala expressions *)
+  Inductive Typ := TBool | TZ | TTup (typs : list Typ).  
+  
+  Inductive Forall_rect (A : Type) (P : A -> Type) : list A -> Type :=
     Forall_r_nil : Forall_rect A P nil
   | Forall_r_cons : forall (x : A) (l : list A), P x -> Forall_rect A P l -> Forall_rect A P (x :: l).
 
-Lemma STyp_rect' (P : Typ -> Type) (f : P TBool) (f0 : P TZ)
-      (f1 : forall (typs : list Typ), (Forall_rect _ P typs) -> (P (TTup typs))) : forall ty, P ty.
-  refine
-    (let fix rec ty :=
-     match ty as s0 return (P s0) with
-     | TBool => f
-     | TZ => f0
-     | TTup x =>
-       let fix rec (tys : list Typ) :=
-           match tys return Forall_rect _ P tys with
-           | nil => Forall_r_nil _ _
-           | ty :: tys => Forall_r_cons _ _ _ _ _ _
-           end in f1 _ (rec x)
-     end in rec).
-  eauto.
-  eauto.
-Qed.
+  Lemma STyp_rect' (P : Typ -> Type) (f : P TBool) (f0 : P TZ)
+        (f1 : forall (typs : list Typ), (Forall_rect _ P typs) -> (P (TTup typs))) : forall ty, P ty.
+    refine
+      (let fix rec ty :=
+           match ty as s0 return (P s0) with
+           | TBool => f
+           | TZ => f0
+           | TTup x =>
+             let fix rec (tys : list Typ) :=
+                 match tys return Forall_rect _ P tys with
+                 | nil => Forall_r_nil _ _
+                 | ty :: tys => Forall_r_cons _ _ _ _ _ _
+                 end in f1 _ (rec x)
+           end in rec).
+    eauto.
+    eauto.
+  Qed.
 
-Lemma STyp_eq_dec (ty1 ty2 : Typ) : {ty1 = ty2} + {ty1 <> ty2}.
-Proof.
-  revert ty2 ty1; apply (STyp_rect' (fun ty => forall ty2, {ty2 = ty} + {ty2 <> ty}));
-  destruct ty2; try first [left; congruence | right; congruence].
-  revert typs0; induction X.
-  - destruct typs0; [left | right]; congruence.
-  - destruct typs0.
-    + right; congruence.
-    + lets [?|?]: (IHX typs0).
-      * lets [?|?]: (p t).
-        inversion e; substs; left; eauto.
-        right; congruence.
-      * right; congruence.
-Defined.
+  Lemma STyp_eq_dec (ty1 ty2 : Typ) : {ty1 = ty2} + {ty1 <> ty2}.
+  Proof.
+    revert ty2 ty1; apply (STyp_rect' (fun ty => forall ty2, {ty2 = ty} + {ty2 <> ty}));
+      destruct ty2; try first [left; congruence | right; congruence].
+    revert typs0; induction X.
+    - destruct typs0; [left | right]; congruence.
+    - destruct typs0.
+      + right; congruence.
+      + lets [?|?]: (IHX typs0).
+        * lets [?|?]: (p t).
+          inversion e; substs; left; eauto.
+          right; congruence.
+        * right; congruence.
+  Defined.
 
-(* scalar expressions *)
-Inductive SExp :=
-| EVar (x : varE) (typ : Typ)
-| ENum (x : Z)
-| ELet (x : varE) (e e' : SExp) (typ : Typ)
-| EBin (op : SOp) (e1 e2 : SExp) (typ : Typ)
-| EA (x : varA) (e : SExp) (typ : Typ)
-| EPrj (e : SExp) (i : nat) (typ : Typ)
-| ECons (es : list SExp) (typ : Typ)
-| EIf (e e' e'' : SExp) (typ : Typ).
+  (* scalar expressions *)
+  Inductive SExp :=
+  | EVar (x : varE) (typ : Typ)
+  | ENum (x : Z)
+  | ELet (x : varE) (e e' : SExp) (typ : Typ)
+  | EBin (op : SOp) (e1 e2 : SExp) (typ : Typ)
+  | EA (x : varA) (e : SExp) (typ : Typ)
+  | EPrj (e : SExp) (i : nat) (typ : Typ)
+  | ECons (es : list SExp) (typ : Typ)
+  | EIf (e e' e'' : SExp) (typ : Typ).
 
-(* getter of the type informations *)
-Definition typ_of_sexp e :=
-  match e with
-  | EVar _ ty => ty
-  | ENum _ => TZ
-  | ELet _ _ _ ty => ty
-  | EBin _ _ _ ty => ty
-  | EA _ _ ty => ty
-  | EPrj _ _ ty => ty
-  | ECons _ ty => ty
-  | EIf _ _ _ ty => ty
-  end.
+  (* getter of the type informations *)
+  Definition typ_of_sexp e :=
+    match e with
+    | EVar _ ty => ty
+    | ENum _ => TZ
+    | ELet _ _ _ ty => ty
+    | EBin _ _ _ ty => ty
+    | EA _ _ ty => ty
+    | EPrj _ _ ty => ty
+    | ECons _ ty => ty
+    | EIf _ _ _ ty => ty
+    end.
 
-Lemma SExp_ind' : forall P : SExp -> Prop,
-    (forall (x : varE) ty, P (EVar x ty)) ->
-    (forall (x : Z), P (ENum x)) ->
-    (forall (x : varE) (e : SExp) ty, P e -> forall e' : SExp, P e' -> P (ELet x e e' ty)) ->
-    (forall (op : SOp) (e1 : SExp) ty, P e1 -> forall e2 : SExp, P e2 -> P (EBin op e1 e2 ty)) ->
-    (forall (x : varA) (e : SExp) ty, P e -> P (EA x e ty)) ->
-    (forall (e : SExp) ty, P e -> forall i : nat, P (EPrj e i ty)) ->
-    (forall (es : list SExp) ty, List.Forall P es -> P (ECons es ty)) ->
-    (forall (e : SExp) ty, P e -> forall e' : SExp, P e' -> forall e'' : SExp, P e'' -> P (EIf e e' e'' ty)) ->
-    forall e : SExp, P e.
-Proof.
-  intros; revert e.
-  refine (fix rec (e : SExp) := 
-    match e return P e with
-    | EVar x _ => H _ _
-    | ENum x => H0 _
-    | ELet x e e' _ => H1 _ _ _ (rec _) _ (rec _)
-    | EBin op e1 e2 _ => H2 _ _ _ (rec _) _ (rec _)
-    | EA x e _ => H3 _ _ _ (rec _)
-    | EPrj e i _ => H4 _ _ (rec _) _
-    | ECons es _ => 
-      let fix rec2 (es : list SExp) : List.Forall P es :=
-          match es return List.Forall P es with
-          | nil => List.Forall_nil _
-          | (e :: es')%list => List.Forall_cons _ (rec e) (rec2 es')
-          end in
-      H5 _ _ (rec2 es)
-    | EIf e e' e'' _ => H6 _ _ (rec _) _ (rec _) _ (rec _)
-    end).
-Qed.
+  Lemma SExp_ind' : forall P : SExp -> Prop,
+      (forall (x : varE) ty, P (EVar x ty)) ->
+      (forall (x : Z), P (ENum x)) ->
+      (forall (x : varE) (e : SExp) ty, P e -> forall e' : SExp, P e' -> P (ELet x e e' ty)) ->
+      (forall (op : SOp) (e1 : SExp) ty, P e1 -> forall e2 : SExp, P e2 -> P (EBin op e1 e2 ty)) ->
+      (forall (x : varA) (e : SExp) ty, P e -> P (EA x e ty)) ->
+      (forall (e : SExp) ty, P e -> forall i : nat, P (EPrj e i ty)) ->
+      (forall (es : list SExp) ty, List.Forall P es -> P (ECons es ty)) ->
+      (forall (e : SExp) ty, P e -> forall e' : SExp, P e' -> forall e'' : SExp, P e'' -> P (EIf e e' e'' ty)) ->
+      forall e : SExp, P e.
+  Proof.
+    intros; revert e.
+    refine (fix rec (e : SExp) := 
+              match e return P e with
+              | EVar x _ => H _ _
+              | ENum x => H0 _
+              | ELet x e e' _ => H1 _ _ _ (rec _) _ (rec _)
+              | EBin op e1 e2 _ => H2 _ _ _ (rec _) _ (rec _)
+              | EA x e _ => H3 _ _ _ (rec _)
+              | EPrj e i _ => H4 _ _ (rec _) _
+              | ECons es _ => 
+                let fix rec2 (es : list SExp) : List.Forall P es :=
+                    match es return List.Forall P es with
+                    | nil => List.Forall_nil _
+                    | (e :: es')%list => List.Forall_cons _ (rec e) (rec2 es')
+                    end in
+                H5 _ _ (rec2 es)
+              | EIf e e' e'' _ => H6 _ _ (rec _) _ (rec _) _ (rec _)
+              end).
+  Qed.
 
-(* user defined functions *)
-Inductive Func := F (params : list varE) (body : SExp).
+  (* user defined functions *)
+  Inductive Func := F (params : list varE) (body : SExp).
 
-(* array expressions *)
-Inductive AE :=
-  ALet (va : varA) (sk : name) (fs : list Func) (vas : list varA) (ea : AE)
-| ARet (va : varA).
-
-(* scalar/array values*)
-Inductive SVal : Set :=
-| VB (b : bool) | VZ (n : Z) | VTup (vs : list SVal).
-Record array :=
-  Arr {len_of : nat; arr_of : list SVal}.
-
-(* environments for variables *)
-Definition AEnv (A : Type) := Env varA A _.
-Definition SEnv (A : Type) := Env varE A _.
-
-(* eval environment, var -> val *)
-Notation AEnv_eval := (AEnv (option array)).
-Notation SEnv_eval := (SEnv (option SVal)).
-
-Definition op_denote (op : SOp) (v1 v2 : SVal) :=
-  match op with
-  | Emin => match v1, v2 with VZ v1, VZ v2 => Some (VZ (Z.min v1 v2)) | _, _ => None end
-  | Eplus => match v1, v2 with VZ v1, VZ v2 => Some (VZ (v1 + v2)) | _, _ => None end
-  | BEq => match v1, v2 with VZ v1, VZ v2 => Some (VB (v1 =? v2)) | _, _ => None end
-  | Blt => match v1, v2 with VZ v1, VZ v2 => Some (VB (v1 <? v2)) | _, _ => None end
-  end%Z.
+  (* array expressions *)
+  Inductive AE :=
+    ALet (va : varA) (sk : name) (fs : list Func) (vas : list varA) (ea : AE)
+  | ARet (va : varA).
+End Syntax.
 
 Section Semantics.
-  Variable aenv : AEnv_eval.
+  Import Syntax.
+  (* scalar/array values*)
+  Inductive SVal : Set :=
+  | VB (b : bool) | VZ (n : Z) | VTup (vs : list SVal).
+  Record array :=
+    Arr {len_of : nat; arr_of : list SVal}.
+
+  (* environments for variables *)
+  Definition AEnv (A : Type) := Env varA A _.
+  Definition SEnv (A : Type) := Env varE A _.
+
+  Definition op_denote (op : SOp) (v1 v2 : SVal) :=
+    match op with
+    | Emin => match v1, v2 with VZ v1, VZ v2 => Some (VZ (Z.min v1 v2)) | _, _ => None end
+    | Eplus => match v1, v2 with VZ v1, VZ v2 => Some (VZ (v1 + v2)) | _, _ => None end
+    | BEq => match v1, v2 with VZ v1, VZ v2 => Some (VB (v1 =? v2)) | _, _ => None end
+    | Blt => match v1, v2 with VZ v1, VZ v2 => Some (VB (v1 <? v2)) | _, _ => None end
+    end%Z.
+
+  Variable aenv : AEnv (option array).
 
   (* semantics of scalar expressions *)
   Inductive evalSE : Env varE (option SVal) _  -> SExp -> SVal  -> Prop :=
@@ -228,16 +227,20 @@ Section Semantics.
       evalSE bnd e v ->
       evalFunc vs (F xs e) v.
 
-  Variable eval_skel : AEnv_eval -> name -> list Func -> list varA -> array -> Prop.
+  Variable eval_skel : AEnv (option array) -> name -> list Func -> list varA -> array -> Prop.
   
-  Inductive evalAE : AEnv_eval -> AE -> array -> Prop :=
+  Inductive evalAE : AEnv (option array) -> AE -> array -> Prop :=
   | EvalAE_ret aenv ax v :
       aenv ax = Some v -> evalAE aenv (ARet ax) v
-  | EvalAE_alet (aenv : AEnv_eval) ax skl fs axs e2 v1 v2 :
+  | EvalAE_alet (aenv : AEnv (option array)) ax skl fs axs e2 v1 v2 :
       eval_skel aenv skl fs axs v1 ->
       evalAE (upd_opt aenv ax v1) e2 v2 ->
       evalAE aenv (ALet ax skl fs axs e2) v2.
 End Semantics.
+
+(* eval environment, var -> val *)
+Notation AEnv_eval := (AEnv (option array)).
+Notation SEnv_eval := (SEnv (option SVal)).
 
 Require GPUCSL.
 Module G := GPUCSL.
@@ -245,24 +248,25 @@ Require Skel_lemma.
 Module S := Skel_lemma.
 
 Section typing_rule.
+  Import Syntax.
   Definition ty_of_SOp (op : SOp) : list Typ -> option Typ :=
     match op with
-    | Top.Eplus => fun tys =>
+    | Eplus => fun tys =>
                      match tys with
                      | TZ :: TZ :: nil => Some TZ
                      | _ => None
                      end
-    | Top.Emin => fun tys =>
+    | Emin => fun tys =>
                     match tys with
                     | TZ :: TZ :: nil => Some TZ
                     | _ => None
                     end
-    | Top.BEq => (fun tys => 
+    | BEq => (fun tys => 
                    match tys with
                    | ty1 :: ty2 :: nil => if STyp_eq_dec ty1 ty2 then Some TBool else None
                    | _ => None
                   end)
-    | Top.Blt => fun tys =>
+    | Blt => fun tys =>
                    match tys with
                    | TZ :: TZ :: nil => Some TBool
                    | _ => None
@@ -272,7 +276,7 @@ Section typing_rule.
   Fixpoint typing (atyenv : Env varA (option Typ) _) (styenv : Env varE (option Typ) _) (e : SExp) : option (SExp * Typ) :=
     match e with
     | EVar x _ => match styenv x with Some ty => Some (EVar x ty, ty) | None => None end
-    | Top.ENum n => Some (Top.ENum n, TZ)
+    | ENum n => Some (ENum n, TZ)
     | ELet x e1 e2 _ =>
       match typing atyenv styenv e1 with
       | Some (e1, tye1) =>
@@ -391,28 +395,31 @@ End codegen.
 
 Infix ">>=" := (bind_opt _ _) (at level 70).
 
+Module Sx := Syntax.
+
 Section compiler.
   (* environment of variables of array in the generated code *)
   Variable avarenv : Env varA (list var) _.
 
+
   Fixpoint string_of_ty ty : string :=
     match ty with
-    | TBool => "Bool"
-    | TZ => "Z"
-    | TTup ls => "(" ++ fold_right (fun x y => string_of_ty x ++ y) ")" ls
+    | Sx.TBool => "Bool"
+    | Sx.TZ => "Z"
+    | Sx.TTup ls => "(" ++ fold_right (fun x y => string_of_ty x ++ y) ")" ls
     end%string.
 
   Fixpoint len_of_ty ty : nat :=
     match ty with
-    | TBool | TZ => 1
-    | TTup ls => fold_right (fun x y => len_of_ty x + y) 0 ls
+    | Sx.TBool | Sx.TZ => 1
+    | Sx.TTup ls => fold_right (fun x y => len_of_ty x + y) 0 ls
     end.
   
   Definition len_until_i tys i : nat :=
     fold_right (fun ty n => len_of_ty ty + n) 0 (firstn i tys).
   
-  Definition len_at_i (tys : list Typ) i : nat :=
-    len_of_ty (nth i tys TZ).
+  Definition len_at_i (tys : list Sx.Typ) i : nat :=
+    len_of_ty (nth i tys Sx.TZ).
   
   Import Lang.
   Open Scope string_scope.
@@ -483,19 +490,19 @@ Section compiler.
     eapply S.string_inj2; eauto.
   Qed.
 
-  Definition compile_op (op : SOp) e1 e2 : (cmd * list exp) :=
+  Definition compile_op (op : Sx.SOp) e1 e2 : (cmd * list exp) :=
     match op with
-    | Top.Eplus => (Cskip, Lang.Eplus e1 e2 :: nil)
-    | Top.Emin => (Cskip, Lang.Emin e1 e2 :: nil)
-    | BEq => (Cskip, Lang.Eeq e1 e2 :: nil)
-    | Top.Blt => (Cskip, Lang.Elt e1 e2 :: nil)
+    | Sx.Eplus => (Cskip, Lang.Eplus e1 e2 :: nil)
+    | Sx.Emin => (Cskip, Lang.Emin e1 e2 :: nil)
+    | Sx.BEq => (Cskip, Lang.Eeq e1 e2 :: nil)
+    | Sx.Blt => (Cskip, Lang.Elt e1 e2 :: nil)
     end.
   
   (* compiler of scalar expressions *)
-  Fixpoint compile_sexp (se : SExp) (env : SVEnv) : M (cmd * list exp) := match se with
-    | EVar v _ => ret (Cskip, S.vars2es (env v))
-    | Top.ENum z => ret (Cskip, Enum z :: nil)
-    | ELet x e1 e2 _ =>
+  Fixpoint compile_sexp (se : Sx.SExp) (env : SVEnv) : M (cmd * list exp) := match se with
+    | Sx.EVar v _ => ret (Cskip, S.vars2es (env v))
+    | Sx.ENum z => ret (Cskip, Enum z :: nil)
+    | Sx.ELet x e1 e2 _ =>
       compile_sexp e1 env >>= fun ces1 => 
       let (c1, es1) := ces1 in
       let dim := length es1 in
@@ -503,7 +510,7 @@ Section compiler.
       compile_sexp e2 (upd env x xs) >>= fun ces2 => 
       let (c2, es2) := ces2 in
       ret (c1 ;; S.read_tup xs es1 ;; c2, es2)
-    | EBin op e1 e2 _ => 
+    | Sx.EBin op e1 e2 _ => 
       compile_sexp e1 env >>= fun ces1 =>
       let (c1, es1) := ces1 in
       compile_sexp e2 env >>= fun ces2 =>
@@ -514,7 +521,7 @@ Section compiler.
         ret (c1;; c2;; c, es)
       | _, _ => fail ""
       end
-    | EA va e _ =>
+    | Sx.EA va e _ =>
       compile_sexp e env >>= fun ces =>
       let (c, es) := ces in
       let aname := avarenv va in
@@ -523,23 +530,23 @@ Section compiler.
       | i :: nil => ret (c ;; S.gen_read Gl xs (S.vars2es aname) i, S.vars2es xs)
       | _ => fail ""
       end
-    | EPrj e i ty =>
-      match typ_of_sexp e with
-      | TBool | TZ => fail ""
-      | TTup tys => 
+    | Sx.EPrj e i ty =>
+      match Sx.typ_of_sexp e with
+      | Sx.TBool | Sx.TZ => fail ""
+      | Sx.TTup tys => 
         let off := len_until_i tys i in
         let l := len_at_i tys i in
         compile_sexp e env >>= fun ces =>
         let (c, es) := ces in
-        if le_dec (off + l) (len_of_ty (TTup tys)) then
+        if le_dec (off + l) (len_of_ty (Sx.TTup tys)) then
           ret (c, firstn l (skipn off es))
         else (* fail ("overflow the index " ++ S.nat_to_string i ++ " of tuple:" ++ "type of tuple: " ++ string_of_ty ty ++ *)
              (*       "expected length = " ++ S.nat_to_string (len_of_ty ty) ++ *)
              (*       "actual length = " ++ S.nat_to_string off ++ " + " ++ S.nat_to_string l) *)
              fail ""
       end
-    | ECons es _ => 
-      let fix compile_sexps (es : list SExp) env : M (cmd * list exp) :=
+    | Sx.ECons es _ => 
+      let fix compile_sexps (es : list Sx.SExp) env : M (cmd * list exp) :=
           match es with
           | nil => ret (Cskip, nil)
           | (e :: es)%list =>
@@ -550,7 +557,7 @@ Section compiler.
             ret (c ;; c', ge ++ ges)
           end in
       compile_sexps es env
-    | EIf e1 e2 e3 _ => 
+    | Sx.EIf e1 e2 e3 _ => 
       compile_sexp e1 env >>= fun ces1 => 
       let (c1, e1) := ces1 in
       compile_sexp e2 env >>= fun ces2 =>
@@ -568,6 +575,7 @@ Section compiler.
 End compiler.
 
 Section TestCompiler.
+  Import Sx.
   Definition EVar' (x : varE) := EVar x TZ.
   Definition ELet' (x : varE) (e e' : SExp)  := ELet x e e' TZ.
   Definition EBin' (op : SOp) (e1 e2 : SExp) := EBin op e1 e2 TZ.
@@ -579,7 +587,7 @@ Section TestCompiler.
   Open Scope string_scope.
 
   Coercion VarE : string >-> varE.
-  Coercion Top.ENum : Z >-> SExp.
+  Coercion ENum : Z >-> SExp.
   Coercion EVar' : varE >-> SExp.
 
   Definition test1 :=
@@ -1102,7 +1110,7 @@ Section CorrectnessProof.
   (* the evaluation environment *)
   Variable aeval_env : Env varA (option array) _.
   (* the typing environment *)
-  Variable aty_env : Env varA (option Typ) _.
+  Variable aty_env : Env varA (option Sx.Typ) _.
   (* the variable mapping environment between source and dest. *)
   Variable avar_env : Env varA (list var) _ .
   
@@ -1260,30 +1268,30 @@ Section CorrectnessProof.
   
   Import scan_lib.
 
-  Fixpoint free_sv (e : SExp) : SE.t :=
+  Fixpoint free_sv (e : Sx.SExp) : SE.t :=
     match e with
-    | EVar v _ => SE.singleton v
-    | ENum _   => SE.empty
-    | ELet x e1 e2 _ => 
+    | Sx.EVar v _ => SE.singleton v
+    | Sx.ENum _   => SE.empty
+    | Sx.ELet x e1 e2 _ => 
       SE.union (free_sv e1) (SE.remove x (free_sv e2))
-    | EBin _ e1 e2 _ => SE.union (free_sv e1) (free_sv e2)
-    | EA _ e _ => free_sv e
-    | EPrj e _ _ => free_sv e
-    | ECons es _ => fold_right (fun e xs => SE.union (free_sv e) xs) SE.empty es
-    | EIf e e' e'' _ => SE.union (free_sv e) (SE.union (free_sv e') (free_sv e''))
+    | Sx.EBin _ e1 e2 _ => SE.union (free_sv e1) (free_sv e2)
+    | Sx.EA _ e _ => free_sv e
+    | Sx.EPrj e _ _ => free_sv e
+    | Sx.ECons es _ => fold_right (fun e xs => SE.union (free_sv e) xs) SE.empty es
+    | Sx.EIf e e' e'' _ => SE.union (free_sv e) (SE.union (free_sv e') (free_sv e''))
     end.
 
-  Fixpoint free_av (e : SExp) : SA.t :=
+  Fixpoint free_av (e : Sx.SExp) : SA.t :=
     match e with
-    | EVar v _ => SA.empty
-    | ENum _   => SA.empty
-    | ELet x e1 e2 _ => 
+    | Sx.EVar v _ => SA.empty
+    | Sx.ENum _   => SA.empty
+    | Sx.ELet x e1 e2 _ => 
       SA.union (free_av e1) (free_av e2)
-    | EBin _ e1 e2 _ => SA.union (free_av e1) (free_av e2)
-    | EA x e _ => SA.add x (free_av e)
-    | EPrj e _ _ => free_av e
-    | ECons es _ => fold_right (fun e xs => SA.union (free_av e) xs) SA.empty es
-    | EIf e e' e'' _ => SA.union (free_av e) (SA.union (free_av e') (free_av e''))
+    | Sx.EBin _ e1 e2 _ => SA.union (free_av e1) (free_av e2)
+    | Sx.EA x e _ => SA.add x (free_av e)
+    | Sx.EPrj e _ _ => free_av e
+    | Sx.ECons es _ => fold_right (fun e xs => SA.union (free_av e) xs) SA.empty es
+    | Sx.EIf e e' e'' _ => SA.union (free_av e) (SA.union (free_av e') (free_av e''))
     end.
 
   (* Arguments uniq {A} {eqt} x. *)
@@ -1353,7 +1361,7 @@ Section CorrectnessProof.
     compile_sexp avar_env se svar_env n = (inl (c, es), m) ->
     n <= m.
   Proof.
-    revert n m svar_env c es; induction se using SExp_ind'; simpl;
+    revert n m svar_env c es; induction se using Sx.SExp_ind'; simpl;
       intros n m svar_env c es' Hsuc; eauto; try inverts Hsuc as Hsuc;
     eauto; unfold ">>=" in *;
           (repeat lazymatch type of Hsuc with
@@ -1463,29 +1471,29 @@ Section CorrectnessProof.
   Scheme evalSE_ind' := Minimality for evalSE Sort Prop with
          evalTup_ind' := Minimality for evalTup Sort Prop.
   Definition evalSE_ind'' :
-    forall (aenv : AEnv_eval) (P : Env varE (option SVal) eq_varE -> SExp -> SVal -> Prop),
-      (forall (senv : varE -> option SVal) (sx : varE) (v : SVal) (ty : Typ), senv sx = Some v -> P senv (EVar sx ty) v) ->
+    forall (aenv : AEnv_eval) (P : Env varE (option SVal) eq_varE -> Sx.SExp -> SVal -> Prop),
+      (forall (senv : varE -> option SVal) (sx : varE) (v : SVal) (ty : Sx.Typ), senv sx = Some v -> P senv (Sx.EVar sx ty) v) ->
       (forall (senv : Env varE (option SVal) eq_varE) (n : Z), P senv n (VZ n)) ->
-      (forall (senv : Env varE (option SVal) eq_varE) (sx : varE) (e1 e2 : SExp) (v1 v2 : SVal) (ty : Typ),
+      (forall (senv : Env varE (option SVal) eq_varE) (sx : varE) (e1 e2 : Sx.SExp) (v1 v2 : SVal) (ty : Sx.Typ),
           evalSE aenv senv e1 v1 ->
-          P senv e1 v1 -> evalSE aenv (upd_opt senv sx v1) e2 v2 -> P (upd_opt senv sx v1) e2 v2 -> P senv (ELet sx e1 e2 ty) v2) ->
-      (forall (senv : Env varE (option SVal) eq_varE) (op : SOp) (e1 e2 : SExp) (v1 v2 v : SVal) (ty : Typ),
+          P senv e1 v1 -> evalSE aenv (upd_opt senv sx v1) e2 v2 -> P (upd_opt senv sx v1) e2 v2 -> P senv (Sx.ELet sx e1 e2 ty) v2) ->
+      (forall (senv : Env varE (option SVal) eq_varE) (op : Sx.SOp) (e1 e2 : Sx.SExp) (v1 v2 v : SVal) (ty : Sx.Typ),
           evalSE aenv senv e1 v1 ->
-          P senv e1 v1 -> evalSE aenv senv e2 v2 -> P senv e2 v2 -> op_denote op v1 v2 = Some v -> P senv (EBin op e1 e2 ty) v) ->
-      (forall (senv : Env varE (option SVal) eq_varE) (varA : varA) (va : array) (e : SExp) (ix : Z) (ty : Typ),
+          P senv e1 v1 -> evalSE aenv senv e2 v2 -> P senv e2 v2 -> op_denote op v1 v2 = Some v -> P senv (Sx.EBin op e1 e2 ty) v) ->
+      (forall (senv : Env varE (option SVal) eq_varE) (varA : varA) (va : array) (e : Sx.SExp) (ix : Z) (ty : Sx.Typ),
           evalSE aenv senv e (VZ ix) ->
           P senv e (VZ ix) ->
-          aenv varA = Some va -> (0 <= ix)%Z -> (ix < Zn (len_of va))%Z -> P senv (EA varA e ty) (nth (Z.to_nat ix) (arr_of va) (VZ 0))) ->
-      (forall (senv : Env varE (option SVal) eq_varE) (e : SExp) (tup : list SVal) (i : nat) (ty : Typ),
-          evalSE aenv senv e (VTup tup) -> P senv e (VTup tup) -> i < Datatypes.length tup -> P senv (EPrj e i ty) (nth i tup (VZ 0))) ->
-      (forall (senv : Env varE (option SVal) eq_varE) (es : list SExp) (vs : list SVal) (ty : Typ),
-          evalTup aenv senv es vs -> List.Forall2 (P senv) es vs -> P senv (ECons es ty) (VTup vs)) ->
-      (forall (senv : Env varE (option SVal) eq_varE) (e e' e'' : SExp) (v : SVal) (ty : Typ),
-          evalSE aenv senv e (VB true) -> P senv e (VB true) -> evalSE aenv senv e' v -> P senv e' v -> P senv (EIf e e' e'' ty) v) ->
-      (forall (senv : Env varE (option SVal) eq_varE) (e e' e'' : SExp) (v : SVal) (ty : Typ),
-          evalSE aenv senv e (VB false) -> P senv e (VB false) -> evalSE aenv senv e'' v -> P senv e'' v -> P senv (EIf e e' e'' ty) v) ->
+          aenv varA = Some va -> (0 <= ix)%Z -> (ix < Zn (len_of va))%Z -> P senv (Sx.EA varA e ty) (nth (Z.to_nat ix) (arr_of va) (VZ 0))) ->
+      (forall (senv : Env varE (option SVal) eq_varE) (e : Sx.SExp) (tup : list SVal) (i : nat) (ty : Sx.Typ),
+          evalSE aenv senv e (VTup tup) -> P senv e (VTup tup) -> i < Datatypes.length tup -> P senv (Sx.EPrj e i ty) (nth i tup (VZ 0))) ->
+      (forall (senv : Env varE (option SVal) eq_varE) (es : list Sx.SExp) (vs : list SVal) (ty : Sx.Typ),
+          evalTup aenv senv es vs -> List.Forall2 (P senv) es vs -> P senv (Sx.ECons es ty) (VTup vs)) ->
+      (forall (senv : Env varE (option SVal) eq_varE) (e e' e'' : Sx.SExp) (v : SVal) (ty : Sx.Typ),
+          evalSE aenv senv e (VB true) -> P senv e (VB true) -> evalSE aenv senv e' v -> P senv e' v -> P senv (Sx.EIf e e' e'' ty) v) ->
+      (forall (senv : Env varE (option SVal) eq_varE) (e e' e'' : Sx.SExp) (v : SVal) (ty : Sx.Typ),
+          evalSE aenv senv e (VB false) -> P senv e (VB false) -> evalSE aenv senv e'' v -> P senv e'' v -> P senv (Sx.EIf e e' e'' ty) v) ->
       (forall senv : Env varE (option SVal) eq_varE, List.Forall2 (P senv) Datatypes.nil Datatypes.nil) ->
-      (forall (senv : Env varE (option SVal) eq_varE) (e : SExp) (es : list SExp) (v : SVal) (vs : list SVal),
+      (forall (senv : Env varE (option SVal) eq_varE) (e : Sx.SExp) (es : list Sx.SExp) (v : SVal) (vs : list SVal),
           evalTup aenv senv es vs -> List.Forall2 (P senv) es vs -> evalSE aenv senv e v -> P senv e v ->
           List.Forall2 (P senv) (e :: es) (v :: vs)) ->
       forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
@@ -1494,15 +1502,15 @@ Section CorrectnessProof.
     apply evalSE_ind' with (P0 := fun senv => List.Forall2 (P senv)).
   Qed.
   
-  Inductive has_type_val : SVal -> Typ -> Prop :=
-  | has_type_bool b : has_type_val (VB b) TBool
-  | has_type_z n : has_type_val (VZ n) TZ
+  Inductive has_type_val : SVal -> Sx.Typ -> Prop :=
+  | has_type_bool b : has_type_val (VB b) Sx.TBool
+  | has_type_z n : has_type_val (VZ n) Sx.TZ
   | has_type_tup vs ts :
       List.Forall2 (fun v ty => has_type_val v ty) vs ts ->
-      has_type_val (VTup vs) (TTup ts).
+      has_type_val (VTup vs) (Sx.TTup ts).
   
-  Lemma type_preservation (se : SExp) (ty : Typ) (v : SVal)
-        (sty_env : Env varE (option Typ) _)
+  Lemma type_preservation (se : Sx.SExp) (ty : Sx.Typ) (v : SVal)
+        (sty_env : Env varE (option Sx.Typ) _)
         (seval_env : Env varE (option SVal) _) :
     (forall x v ty, seval_env x = Some v ->
                     sty_env x = Some ty ->
@@ -1546,7 +1554,7 @@ Section CorrectnessProof.
         induction 1; simpl in *; congruence.
       Qed.
       forwards*: (>>Forall2_length H4).
-      applys* (>>Forall2_nth (VZ 0) TZ); try omega.
+      applys* (>>Forall2_nth (VZ 0) Sx.TZ); try omega.
     - constructor.
       revert tys H5; induction H0; intros.
       + inverts H5; eauto.
@@ -1560,29 +1568,29 @@ Section CorrectnessProof.
          has_type_es_ind' := Minimality for evalTup Sort Prop.
 
   Lemma has_type_ind'' :
-forall (aenv : AEnv_eval) (P : Env varE (option SVal) eq_varE -> SExp -> SVal -> Prop),
-(forall (senv : varE -> option SVal) (sx : varE) (v : SVal) (ty : Typ), senv sx = Some v -> P senv (EVar sx ty) v) ->
+forall (aenv : AEnv_eval) (P : Env varE (option SVal) eq_varE -> Sx.SExp -> SVal -> Prop),
+(forall (senv : varE -> option SVal) (sx : varE) (v : SVal) (ty : Sx.Typ), senv sx = Some v -> P senv (Sx.EVar sx ty) v) ->
 (forall (senv : Env varE (option SVal) eq_varE) (n : Z), P senv n (VZ n)) ->
-(forall (senv : Env varE (option SVal) eq_varE) (sx : varE) (e1 e2 : SExp) (v1 v2 : SVal) (ty : Typ),
+(forall (senv : Env varE (option SVal) eq_varE) (sx : varE) (e1 e2 : Sx.SExp) (v1 v2 : SVal) (ty : Sx.Typ),
  evalSE aenv senv e1 v1 ->
- P senv e1 v1 -> evalSE aenv (upd_opt senv sx v1) e2 v2 -> P (upd_opt senv sx v1) e2 v2 -> P senv (ELet sx e1 e2 ty) v2) ->
-(forall (senv : Env varE (option SVal) eq_varE) (op : SOp) (e1 e2 : SExp) (v1 v2 v : SVal) (ty : Typ),
+ P senv e1 v1 -> evalSE aenv (upd_opt senv sx v1) e2 v2 -> P (upd_opt senv sx v1) e2 v2 -> P senv (Sx.ELet sx e1 e2 ty) v2) ->
+(forall (senv : Env varE (option SVal) eq_varE) (op : Sx.SOp) (e1 e2 : Sx.SExp) (v1 v2 v : SVal) (ty : Sx.Typ),
  evalSE aenv senv e1 v1 ->
- P senv e1 v1 -> evalSE aenv senv e2 v2 -> P senv e2 v2 -> op_denote op v1 v2 = Some v -> P senv (EBin op e1 e2 ty) v) ->
-(forall (senv : Env varE (option SVal) eq_varE) (varA : varA) (va : array) (e : SExp) (ix : Z) (ty : Typ),
+ P senv e1 v1 -> evalSE aenv senv e2 v2 -> P senv e2 v2 -> op_denote op v1 v2 = Some v -> P senv (Sx.EBin op e1 e2 ty) v) ->
+(forall (senv : Env varE (option SVal) eq_varE) (varA : varA) (va : array) (e : Sx.SExp) (ix : Z) (ty : Sx.Typ),
  evalSE aenv senv e (VZ ix) ->
  P senv e (VZ ix) ->
- aenv varA = Some va -> (0 <= ix)%Z -> (ix < Zn (len_of va))%Z -> P senv (EA varA e ty) (nth (Z.to_nat ix) (arr_of va) (VZ 0))) ->
-(forall (senv : Env varE (option SVal) eq_varE) (e : SExp) (tup : list SVal) (i : nat) (ty : Typ),
- evalSE aenv senv e (VTup tup) -> P senv e (VTup tup) -> i < Datatypes.length tup -> P senv (EPrj e i ty) (nth i tup (VZ 0))) ->
-(forall (senv : Env varE (option SVal) eq_varE) (es : list SExp) (vs : list SVal) (ty : Typ),
- evalTup aenv senv es vs -> Forall2 (P senv) es vs -> P senv (ECons es ty) (VTup vs)) ->
-(forall (senv : Env varE (option SVal) eq_varE) (e e' e'' : SExp) (v : SVal) (ty : Typ),
- evalSE aenv senv e (VB true) -> P senv e (VB true) -> evalSE aenv senv e' v -> P senv e' v -> P senv (EIf e e' e'' ty) v) ->
-(forall (senv : Env varE (option SVal) eq_varE) (e e' e'' : SExp) (v : SVal) (ty : Typ),
- evalSE aenv senv e (VB false) -> P senv e (VB false) -> evalSE aenv senv e'' v -> P senv e'' v -> P senv (EIf e e' e'' ty) v) ->
+ aenv varA = Some va -> (0 <= ix)%Z -> (ix < Zn (len_of va))%Z -> P senv (Sx.EA varA e ty) (nth (Z.to_nat ix) (arr_of va) (VZ 0))) ->
+(forall (senv : Env varE (option SVal) eq_varE) (e : Sx.SExp) (tup : list SVal) (i : nat) (ty : Sx.Typ),
+ evalSE aenv senv e (VTup tup) -> P senv e (VTup tup) -> i < Datatypes.length tup -> P senv (Sx.EPrj e i ty) (nth i tup (VZ 0))) ->
+(forall (senv : Env varE (option SVal) eq_varE) (es : list Sx.SExp) (vs : list SVal) (ty : Sx.Typ),
+ evalTup aenv senv es vs -> Forall2 (P senv) es vs -> P senv (Sx.ECons es ty) (VTup vs)) ->
+(forall (senv : Env varE (option SVal) eq_varE) (e e' e'' : Sx.SExp) (v : SVal) (ty : Sx.Typ),
+ evalSE aenv senv e (VB true) -> P senv e (VB true) -> evalSE aenv senv e' v -> P senv e' v -> P senv (Sx.EIf e e' e'' ty) v) ->
+(forall (senv : Env varE (option SVal) eq_varE) (e e' e'' : Sx.SExp) (v : SVal) (ty : Sx.Typ),
+ evalSE aenv senv e (VB false) -> P senv e (VB false) -> evalSE aenv senv e'' v -> P senv e'' v -> P senv (Sx.EIf e e' e'' ty) v) ->
 (forall senv : Env varE (option SVal) eq_varE, Forall2 (P senv) Datatypes.nil Datatypes.nil) ->
-(forall (senv : Env varE (option SVal) eq_varE) (e : SExp) (es : list SExp) (v : SVal) (vs : list SVal),
+(forall (senv : Env varE (option SVal) eq_varE) (e : Sx.SExp) (es : list Sx.SExp) (v : SVal) (vs : list SVal),
  evalTup aenv senv es vs -> Forall2 (P senv) es vs -> evalSE aenv senv e v -> P senv e v -> Forall2 (P senv) (e :: es) (v :: vs)) ->
 forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
   Proof.
@@ -1590,8 +1598,8 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       apply has_type_ind' with (P0 := fun senv => Forall2 (P senv)).
   Qed.
 
-  Lemma compile_preserve (se : SExp) 
-        (sty_env : Env varE (option Typ) _)
+  Lemma compile_preserve (se : Sx.SExp) 
+        (sty_env : Env varE (option Sx.Typ) _)
         (svar_env : Env varE (list var) _) (n m : nat)
         c es ty :
     (forall x ty, sty_env x = Some ty ->
@@ -1604,7 +1612,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
   Proof.
     intros Hsctx Hactx Htyp;
       revert svar_env sty_env n m c es ty Htyp Hsctx.
-    induction se using SExp_ind'; simpl; introv Htyp Hsctx Hsucc.
+    induction se using Sx.SExp_ind'; simpl; introv Htyp Hsctx Hsucc.
     - inverts Hsucc; inverts Htyp.
       simplify; eauto.
     - inverts Hsucc; inverts* Htyp.
@@ -1633,7 +1641,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
     - unfold ">>=" in Hsucc.
       Lemma typ_of_sexp_ok sty_env se ty :
         has_type aty_env sty_env se ty ->
-        typ_of_sexp se = ty.
+        Sx.typ_of_sexp se = ty.
       Proof.
         induction 1; simpl; eauto.
       Qed.
@@ -1655,7 +1663,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
           destruct X as [[(cs2 & es2) | ?] n''] eqn:Hceq2; [|inversion Hsucc]
         end.
         inverts Hsucc.
-        forwards* : (>>IHForall (TTup tys0) (TTup tys0)).
+        forwards* : (>>IHForall (Sx.TTup tys0) (Sx.TTup tys0)).
         { constructor; eauto. }
         forwards*: H.
         simpl in *; rewrite app_length; congruence.
@@ -1675,7 +1683,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
     has_type_val v ty ->
     length (vs_of_sval v) = len_of_ty ty.
   Proof.
-    revert v; induction ty using STyp_rect'; try now (intros v H; inverts H; simpl; eauto).
+    revert v; induction ty using Sx.STyp_rect'; try now (intros v H; inverts H; simpl; eauto).
     introv Htyp; inverts Htyp as Htyp.
     revert vs Htyp; induction X; introv Htyp.
     - inverts* Htyp.
@@ -1694,7 +1702,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
   Qed.
 
   Lemma compile_sexps_don't_decrease svar_env cs2 es2 n' m l:
-    (fix compile_sexps (es : list SExp) (env : Env varE (list var) eq_varE) : 
+    (fix compile_sexps (es : list Sx.SExp) (env : Env varE (list var) eq_varE) : 
        M (cmd * list exp) :=
        match es with
        | Datatypes.nil => ret (SKIP, Datatypes.nil)
@@ -1728,7 +1736,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       omega.
   Qed.
 
-  Lemma compile_wr_vars (se : SExp)
+  Lemma compile_wr_vars (se : Sx.SExp)
         (svar_env : Env varE (list var) _) (n m : nat) c es :
     compile_sexp avar_env se svar_env n =  (inl (c, es), m) ->
     (forall x, In x (writes_var c) -> 
@@ -1738,7 +1746,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       x = id x. eauto. Qed.
     Ltac t := do 2 eexists; splits*; omega.
     Ltac des H := first [forwards* (? & ? & ? & ?): H | forwards* (? & ? & ?): H ].
-    revert n m svar_env c es; induction se using SExp_ind'; simpl;
+    revert n m svar_env c es; induction se using Sx.SExp_ind'; simpl;
       intros n m svar_env c es' Hsuc; eauto; try inverts Hsuc as Hsuc;
     eauto; unfold ">>=" in *;
           (repeat lazymatch type of Hsuc with
@@ -1809,7 +1817,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
   Qed.
 
   Lemma compile_sexps_wr_vars svar_env cs es n m l:
-    (fix compile_sexps (es : list SExp) (env : Env varE (list var) eq_varE) : 
+    (fix compile_sexps (es : list Sx.SExp) (env : Env varE (list var) eq_varE) : 
        M (cmd * list exp) :=
        match es with
        | Datatypes.nil => ret (SKIP, Datatypes.nil)
@@ -1871,8 +1879,8 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       forwards*: H; omega.
   Qed.
   
-  Lemma compile_ok (se : SExp)
-        (sty_env : Env varE (option Typ) _)
+  Lemma compile_ok (se : Sx.SExp)
+        (sty_env : Env varE (option Sx.Typ) _)
         (seval_env : Env varE (option SVal) _)
         (svar_env : Env varE (list var) _) (n m : nat) ty
         (sv : SVal) c es :
@@ -1881,8 +1889,8 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
     compile_sexp avar_env se svar_env n =  (inl (c, es), m) ->
     (forall x ty, sty_env x = Some ty -> length (svar_env x) = len_of_ty ty) ->
     (forall x ty, aty_env x = Some ty -> length (avar_env x) = len_of_ty ty) ->
-    (forall (x0 : varE) (v : SVal) (ty : Typ), seval_env x0 = Some v -> sty_env x0 = Some ty -> has_type_val v ty) ->
-    (forall (x : varA) (arr : array) (ty0 : Typ) (d : SVal),
+    (forall (x0 : varE) (v : SVal) (ty : Sx.Typ), seval_env x0 = Some v -> sty_env x0 = Some ty -> has_type_val v ty) ->
+    (forall (x : varA) (arr : array) (ty0 : Sx.Typ) (d : SVal),
         aeval_env x = Some arr -> aty_env x = Some ty0 ->
         forall i : nat, i < len_of arr -> has_type_val (nth i (arr_of arr) d) ty0) ->
     (forall x, SE.In x (free_sv se) -> 
@@ -1898,7 +1906,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
           (assn_of_avs (free_av se)) ** !(es ==t vs_of_sval sv)).
   Proof.
     revert se ty sty_env seval_env svar_env n m sv c es.
-    induction se using SExp_ind'; simpl;
+    induction se using Sx.SExp_ind'; simpl;
     introv Htyp Heval Hcompile Hsvctx Havctx Hsectx Haectx Hsvar Havar.
     - unfold ret in Hcompile; inversion Hcompile; substs.
       inversion Heval; substs; simpl in *.
@@ -2039,8 +2047,8 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       Focus 2. {
         intros s h H; sep_normal_in H.
         assert ((!(vars2es fvs1 ==t vs_of_sval v1) **
-                 !(assn_of_svs seval_env svar_env (free_sv (ELet x se1 se2 ty0))) **
-                 assn_of_avs (free_av (ELet x se1 se2 ty0))) s h).
+                 !(assn_of_svs seval_env svar_env (free_sv (Sx.ELet x se1 se2 ty0))) **
+                 assn_of_avs (free_av (Sx.ELet x se1 se2 ty0))) s h).
         { simpl.
           unfold assn_of_svs; sep_rewrite SE.union_assns; sep_rewrite pure_star.
           unfold assn_of_avs; sep_rewrite SA.union_assns.
@@ -2342,7 +2350,7 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
       sep_rewrite S.mps_eq1_tup'; [|exact H1].
       sep_normal; repeat sep_cancel. 
     - unfold ">>=" in Hcompile.
-      destruct (typ_of_sexp se) eqn:Heqty; try now inverts Hcompile.
+      destruct (Sx.typ_of_sexp se) eqn:Heqty; try now inverts Hcompile.
       destruct (compile_sexp _ se _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hcompile].
       destruct (le_dec _ _); inverts Hcompile.
       inverts Htyp as Htyp Hlt.
@@ -2480,8 +2488,8 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
           instantiate (1 :=
             ((!(assn_of_svs seval_env svar_env (free_sv x)) ** assn_of_avs (free_av x)) **
              !(assn_of_svs seval_env svar_env
-               (SE.SE.diff (fold_right (fun (e : SExp) (xs : SE.t) => SE.union (free_sv e) xs) SE.empty l) (free_sv x))) **
-          assn_of_avs (SA.SE.diff (fold_right (fun (e : SExp) (xs : SA.t) => SA.union (free_av e) xs) SA.empty l) (free_av x)))).
+               (SE.SE.diff (fold_right (fun (e : Sx.SExp) (xs : SE.t) => SE.union (free_sv e) xs) SE.empty l) (free_sv x))) **
+          assn_of_avs (SA.SE.diff (fold_right (fun (e : Sx.SExp) (xs : SA.t) => SA.union (free_av e) xs) SA.empty l) (free_av x)))).
           sep_normal; sep_normal_in Hsat; repeat sep_cancel. } Unfocus.
         eapply rule_seq; [eapply rule_frame; eauto|].
         { prove_inde; first [apply inde_assn_of_avs | apply inde_assn_of_svs];
@@ -2495,8 +2503,8 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
           intros s h Hsat.
           assert (Hsat' : (!(es1 ==t vs_of_sval v) **
                    !(assn_of_svs seval_env svar_env
-                     (SE.union (free_sv x) (fold_right (fun (e : SExp) (xs : SE.t) => SE.union (free_sv e) xs) SE.empty l))) **
-                    assn_of_avs (SA.union (free_av x) (fold_right (fun (e : SExp) (xs : SA.t) => SA.union (free_av e) xs) SA.empty l)))
+                     (SE.union (free_sv x) (fold_right (fun (e : Sx.SExp) (xs : SE.t) => SE.union (free_sv e) xs) SE.empty l))) **
+                    assn_of_avs (SA.union (free_av x) (fold_right (fun (e : Sx.SExp) (xs : SA.t) => SA.union (free_av e) xs) SA.empty l)))
                     s h).
           { unfold assn_of_svs, assn_of_avs in *.
             sep_rewrite SE.union_assns; sep_rewrite SA.union_assns; sep_rewrite pure_star.
@@ -2508,13 +2516,13 @@ forall e : Env varE (option SVal) eq_varE, evalSE aenv e |= P e.
           rewrite !fold_assn_svs, !fold_assn_avs in Hsat'.
           instantiate (1 :=
             ((!(assn_of_svs seval_env svar_env
-                            (fold_right (fun (e : SExp) (xs : SE.t) => SE.union (free_sv e) xs) SE.empty l)) **
-              assn_of_avs (fold_right (fun (e : SExp) (xs : SA.t) => SA.union (free_av e) xs) SA.empty l)) **
+                            (fold_right (fun (e : Sx.SExp) (xs : SE.t) => SE.union (free_sv e) xs) SE.empty l)) **
+              assn_of_avs (fold_right (fun (e : Sx.SExp) (xs : SA.t) => SA.union (free_av e) xs) SA.empty l)) **
              !(es1 ==t vs_of_sval v) **
              !(assn_of_svs seval_env svar_env
-                  (SE.SE.diff (free_sv x) (fold_right (fun (e : SExp) (xs : SE.t) => SE.union (free_sv e) xs) SE.empty l))) **
+                  (SE.SE.diff (free_sv x) (fold_right (fun (e : Sx.SExp) (xs : SE.t) => SE.union (free_sv e) xs) SE.empty l))) **
              assn_of_avs (SA.SE.diff (free_av x)
-                                     (fold_right (fun (e : SExp) (xs : SA.t) => SA.union (free_av e) xs) SA.empty l)))).
+                                     (fold_right (fun (e : Sx.SExp) (xs : SA.t) => SA.union (free_av e) xs) SA.empty l)))).
          sep_normal; sep_normal_in Hsat'; repeat sep_cancel. } Unfocus.
         eapply Hforward; [eapply rule_frame; eauto|].
         { prove_inde; first [apply inde_assn_of_avs | apply inde_assn_of_svs | apply inde_eq_tup; simplify];
