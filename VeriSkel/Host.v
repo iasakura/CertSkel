@@ -14,7 +14,7 @@ Notation "'let!' x := e1 'in' e2" := (bind _ _ e1 (fun x => e2)) (at level 200, 
 
 Arguments ret {a} n.
 
-Record GPUstate := GST {next_of : nat; heap_of : simple_heap}.
+Definition GPUstate := simple_heap.
 
 Definition alloc_heap (start len : nat) : simple_heap :=
   fun i => if Z_le_dec (Z.of_nat start) i then
@@ -43,13 +43,13 @@ Fixpoint bind_params (stk : stack) (xs : list var) (vs : list Z) : Prop :=
   | _, _ => False
   end.
 
-Fixpoint getResFromHeap (p : Z) (n : nat) gst : option (list Z) :=
+Fixpoint getResFromHeap (p : Z) (n : nat) (gst : simple_heap) : option (list Z) :=
   match n with
   | 0 => Some nil
   | S n => match (getResFromHeap (Z.succ p) n gst) with
            | None => None
            | Some vs =>
-             match (heap_of gst) p with
+             match gst p with
              | Some v => Some (v :: vs)
              | None => None
              end
@@ -72,22 +72,23 @@ Inductive call_kernel : GPUstate -> kernel -> nat -> nat -> list Z -> GPUstate -
     (forall i j, snd ks[@j][@i] (Var "tid") = Zn (nf i)) ->
     (forall i j, snd ks[@j][@i] (Var "bid") = Zn (nf j)) ->
     (forall i j v, v <> Var "tid" -> v <> Var "bid" -> snd ks[@j][@i] v = stk v) ->
-    red_g_star nblk ntrd {| blks := ks; sh_hp := (Vector.const sh nblk); gl_hp := (heap_of gst) |} gs ->
+    red_g_star nblk ntrd {| blks := ks; sh_hp := (Vector.const sh nblk); gl_hp := gst |} gs ->
     (forall i j, fst (blks gs)[@j][@i] = Cskip) ->
-    call_kernel gst ker ntrd nblk args {| next_of := next_of gst; heap_of := gl_hp gs|}.
+    call_kernel gst ker ntrd nblk args (gl_hp gs).
 
 End VecNot.
 
 Inductive CUDA_eval : forall a, CUDA a -> GPUstate -> a -> GPUstate -> Prop :=
-| E_alloc n gst :
+| E_alloc n start gst : (* FIXME: more relaxed definition: one of the free area is chosen *)
+    hdisj gst (alloc_heap start n) ->
     CUDA_eval _
       (alloc n) gst
-      (Z.of_nat (next_of gst)) (GST (next_of gst + n) (hplus (heap_of gst) (alloc_heap (next_of gst) n)))
+      (Z.of_nat start) (hplus gst (alloc_heap start n))
 | E_memCpy ls p h h' gst :
     fill_obj ls p h = Some h' ->
     CUDA_eval _
       (memCpy ls p) gst
-      tt (GST (next_of gst) h')
+      tt h'
 | E_callKer ker ntrd nblk args gst gst' :
     call_kernel gst ker ntrd nblk args gst' -> 
     CUDA_eval _
@@ -122,10 +123,10 @@ Import Vector.VectorNotations.
 Lemma rule_ker_call ntrd nblk args P_F P P' ker Q gst gst' :
   CSLg ntrd nblk P (body_of ker) Q ->
   (P' ** !(assn_of_bind (params_of ker) args) |= P) ->
-  (forall s, (P' ** P_F) s (as_gheap (htop (heap_of gst)))) ->
+  (forall s, (P' ** P_F) s (as_gheap (htop gst))) ->
   call_kernel gst ker ntrd nblk args gst' ->
   has_no_vars Q -> has_no_vars P_F ->
-  (Q ** P_F) default_stack (as_gheap (htop (heap_of gst'))).
+  (Q ** P_F) default_stack (as_gheap (htop gst')).
 Proof.
   intros.
 
@@ -189,7 +190,7 @@ Proof.
       apply as_gheap_pdisj; eauto.
   Qed.
 
-  pose ({| blks := ks; sh_hp := (Vector.const sh nblk); gl_hp := heap_of gst |}) as x.
+  pose ({| blks := ks; sh_hp := (Vector.const sh nblk); gl_hp := gst |}) as x.
   cutrewrite (ks = blks x) in H17; [|substs; eauto].
   cutrewrite (Vector.const sh nblk = sh_hp x) in H17; [|substs; eauto].
   lets*: (>>safe_ng_when_terminates h1' h2' H17 H13 ___).
@@ -199,3 +200,4 @@ Proof.
   unfold as_gheap; simpl; rewrite <-!phplus_as_gheap; eauto.
   f_equal; apply H20.
 Qed.
+
