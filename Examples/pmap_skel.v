@@ -623,8 +623,8 @@ destruct ntrd; try omega.
 exact Fin.F1.
 Qed.
 
-Definition map' : cmd.
-  pose (map_ker FalseP) as map'; unfold map_ker, WhileI in map'; exact map'.
+Definition mkMap : cmd.
+  pose (map_ker FalseP) as mkMap; unfold map_ker, WhileI in mkMap; exact mkMap.
 Defined.
 
 Definition bspec : (barrier_spec ntrd) := fun i => (default ntrd).
@@ -636,7 +636,7 @@ Qed.
 
 Lemma map_correct_b fgi :
   (forall i, i < len -> fg_den (Zn i) (fgi i)) ->
-  CSLp ntrd E (bth_pre ** !(BID === zf bid)) map' ((bth_post fgi)).
+  CSLp ntrd E (bth_pre ** !(BID === zf bid)) mkMap ((bth_post fgi)).
 Proof.
   intros Hfgi.
   applys (>> rule_par bspec tr_pres (tr_posts fgi)).
@@ -757,7 +757,7 @@ Theorem map_correct_g  :
          (!(Outs ==t out) ** !(Len === Zn len) **
      input_spec env env_den 1 ** is_tuple_array_p (es2gls (vs2es out)) len fout 0 1)
 
-    (Pr nil map')
+    (Pr nil mkMap)
 
     (input_spec' env_den 1 **
      is_tuple_array_p (es2gls (vs2es out)) len (fun v => fgi v)%Z 0 1)).
@@ -868,4 +868,3 @@ Proof.
 Qed.
     
 End Map.
-
