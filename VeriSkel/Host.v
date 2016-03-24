@@ -8,7 +8,7 @@ Inductive CUDA : Type -> Type :=
 | callKer : kernel -> nat -> nat -> list Z -> CUDA unit (* ker<<<n, m>>>(ps) *)
 | getRes : Z -> nat -> CUDA (list Z)
 | ret : forall a, a -> CUDA a
-| bind : forall a b, CUDA a ->  (a -> CUDA b) -> CUDA b.
+| bind : forall a b, CUDA a -> (a -> CUDA b) -> CUDA b.
 
 Notation "'let!' x := e1 'in' e2" := (bind _ _ e1 (fun x => e2)) (at level 200, x ident, e1 at level 100, e2 at level 200).
 
@@ -201,3 +201,54 @@ Proof.
   f_equal; apply H20.
 Qed.
 
+Require Import pmap_skel.
+Import Syntax Skel_lemma scan_lib Monad.
+
+Section Compiler.
+  Definition free_av_func (f : Func) :=
+    match f with
+    | F ps body => free_av body
+    end.
+
+  Definition free_av_AE (ae : AE) :=
+    match ae with
+    | DArr f len =>
+      SA.union (free_av_func f) (free_av len)
+    | VArr xa => SA.singleton xa
+    end.
+
+  Fixpoint map_opt {A B : Type} (f : A -> option B) (xs : list A) : option (list B) :=
+    sequence (map f xs).
+
+  Variable aty_env : Env varA (option Typ) _.
+  
+  Definition env_of_sa (xas : SA.t) : Env varA nat _ :=
+    snd (SA.fold (fun xa (n_aenv : nat * Env varA nat _)  =>
+               let (n, aenv) := n_aenv in
+               (n + 1, upd aenv xa n)) xas (0, emp_def 0)).
+
+  Definition arr_name n d := names_of_array (grpOfInt n) d.
+  Definition len_name n := name_of_len (grpOfInt n).
+
+  Definition zipWith {A B C : Type} (f : A -> B -> C) (xs : list A) (ys : list B) :=
+    map (fun xy => f (fst xy) (snd xy)) (combine xs ys).
+
+  Definition compile_AE avar_env svar_env ae :=
+    match A
+  
+  Fixpoint compile_prog (var_ptr_env : Env varA Z _) (p : prog) :=
+    match p with
+    | ALet xa sname fs aes p =>
+      let fvs :=
+          SA.union
+            (List.fold_right (fun f sa => SA.union (free_av_func f) sa) SA.empty fs)
+            (List.fold_right (fun ae sa => SA.union (free_av_AE ae) sa) SA.empty aes)
+      in
+      let avar2idx := env_of_sa fvs in
+      let avar_env := option_map (fun xa =>
+         (aty_env xa) >>= fun aty =>
+         (len_name (avar2idx xa), arr_name (avar2idx xa) (len_of_ty aty))) fvs in
+      let! out := alloc len in
+      let! ker := {| params_of := ; body_of := |} in
+      callKer ker ntrd nblk (out :: len :: )
+    | ARet xa => ret (var_ptr_env xa).
