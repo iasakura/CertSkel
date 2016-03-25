@@ -10,8 +10,6 @@ Inductive CUDA : Type -> Type :=
 | ret : forall a, a -> CUDA a
 | bind : forall a b, CUDA a -> (a -> CUDA b) -> CUDA b.
 
-Notation "'let!' x := e1 'in' e2" := (bind _ _ e1 (fun x => e2)) (at level 200, x ident, e1 at level 100, e2 at level 200).
-
 Arguments ret {a} n.
 
 Definition GPUstate := simple_heap.
@@ -233,8 +231,33 @@ Section Compiler.
   Definition zipWith {A B C : Type} (f : A -> B -> C) (xs : list A) (ys : list B) :=
     map (fun xy => f (fst xy) (snd xy)) (combine xs ys).
 
-  Definition compile_AE avar_env svar_env ae :=
-    match A
+  Fixpoint compile_func' (xs : list (varE * Typ)) svar_env avar_env body :=
+    match xs return type_of_func' (length xs) with
+    | nil => compile_sexp avar_env body svar_env
+    | (x, _) :: xs => fun x' =>
+      compile_func' xs (upd svar_env x x') avar_env body
+    end.
+
+  Definition compile_func avar_env f :=
+    match f with
+    | F ps body =>
+      compile_func' ps (emp_def nil) avar_env body
+    end.
+      let! svar_env :=
+         let! xxs := sequence (map (fun x_ty => let (x, ty) := x_ty in
+           let! xs := freshes (len_of_ty ty) in
+           (x, xs)) ps) in
+         fold_right (fun x_xs env => upd (fst x_xs) (snd x_xs) env) (emp_def nil) in
+      
+
+  Definition compile_AE avar_env ae :=
+    match ae with
+    | DArr f len =>
+      let f' := compile_func avar_env f in
+      let len' := compile_func avar_env len in
+      (f', len')
+    | 
+      
   
   Fixpoint compile_prog (var_ptr_env : Env varA Z _) (p : prog) :=
     match p with
