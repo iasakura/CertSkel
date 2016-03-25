@@ -15,12 +15,12 @@ End DecType.
 
 Require Import SetoidClass.
 
+Infix "==" := equiv.
+
 Module MSets (D : DecType).
   Module SE := MSetWeakList.Make D.
 
   Instance eq_type_dt : eq_type D.t := {| eq_dec := D.eq_dec |}.
-
-  Infix "==" := equiv.
 
   Instance eqset_setoid : Setoid SE.t :=
     {| equiv := SE.Equal; setoid_equiv := _ |}.

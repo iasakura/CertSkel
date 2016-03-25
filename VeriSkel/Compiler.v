@@ -210,7 +210,7 @@ Section compiler.
       freshes dim >>= fun xs =>
       match e1 with
       | e :: nil =>
-        ret (c1;; Cif (Bnot (e == 0%Z)) (c2 ;; S.read_tup xs e2) (c3 ;; S.read_tup xs e3), S.vars2es xs)
+        ret (c1;; Cif (Bnot (Beq e 0%Z)) (c2 ;; S.read_tup xs e2) (c3 ;; S.read_tup xs e3), S.vars2es xs)
       | _ => fail ""
       end
     end%list.
