@@ -244,6 +244,10 @@ Section TestCompiler.
   
 End TestCompiler.
 
+Require Import pmap_skel.
+Import Skel_lemma scan_lib.
+
+
 Module VarE_eq : DecType with Definition t := varE with Definition eq_dec := eq_dec.
   Definition t := varE.
   Definition eq (x y : t) := x = y.
@@ -265,6 +269,171 @@ End VarA_eq.
 
 Module SA := MSets VarA_eq.
 Module SE := MSets VarE_eq.
+
+Section Compiler.
+  Fixpoint free_sv (e : Sx.SExp) : SE.t :=
+    match e with
+    | Sx.EVar v _ => SE.singleton v
+    | Sx.ENum _   => SE.empty
+    | Sx.ELet x e1 e2 _ => 
+      SE.union (free_sv e1) (SE.remove x (free_sv e2))
+    | Sx.EBin _ e1 e2 _ => SE.union (free_sv e1) (free_sv e2)
+    | Sx.EA _ e _ => free_sv e
+    | Sx.ELen _ => SE.empty
+    | Sx.EPrj e _ _ => free_sv e
+    | Sx.ECons es _ => fold_right (fun e xs => SE.union (free_sv e) xs) SE.empty es
+    | Sx.EIf e e' e'' _ => SE.union (free_sv e) (SE.union (free_sv e') (free_sv e''))
+    end.
+
+  Fixpoint free_av (e : Sx.SExp) : SA.t :=
+    match e with
+    | Sx.EVar v _ => SA.empty
+    | Sx.ENum _   => SA.empty
+    | Sx.ELet x e1 e2 _ => 
+      SA.union (free_av e1) (free_av e2)
+    | Sx.EBin _ e1 e2 _ => SA.union (free_av e1) (free_av e2)
+    | Sx.EA x e _ => SA.add x (free_av e)
+    | Sx.ELen x => SA.singleton x
+    | Sx.EPrj e _ _ => free_av e
+    | Sx.ECons es _ => fold_right (fun e xs => SA.union (free_av e) xs) SA.empty es
+    | Sx.EIf e e' e'' _ => SA.union (free_av e) (SA.union (free_av e') (free_av e''))
+    end.
+  
+  Definition free_av_func (f : Sx.Func) :=
+    match f with
+    | Sx.F ps body => free_av body
+    end.
+
+  Definition free_av_AE (ae : Sx.AE) :=
+    match ae with
+    | Sx.DArr f len =>
+      SA.union (free_av_func f) (free_av len)
+    | Sx.VArr xa => SA.singleton xa
+    end.
+
+  Fixpoint map_opt {A B : Type} (f : A -> option B) (xs : list A) : option (list B) :=
+    sequence (map f xs).
+
+  Variable aty_env : Env varA (option Sx.Typ) _.
+  
+  Definition env_of_sa (xas : SA.t) : Env varA nat _ :=
+    snd (SA.fold (fun xa (n_aenv : nat * Env varA nat _)  =>
+               let (n, aenv) := n_aenv in
+               (n + 1, upd aenv xa n)) xas (0, emp_def 0)).
+
+  Definition arr_name n d := names_of_array (grpOfInt n) d.
+  Definition len_name n := name_of_len (grpOfInt n).
+
+  Definition zipWith {A B C : Type} (f : A -> B -> C) (xs : list A) (ys : list B) :=
+    map (fun xy => f (fst xy) (snd xy)) (combine xs ys).
+
+  Fixpoint type_of_func (n : nat) :=
+    match n with
+    | O => (cmd * list exp)%type
+    | S n => list var -> type_of_func n
+    end.
+  (* map_correct_g : *)
+(* forall (ntrd nblk len : nat) (out : list val) (env : list (nat * nat))  *)
+(*   (inDim outDim : nat) (get : var -> cmd * list exp)  *)
+(*   (get_den : val -> list val -> Prop) (func : list var -> cmd * list exp)  *)
+(*   (f_den : list val -> list val -> Prop), *)
+(* (forall i : nat, *)
+(*  i < len -> (exists gv, get_den (Zn i) gv) /\ (forall gv : list val, get_den (Zn i) gv -> exists fv, f_den gv fv)) -> *)
+(* ntrd <> 0 -> *)
+(* nblk <> 0 -> *)
+(* forall (fout : nat -> list val) (env_den : list (list Z * nat * (nat -> list val))), *)
+(* Datatypes.length env = Datatypes.length env_den -> *)
+(* (forall v u : var, In u (writes_var (fst (get v))) -> prefix "l" (var_of_str u) = true) -> *)
+(* (forall (v u : var) (e : exp), In e (snd (get v)) -> In u (fv_E e) -> u = v \/ prefix "l" (var_of_str u) = true) -> *)
+(* (forall v : var, barriers (fst (get v)) = Datatypes.nil) -> *)
+(* (forall (x : var) (nt : nat) (tid : Fin.t nt) (v : val) (gv : list val), *)
+(*  get_den v gv -> *)
+(*  ~ In x (writes_var (fst (get x))) -> *)
+(*  CSL (fun _ : nat => default nt) tid (!(x === v) ** input_spec env env_den (perm_n (nblk * ntrd)))  *)
+(*    (fst (get x)) (!(snd (get x) ==t gv) ** input_spec env env_den (perm_n (nblk * ntrd)))) -> *)
+(* (forall (v : val) (gv : list val), get_den v gv -> Datatypes.length gv = inDim) -> *)
+(* (forall v : var, Datatypes.length (snd (get v)) = inDim) -> *)
+(* (forall (v : list var) (u : var), In u (writes_var (fst (func v))) -> prefix "l" (var_of_str u) = true) -> *)
+(* (forall v : list var, barriers (fst (func v)) = Datatypes.nil) -> *)
+(* (forall (v : list var) (u : var) (e : exp), In e (snd (func v)) -> In u (fv_E e) -> In u v \/ prefix "l" (var_of_str u) = true) -> *)
+(* (forall (x : list var) (nt : nat) (tid : Fin.t nt) (vs fv : list val), *)
+(*  f_den vs fv -> *)
+(*  Datatypes.length x = inDim -> *)
+(*  disjoint x (writes_var (fst (func x))) -> *)
+(*  CSL (fun _ : nat => default nt) tid (!(vars2es x ==t vs) ** input_spec env env_den (perm_n (nblk * ntrd)))  *)
+(*    (fst (func x)) (!(snd (func x) ==t fv) ** input_spec env env_den (perm_n (nblk * ntrd)))) -> *)
+(* (forall i : nat, Datatypes.length (fout i) = outDim) -> *)
+(* (forall v fv : list val, f_den v fv -> Datatypes.length fv = outDim) -> *)
+(* Datatypes.length out = outDim -> *)
+(* (forall v : list var, Datatypes.length (snd (func v)) = outDim) -> *)
+(* exists fgi, *)
+(* (forall i : nat, i < len -> exists t, get_den (Zn i) t /\ f_den t (fgi i)) /\ *)
+(* CSLg ntrd nblk *)
+(*   (!(Outs outDim ==t out) ** *)
+(*    !(Len outDim === Zn len) ** input_spec env env_den 1 ** is_tuple_array_p (es2gls (vs2es out)) len fout 0 1) *)
+(*   {| get_sh_decl := Datatypes.nil; get_cmd := mkMap ntrd nblk inDim outDim get func |} *)
+(*   (input_spec' env_den 1 ** is_tuple_array_p (es2gls (vs2es out)) len (fun v : nat => fgi v) 0 1) *)
+
+(* Argument scopes are [nat_scope nat_scope nat_scope list_scope list_scope nat_scope nat_scope _ _ _ _ _ _ _ _ list_scope _ _ _ _ *)
+(*   _ _ _ _ _ _ _ _ _ _ _] *)
+(* map_correct_g is opaque *)
+(* Expands to: Constant pmap_skel.map_correct_g *)
+
+  Definition evalM n =
+
+  Fixpoint compile_func_n n (xs : list (varE * Sx.Typ)) svar_env avar_env body :=
+    match n return type_of_func n with
+    | O =>
+      match xs with
+      | nil => compile_sexp avar_env body svar_env
+      | _ :: _ => fail ""
+      end
+    | S n =>
+      match xs with
+      | nil => fail ""
+      | (x, _) :: xs =>
+        let! res := compile_func_n n xs (upd svar_env x x') avar_env body in
+        ret (fun x' => res)
+      end
+    end.
+
+  Definition compile_func avar_env f :=
+    match f with
+    | F ps body =>
+      compile_func' ps (emp_def nil) avar_env body
+    end.
+      let! svar_env :=
+         let! xxs := sequence (map (fun x_ty => let (x, ty) := x_ty in
+           let! xs := freshes (len_of_ty ty) in
+           (x, xs)) ps) in
+         fold_right (fun x_xs env => upd (fst x_xs) (snd x_xs) env) (emp_def nil) in
+      
+
+  Definition compile_AE avar_env ae :=
+    match ae with
+    | DArr f len =>
+      let f' := compile_func avar_env f in
+      let len' := compile_func avar_env len in
+      (f', len')
+    | 
+      
+  
+  Fixpoint compile_prog (var_ptr_env : Env varA Z _) (p : prog) :=
+    match p with
+    | ALet xa sname fs aes p =>
+      let fvs :=
+          SA.union
+            (List.fold_right (fun f sa => SA.union (free_av_func f) sa) SA.empty fs)
+            (List.fold_right (fun ae sa => SA.union (free_av_AE ae) sa) SA.empty aes)
+      in
+      let avar2idx := env_of_sa fvs in
+      let avar_env := option_map (fun xa =>
+         (aty_env xa) >>= fun aty =>
+         (len_name (avar2idx xa), arr_name (avar2idx xa) (len_of_ty aty))) fvs in
+      let! out := alloc len in
+      let! ker := {| params_of := ; body_of := |} in
+      callKer ker ntrd nblk (out :: len :: )
+    | ARet xa => ret (var_ptr_env xa).
 
 Section CorrectnessProof.
   Import Skel_lemma.
@@ -431,34 +600,6 @@ Section CorrectnessProof.
   (* End UniqList. *)
   
   Import scan_lib.
-
-  Fixpoint free_sv (e : Sx.SExp) : SE.t :=
-    match e with
-    | Sx.EVar v _ => SE.singleton v
-    | Sx.ENum _   => SE.empty
-    | Sx.ELet x e1 e2 _ => 
-      SE.union (free_sv e1) (SE.remove x (free_sv e2))
-    | Sx.EBin _ e1 e2 _ => SE.union (free_sv e1) (free_sv e2)
-    | Sx.EA _ e _ => free_sv e
-    | Sx.ELen _ => SE.empty
-    | Sx.EPrj e _ _ => free_sv e
-    | Sx.ECons es _ => fold_right (fun e xs => SE.union (free_sv e) xs) SE.empty es
-    | Sx.EIf e e' e'' _ => SE.union (free_sv e) (SE.union (free_sv e') (free_sv e''))
-    end.
-
-  Fixpoint free_av (e : Sx.SExp) : SA.t :=
-    match e with
-    | Sx.EVar v _ => SA.empty
-    | Sx.ENum _   => SA.empty
-    | Sx.ELet x e1 e2 _ => 
-      SA.union (free_av e1) (free_av e2)
-    | Sx.EBin _ e1 e2 _ => SA.union (free_av e1) (free_av e2)
-    | Sx.EA x e _ => SA.add x (free_av e)
-    | Sx.ELen x => SA.singleton x
-    | Sx.EPrj e _ _ => free_av e
-    | Sx.ECons es _ => fold_right (fun e xs => SA.union (free_av e) xs) SA.empty es
-    | Sx.EIf e e' e'' _ => SA.union (free_av e) (SA.union (free_av e') (free_av e''))
-    end.
 
   (* Arguments uniq {A} {eqt} x. *)
 

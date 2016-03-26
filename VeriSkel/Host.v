@@ -1,4 +1,4 @@
-Require Import LibTactics GPUCSL Relations SeqSkel.
+Require Import LibTactics GPUCSL Relations.
 
 Record kernel := BuildKer { params_of : list var; body_of : program }.
 
@@ -198,80 +198,3 @@ Proof.
   unfold as_gheap; simpl; rewrite <-!phplus_as_gheap; eauto.
   f_equal; apply H20.
 Qed.
-
-Require Import pmap_skel.
-Import Syntax Skel_lemma scan_lib Monad.
-
-Section Compiler.
-  Definition free_av_func (f : Func) :=
-    match f with
-    | F ps body => free_av body
-    end.
-
-  Definition free_av_AE (ae : AE) :=
-    match ae with
-    | DArr f len =>
-      SA.union (free_av_func f) (free_av len)
-    | VArr xa => SA.singleton xa
-    end.
-
-  Fixpoint map_opt {A B : Type} (f : A -> option B) (xs : list A) : option (list B) :=
-    sequence (map f xs).
-
-  Variable aty_env : Env varA (option Typ) _.
-  
-  Definition env_of_sa (xas : SA.t) : Env varA nat _ :=
-    snd (SA.fold (fun xa (n_aenv : nat * Env varA nat _)  =>
-               let (n, aenv) := n_aenv in
-               (n + 1, upd aenv xa n)) xas (0, emp_def 0)).
-
-  Definition arr_name n d := names_of_array (grpOfInt n) d.
-  Definition len_name n := name_of_len (grpOfInt n).
-
-  Definition zipWith {A B C : Type} (f : A -> B -> C) (xs : list A) (ys : list B) :=
-    map (fun xy => f (fst xy) (snd xy)) (combine xs ys).
-
-  Fixpoint compile_func' (xs : list (varE * Typ)) svar_env avar_env body :=
-    match xs return type_of_func' (length xs) with
-    | nil => compile_sexp avar_env body svar_env
-    | (x, _) :: xs => fun x' =>
-      compile_func' xs (upd svar_env x x') avar_env body
-    end.
-
-  Definition compile_func avar_env f :=
-    match f with
-    | F ps body =>
-      compile_func' ps (emp_def nil) avar_env body
-    end.
-      let! svar_env :=
-         let! xxs := sequence (map (fun x_ty => let (x, ty) := x_ty in
-           let! xs := freshes (len_of_ty ty) in
-           (x, xs)) ps) in
-         fold_right (fun x_xs env => upd (fst x_xs) (snd x_xs) env) (emp_def nil) in
-      
-
-  Definition compile_AE avar_env ae :=
-    match ae with
-    | DArr f len =>
-      let f' := compile_func avar_env f in
-      let len' := compile_func avar_env len in
-      (f', len')
-    | 
-      
-  
-  Fixpoint compile_prog (var_ptr_env : Env varA Z _) (p : prog) :=
-    match p with
-    | ALet xa sname fs aes p =>
-      let fvs :=
-          SA.union
-            (List.fold_right (fun f sa => SA.union (free_av_func f) sa) SA.empty fs)
-            (List.fold_right (fun ae sa => SA.union (free_av_AE ae) sa) SA.empty aes)
-      in
-      let avar2idx := env_of_sa fvs in
-      let avar_env := option_map (fun xa =>
-         (aty_env xa) >>= fun aty =>
-         (len_name (avar2idx xa), arr_name (avar2idx xa) (len_of_ty aty))) fvs in
-      let! out := alloc len in
-      let! ker := {| params_of := ; body_of := |} in
-      callKer ker ntrd nblk (out :: len :: )
-    | ARet xa => ret (var_ptr_env xa).
