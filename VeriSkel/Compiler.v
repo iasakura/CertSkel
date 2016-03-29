@@ -307,10 +307,17 @@ Section Compiler.
     | Sx.F ps body => free_av body
     end.
 
+  Fixpoint free_av_lexp (e : Sx.LExp) : SA.t :=
+    match e with
+    | Sx.LNum _   => SA.empty
+    | Sx.LBin _ e1 e2 => SA.union (free_av_lexp e1) (free_av_lexp e2)
+    | Sx.LLen x => SA.singleton x 
+    end.
+
   Definition free_av_AE (ae : Sx.AE) :=
     match ae with
     | Sx.DArr f len =>
-      SA.union (free_av_func f) (free_av len)
+      SA.union (free_av_func f) (free_av_lexp len)
     | Sx.VArr xa => SA.singleton xa
     end.
 
@@ -371,12 +378,17 @@ Section Compiler.
     | Sx.F ps body => compile_func_n' n ps (emp_def nil) avar_env body
     end.
 
-  Definition compile_AE avar_env ae :=
+  Definition opt_def {A : Type} (o : option A) d := match o with
+                                                    | Some x => x
+                                                    | None => d
+                                                    end.
+
+  Definition compile_AE avar_env (var_ptr_env : Env varA (nat * list Z) _) ae : ((list var -> (cmd * list exp)) * nat)  :=
     match ae with
     | Sx.DArr f len =>
       let f' := compile_func_n 1 avar_env f in
-      let len' := compile_sexp avar_env len (emp_def nil) in
-      (f', evalM len' 0 (Cskip, nil))
+      let len' := evalLExp (fun x => Some (fst (var_ptr_env x))) len in
+      (f', opt_def len' 0)
     | Sx.VArr xa =>
       let tyxa := match aty_env xa with
                   | None => Sx.TZ
@@ -386,13 +398,7 @@ Section Compiler.
       let get :=
           let i := VarE "i" in
           (compile_func_n 1 avar_env (Sx.F ((i, Sx.TZ) :: nil) (Sx.EA xa (Sx.EVar i Sx.TZ) tyxa))) in
-      (get, (Cskip, vars2es len))
-    end.
-  
-  Definition opt_def {A : Type} o d : A :=
-    match o with
-    | None => d
-    | Some x => x
+      (get, (fst (var_ptr_env xa)))
     end.
 
   Fixpoint alloc_n_tup n len :=
@@ -406,9 +412,18 @@ Section Compiler.
 
   Variable ntrd : nat.
   Variable nblk : nat.
-  Fixpoint compile_prog (var_ptr_env : Env varA (Z, list Z) _) (p : prog) d :=
+
+  Definition Z_of_val (v : SVal) :=
+    match v with
+    | VB _ | VTup _ => 0%Z
+    | VZ n => n
+    end.
+  
+  Open Scope string_scope.
+
+  Fixpoint compile_prog (var_ptr_env : Env varA (Z * list Z) _) (p : Sx.prog) d :=
     match p with
-    | Sx.ALet xa tyxa sname fs aes p =>
+    | Sx.ALet xa tyxa skl fs aes p =>
       let fvs :=
           SA.union
             (List.fold_right (fun f sa => SA.union (free_av_func f) sa) SA.empty fs)
@@ -418,18 +433,23 @@ Section Compiler.
       let avar2idx := env_of_sa fvs in
       let lens := map (fun xa => len_name (avar2idx xa)) fvs' in
       let arrs := map_opt (fun xa =>
-         let aty := opt_def (aty_env xa) TZ in
+         let aty := opt_def (aty_env xa) Sx.TZ in
          (arr_name (avar2idx xa) (len_of_ty aty))) fvs' in
       let lens' := fst (map var_ptr_env fvs') in
       let arrs' := snd (map var_ptr_env fvs') in
-      let outlen := 
-      let outs' := out_name (len_of_ty tyxa) in
-      let outlen' := out_len_name in
-      let! out := alloc_n_tup (len_of_ty tyxa) len in
-      let! ker := {| params_of := outlen :: outs ++ lens ++ arrs ;
-                     body_of := {| get_sh_decl := Datatypes.nil; get_cmd := mkMap ntrd nblk inDim outDim get func |} |} in
-      let! _ := callKer ker ntrd nblk (outlen :: outs ++  )
-    | ARet xa => ret (var_ptr_env xa).
+      match skl, fs, aes with
+      | "map", (f :: nil), (ae :: nil) =>
+        let outs := out_name (len_of_ty tyxa) in
+        let outlen := out_len_name in
+        let! outs' := alloc_n_tup (len_of_ty tyxa) 3 in
+        let! ker := {| params_of := outlen :: outs ++ lens ++ arrs ;
+                       body_of := {| get_sh_decl := Datatypes.nil; get_cmd := mkMap ntrd nblk inDim outDim get func |} |} in
+        let! _ := callKer ker ntrd nblk (outlen :: outs ++  2) in
+        compile_prog (upd var_ptr_env xa (outlen', outs')) p
+      | _ => ret 0
+      end
+    | ARet xa => ret (var_ptr_env xa)
+    end.
 
 Section CorrectnessProof.
   Import Skel_lemma.

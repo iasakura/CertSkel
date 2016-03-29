@@ -131,14 +131,19 @@ Module Syntax.
 
   (* user defined functions *)
   Inductive Func := F (params : list (varE * Typ)) (body : SExp).
+
+  Inductive LExp : Type :=
+  | LNum : Z -> LExp
+  | LBin : (nat -> nat -> nat) -> LExp -> LExp -> LExp
+  | LLen : varA -> LExp.
   
   Inductive AE :=
-  | DArr (f : Func) (len : SExp)
+  | DArr (f : Func) (len : LExp)
   | VArr (xa : varA).
 
   (* array expressions *)
   Inductive prog :=
-    ALet (va : varA) (sk : name) (fs : list Func) (vas : list AE) (ea : prog)
+    ALet (va : varA) (ty : Typ) (sk : name) (fs : list Func) (vas : list AE) (ea : prog)
   | ARet (va : varA).
 End Syntax.
 
@@ -232,13 +237,24 @@ Section Semantics.
   Open Scope string_scope.
   Require Import scan_lib.
 
+  Definition Z_to_nat (n : Z) : option nat := if Z_le_dec 0 n then Some (Z.to_nat n) else None.
+
+  Fixpoint evalLExp (aenv : Env varA (option nat) _) (le : LExp) : option nat :=
+    match le with
+    | LNum n => Z_to_nat n
+    | LBin op le1 le2 =>
+      let! v1 := evalLExp aenv le1 in
+      let! v2 := evalLExp aenv le2 in
+      Some (op v1 v2)
+    | LLen xa => aenv xa
+    end.
+
   Inductive evalAE (aenv : AEnv (option array)) : AE -> array -> Prop :=
   | EvalAE_var xa arr :
       aenv xa = Some arr ->
       evalAE aenv (VArr xa) arr
-  | EvalAE_DArr func f e v len :
-      evalSE aenv emp_opt e (VZ v) ->
-      Z.of_nat len = v -> 
+  | EvalAE_DArr func f e len :
+      evalLExp (fun x => option_map (@length _) (aenv x)) e = Some len ->
       (forall i, i < len -> evalFunc aenv (VZ (Z.of_nat i) :: nil) func (f i)) ->
       evalAE aenv (DArr func e) (ls_init 0 len f).
   
@@ -251,10 +267,10 @@ Section Semantics.
   Inductive evalP : AEnv (option array) -> prog -> array -> Prop :=
   | EvalP_ret aenv ax v :
       aenv ax = Some v -> evalP aenv (ARet ax) v
-  | EvalP_alet (aenv : AEnv (option array)) ax skl fs ae e2 v1 v2 :
+  | EvalP_alet (aenv : AEnv (option array)) ax ty skl fs ae e2 v1 v2 :
       evalSK aenv skl fs ae v1 ->
       evalP (upd_opt aenv ax v1) e2 v2 ->
-      evalP aenv (ALet ax skl fs ae e2) v2.
+      evalP aenv (ALet ax ty skl fs ae e2) v2.
 End Semantics.
 
 Section typing_rule.
