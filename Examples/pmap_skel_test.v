@@ -114,7 +114,7 @@ Section verification_example.
      input_spec env env_den 1 **
      is_tuple_array_p (es2gls (vs2es out_ptr')) len out_elms' 0 1)
     {| get_sh_decl := nil;
-       get_cmd := map' ntrd nblk inDim outDim get func |}
+       get_cmd := mkMap ntrd nblk inDim outDim get func |}
     (input_spec' env_den 1 **
      is_tuple_array_p (es2gls (vs2es out_ptr')) len (fun v : nat => fgi v) 0 1).
   Proof.
