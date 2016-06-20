@@ -12,9 +12,7 @@ Inductive instr :=
 | alloc : var -> expr -> instr
 | invoke : kerID -> nat -> nat -> list expr -> instr.
 
-Inductive CUDA : Set :=
-| Ret : string -> expr -> CUDA
-| Instr : instr -> CUDA -> CUDA.
+Definition CUDA := (list instr * var)%type.
 
 (* Inductive CUDA : Type -> Type := *)
 (* | alloc : nat -> CUDA Z *)
@@ -137,14 +135,14 @@ Inductive Instr_exec : kerEnv -> instr -> GPUstate -> GPUstate -> Prop :=
 (*     CUDA_eval _ (bind _ _ cu k) gst v' gst''. *)
 
 Inductive CUDA_eval : kerEnv -> CUDA -> GPUstate -> GPUstate -> Z -> Z -> Prop :=
-| eval_ret kenv gst x e start len  :
+| eval_nil kenv gst x e start len :
     (fst gst) (Var x) = start ->
     eval_expr (fst gst) e len ->
-    CUDA_eval kenv (Ret x e) gst gst start len
-| eval_instr kenv i rst gst gst' gst'' start len :
+    CUDA_eval kenv (nil, Var x) gst gst start len
+| eval_instr kenv i rst res gst gst' gst'' start len :
     Instr_exec kenv i gst gst' ->
-    CUDA_eval kenv rst gst' gst'' start len ->
-    CUDA_eval kenv (Instr i rst) gst gst'' start len.
+    CUDA_eval kenv (rst, res) gst' gst'' start len ->
+    CUDA_eval kenv (i :: rst, res) gst gst'' start len.
 
 (* Parameter run : forall a, CUDA a -> a. *)
 (* Axiom runCorrect : forall a (cu : CUDA a) gst gst' v, CUDA_eval _ cu gst v gst' <-> run _ cu = v. *)

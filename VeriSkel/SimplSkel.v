@@ -134,7 +134,7 @@ Module Syntax.
 
   Inductive LExp : Type :=
   | LNum : Z -> LExp
-  | LBin : (nat -> nat -> nat) -> LExp -> LExp -> LExp
+  (* | LBin : (nat -> nat -> nat) -> LExp -> LExp -> LExp *)
   | LLen : varA -> LExp.
   
   Inductive AE :=
@@ -242,10 +242,10 @@ Section Semantics.
   Fixpoint evalLExp (aenv : Env varA (option nat) _) (le : LExp) : option nat :=
     match le with
     | LNum n => Z_to_nat n
-    | LBin op le1 le2 =>
-      let! v1 := evalLExp aenv le1 in
-      let! v2 := evalLExp aenv le2 in
-      Some (op v1 v2)
+    (* | LBin op le1 le2 => *)
+    (*   let! v1 := evalLExp aenv le1 in *)
+    (*   let! v2 := evalLExp aenv le2 in *)
+    (*   Some (op v1 v2) *)
     | LLen xa => aenv xa
     end.
 
