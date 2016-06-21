@@ -1,6 +1,6 @@
 Require Import String.
 Require Import Vector.
-Require Import List.
+Require Import MyList.
 Require Import ZArith.
 Require Import GPUCSL.
 Require Import LibTactics.
@@ -247,6 +247,7 @@ Section TestCompiler.
 End TestCompiler.
 
 Require Import pmap_skel.
+Require Import Reduce_opt_skel.
 Import Skel_lemma scan_lib.
 
 Module VarE_eq : DecType with Definition t := varE with Definition eq_dec := eq_dec.
@@ -344,11 +345,11 @@ Section Compiler.
   Definition out_name d := names_of_array "Out" d.
   Definition out_len_name := name_of_len "Out".
 
-  Definition env_of_sa (xas : SA.t) : (Env varA (var * list var) _) :=
+  Definition env_of_sa (xas : SA.t) : (Env varA (string * list string) _) :=
     let idxEnv := idxEnv_of_sa xas in
     fun xa =>
       let size := len_of_ty (opt_def (aty_env xa) Sx.TZ) in
-      (Var (len_name (idxEnv xa)), List.map Var (arr_name (idxEnv xa) size)).
+      (len_name (idxEnv xa), arr_name (idxEnv xa) size).
 
   Definition zipWith {A B C : Type} (f : A -> B -> C) (xs : list A) (ys : list B) :=
     map (fun xy => f (fst xy) (snd xy)) (combine xs ys).
@@ -392,19 +393,19 @@ Section Compiler.
     | Sx.F ps body => compile_func_n' n ps (emp_def nil) avar_env body
     end.
 
-  Definition compile_lexp (aenv : Env varA (var * list var) _) le : expr :=
+  Definition compile_lexp (aenv : Env varA (hostVar * list hostVar) _) le : expr :=
     match le with
     | Sx.LNum n => Const n
     | Sx.LLen a => VarE (fst (aenv a))
     end.
 
-  Definition compile_AE avar_env (var_ptr_env : Env varA (var * list var) _) ae :
-    ((list var -> (cmd * list exp)) * expr) :=
+  Definition compile_AE avar_env (var_ptr_env : Env varA (hostVar * list hostVar) _) ae :
+    ((var -> (cmd * list exp)) * expr) :=
     match ae with
     | Sx.DArr f len =>
       let f' := compile_func_n 1 avar_env f in
       let len' := compile_lexp var_ptr_env len in
-      (f', len')
+      (fun x => f' (x :: nil), len')
     | Sx.VArr xa =>
       let tyxa := match aty_env xa with
                   | None => Sx.TZ
@@ -415,16 +416,7 @@ Section Compiler.
           let i := SimplSkel.VarE "i" in
           (compile_func_n 1 avar_env (Sx.F ((i, Sx.TZ) :: nil)
                                            (Sx.EA xa (Sx.EVar i Sx.TZ) tyxa))) in
-      (get, VarE (fst (var_ptr_env xa)))
-    end.
-
-  Fixpoint alloc_n_tup xs len : list instr :=
-    match xs with
-    | nil => nil
-    | x :: xs =>
-      let p := alloc x len in
-      let ps := alloc_n_tup xs len in
-      p :: ps
+      (fun x => get (x :: nil), VarE (fst (var_ptr_env xa)))
     end.
 
   Variable ntrd : nat.
@@ -444,49 +436,84 @@ Section Compiler.
     | xs :: xss => (xs ++ concat xss)%list
     end.
 
+  Definition shiftn n (var_host_env : Env varA (hostVar * list hostVar) _) :=
+    env_map (fun xs => (n + (fst xs), List.map (fun x => n + x) (snd xs))) var_host_env.
+
+  Instance eq_kerID : eq_type kerID := {
+    eq_dec := Nat.eq_dec
+  }.
+
   Fixpoint compile_prog
-           (kenv : Env kerID kernel _)
-           (var_ptr_env : Env varA (var * list var) _)
-           (p : Sx.prog)
-           d :=
+           (kenv : list kernel)
+           (var_host_env : Env varA (hostVar * list hostVar) _)
+           (p : Sx.prog) : (CUDA * (hostVar * list hostVar)) :=
     match p with
-    | Sx.ALet xa tyxa skl fs aes p =>
+    | Sx.ALet xa tyxa skl fs aes rest =>
       let fvs :=
           SA.union
             (List.fold_right (fun f sa => SA.union (free_av_func f) sa) SA.empty fs)
             (List.fold_right (fun ae sa => SA.union (free_av_AE (fst ae)) sa) SA.empty aes)
       in
       let fvs' := SA.elements fvs in
-      let env := env_of_sa fvs' in
-      (* let lens := map (fun xa => len_name (avar2idx xa)) fvs' in *)
-      (* let arrs := map_opt (fun xa => *)
-      (* let aty := opt_def (aty_env xa) Sx.TZ in *)
-      (* arr_name (avar2idx xa) (len_of_ty aty)) fvs' in *)
-      let params := concat (map (fun xa => fst (env xa) :: snd (env xa)) fvs') in
-      (* let lens' := fst (map var_ptr_env fvs') in *)
-      (* let arrs' := snd (map var_ptr_env fvs') in *)
-      let args := concat (map (fun xa => fst (var_ptr_env xa) :: snd (var_ptr_env xa)) fvs') in
-      
+      let env := env_of_sa fvs in
+      let env' := env_map (fun x => (Var (fst x), map Var (snd x)))  env in
+      let inParams := concat (map (fun xa => fst (env xa) :: snd (env xa)) fvs') in
+      let inArgs := concat (map (fun xa => fst (var_host_env xa) :: snd (var_host_env xa)) fvs') in
       match skl, fs, aes with
       | "map", (f :: nil), ((ae, tyAe) :: nil) =>
         let outDim := len_of_ty tyxa in
         let inDim := len_of_ty tyAe in
-        let outs := out_name outDim in
-        let outlen := out_len_name in
-        let outs' := alloc_n_tup (len_of_ty tyxa) outlen in
-        let func := compile_func_n 1 env f in
-        let (arr, lexp) := compile_AE env var_ptr_env ae in 
-        let ker := {| params_of := outlen :: outs ++ params;
+        let outsParam := out_name outDim in
+        let outlenParam := out_len_name in
+        let func : list var -> (cmd * list exp) := compile_func_n 1 env' f in
+        let '(get, inlen) := compile_AE env' var_host_env ae in
+        (* allocs ...; iLet inlen; invoke ...*)
+        let letLen := iLet inlen in
+        let outAllocs := nseq (len_of_ty tyxa) (alloc inlen) in
+        let outLen := 0 in
+        let outs := seq 1 (length outAllocs) in
+        let ker := {| params_of := map Var (outlenParam :: outsParam ++ inParams);
                       body_of := {| get_sh_decl := nil;
                                     get_cmd := mkMap ntrd nblk inDim outDim get func |} |} in
-        let newID := genNewID kenv in
-        let newEnv := upd var_ptr_env xa 
-        let (instr, res) := compile_prog (ker :: kenv) var_ptr_env p d in
-        (alloc ++ invoke newID ntrd nblk ... ++ 
-      | _ => ret 0
+        let newEnv := upd (shiftn (length (outLen :: outs)) var_host_env) xa (outLen, outs) in
+        let newID := List.length kenv in
+        let '(instr, res) := compile_prog (kenv ++ (ker :: nil)) newEnv rest in
+        (outAllocs ++
+         (letLen :: nil) ++
+         (invoke newID ntrd nblk (List.map VarE (outLen :: outs ++ inArgs)) :: nil) ++
+         instr,
+         res)
+      (* | "reduce", (f :: nil), ((ae, tyAe) :: nil) => *)
+      (*   let outDim := len_of_ty tyxa in *)
+      (*   let inDim := len_of_ty tyAe in *)
+      (*   let outsParam := out_name outDim in *)
+      (*   let outlenParam := out_len_name in *)
+      (*   let func : list var -> list var -> (cmd * list exp) := compile_func_n 2 env' f in *)
+      (*   let '(get, inlen) := compile_AE env' var_host_env ae in *)
+      (*   (* allocs ...; iLet inlen; invoke ...*) *)
+      (*   let letLen := iLet inlen in *)
+      (*   let outAllocs := nseq (len_of_ty tyxa) (alloc inlen) in *)
+      (*   let outLen := 0 in *)
+      (*   let outs := seq 1 (length outAllocs) in *)
+      (*   let ker := {| params_of := map Var (outlenParam :: outsParam ++ inParams); *)
+      (*                 body_of := {| get_sh_decl := nil; *)
+      (*                               get_cmd := mkMap ntrd nblk inDim outDim get func |} |} in *)
+      (*   let newEnv := upd (shiftn (length (outLen :: outs)) var_host_env) xa (outLen, outs) in *)
+      (*   let newID := List.length kenv in *)
+      (*   let '(instr, res) := compile_prog (kenv ++ (ker :: nil)) newEnv rest in *)
+      (*   (outAllocs ++ *)
+      (*    (letLen :: nil) ++ *)
+      (*    (invoke newID ntrd nblk (List.map VarE (outLen :: outs ++ inArgs)) :: nil) ++ *)
+      (*    instr, *)
+      (*    res) *)
+      | _, _, _ => (nil, (0, nil))
       end
-    | ARet xa => ret (var_ptr_env xa)
-    end.
+    | Sx.ARet xa => (nil, var_host_env xa)
+    end%list.
+
+End Compiler.
+
+Eval compute in "Finished !".
 
 Section CorrectnessProof.
   Import Skel_lemma.
