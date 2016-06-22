@@ -12,19 +12,25 @@ Proof.
   destruct (Z_le_dec x y), (Z_lt_dec y z); first [left; omega | right; omega].
 Qed.
 
-Inductive decl_sh : list (var * nat) -> stack -> simple_heap -> Prop :=
+Record Sdecl := SD {
+   SD_var : var;
+   SD_ctyp : CTyp;
+   SD_len : nat
+}.
+
+Inductive decl_sh : list Sdecl -> stack -> simple_heap -> Prop :=
 | decl_nil : forall stk, decl_sh nil stk (fun _ => None) 
-| decl_cons : forall ds stk sh v len loc,
+| decl_cons : forall ds stk sh v cty len loc,
     decl_sh ds stk sh ->
     (forall i, i < len -> sh (loc + Z.of_nat i)%Z = None) ->
-    decl_sh ((v, len) :: ds) (fun v' => if var_eq_dec v' v then loc else stk v')
+    decl_sh (SD v cty len :: ds) (fun v' => if var_eq_dec v' v then loc else stk v')
             (fun l => if Z_range_dec loc l (loc + Z.of_nat len) then Some 0%Z else sh l).
 
 
-Fixpoint sh_spec (sh_decl : list (var * nat)) : assn :=
+Fixpoint sh_spec (sh_decl : list Sdecl) : assn :=
   match sh_decl with
   | nil => emp
-  | (sh, len) :: sh_decl => (Ex f, is_array (Sh sh) len f 0) ** sh_spec sh_decl
+  | SD sh _ len :: sh_decl => (Ex f, is_array (Sh sh) len f 0) ** sh_spec sh_decl
   end.
 
 Section GlobalCSL.
@@ -127,7 +133,7 @@ Fixpoint safe_ng (n : nat) (gs : glist nblk ntrd)
   end.
 
 Record program : Set := Pr {
-  get_sh_decl : list (var * nat);
+  get_sh_decl : list Sdecl;
   get_cmd : cmd}.
 
 Section For_List_Notation.
@@ -139,7 +145,7 @@ Section For_List_Notation.
   Definition has_no_vars (P : assn) : Prop := indeP (fun (_ _ : stack) => True) P.
   
   Lemma safe_gl (n : nat) :
-    forall (gs : glist nblk ntrd) (shs : Vector.t simple_heap nblk) (gh : zpheap) (ghs : Vector.t zpheap nblk) (Q : assn) (sh_decl : list (var * nat) )
+    forall (gs : glist nblk ntrd) (shs : Vector.t simple_heap nblk) (gh : zpheap) (ghs : Vector.t zpheap nblk) (Q : assn) (sh_decl : list Sdecl)
            (Qs : Vector.t assn nblk),
       let sinv := sh_spec sh_decl in
       disj_eq ghs gh ->
@@ -149,7 +155,7 @@ Section For_List_Notation.
       Aistar_v Qs |= Q -> 
       (forall bid tid, sinv (snd gs[@bid][@tid]) (htop (as_sheap shs[@bid]))) ->
       (forall bid tid, inde sinv (writes_var (fst gs[@bid][@tid]))) ->
-      (forall var, List.In var (List.map fst sh_decl) -> E var = Lo) ->
+      (forall var, List.In var (List.map SD_var sh_decl) -> E var = Lo) ->
       safe_ng n gs shs gh Q.
   Proof.
     induction n; [simpl; auto|].
@@ -162,12 +168,12 @@ Section For_List_Notation.
         unfold sat_k in H; simpl in H.
         lazymatch type of H with (let (_, _) := ?X in _) => destruct X as (srep & Hsrep) end.
 
-        Lemma sh_spec_inde (sdec : list (var * nat)) (stk0 stk1 : stack) (E0 : env) : forall h,
+        Lemma sh_spec_inde (sdec : list Sdecl) (stk0 stk1 : stack) (E0 : env) : forall h,
           (sh_spec sdec) stk0 h -> low_eq E0 stk0 stk1 ->
-          (forall var, List.In var (List.map fst sdec) -> E0 var = Lo) ->
+          (forall var, List.In var (List.map SD_var sdec) -> E0 var = Lo) ->
           (sh_spec sdec) stk1 h.
         Proof.
-          induction sdec as [|[v n] sdec]; simpl.
+          induction sdec as [|[v ty n] sdec]; simpl.
           - intros ? H ? ?; apply H.
           - intros h H Hlow Hv.
             destruct H as (ph1 & ph2 & ? & ? & ? & ?); exists ph1 ph2; repeat split; auto.
@@ -321,7 +327,7 @@ Section For_List_Notation.
             + apply IHn.
         Qed.
 
-        Lemma precise_sh_spec (sh_dc : list (var * nat)) :
+        Lemma precise_sh_spec (sh_dc : list Sdecl) :
           precise (sh_spec sh_dc).
         Proof.
           induction sh_dc as [|[v n] sh_dc]; simpl; auto.
@@ -1192,12 +1198,12 @@ Theorem rule_grid (P : assn) Ps C Qs (Q : assn) sh_decl :
   (forall bid, inde Ps[@bid] ((BID :: TID :: nil))) ->
   (forall bid, low_assn E Ps[@bid]) ->
   (forall bid : Fin.t nblk, has_no_vars Qs[@bid]) ->
-  (forall v : var, List.In v (map fst sh_decl) -> E v = Lo) ->
+  (forall v : var, List.In v (map SD_var sh_decl) -> E v = Lo) ->
   (E TID = Hi) ->
   (E BID = Lo) ->
-  ~In TID (List.map fst sh_decl) ->
-  ~In BID (List.map fst sh_decl) ->
-  disjoint_list (List.map fst sh_decl) ->
+  ~In TID (List.map SD_var sh_decl) ->
+  ~In BID (List.map SD_var sh_decl) ->
+  disjoint_list (List.map SD_var sh_decl) ->
   CSLg P (Pr sh_decl C) Q.
 Proof.
   simpl; intros HP Htri HQ Hindsh Hindid Hlow Hnovar Hlo HtidHi HbidLo Htidsh Hbidsh Hdisvars; unfold CSLg; simpl.
@@ -1302,7 +1308,7 @@ Proof.
     rewrite Vector.const_nth.
 
     Lemma decl_sh_spec sdecs stk h :
-      disjoint_list (List.map fst sdecs) ->
+      disjoint_list (List.map SD_var sdecs) ->
       decl_sh sdecs stk h ->
       sh_spec sdecs stk (htop (as_sheap h)).
     Proof.
@@ -1353,7 +1359,7 @@ Proof.
         Qed.          
 
         Focus 2.
-        { assert (low_eq (fun v => if in_dec var_eq_dec v (map fst ds) then Lo else Hi)
+        { assert (low_eq (fun v => if in_dec var_eq_dec v (map SD_var ds) then Lo else Hi)
                        stk (fun v' => if var_eq_dec v' v then loc else stk v')).
           { intros v' Hlo; destruct var_eq_dec; eauto.
             destruct in_dec; try congruence; subst v'.

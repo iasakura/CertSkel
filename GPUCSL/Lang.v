@@ -63,10 +63,12 @@ Inductive loc_exp :=
 | Gl : exp -> loc_exp
 | loc_offset : loc_exp -> exp -> loc_exp.
 
+Inductive CTyp := Int | Bool | Ptr (cty : CTyp).
+
 Inductive cmd : Set :=
 | Cskip
-| Cassign (x: var) (e: exp)
-| Cread (x: var) (e: loc_exp)
+| Cassign (typ : option CTyp) (x: var) (e: exp)
+| Cread (typ : option CTyp) (x: var) (e: loc_exp)
 | Cwrite (e1: loc_exp) (e2: exp)
 | Cseq (c1: cmd) (c2: cmd)
 | Cif (b: bexp) (c1: cmd) (c2: cmd)
@@ -74,8 +76,12 @@ Inductive cmd : Set :=
 | Cbarrier (j : nat).
 
 Notation "'SKIP'" := Cskip.
-Notation "x '::=' a" := (Cassign x a) (at level 60).
-Notation "x '::=' '[' a ']'" := (Cread x a) (at level 60).
+Notation "x '::=' a" := (Cassign None x a) (at level 60).
+Notation "x '::=' '[' a ']'" := (Cread None x a) (at level 60).
+Notation "x ':T' ty '::=' a" := (Cassign (Some ty) x a) (at level 60, ty at next level).
+Notation "x ':T' ty '::=' '[' a ']'" := (Cread (Some ty) x a) (at level 60, ty at next level).
+Notation "x '::T' ty '::=' a" := (Cassign ty x a) (at level 60, ty at next level).
+Notation "x '::T' ty '::=' '[' a ']'" := (Cread ty x a) (at level 60, ty at next level).
 Notation "'[' a ']' '::=' e" := (Cwrite a e) (at level 60).
 Notation "c1 ;; c2" := (Cseq c1 c2) (at level 80, right associativity).
 Notation "'BARRIER' ( j )" := (Cbarrier j).
@@ -83,7 +89,7 @@ Notation "'BARRIER' ( j )" := (Cbarrier j).
 (* wait c = Some (j, c') <-> c is wait barrier at j and continuation after barrier is c' *)
 Fixpoint wait (c : cmd) : option (nat * cmd) :=
   match c with
-    | SKIP | _ ::= _ | _ ::= [_] | [_] ::= _ | Cif _ _ _ | Cwhile _ _ => None
+    | SKIP | _ ::T _ ::= _ | _ ::T _ ::= [_] | [_] ::= _ | Cif _ _ _ | Cwhile _ _ => None
     | BARRIER (j) => Some (j, Cskip)
     | c1 ;; c2 =>
       match wait c1 with
@@ -145,15 +151,15 @@ Inductive red: cmd -> state -> cmd  -> state -> Prop :=
              (Cif b c1 c2) / ss ==>s c2 / ss
 | red_Loop: forall (b : bexp) (c : cmd) (ss : state),  
              (Cwhile b c) / ss ==>s (Cif b (Cseq c (Cwhile b c)) Cskip) / ss
-| red_Assign: forall (x : var) (e : exp) ss ss' s h
+| red_Assign: forall (x : var) (e : exp) (cty : option CTyp) ss ss' s h
                      (EQ1: ss = (s, h))
                      (EQ2: ss' = (var_upd s x (edenot e s), h)),
-                (x ::= e) / ss ==>s Cskip / ss'
-| red_Read: forall x e ss ss' s h v
+                (x ::T cty ::= e) / ss ==>s Cskip / ss'
+| red_Read: forall x e ss ss' (cty : option CTyp) s h v
                    (EQ1: ss = (s, h))
                    (RD: h (ledenot e s) = Some v)
                    (EQ2: ss' = (var_upd s x v, h)),
-              (x ::= [e]) / ss ==>s Cskip / ss'
+              (x ::T cty ::= [e]) / ss ==>s Cskip / ss'
 | red_Write: forall e1 e2 ss ss' s h
                     (EQ1: ss = (s, h))
                     (EQ2: ss' = (s, upd h (ledenot e1 s) (Some (edenot e2 s)))),
@@ -184,8 +190,8 @@ Qed.
 Fixpoint accesses (c : cmd) (s : stack) := 
   match c with
     | Cskip => None
-    | x ::= e => None
-    | x ::= [e] => Some (ledenot e s)
+    | x ::T _ ::= e => None
+    | x ::T _ ::= [e] => Some (ledenot e s)
     | [e] ::= e' => Some (ledenot e s)
     | c1 ;; c2 => accesses c1 s
     | (Cif b c1 c2) => None
@@ -196,8 +202,8 @@ Fixpoint accesses (c : cmd) (s : stack) :=
 Fixpoint writes (c : cmd) (s : stack) :=
   match c with
     | Cskip => None
-    | (x ::= e) => None
-    | (x ::= [e]) => None
+    | (x ::T _ ::= e) => None
+    | (x ::T _ ::= [e]) => None
     | ([e] ::= e') => Some (ledenot e s)
     | (c1 ;; c2) => writes c1 s
     | (Cif b c1 c2) => None
@@ -207,9 +213,9 @@ Fixpoint writes (c : cmd) (s : stack) :=
 
 Inductive aborts : cmd -> state -> Prop := 
 | aborts_Seq : forall (c1 c2 : cmd) (ss : state) (A: aborts c1 ss), aborts (Cseq c1 c2) ss
-| aborts_Read: forall x e ss
+| aborts_Read: forall x e ty ss
                       (NIN: snd ss (ledenot e (fst ss)) = None),
-                 aborts (Cread x e) ss
+                 aborts (Cread x ty e) ss
 | aborts_Write: forall e1 e2 ss
                        (NIN: snd ss (ledenot e1 (fst ss)) = None),
                   aborts (Cwrite e1 e2) ss.
@@ -217,8 +223,8 @@ Inductive aborts : cmd -> state -> Prop :=
 Fixpoint barriers c :=
   match c with
     | Cskip => nil
-    | (Cassign x e) => nil
-    | (Cread x e) => nil
+    | (x ::T _ ::= e) => nil
+    | (x ::T _ ::= [e]) => nil
     | (Cwrite e e') => nil
     | (Cseq c1 c2) => barriers c1 ++ barriers c2
     | (Cif b c1 c2) => barriers c1 ++ barriers c2
@@ -246,7 +252,7 @@ Proof.
     repeat match goal with | [ H : (_, _) = (_, _) |- _ ] => inversion H; clear H end; subst.
     rewrite <-H4, H6.
     cutrewrite (h1 = h2); [eauto | apply (hplus_cancel_l (h := h) hdis1 hdis2); eauto].
-  - apply (@red_Read _ _ _ _ s1 h1 v); eauto;
+  - apply (@red_Read _ _ _ _ _ s1 h1 v); eauto;
     destruct ss as [s1' h1F], ss' as [s2' h2F];
     repeat match goal with  | [ H : (_, _) = (_, _) |- _ ] => inversion H; clear H end; subst.
     + rewrite H7 in RD.
@@ -330,7 +336,7 @@ Module PLang.
     eapply padd_cancel2; eauto.
   Qed.
 
-  Lemma padd_upd_cancel (ph1 ph2 phF : pheap) (h : heap) (x : loc) (v v': Z) :
+  Lemma padd_upd_cancel (ph1 ph2 phF : pheap) (h : heap) (x : loc) (v v' : Z) :
     pdisj ph1 phF -> pdisj ph2 phF -> ptoheap (phplus ph1 phF) h ->
     this ph1 x = Some (full_p, v') -> ptoheap (phplus ph2 phF) (upd h x (Some v)) -> 
     this ph2 = ph_upd ph1 x v.
@@ -521,13 +527,13 @@ Module BigStep.
   | eval_Loop : forall (b : bexp) (c : cmd) (c' : option (nat * cmd)) (st st' : pstate),
                   (Cif b (c ;; (Cwhile b c)) Cskip) / st || c'/ st' ->
                   (Cwhile b c) / st || c' / st'
-  | eval_Assign : forall (x : var) (e : exp) (st st' : pstate) s h,
+  | eval_Assign : forall (x : var) (e : exp) (cty : option CTyp) (st st' : pstate) s h,
                     (st = (s, h)) -> (st' = (var_upd s x (edenot e s), h)) ->
-                    (x ::= e) / st || None / st'
-  | eval_Read : forall (x : var) (e : loc_exp) (v : Z) (st st' : pstate) (s : stack) (h : pheap) (q : Qc),
+                    (x ::T cty ::= e) / st || None / st'
+  | eval_Read : forall (x : var) (e : loc_exp) (cty : option CTyp) (v : Z) (st st' : pstate) (s : stack) (h : pheap) (q : Qc),
                   (st = (s, h)) -> (this h (ledenot e s) = Some (q, v)) ->
                   (st' = (var_upd s x v, h)) ->
-                  (x ::= [e]) / st || None / st'
+                  (x ::T cty ::= [e]) / st || None / st'
   | eval_Write : forall (e1 : loc_exp) (e2 : exp) (ss ss' : pstate) (s : stack) (h : pheap) (v : Z),
                    (ss = (s, h)) ->
                    this h (ledenot e1 s) = Some (1, v) ->
@@ -762,12 +768,12 @@ Section NonInter.
 
   Inductive typing_cmd : cmd -> type -> Prop :=
   | ty_skip : forall (pc : type), typing_cmd Cskip pc
-  | ty_assign : forall (v : var) (e : exp) (pc ty : type),
+  | ty_assign : forall (v : var) (e : exp) (pc ty : type) (cty : option CTyp),
                   typing_exp e ty -> le_type (join ty pc) (g v) = true ->
-                  typing_cmd (v ::= e) pc
-  | ty_read : forall (v : var) (e : loc_exp) (pc ty : type),
+                  typing_cmd (v ::T cty ::= e) pc
+  | ty_read : forall (v : var) (e : loc_exp) (pc ty : type) (cty : option CTyp),
                 typing_lexp e ty -> le_type (join ty pc) (g v) = true ->
-                typing_cmd (v ::= [e]) pc
+                typing_cmd (v ::T cty ::= [e]) pc
   | ty_write : forall (e1 : loc_exp) (e2 : exp) (pc : type),
                  typing_cmd ([e1] ::= e2) pc
   | ty_seq : forall (c1 c2 : cmd) (pc : type),
@@ -856,16 +862,16 @@ Section NonInter.
       apply (ty_if H1); econstructor; eauto.
       eauto.
     - inversion htng1; subst.
-      cutrewrite (join ty Hi = Hi) in H5; [ | destruct ty; eauto].
-      assert (g x = Hi) by (destruct (g x); inversion H5; eauto).
+      cutrewrite (join ty Hi = Hi) in H6; [ | destruct ty; eauto].
+      assert (g x = Hi) by (destruct (g x); inversion H6; eauto).
       destruct hcomp as [heq ?];
         repeat split; destruct st1 as [s1 h1]; simpl; eauto.
       intros y; unfold var_upd; destruct (var_eq_dec y x); subst.
       + intros H'; congruence.
       + specialize (heq y); eauto.
     - inversion htng1; subst.
-      cutrewrite (join ty Hi = Hi) in H6; [ | destruct ty; eauto].
-      assert (g x = Hi) by (destruct (g x); inversion H6; eauto).
+      cutrewrite (join ty Hi = Hi) in H7; [ | destruct ty; eauto].
+      assert (g x = Hi) by (destruct (g x); inversion H7; eauto).
       destruct st1 as [s' h'], hcomp as [heq hdisj]; simpl in *.
       repeat split; eauto; simpl.
       intros y; unfold var_upd; destruct (var_eq_dec y x); subst.
@@ -962,17 +968,17 @@ Section NonInter.
           pose proof (low_eq_eq_bexp (proj1 hcomp) H1); congruence.
     - inversion ev2; subst; simpl in *; repeat split; eauto; [|  intuition eauto].
       destruct ty; inversion htng; subst.
-      + inversion H3; apply hi_low_eq; intuition eauto.
-        destruct ty, (g x); unfold le_type in *; simpl in *; inversion H3; eauto.
+      + inversion H4; apply hi_low_eq; intuition eauto.
+        destruct ty, (g x); unfold le_type in *; simpl in *; inversion H4; eauto.
       + intros y hlo; pose proof ((proj1 hcomp) y hlo); unfold var_upd; destruct (var_eq_dec y x); eauto; subst.
         eapply low_eq_eq_exp; intuition eauto.
-        destruct ty, (g x); simpl in H3; inversion H3; inversion hlo; eauto.
+        destruct ty, (g x); simpl in H4; inversion H4; inversion hlo; eauto.
     - inversion ev2; subst; simpl in *; repeat split; [ | intuition eauto].
       destruct ty; inversion htng; subst.
       + apply hi_low_eq; intuition eauto.
-        destruct ty, (g x); unfold le_type in *; simpl in *; inversion H4; intuition eauto.
+        destruct ty, (g x); unfold le_type in *; simpl in *; inversion H5; intuition eauto.
       + intros y hlo; pose proof ((proj1 hcomp) y hlo); unfold var_upd; destruct (var_eq_dec y x); eauto; subst.
-        destruct ty, (g x); simpl in H4; inversion H4; inversion hlo; eauto.
+        destruct ty, (g x); simpl in H5; inversion H5; inversion hlo; eauto.
         assert (ledenot e s = ledenot e s0) by (apply low_eq_eq_lexp; intuition eauto).
         rewrite H1 in *.
         eapply pheap_disj_eq; intuition eauto.

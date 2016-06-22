@@ -89,7 +89,7 @@ Section SeqCSL.
   Fixpoint writes_var (c : cmd) : list var :=
     match c with
       | Cskip | Cwrite _ _ | Cbarrier _ => nil
-      | Cassign v _ | Cread v _ => v :: nil
+      | Cassign _ v _ | Cread _ v _ => v :: nil
       | Cseq c1 c2 => writes_var c1 ++ writes_var c2
       | Cif _ c1 c2 => writes_var c1 ++ writes_var c2
       | Cwhile _ c => writes_var c
@@ -394,7 +394,7 @@ Section SeqCSL.
       rewrite H; eauto.
   Qed.
 *)
-  Theorem rule_assign x Exp Q : CSL (subA x Exp Q) (x ::=  Exp) Q.
+  Theorem rule_assign x ctyp Exp Q : CSL (subA x Exp Q) (x ::T ctyp ::=  Exp) Q.
   Proof.
     unfold CSL, safe_nt; intros s ph hsat n; destruct n; 
     [simpl; eauto | 
@@ -421,9 +421,9 @@ Section SeqCSL.
     (* rewrite H; unfold htop';  *)destruct (h x); eauto.
   Qed.
 
-  Theorem rule_read (x : var) (E1 : loc_exp) (E2 : exp) (p : Qc) :
+  Theorem rule_read (x : var) (E1 : loc_exp) (E2 : exp) (p : Qc) (cty : option CTyp):
     indelE E1 x -> indeE E2 x -> 
-    CSL (E1-->p(p, E2)) (x ::= [ E1 ]) 
+    CSL (E1-->p(p, E2)) (x ::T cty ::= [ E1 ]) 
         ((E1-->p(p, E2)) ** !(x === E2)).
   Proof.
     unfold indeE, CSL, safe_nt; intros hinde1 hinde2 s h hsat; destruct n; 
