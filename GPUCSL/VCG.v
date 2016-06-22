@@ -440,8 +440,8 @@ Proof.
   sep_combine_in H.
 Abort.
 
-Lemma rule_assign_forward (ntrd : nat) (bspec : Bdiv.barrier_spec ntrd) (tid : Fin.t ntrd) (X : var) (E : exp) (P : assn) :
-  CSL bspec tid P (X ::= E) (Ex v, subA X (Enum v) P ** !(X === subE X v E)).
+Lemma rule_assign_forward (ntrd : nat) (bspec : Bdiv.barrier_spec ntrd) (tid : Fin.t ntrd) (X : var) (E : exp) (P : assn) (cty : option CTyp):
+  CSL bspec tid P (X ::T cty ::= E) (Ex v, subA X (Enum v) P ** !(X === subE X v E)).
 Proof.
   unfold subA'.
   eapply Hbackward.
@@ -531,7 +531,7 @@ Ltac hoare_forward :=
       eapply rule_disj; hoare_forward
     | [ |- CSL ?bspec ?tid (Ex _, _) ?C ?Q ] =>
       eapply rule_ex; intros ?
-    | [ |- CSL ?bspec ?tid ?P (?X ::= [?E]) ?Q ] => 
+    | [ |- CSL ?bspec ?tid ?P (?X ::T _ ::= [?E]) ?Q ] => 
       idtac "case: read";
       let Hf := fresh in
       let s := fresh in
@@ -559,7 +559,7 @@ Ltac hoare_forward :=
       eapply Hforward; [
         eapply rule_frame;
         [eapply rule_write; idtac "ok!!!" | prove_inde ] | idtac]
-    | [ |- CSL ?bspec ?tid ?P (?X ::= _) ?Q] =>
+    | [ |- CSL ?bspec ?tid ?P (?X ::T _ ::= _) ?Q] =>
       let Hf := fresh in
       eapply Hforward; [
         apply rule_assign_forward | idtac ]
