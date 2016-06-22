@@ -32,8 +32,8 @@ let rec loc_exp_printer = function
 
 let rec cmd_printer = function
   | Cskip -> ""
-  | Cassign (x, e) -> !% "void* %s = %s;" (var_printer x) (exp_printer e)
-  | Cread (x, l) -> !% "void* %s = %s;" (var_printer x) (loc_exp_printer l)
+  | Cassign (x, e) -> !% "int %s = %s;" (var_printer x) (exp_printer e)
+  | Cread (x, l) -> !% "int %s = %s;" (var_printer x) (loc_exp_printer l)
   | Cwrite (l, e) -> !% "%s = %s;" (loc_exp_printer l) (exp_printer e)
   | Cseq (c1, c2) -> !% "%s\n%s" (cmd_printer c1) (cmd_printer c2)
   | Cif (b, c1, c2) -> !% "if (%s) {\n%s\n} {\n%s\n}"
@@ -52,7 +52,7 @@ let program_printer p =
 
 let rec kernel_printer name k = 
   let params =
-    List.map (fun x -> !% "void* %s" (var_printer x)) k.params_of 
+    List.map (fun x -> !% "int* %s" (var_printer x)) k.params_of 
     |> String.concat ", " in
     !% "__global__ void %s(%s) {\n%s\n}"
       name params (program_printer k.body_of)
@@ -66,7 +66,7 @@ let expr_printer = function
 ;;
 
 let instr_printer = function
-  | Coq_alloc (i, e) -> !% "void* %s = alloc(%s)" (hostVar_printer i) (expr_printer e)
+  | Coq_alloc (i, e) -> !% "int* %s = alloc(%s)" (hostVar_printer i) (expr_printer e)
   | Coq_iLet (i, e) -> !% "int %s = %s" (hostVar_printer i) (expr_printer e)
   | Coq_invoke (ker, n, m, es) ->
      let args =
