@@ -6,7 +6,7 @@ Require Import PHeap.
 Require Import LibTactics.
 Require Import Psatz.
 Require Import Monad.
-Require Import Env.
+Require Import MyEnv.
 Definition name := string. 
 
 (* variables for scalar expressions/arrays *)
@@ -28,7 +28,7 @@ Defined.
 
 Module Syntax.
   (* scalar operations *)
-  Inductive SOp : Set := Eplus | Emin | BEq | Blt.
+  Inductive SOp : Set := Eplus | Emult | Emin | BEq | Blt.
   
   (* types of scala expressions *)
   Inductive Typ := TBool | TZ | TTup (typs : list Typ).  
@@ -162,6 +162,7 @@ Section Semantics.
     match op with
     | Emin => match v1, v2 with VZ v1, VZ v2 => Some (VZ (Z.min v1 v2)) | _, _ => None end
     | Eplus => match v1, v2 with VZ v1, VZ v2 => Some (VZ (v1 + v2)) | _, _ => None end
+    | Emult => match v1, v2 with VZ v1, VZ v2 => Some (VZ (v1 + v2)) | _, _ => None end
     | BEq => match v1, v2 with VZ v1, VZ v2 => Some (VB (v1 =? v2)) | _, _ => None end
     | Blt => match v1, v2 with VZ v1, VZ v2 => Some (VB (v1 <? v2)) | _, _ => None end
     end%Z.
@@ -278,6 +279,11 @@ Section typing_rule.
   Definition ty_of_SOp (op : SOp) : list Typ -> option Typ :=
     match op with
     | Eplus => fun tys =>
+                     match tys with
+                     | TZ :: TZ :: nil => Some TZ
+                     | _ => None
+                     end
+    | Emult => fun tys =>
                      match tys with
                      | TZ :: TZ :: nil => Some TZ
                      | _ => None

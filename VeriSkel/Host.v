@@ -1,4 +1,4 @@
-Require Import LibTactics GPUCSL Relations.
+Require Import LibTactics GPUCSL Relations Env.
 
 Record kernel := BuildKer { params_of : list var; body_of : program }.
 
@@ -9,11 +9,12 @@ Inductive expr :=
 | Const (n : Z).
 
 Definition kerID := nat.
-Definition hostEnv := list Z.
+Instance nat_eq : eq_type nat := {|eq_dec := Nat.eq_dec|}.
+Definition hostEnv := Env nat Z _.
 
 Inductive instr :=
-| alloc : expr -> instr
-| iLet : expr -> instr
+| alloc : nat -> expr -> instr
+| iLet : nat -> expr -> instr
 | invoke : kerID -> nat -> nat -> list expr -> instr.
 
 Definition CUDA := (list instr)%type.
@@ -28,7 +29,7 @@ Definition CUDA := (list instr)%type.
 
 (* Arguments ret {a} n. *)
 
-Definition GPUstate := (list Z * simple_heap)%type.
+Definition GPUstate := (hostEnv * simple_heap)%type.
 
 Definition alloc_heap (start len : nat) : simple_heap :=
   fun i => if Z_le_dec (Z.of_nat start) i then
@@ -75,7 +76,7 @@ Section VecNot.
 Definition red_g_star nblk ntrd := clos_refl_trans _ (@red_g nblk ntrd).
 Import Vector.VectorNotations.
 
-Definition henv_get (e : hostEnv) (x : nat) := List.nth x e 0%Z.
+Definition henv_get (e : hostEnv) (x : nat) := e x.
 
 Inductive eval_expr : hostEnv -> expr -> Z -> Prop :=
 | eval_varE (s : hostEnv) (x : nat) : eval_expr s (VarE x) (henv_get s x)
@@ -111,16 +112,16 @@ Fixpoint replace_nth {A : Type} (i : nat) (l : list A) (x : A) :=
   | _, _ => l
   end.
 
-Definition set_henv (henv : hostEnv) i v := replace_nth i henv v.
+Definition set_henv (henv : hostEnv) i v := upd henv i v.
 
 Inductive Instr_exec : kerEnv -> instr -> GPUstate -> GPUstate -> Prop :=
-| Exec_alloc kenv e (gst : GPUstate) start n :
+| Exec_alloc kenv x e (gst : GPUstate) start n :
     eval_expr (fst gst) e (Z.of_nat n) ->
     hdisj (snd gst) (alloc_heap start n) ->
-    Instr_exec kenv (alloc e) gst (Z.of_nat start :: fst gst, hplus (snd gst) (alloc_heap start n))
-| Exec_iLet kenv e (gst : GPUstate) n :
+    Instr_exec kenv (alloc x e) gst (upd (fst gst) x (Z.of_nat start), hplus (snd gst) (alloc_heap start n))
+| Exec_iLet kenv x e (gst : GPUstate) n :
     eval_expr (fst gst) e n ->
-    Instr_exec kenv (iLet e) gst (n :: fst gst, snd gst)
+    Instr_exec kenv (iLet x e) gst (upd (fst gst) x n, snd gst)
 | Exec_invoke kenv gst kerID ntrd nblk args vs h :
     List.Forall2 (fun a v => eval_expr (fst gst) a v) args vs ->
     kerID < length kenv ->
