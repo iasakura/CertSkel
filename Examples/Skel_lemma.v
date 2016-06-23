@@ -401,24 +401,25 @@ Proof.
 Qed.
 
 (* A generating function xs := pl arr + ix. pl denotes array is on shared / global memory *)
-Fixpoint gen_read pl (xs : list var) (arrs : list exp) ix :=
-  match xs, arrs with
-  | x :: xs, a :: arrs => (x ::= [pl a +o ix]) ;; gen_read pl xs arrs ix 
-  | _, _ => Cskip
+Fixpoint gen_read pl (xs : list var) (ctys : list CTyp) (arrs : list exp) ix :=
+  match xs, ctys, arrs with
+  | x :: xs, cty :: ctys, a :: arrs => (x :T cty ::= [pl a +o ix]) ;; gen_read pl xs ctys arrs ix 
+  | x :: xs, nil, a :: arrs => (x ::= [pl a +o ix]) ;; gen_read pl xs ctys arrs ix 
+  | _, _, _ => Cskip
   end.
 
-Lemma gen_read_writes pl xs arrs ix:
+Lemma gen_read_writes pl xs ctys arrs ix:
   length xs = length arrs ->
-  writes_var (gen_read pl xs arrs ix) = xs.
+  writes_var (gen_read pl xs ctys arrs ix) = xs.
 Proof.
-  revert arrs; induction xs; intros [|v vs]; simpl in *; try congruence.
-  intros; f_equal; eauto.
+  revert ctys arrs; induction xs; intros ctys [|v vs]; simpl in *; try congruence.
+  intros; destruct ctys; simpl; f_equal; eauto.
 Qed.
 
-Lemma gen_read_no_bars pl xs arrs ix :
-  barriers (gen_read pl xs arrs ix) = nil.
+Lemma gen_read_no_bars pl xs ctys arrs ix :
+  barriers (gen_read pl xs ctys arrs ix) = nil.
 Proof.
-  revert arrs; induction xs; intros [|? ?]; simpl; eauto.
+  revert ctys arrs; induction xs; intros [|? ?] [|? ?]; simpl; eauto.
 Qed.
 
 Definition ss2es := List.map (fun x => Evar (Var x)).
@@ -563,7 +564,7 @@ Ltac simplify' := repeat (simpl in *; lazymatch goal with
   | [|- forall _, _] => intros ?
   end).
 
-Lemma gen_read_correct nt (i : Fin.t nt) BS pl xs arrs ix vs q:
+Lemma gen_read_correct nt (i : Fin.t nt) BS pl xs ctys arrs ix vs q:
   (pl = Sh \/ pl = Gl) ->
   (forall x i, In x xs -> In i (fv_E ix) -> ~In x (fv_E i)) ->
   (forall x a, In x xs -> In a arrs -> ~In x (fv_E a)) ->
@@ -571,14 +572,21 @@ Lemma gen_read_correct nt (i : Fin.t nt) BS pl xs arrs ix vs q:
   length xs = length arrs -> length xs = length vs ->
   CSL BS i
     ( is_tuple_p (tarr_idx (List.map pl arrs) ix) (vs2es vs) q )
-    (gen_read pl xs arrs ix)
+    (gen_read pl xs ctys arrs ix)
     ( !(vars2es xs ==t vs) ** is_tuple_p (tarr_idx (List.map pl arrs) ix) (vs2es vs) q ).
 Proof.
-  revert vs arrs; induction xs as [|x xs]; intros vs arrs Hpl Hixxs Hv0 Hv1 HL0 HL1;
+  revert ctys vs arrs; induction xs as [|x xs]; intros ctys vs arrs Hpl Hixxs Hv0 Hv1 HL0 HL1;
     destruct vs as [| v vs], arrs as [|a arrs]; simpl in *; try congruence.
   - eapply Hforward; [apply rule_skip|intros; sep_normal; sep_cancel].
     unfold_conn; split; eauto.
-  - eapply rule_seq.
+  - assert (forall cty, CSL BS i
+     ((pl a +o ix -->p (q,  v)) **
+      is_tuple_p (tarr_idx (map pl arrs) ix) (vs2es vs) q)
+     (x ::T cty ::=  [pl a +o ix];; gen_read pl xs (tl ctys) arrs ix)
+     (!(!(x === v) ** vars2es xs ==t vs) **
+      (pl a +o ix -->p (q,  v)) **
+      is_tuple_p (tarr_idx (map pl arrs) ix) (vs2es vs) q)); [|destruct ctys; eauto].
+    intros cty; eapply rule_seq.
     { apply rule_frame; [apply rule_read|].
       - destruct Hpl; subst; apply indelE_fv; simpl; rewrite in_app_iff; intros [Hc | Hc]; eauto;
           try lets: (>>Hv0 Hc); try lets: (>>Hixxs Hc); eauto; tauto.
@@ -865,10 +873,11 @@ Qed.
 
 Definition catcmd := fold_right Cseq Cskip. 
 
-Fixpoint read_tup (vs : list var) (es : list exp) :=
-  match vs, es with
-  | v :: vs, e :: es => (v ::= e) ;; read_tup vs es
-  | _, _  => Cskip
+Fixpoint read_tup (vs : list var) (ctys : list CTyp) (es : list exp) :=
+  match vs, ctys, es with
+  | v :: vs, cty :: ctys, e :: es => (v :T cty ::= e) ;; read_tup vs ctys es
+  | v :: vs, nil, e :: es => (v ::= e) ;; read_tup vs ctys es
+  | _, _, _  => Cskip
   end.
 
 Lemma pure_pure P stk : stk ||= !(!(P)) <=> !(P).
@@ -886,28 +895,31 @@ Proof.
   rewrite fv_subE; eauto; rewrite IHes; eauto.
 Qed.  
 
-Lemma read_tup_writes vs es :
+Lemma read_tup_writes vs ctys es :
   length vs = length es ->
-  writes_var (read_tup vs es) = vs.
+  writes_var (read_tup vs ctys es) = vs.
 Proof.
-  revert vs; induction es; intros [|v vs]; simpl in *; try congruence.
+  revert vs ctys; induction es; intros [|v vs] [|cty ctys]; simpl in *; try congruence;
   intros; f_equal; eauto.
 Qed.
 
-Lemma read_tup_correct nt (i : Fin.t nt) BS es vs vars :
+Lemma read_tup_correct nt (i : Fin.t nt) BS es vs ctys vars :
   (forall v e, In v vars -> In e es -> ~In v (fv_E e)) ->
   disjoint_list vars ->
   length vs = length es -> length vars = length es ->
   CSL BS i
     ( !(es ==t vs) )
-    (read_tup vars es)
+    (read_tup vars ctys es)
     ( !(vars2es vars ==t vs) ).
 Proof.
-  revert vs vars; induction es; simpl in *; intros [|v vs] [|var vars]; simpl in *; try congruence;
+  revert vs vars ctys; induction es; simpl in *; intros [|v vs] [|var vars] ctys; simpl in *; try congruence;
   intros Hfv Hdisvars Hlen1 Hlen2.
   apply rule_skip.
+  assert (forall cty, CSL BS i !(!(a === v) ** es ==t vs)
+                          (var ::T cty ::= a;; read_tup vars (tl ctys) es)
+                          !(!(var === v) ** vars2es vars ==t vs)); [intros cty|destruct ctys; eauto].
   lets: (>> IHes vs vars ___); try omega; jauto.
-  eapply rule_seq.
+  eapply rule_seq; eauto.
   - hoare_forward.
     intros s h [v' H'].
     subA_norm_in H'. simpl in H'.
@@ -1352,14 +1364,14 @@ Proof.
     repeat constructor.
 Qed.
 
-Lemma read_tup_hi E xs es :
+Lemma read_tup_hi E xs ctys es :
   (forall x, In x xs -> E x = Hi) ->
-  typing_cmd E (read_tup xs es) Hi.
+  typing_cmd E (read_tup xs ctys es) Hi.
 Proof.
-  revert es; induction xs; destruct es; simpl; repeat econstructor.
-  apply typing_exp_Hi.
-  rewrite H; eauto.
-  eauto.
+  revert ctys es; induction xs; intros ctys [|? ?]; simpl; repeat econstructor.
+  destruct ctys; intros; eauto.
+  destruct ctys; intros; repeat econstructor; eauto; simpl; eauto;
+  cbv; rewrite H; eauto.
 Qed.
 
 Lemma conj_xs_init_flatten (l1 l2 : nat) (a : assn) :

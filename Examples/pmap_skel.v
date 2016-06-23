@@ -30,8 +30,8 @@ Variable out : list val.
 Variable env : list (nat * nat).
 
 (* dimensions of input and output arrays *)
-Variable inDim : nat.
-Variable outDim : nat.
+Variable inDim : list CTyp.
+Variable outDim : list CTyp.
 
 (* getter code of the input array *)
 Variable get : var -> (cmd * list exp).
@@ -57,19 +57,19 @@ Hypothesis nblk_neq0 : nblk <> 0.
 Variable fout : nat -> list val.
 
 (* local variables used by the template *)
-Definition xs := locals "x" inDim.
+Definition xs := locals "x" (length inDim).
 
 (* auxilirary definition for written array *)
-Definition Outs := fst (fst (writeArray "Out" outDim Gl)).
-Definition Len := snd (fst (writeArray "Out" outDim Gl)).
-Definition setOut ix es := snd (writeArray "Out" outDim Gl) ix es.
+Definition Outs := fst (fst (writeArray "Out" (length outDim) Gl)).
+Definition Len := snd (fst (writeArray "Out" (length outDim) Gl)).
+Definition setOut ix es := snd (writeArray "Out" (length outDim) Gl) ix es.
 
 (* map templates *)
 Definition map_ker inv :=
-  I ::= (TID +C BID *C Z.of_nat ntrd);;
+  I :T Int ::= (TID +C BID *C Z.of_nat ntrd);;
   WhileI inv (I < Len) (
     (fst (get I)) ;;
-    read_tup xs (snd (get I)) ;;
+    read_tup xs inDim (snd (get I)) ;;
     (fst (func xs)) ;;
     catcmd (setOut I (snd (func xs))) ;;
     I ::= I +C Z.of_nat ntrd *C Z.of_nat nblk
@@ -138,9 +138,9 @@ Hypothesis get_denote : forall (x : var) nt (tid : Fin.t nt) (v : val) gv,
 
 (* dimension *)
 Hypothesis get_den_length :
-  forall v gv, get_den v gv -> length gv = inDim.
+  forall v gv, get_den v gv -> length gv = length inDim.
 Hypothesis get_length :
-  forall v, length (snd (get v)) = inDim.
+  forall v, length (snd (get v)) = length inDim.
 
 Hypothesis func_local :
   forall v, forall u, In u (writes_var (fst (func v))) -> prefix "l" (var_of_str u) = true.
@@ -178,7 +178,7 @@ Hypothesis func_res_fv :
 (* {v == val} func {ret == f_den val} *)
 Hypothesis func_denote : forall (x : list var) nt (tid : Fin.t nt) (vs fv : list val),
   f_den vs fv -> 
-  length x = inDim ->
+  length x = length inDim ->
   disjoint x (writes_var (fst (func x))) ->
   CSL (fun _ => default nt) tid
     ( !(vars2es x ==t vs ) ** input_spec env env_den (perm_n nt_gr))
@@ -186,13 +186,13 @@ Hypothesis func_denote : forall (x : list var) nt (tid : Fin.t nt) (vs fv : list
     (!((snd (func x)) ==t fv) ** input_spec env env_den (perm_n nt_gr)).
 
 Hypothesis fout_length :
-  forall i, length (fout i) = outDim.
+  forall i, length (fout i) = length outDim.
 Hypothesis fden_length :
-  forall v fv, f_den v fv -> length fv = outDim.
+  forall v fv, f_den v fv -> length fv = length outDim.
 Hypothesis out_length :
-  length out = outDim.
+  length out = length outDim.
 Hypothesis func_length :
-  forall v, length (snd (func v)) = outDim.
+  forall v, length (snd (func v)) = length outDim.
 Notation fg_den i v := (exists t, get_den i t /\ f_den t v).
 Section block_verification.
 Variable bid : Fin.t nblk.
@@ -407,7 +407,7 @@ Proof.
       unfold xs; erewrite locals_length, get_length; eauto.
       rewrite read_tup_writes; [|unfold xs; rewrite locals_length, get_length; auto].
       unfold xs.
-      lets Hpref: (>>locals_pref "x" inDim).
+      lets Hpref: (>>locals_pref "x" (length inDim)).
 
       repeat prove_inde;
       try (first [apply disjoint_indeE | apply disjoint_indelE | apply disjoint_indeB]; simpl;
@@ -511,8 +511,9 @@ Proof.
     (*   cut (~(x * nt_gr + gtid <= i)); [intros; omega| ]. *)
     (*   intros Hc. *)
     (*   lets H'': (>>mod_between i nt_gr x gtid ___); try omega; eauto. } *)
-    { rewrite <-out_length; auto. }
     { unfold_conn; simpl. rewrite HP5. ring. }
+    (* { rewrite <-out_length; auto. } *)
+
     autorewrite with sep in H. sep_cancel.
     (* sep_rewrite (@is_array_unfold (Gl arr) (x * nt_gr + gtid)); try omega; eauto. *)
     lets Heq: (sublEs_es2gls); unfold es2gls in Heq; rewrite !Heq in H0.
@@ -608,7 +609,7 @@ Definition tr_posts fgi := (init (fun tid : Fin.t ntrd =>
     (distribute_tup nt_gr (es2gls (vs2es out)) len
       (fun v : nat => fgi v) (nt_step nt_gr) 0 1) emp)).
 
-Definition out_vars := List.map Var (names_of_array "Out" outDim).
+Definition out_vars := List.map Var (names_of_array "Out" (length outDim)).
 
 Definition E : Lang.env := fun v =>
   if var_eq_dec v BID then Lo
