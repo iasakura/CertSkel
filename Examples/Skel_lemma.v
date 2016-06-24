@@ -1621,6 +1621,7 @@ Ltac simplify :=
           | [|- inde (is_tuple_array_p _ _ _ _ _) _] => apply inde_is_tup_arr
           | [|- context [length (map _ _)]] => rewrite map_length
           | [H : context [length (map _ _)] |- _] => rewrite map_length in H
+          | [H : In _ (names_of_array _ _) |- _] => apply names_of_array_in in H
           | [|- ~_] => intros ?
           end; simpl in *; try substs).
 

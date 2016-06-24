@@ -2,6 +2,11 @@ open Lang
 open GCSL
 open Host
 
+module SV = Set.Make(struct
+  type t = var * coq_CTyp 
+  let compare = compare
+end)
+
 let (!%) = Printf.sprintf ;;
 
 let var_printer vs = List.fold_right (fun c acc -> Char.escaped c ^ acc) vs "";;
@@ -32,37 +37,60 @@ let rec loc_exp_printer = function
 
 let rec cmd_printer = function
   | Cskip -> ""
-  | Cassign (x, e) -> !% "int %s = %s;" (var_printer x) (exp_printer e)
-  | Cread (x, l) -> !% "int %s = %s;" (var_printer x) (loc_exp_printer l)
+  | Cassign (ty, x, e) -> !% "%s = %s;" (var_printer x) (exp_printer e)
+  | Cread (ty, x, l) -> !% "%s = %s;" (var_printer x) (loc_exp_printer l)
   | Cwrite (l, e) -> !% "%s = %s;" (loc_exp_printer l) (exp_printer e)
   | Cseq (c1, c2) -> !% "%s\n%s" (cmd_printer c1) (cmd_printer c2)
-  | Cif (b, c1, c2) -> !% "if (%s) {\n%s\n} {\n%s\n}"
+  | Cif (b, c1, c2) -> !% "if (%s) {\n%s\n} else {\n%s\n}"
      (bexp_printer b) (cmd_printer c1) (cmd_printer c2)
   | Cwhile (b, c) -> !% "while (%s) {\n%s\n}" (bexp_printer b) (cmd_printer c)
   | Cbarrier _ -> "__syncthreads();"
 ;;
 
+let rec collect_vars = function
+  | Cassign (Some ty, x, e) -> SV.singleton (x, ty)
+  | Cread (Some ty, x, e) -> SV.singleton (x, ty)
+  | Cseq (c1, c2) -> SV.union (collect_vars c1) (collect_vars c2)
+  | Cif (b, c1, c2) -> SV.union (collect_vars c1) (collect_vars c2)
+  | Cwhile (b, c) -> collect_vars c
+  | _ -> SV.empty
+;;
+
+let rec ctyp_printer = function
+  | Int -> "int"
+  | Bool -> "bool"
+  | Ptr ty -> ctyp_printer ty ^ "*"
+
 let program_printer p =
   let sdecl = 
-    List.map (fun (x, n) -> !% "__shared__ int %s[%d];\n int tid = threadIdx.x;\nint bid = blockIdx.x;"
-      (var_printer x) n) p.get_sh_decl
+    List.map (fun dec ->
+      !% "__shared__ %s %s[%d];"
+        (ctyp_printer dec.coq_SD_ctyp) (var_printer dec.coq_SD_var) (dec.coq_SD_len)) p.get_sh_decl
     |> String.concat ";\n" in
-  !% "%s;\n%s" sdecl (cmd_printer p.get_cmd)
+  let iddec = "int tid = threadIdx.x;\nint bid = blockIdx.x;" in
+  !% "%s\n%s\n%s" sdecl iddec (cmd_printer p.get_cmd)
 ;;
 
 let rec kernel_printer name k = 
   let params =
-    List.map (fun x -> !% "int* %s" (var_printer x)) k.params_of 
+    List.map (fun (x, cty) -> !% "%s %s" (ctyp_printer cty) (var_printer x)) k.params_of 
     |> String.concat ", " in
-    !% "__global__ void %s(%s) {\n%s\n}"
-      name params (program_printer k.body_of)
+  let fvars = SV.diff (collect_vars k.body_of.get_cmd) (SV.of_list (k.params_of @ k.params_of)) in
+  let var_decl = List.map (fun (x, ty) -> !%"%s %s;" (ctyp_printer ty) (var_printer x)) (SV.elements fvars)
+    |> String.concat "\n" in
+  !% "__global__ void %s(%s) {\n%s\n%s\n}"
+    name params var_decl (program_printer k.body_of)
 ;;
 
 let hostVar_printer x = !% "x%d" x;;
 
-let expr_printer = function
+let rec expr_printer = function
   | Const n -> !% "%d" n
   | VarE x -> hostVar_printer x
+  | Min (x, y) -> !% "min(%s, %s)" (expr_printer x) (expr_printer y)
+  | Add (x, y) -> !% "(%s + %s)" (expr_printer x) (expr_printer y)
+  | Sub (x, y) -> !% "(%s - %s)" (expr_printer x) (expr_printer y)
+  | Div (x, y) -> !% "(%s / %s)" (expr_printer x) (expr_printer y)
 ;;
 
 let instr_printer = function
@@ -72,25 +100,24 @@ let instr_printer = function
      let args =
        List.map expr_printer es 
        |> String.concat ", " in
-     !% "__ker%d<<<%d, %d>>>(%s)" ker n m args
+     !% "__ker%d<<<%d, %d>>>(%s); cudaDeviceSynchronize();" ker m n args
 ;;
 
 let instrs_printer is =
     List.fold_left (fun acc e -> acc ^ instr_printer e ^ ";\n") "" is 
 
 let cuda_printer ((is, (resLen, res)), kers) =
+  "#include \"certskel.h\"\n" ^ 
   (List.mapi (fun i -> kernel_printer (!% "__ker%d" i)) kers |> String.concat "\n\n") ^
-  "\n\nvoid f() {\n" ^
+  "\n\nT f() {\n" ^
     instrs_printer is ^ "\n" ^
-    !% "return (%s, %s);\n" (hostVar_printer resLen) 
+    !% "return makeT(%s, %s);\n" (hostVar_printer resLen) 
     (List.map hostVar_printer res |> String.concat ",") ^
   "}"
 ;;
 
-let () =
-  let file = Sys.argv.(1) in
-  let out = open_out file in
-  output_string out @@
-    cuda_printer (Compiler.(compile_prog aty_env ntrd nblk 2 avar_env prog));
+let save_to_file res name =
+  let out = open_out (var_printer name) in
+  output_string out @@ cuda_printer res;
   close_out out
 ;;

@@ -109,7 +109,7 @@ Section Reduce.
   Hypothesis nblk_neq_0 : nblk <> 0.
   
   (* dimensions of input and output arrays *)
-  Variable dim : nat.
+  Variable dim : list CTyp.
   
   (* compiled code of the mapping function *)
   Variable func : list var -> list var -> (cmd * list exp).
@@ -125,13 +125,13 @@ Section Reduce.
   (* f is total *)
   Hypothesis f_fun_den :
     forall vs vs',
-      length vs = dim -> length vs' = dim -> f_den vs vs' (f_fun vs vs').
+      length vs = length dim -> length vs' = length dim -> f_den vs vs' (f_fun vs vs').
   (* f : Val^dim -> Val^dim -> Val^dim *)
   Hypothesis f_den_wf :
     forall vs vs' rs,
-      length vs = dim -> length vs' = dim ->
+      length vs = length dim -> length vs' = length dim ->
       f_den vs vs' rs ->
-      length rs = dim.
+      length rs = length dim.
   
   Hypothesis func_local :
     forall x y, forall z, In z (writes_var (fst (func x y))) -> prefix "l" (var_of_str z) = true.
@@ -143,7 +143,7 @@ Section Reduce.
   
   Hypothesis func_denote : forall (x y : list var) nt (tid : Fin.t nt) (vs us fv : list val) BS,
       f_den vs us fv -> 
-      length x = dim ->
+      length x = length dim ->
       disjoint x (writes_var (fst (func x y))) ->
       disjoint y (writes_var (fst (func x y))) ->
       CSL BS tid
@@ -152,23 +152,23 @@ Section Reduce.
           (!((snd (func x y)) ==t fv)).
 
   Hypothesis func_wf : forall (x y : list var),
-        length (snd (func x y)) = dim.
+        length (snd (func x y)) = length dim.
 
   (* initial value of the output array *)
   Variable fout : nat -> list val.
-  Hypothesis fout_wf : forall i, length (fout i) = dim.
+  Hypothesis fout_wf : forall i, length (fout i) = length dim.
   (* the top address of the output array *)
   Variable out : list Z.
-  Hypothesis out_wf : length out = dim.
-  Definition Outs := locals "Out" dim.
+  Hypothesis out_wf : length out = length dim.
+  Definition Outs := (List.map Var (names_of_array "Out" (length dim))).
   Notation Outs' := (vars2es Outs). 
   
   Open Scope string_scope.
   
-  Local Notation x := (locals "x" dim).
-  Local Notation y := (locals "y" dim).
-  Local Notation z := (locals "z" dim).
-  Local Notation sdata := (vars2es (locals "sdata" dim)).
+  Local Notation x := (locals "x" (length dim)).
+  Local Notation y := (locals "y" (length dim)).
+  Local Notation z := (locals "z" (length dim)).
+  Local Notation sdata := (vars2es (locals "sdata" (length dim))).
   Local Notation sdata' := (map Sh sdata).
   Local Notation len := (Var "n").
   Local Notation tid := (Var "tid").
@@ -185,7 +185,7 @@ Section Reduce.
   
     Variable f_in : nat -> list val.
     Hypothesis f_in_wf :
-      forall i, length (f_in i) = dim.
+      forall i, length (f_in i) = (length dim).
     
     Definition s n := 2 ^ (e_b - n).
 
@@ -198,10 +198,10 @@ Section Reduce.
     Definition reduce_body n s :=
       (Cbarrier (n - 1) ;;
        Cif (Band (tid +C Zn s <C len) (tid <C Zn s)) (
-         gen_read Sh x sdata (tid + Zn s) ;;
+         gen_read Sh x dim sdata (tid + Zn s) ;;
          fst (func y x) ;;
-         read_tup z (snd (func y x)) ;;
-         read_tup y (vars2es z) ;;
+         read_tup z dim (snd (func y x)) ;;
+         read_tup y dim (vars2es z) ;;
          catcmd (gen_write Sh sdata tid (vars2es y))
        ) Cskip
       )%exp.
@@ -414,7 +414,7 @@ Section Reduce.
     Qed.
 
     Lemma Binv_ok fc n stk:
-      (forall i : nat, Datatypes.length (fc i) = dim) ->
+      (forall i : nat, Datatypes.length (fc i) = length dim) ->
       stk ||= @Bdiv.Aistar_v ntrd (MyVector.init (fun i => Binv fc n (nf i))) <=>
           is_tuple_array_p sdata' ntrd fc 0 1.
     Proof.
@@ -601,7 +601,7 @@ Section Reduce.
           sep_combine_in H; exact H. } Unfocus.
         eapply rule_seq; [apply rule_frame; [apply gen_read_correct|]; eauto; simpl|];
           try now (simplify; prove_inde; simplify; try first [now eauto | congruence]).
-        { Lemma f_length n i : length (f n i) = dim.
+        { Lemma f_length n i : length (f n i) = length dim.
           Proof.
             revert i; induction n; simpl; eauto.
             intros i; destruct Sumbool.sumbool_and; eauto.
@@ -840,7 +840,7 @@ Section Reduce.
   Variable get : var -> cmd * list exp.
   
   Hypothesis get_wf :
-    forall x, length (snd (get x)) = dim.
+    forall x, length (snd (get x)) = length dim.
   Hypothesis get_wr :
     forall x y, In x (writes_var (fst (get (y)))) -> prefix "l" (var_of_str y) = true.
   Hypothesis get_res_fv :
@@ -850,7 +850,7 @@ Section Reduce.
     forall x, barriers (fst (get x)) = nil.
   Variable get_den : val -> list val -> Prop.
   Hypothesis get_den_wf :
-    forall x ys, get_den x ys -> length ys = dim.
+    forall x ys, get_den x ys -> length ys = length dim.
   Local Notation nt_gr := (nblk * ntrd).
   (* free variable environment (de-bruijn indices, dimensions) *)
   Variable env : list (nat * nat).
@@ -870,29 +870,28 @@ Section Reduce.
         (!(snd (get x) ==t gv) ** input_spec env env_den (perm_n nt_gr)).
 
   Variable l : nat.
-  Notation sh := (Var "sh").
+  Notation sh := (Var (name_of_len "Out")).
 
   Section SeqReduce.
     Notation ix := (Var "ix").
     Definition seq_reduce inv :=
-      read_tup y (nseq dim (Enum 0%Z)) ;;
-      catcmd (gen_write Sh sdata tid (nseq dim (Enum 0%Z))) ;;
-      ix ::= (tid +C bid *C Z.of_nat ntrd) ;;
+      read_tup y dim (nseq (length dim) (Enum 0%Z)) ;;
+      catcmd (gen_write Sh sdata tid (nseq (length dim) (Enum 0%Z))) ;;
+      ix :T Int ::= (tid +C bid *C Z.of_nat ntrd) ;;
       Cif (ix <C sh) (
         (fst (get ix)) ;;
-        read_tup y (snd (get ix)) ;;
+        read_tup y dim (snd (get ix)) ;;
         ix ::= ix +C Z.of_nat ntrd *C Z.of_nat nblk ;;
         WhileI inv (ix < sh) (
           (fst (get ix)) ;;
-          read_tup x (snd (get ix)) ;;
+          read_tup x dim (snd (get ix)) ;;
           (fst (func y x)) ;;
-          read_tup z (snd (func y x)) ;;
-          read_tup y (vars2es z) ;;
+          read_tup z dim (snd (func y x)) ;;
+          read_tup y dim (vars2es z) ;;
           ix ::= ix +C Z.of_nat ntrd *C Z.of_nat nblk
         );;
         catcmd (gen_write Sh sdata tid (vars2es y))
       ) Cskip.
-
 
     Notation sum_of_vs := (sum_of_f_opt (list val) f_fun).
     Close Scope exp_scope.
@@ -984,7 +983,7 @@ Section Reduce.
     Variable i : Fin.t ntrd.
     Variable j : Fin.t nblk.
     Variable vi_ini : list Z.
-    Hypothesis vi_ini_wf : length (vi_ini) = dim.
+    Hypothesis vi_ini_wf : length (vi_ini) = length dim.
     Notation gid := (nf i + nf j * ntrd).
     Notation xix x := (x * nt_gr + gid).
 
@@ -995,8 +994,8 @@ Section Reduce.
         !(pure (0 < nl)) **
         !(tid === Zn (nf i)) ** !(bid === Zn (nf j)) ** !(sh === Zn l) **
         !(ix === (Zn (nl * nt_gr + (nf i + nf j * ntrd)))) **
-        !(vars2es y ==t maybe (skip_sum_of_vs nt_gr 0 (min (xix nl) l) g gid) (nseq dim 0%Z)) **
-        (sdata' +ol tid -->l (1, vs2es (nseq dim 0%Z))) **
+        !(vars2es y ==t maybe (skip_sum_of_vs nt_gr 0 (min (xix nl) l) g gid) (nseq (length dim) 0%Z)) **
+        (sdata' +ol tid -->l (1, vs2es (nseq (length dim) 0%Z))) **
         input_spec env env_den (perm_n nt_gr).
 
     Hypothesis get_safe :
@@ -1063,15 +1062,15 @@ Section Reduce.
        (seq_reduce (inv g))
 
        (!(tid === Zn (nf i)) **
-        !(vars2es y ==t vi g (nseq dim 0%Z)) **
-        (sdata' +ol Zn (nf i) -->l (1, vs2es (vi g (nseq dim 0%Z)))) **
+        !(vars2es y ==t vi g (nseq (length dim) 0%Z)) **
+        (sdata' +ol Zn (nf i) -->l (1, vs2es (vi g (nseq (length dim) 0%Z)))) **
         input_spec env env_den (perm_n nt_gr) ** !(sh === Zn l)).
       Proof.
         unfold seq_reduce; intros Hg.
         eapply Hbackward.
         Focus 2. {
           intros s h H.
-          evar (P : assn); assert ((!(nseq dim (Enum 0%Z) ==t nseq dim 0%Z) ** P) s h).
+          evar (P : assn); assert ((!(nseq (length dim) (Enum 0%Z) ==t nseq (length dim) 0%Z) ** P) s h).
           { sep_split; eauto using eq_tup_nseq.
             unfold P; eauto. }
           unfold P; apply H0. } Unfocus.
@@ -1215,7 +1214,7 @@ Section Reduce.
                   clear HP0.
                   evar (P : assn);
                   assert (Hnxt : ((!(vars2es y ==t
-                                     maybe (skip_sum_of_vs nt_gr 0 (min (xix nl) l) g gid) (nseq dim 0%Z)) **
+                                     maybe (skip_sum_of_vs nt_gr 0 (min (xix nl) l) g gid) (nseq (length dim) 0%Z)) **
                                    !(vars2es x ==t g (xix nl))) **
                                    P) stk h)
                   by (unfold P; sep_normal; sep_split; auto; sep_combine_in H; eauto).
@@ -1258,8 +1257,8 @@ Section Reduce.
                   apply Hg; try nia.
                   rewrite func_wf; forwards*: (f_fun_den l0 (g (xix nl))); try congruence.
                   forwards*: (f_den_wf l0 (g (xix nl))); congruence.
-                  lets: (>>length_nseq dim 0%Z); eauto.
-                  rewrite func_wf; forwards*: (f_fun_den (nseq dim 0%Z) (g (xix nl))); try congruence.
+                  lets: (>>length_nseq (length dim) 0%Z); eauto.
+                  rewrite func_wf; forwards*: (f_fun_den (nseq (length dim) 0%Z) (g (xix nl))); try congruence.
                 - rewrite func_wf, locals_length; eauto.
                 - rewrite read_tup_writes.
                   prove_inde; simplify; try now (simplify; simpl in *; congruence).
@@ -1274,7 +1273,7 @@ Section Reduce.
                   clear HP6.
                   evar (P : assn);
                   assert (Hnxt : ((!(vars2es z ==t
-                     maybe (skip_sum_of_vs nt_gr 0 (min (xix nl) l) g gid) (nseq dim 0%Z) |+|
+                     maybe (skip_sum_of_vs nt_gr 0 (min (xix nl) l) g gid) (nseq (length dim) 0%Z) |+|
                        g (xix nl)) **
                      P) stk h))
                   by (unfold P; sep_normal; sep_split; auto; sep_combine_in H; eauto).
@@ -1292,8 +1291,8 @@ Section Reduce.
                   apply Hg; try nia.
                   forwards*: (f_fun_den l0 (g (xix nl))); try congruence.
                   forwards*: (f_den_wf l0 (g (xix nl))); congruence.
-                  forwards*: (>>length_nseq dim 0%Z).
-                  forwards*: (f_den_wf (nseq dim 0%Z) (g (xix nl))); congruence. 
+                  forwards*: (>>length_nseq (length dim) 0%Z).
+                  forwards*: (f_den_wf (nseq (length dim) 0%Z) (g (xix nl))); congruence. 
                 - unfold vars2es; rewrite map_length, !locals_length; eauto.
                 - rewrite read_tup_writes.
                   prove_inde; simplify; try (simpl in *; congruence).
@@ -1357,7 +1356,7 @@ Section Reduce.
                 rewrite min_r in HP4; [|unfold_pures; unfold_conn_all; simpl in *; nia].
                 (* assert (Heq : (Zn (nf i) === tid) stk h) by (unfold_conn_all; simpl in *; eauto). *)
                 (* sep_rewrite_in mps_eq1_tup' H; [|exact Heq]. *)
-                evar (P : assn); assert (Hnxt : (sdata' +ol tid -->l (1, vs2es (nseq dim 0%Z)) ** P) stk h).
+                evar (P : assn); assert (Hnxt : (sdata' +ol tid -->l (1, vs2es (nseq (length dim) 0%Z)) ** P) stk h).
                 { unfold P; sep_cancel.
                   assert (pure (gid < l) stk (emp_ph loc)) by eauto.
                   clear HP HP3 HP5; sep_combine_in H0; apply H0. }
@@ -1422,7 +1421,7 @@ Section Reduce.
             apply (fun _ => nil).
       Qed.
 
-  Notation t := (locals "w" dim).
+  Notation t := (locals "w" (length dim)).
 
 (* seq_reduce_correct: *)
 (*   forall (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd) (g : nat -> list val), *)
@@ -1457,12 +1456,12 @@ Section Reduce.
 
   Definition setToLen :=
     Cif (sh <C bid *C Zn ntrd) (
-      len ::= 0%Z 
+      len :T Int ::= 0%Z 
     ) (
       Cif (sh <C (bid +C 1%Z) *C Zn ntrd) (
-         len ::= sh -C bid *C Zn ntrd 
+         len :T Int ::= sh -C bid *C Zn ntrd 
       ) (
-         len ::= Zn ntrd
+         len :T Int ::= Zn ntrd
       )
     ).
 
@@ -1491,15 +1490,17 @@ Section Reduce.
     setToLen ;;
     reduce ;;
     Cif (tid == 0%Z) (
-      gen_read Sh t sdata 0%Z ;;
+      gen_read Sh t dim sdata 0%Z ;;
       catcmd (gen_write Gl (vars2es Outs) bid (vars2es t))
     ) Cskip.
 
-  Definition f_seq g j i := maybe (skip_sum_of_vs nt_gr 0 l g (i + j * ntrd)) (nseq dim 0%Z).
+  Definition f_seq g j i := maybe (skip_sum_of_vs nt_gr 0 l g (i + j * ntrd)) (nseq (length dim) 0%Z).
 
   Definition BS' g := BS (Nat.min (l - nf j * ntrd) ntrd) (f_seq g (nf j)).
 
-  Definition sh_decl := map (fun sv => (sv, ntrd)) (locals "sdata" dim).
+  Definition sh_decl :=
+    map (fun sv => SD (fst sv) (snd sv) ntrd)
+        (combine (locals "sdata" (length dim)) dim).
 
   Theorem reduce_ok_th g :
     (forall i, i < l -> get_den (Zn i) (g i)) ->
@@ -1543,7 +1544,8 @@ Section Reduce.
             (try now (forwards *: (>>get_wr); simpl in *; congruence));
             (try now (forwards *: (>>func_local); simpl in *; congruence));
       try (rewrite Forall_forall); intros;
-      unfold Outs in *; intros; simplify; simpl in *;
+      unfold Outs, name_of_len in *; intros; simplify;
+      subst; simpl in *;
         (try now (forwards *: (>>get_wr); simpl in *; congruence));
         (try now (forwards *: (>>func_local); simpl in *; congruence)). }
     
@@ -1556,7 +1558,7 @@ Section Reduce.
         { sep_normal; repeat sep_cancel; unfold P; eauto. }
         unfold P in *; eauto. } Unfocus.
       apply rule_frame; [apply setToLen_correct|].
-      unfold setToLen; simpl; prove_inde; unfold Outs; simplify; try congruence.
+      unfold setToLen; simpl; prove_inde; unfold Outs, name_of_len; simplify; try congruence.
       apply inde_input_spec; simplify; simpl; congruence. } 
     
     eapply rule_seq.
@@ -1566,8 +1568,8 @@ Section Reduce.
         evar (P : assn);
           assert (((!(tid === Zn (nf i)) **
                     !(len === Zn (min (l - nf j * ntrd) ntrd)) **
-                    !(vars2es y ==t vi g (nseq dim 0%Z)) **
-                    (sdata' +ol Zn (` (Fin.to_nat i)) -->l (1, vs2es (vi g (nseq dim 0%Z))))) ** P)
+                    !(vars2es y ==t vi g (nseq (length dim) 0%Z)) **
+                    (sdata' +ol Zn (` (Fin.to_nat i)) -->l (1, vs2es (vi g (nseq (length dim) 0%Z))))) ** P)
                   s h).
         { sep_normal; sep_normal_in H; repeat sep_cancel; unfold P; eauto. }
         unfold P in *; eauto. } Unfocus.
@@ -1703,8 +1705,10 @@ Section Reduce.
           { sep_cancel; unfold P; eauto. }
           unfold P in *; eauto. } Unfocus.
         apply rule_frame; [apply gen_write_correct|].
-        { unfold vs2es, vars2es, Outs; rewrite !map_length, fout_wf, locals_length; auto. }
-        { unfold vs2es, vars2es, Outs; rewrite !map_length, !locals_length; auto. }
+        { unfold vs2es, vars2es, Outs, names_of_array;
+          rewrite !map_length, fout_wf, init_length; auto. }
+        { unfold vs2es, vars2es, Outs, names_of_array;
+          rewrite !map_length, !locals_length, init_length; auto. }
         rewrite writes_var_gen_write; apply inde_nil. } }
     intros s h [H | H]; sep_normal_in H; sep_split_in H; unfold_pures.
     - destruct Nat.eq_dec; [|clear HP2; unfold_pures; omega].
@@ -1713,8 +1717,9 @@ Section Reduce.
       sep_rewrite_in mps_eq2_tup H; [|exact HP].
 
       Lemma sh_spec_is_tup_array d n sh stk:
-        stk ||= sh_spec (map (fun sv => (sv, n)) (locals sh d)) <=>
-            Ex f, (is_tuple_array_p (map Sh (vars2es (locals sh d))) n f 0 1).
+        stk ||= sh_spec (map (fun sv => SD (fst sv) (snd sv) n)
+                             (combine (locals sh (length d)) d)) <=>
+            Ex f, (is_tuple_array_p (map Sh (vars2es (locals sh (length d)))) n f 0 1).
       Proof.
         induction d; simpl; eauto.
         - split; intros.
@@ -1735,9 +1740,10 @@ Section Reduce.
       Qed.
 
       Lemma sh_spec_is_tup_array_with_l d n sh stk:
-        stk ||= sh_spec (map (fun sv => (sv, n)) (locals sh d)) <=>
-            Ex f, (is_tuple_array_p (map Sh (vars2es (locals sh d))) n f 0 1 **
-                   !(pure (forall i, length (f i) = d))).
+        stk ||= sh_spec (map (fun sv => SD (fst sv) (snd sv) n)
+                             (combine (locals sh (length d)) d)) <=>
+            Ex f, (is_tuple_array_p (map Sh (vars2es (locals sh (length d)))) n f 0 1 **
+                   !(pure (forall i, length (f i) = (length d)))).
       Proof.
         induction d; simpl; eauto.
         - split; intros.
@@ -1870,6 +1876,12 @@ Section Reduce.
       apply (Var "").
       apply (Var "").
       apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
+      apply (Var "").
   Qed.
   End SeqReduce.
 
@@ -1880,7 +1892,7 @@ Section Reduce.
 
   Definition tr_pres (j : Fin.t nblk) := MyVector.init (fun i : Fin.t ntrd =>
     Ex vi_ini, 
-      !(bid === Zn (nf j)) ** !(sh === Zn l) ** !(Outs' ==t out) ** !(pure (length vi_ini = dim)) **
+      !(bid === Zn (nf j)) ** !(sh === Zn l) ** !(Outs' ==t out) ** !(pure (length vi_ini = (length dim))) **
       (sdata' +ol Zn (nf i) -->l (1, vs2es vi_ini)) **
       input_spec env env_den (perm_n nt_gr) **
       if Nat.eq_dec (nf i) 0 then map Gl Outs' +ol Zn (nf j) -->l (1, vs2es (fout (nf j))) else emp).
@@ -1907,9 +1919,9 @@ Section Reduce.
     else if prefix "arr" (var_of_str t) then Lo
     else Hi.
 
-  Lemma read_tup_no_bars xs es : barriers (read_tup xs es) = nil.
+  Lemma read_tup_no_bars xs tys es : barriers (read_tup xs tys es) = nil.
   Proof.
-    revert es; induction xs; destruct es; simpl; eauto.
+    revert es tys; induction xs; destruct es, tys; simpl; eauto.
   Qed.
 
   Ltac env_dec :=
@@ -2046,7 +2058,7 @@ Section Reduce.
       repeat apply precise_star; eauto using precise_emp, is_tup_precise, is_tup_arr_precise.
 
     - unfold bth_pre, tr_pres; intros; istar_simplify.
-      sep_rewrite (@ls_exists0 _ (ls_init 0 dim (fun i => 0%Z))).
+      sep_rewrite (@ls_exists0 _ (ls_init 0 (length dim) (fun i => 0%Z))).
       unfold sh_decl in H.
       sep_rewrite_in sh_spec_is_tup_array_with_l H.
       sep_split_in H.
@@ -2065,7 +2077,7 @@ Section Reduce.
       2: intros; rewrite ls_init_spec; destruct lt_dec; try rewrite init_length.
       2: unfold_conn_in HP2; unfold vars2es; rewrite HP2, !map_length, !locals_length; auto.
       2: unfold vars2es; rewrite !map_length, locals_length; auto.
-      2: instantiate (1 := nseq dim 0%Z); rewrite length_nseq; auto.
+      2: instantiate (1 := nseq (length dim) 0%Z); rewrite length_nseq; auto.
       apply scC; rewrite <-(@firstn_skipn assn 1) at 1; rewrite firstn_init, skipn_init.
       rewrite Nat.min_l; try omega; simpl; sep_normal.
       erewrite ls_init_eq'.
@@ -2111,7 +2123,7 @@ Section Reduce.
                  try rewrite prefix_nil; auto).
 
       Lemma sh_spec_low_assn E sdec :
-        (forall x y, In (x, y) sdec -> E x = Lo) -> low_assn E (sh_spec sdec).
+        (forall x ty y, In (SD x ty y) sdec -> E x = Lo) -> low_assn E (sh_spec sdec).
       Proof.
         intros.
         induction sdec as [|[? ?] ?]; simpl; unfold low_assn; repeat prove_low_assn.
@@ -2120,14 +2132,16 @@ Section Reduce.
         apply IHsdec; simpl in H; eauto.
       Qed.
       apply low_assn_input_spec'.
-      apply sh_spec_low_assn; simplify; inverts H; simpl; rewrite prefix_nil; auto.
+      apply sh_spec_low_assn; simplify.
+      destruct x0; simpl in *; apply in_combine_l in H0; inverts H; simplify; simpl.
+      rewrite prefix_nil; auto.
     - apply fold_has_type.
     - unfold tr_pres, tr_posts; intros; rewrite !MyVector.init_spec.
       eapply Hbackward.
       Focus 2. {
         intros; apply ex_lift_l_in in H as [? H].
         sep_normal_in H.
-        evar (P : assn); assert ((!(pure (Datatypes.length x = dim)) ** P) s0 h) by
+        evar (P : assn); assert ((!(pure (Datatypes.length x = (length dim))) ** P) s0 h) by
                            (sep_cancel; unfold P; eauto).
         unfold P in *; ex_intro x H0; eauto. } Unfocus.
       apply rule_ex; intros vi_ini.
@@ -2160,7 +2174,7 @@ Section Reduce.
       sep_rewrite conj_xs_init_flatten; simpl.
       sep_rewrite input_spec_p1; eauto; try nia.
       sep_rewrite (is_tuple_array_p_distr); eauto.
-      intros; unfold vars2es, Outs; rewrite fout_wf, !map_length, locals_length; auto.
+      intros; unfold vars2es, Outs, names_of_array; rewrite fout_wf, !map_length, init_length; auto.
     - intros; eapply CSLp_backward; [eapply CSLp_forward|]; try applys* (>> reduce_ok_bl g bid).
       + rewrite MyVector.init_spec; auto.
       + rewrite MyVector.init_spec; intros; repeat sep_cancel.
@@ -2186,7 +2200,7 @@ Section Reduce.
       Qed.          
           
       Lemma sh_spec_inde sdec xs :
-        (disjoint (map fst sdec) xs) -> inde (sh_spec sdec) xs.
+        (disjoint (map SD_var sdec) xs) -> inde (sh_spec sdec) xs.
       Proof.
         intros.
         induction sdec as [|[? ?] ?]; simpl; unfold low_assn; repeat prove_inde.
@@ -2202,6 +2216,14 @@ Section Reduce.
       repeat (rewrite read_tup_writes; [|rewrite locals_length, func_wf; auto]).
       rewrite gen_read_writes; [|unfold vars2es; rewrite map_length, !locals_length; auto].
       rewrite read_tup_writes; [|unfold vars2es; rewrite map_length, !locals_length; auto].
+      Lemma map_combine_l : forall A B xs ys,
+                 length xs = length ys ->
+                 map (fun (x : A * B) => fst x) (combine xs ys) = xs.
+      Proof.
+        induction xs; simpl; intros [|y ys]; simpl; eauto; try congruence.
+        inversion 1; f_equal; eauto. 
+      Qed.
+      rewrite map_combine_l; [|simplify; eauto].
       apply not_in_disjoint; simpl; intros; simplify; try congruence;
         (try now (forwards*: get_wr; eauto; simplify; simpl in *; congruence));
         (try now (forwards*: func_local; eauto; simplify; simpl in *; congruence)).
@@ -2236,23 +2258,27 @@ Section Reduce.
       apply has_no_vars_conj_xs; intros; rewrite ls_init_spec; destruct lt_dec;
         eauto using has_no_vars_input_spec, has_no_vars_emp.
     - unfold sh_decl; rewrite map_map; simpl.
+      rewrite map_combine_l; [|simplify; eauto].
       simplify.
       unfold E; simpl; rewrite prefix_nil; auto.
     (* - cbv; auto. *)
     (* - cbv; auto. *)
     - unfold sh_decl; rewrite map_map; simpl.
+      rewrite map_combine_l; [|simplify; eauto].
       simplify; congruence.
     - unfold sh_decl; rewrite map_map; simpl.
+      rewrite map_combine_l; [|simplify; eauto].
       simplify; congruence.
     - unfold sh_decl; rewrite map_map; simpl.
-      rewrite map_id; apply locals_disjoint_ls.
+      rewrite map_combine_l; [|simplify; eauto].
+      apply locals_disjoint_ls.
   Qed.
 
   Notation sum_of_vs := (sum_of_f_opt (list val) f_fun).
 
   Lemma feb_ok' ds len f_in:
     0 < len -> len <= ntrd ->
-    (forall i : nat, Datatypes.length (f_in i) = dim) ->
+    (forall i : nat, Datatypes.length (f_in i) = (length dim)) ->
     f len f_in e_b 0 = maybe (sum_of_vs 0 len f_in) ds.
   Proof.
     intros.
@@ -2279,7 +2305,7 @@ Section Reduce.
       Focus 2.
       { simpl; intros.
         rewrite Nat.min_r; try nia.
-        rewrites* (feb_ok' (nseq dim 0%Z)); try nia.
+        rewrites* (feb_ok' (nseq (length dim) 0%Z)); try nia.
         intros; unfold f_seq, maybe; destruct (skip_sum_of_vs _ _ _ _ _) eqn:Heq.
         + erewrite skip_sum_of_vs_wf; eauto.
           intros ix ?; forwards * : (>>get_den_wf (Zn ix)); rewrite out_wf.
@@ -2338,7 +2364,7 @@ Section Reduce.
       Qed.
 
       rewrite (sum_of_vs_nested 0 (fun x =>
-         maybe (skip_sum_of_vs nt_gr 0 l g x) (nseq dim 0%Z))); eauto.
+         maybe (skip_sum_of_vs nt_gr 0 l g x) (nseq (length dim) 0%Z))); eauto.
       simpl.
       
       cutrewrite (ntrd * nblk = nt_gr); [|ring].
@@ -2447,7 +2473,7 @@ Section Reduce.
       erewrite sum_of_eq.
       Focus 2. {
         intros.
-        rewrite (feb_ok' (nseq dim 0%Z)).
+        rewrite (feb_ok' (nseq (length dim) 0%Z)).
         2: apply Nat.min_glb_lt_iff.
         2: nia.
         2: apply Nat.le_min_r.

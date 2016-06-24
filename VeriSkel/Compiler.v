@@ -140,6 +140,13 @@ Section compiler.
     | Sx.BEq => (Cskip, Lang.Eeq e1 e2 :: nil)
     | Sx.Blt => (Cskip, Lang.Elt e1 e2 :: nil)
     end.
+
+  Fixpoint ctyps_of_typ (ty : Sx.Typ) :=
+    match ty with
+    | Sx.TBool => Int :: nil
+    | Sx.TZ => Int :: nil
+    | Sx.TTup ts => fold_right (fun ty acc => (ctyps_of_typ ty ++ acc)%list) nil ts
+    end.
   
   (* compiler of scalar expressions *)
   Fixpoint compile_sexp (se : Sx.SExp) (env : SVEnv) : M (cmd * list exp) := match se with
@@ -148,11 +155,12 @@ Section compiler.
     | Sx.ELet x e1 e2 _ =>
       compile_sexp e1 env >>= fun ces1 => 
       let (c1, es1) := ces1 in
-      let dim := length es1 in
-      freshes dim >>= fun xs =>
+      (* let dim := length es1 in *)
+      let dim := ctyps_of_typ (Sx.typ_of_sexp e1) in
+      freshes (length dim) >>= fun xs =>
       compile_sexp e2 (upd env x xs) >>= fun ces2 => 
       let (c2, es2) := ces2 in
-      ret (c1 ;; S.read_tup xs es1 ;; c2, es2)
+      ret (c1 ;; S.read_tup xs dim es1 ;; c2, es2)
     | Sx.EBin op e1 e2 _ => 
       compile_sexp e1 env >>= fun ces1 =>
       let (c1, es1) := ces1 in
@@ -165,12 +173,13 @@ Section compiler.
       | _, _ => fail ""
       end
     | Sx.EA va e _ =>
+      let dim := ctyps_of_typ (Sx.typ_of_sexp se) in
       compile_sexp e env >>= fun ces =>
       let (c, es) := ces in
       let (_, aname) := avarenv va in
-      freshes (length aname) >>= fun xs =>
+      freshes (length dim) >>= fun xs =>
       match es with
-      | i :: nil => ret (c ;; S.gen_read Gl xs (S.vars2es aname) i, S.vars2es xs)
+      | i :: nil => ret (c ;; S.gen_read Gl xs dim (S.vars2es aname) i, S.vars2es xs)
       | _ => fail ""
       end
     | Sx.ELen xa =>
@@ -202,18 +211,18 @@ Section compiler.
             ret (c ;; c', ge ++ ges)
           end in
       compile_sexps es env
-    | Sx.EIf e1 e2 e3 _ => 
+    | Sx.EIf e1 e2 e3 _ =>
+      let dim := ctyps_of_typ (Sx.typ_of_sexp se) in
       compile_sexp e1 env >>= fun ces1 => 
       let (c1, e1) := ces1 in
       compile_sexp e2 env >>= fun ces2 =>
       let (c2, e2) := ces2 in
       compile_sexp e3 env >>= fun ces3 =>
       let (c3, e3) := ces3 in
-      let dim := length e2 in
-      freshes dim >>= fun xs =>
+      freshes (length dim) >>= fun xs =>
       match e1 with
       | e :: nil =>
-        ret (c1;; Cif (Bnot (Beq e 0%Z)) (c2 ;; S.read_tup xs e2) (c3 ;; S.read_tup xs e3), S.vars2es xs)
+        ret (c1;; Cif (Bnot (Beq e 0%Z)) (c2 ;; S.read_tup xs dim e2) (c3 ;; S.read_tup xs dim e3), S.vars2es xs)
       | _ => fail ""
       end
     end%list.
@@ -271,7 +280,29 @@ Module VarA_eq : DecType with Definition t := varA with Definition eq_dec := @eq
   Definition eq_dec := @eq_dec t _.
 End VarA_eq.
 
+Instance eq_type_pair A B `{eq_type A} `{eq_type B} : eq_type (A * B) := {
+  eq_dec := _
+}.
+Proof.
+  intros; destruct H, H0; repeat decide equality.
+Qed.
+
+Instance eq_type_STyp : eq_type Sx.Typ := {
+  eq_dec := Sx.STyp_eq_dec
+}.
+
+Module VarATy_eq : DecType with Definition t := (varA * Sx.Typ)%type with Definition eq_dec := @eq_dec (varA * Sx.Typ) _.
+  Definition t := (varA * Sx.Typ)%type.
+  Definition eq (x y : t) := x = y.
+  Definition eq_equiv : Equivalence eq.
+  Proof.
+    split; cbv; intros; congruence. 
+  Qed.
+  Definition eq_dec := @eq_dec t _.
+End VarATy_eq.
+
 Module SA := MSets VarA_eq.
+Module SATy := MSets VarATy_eq.
 Module SE := MSets VarE_eq.
 
 Require Import Host.
@@ -305,7 +336,7 @@ Section Compiler.
     | Sx.ECons es _ => fold_right (fun e xs => SA.union (free_av e) xs) SA.empty es
     | Sx.EIf e e' e'' _ => SA.union (free_av e) (SA.union (free_av e') (free_av e''))
     end.
-  
+
   Definition free_av_func (f : Sx.Func) :=
     match f with
     | Sx.F ps body => free_av body
@@ -328,8 +359,6 @@ Section Compiler.
   Fixpoint map_opt {A B : Type} (f : A -> option B) (xs : list A) : option (list B) :=
     sequence (map f xs).
 
-  Variable aty_env : Env varA (option Sx.Typ) _.
-  
   Definition opt_def {A : Type} (o : option A) d :=
     match o with
     | Some x => x
@@ -341,16 +370,23 @@ Section Compiler.
                let (n, aenv) := n_aenv in
                (n + 1, upd aenv xa n)) xas (0, emp_def 0)).
 
-  Definition arr_name n d := names_of_array (grpOfInt n) d.
-  Definition len_name n := name_of_len (grpOfInt n).
-  Definition out_name d := names_of_array "Out" d.
-  Definition out_len_name := name_of_len "Out".
+  Definition arr_name n (d : list CTyp) :=
+    List.combine
+      (map Var (names_of_array (grpOfInt n) (length d)))
+      (map Ptr d).
+  Definition len_name n := Var (name_of_len (grpOfInt n)).
+  Definition out_name (d : list CTyp) :=
+    List.combine
+      (map Var (names_of_array "Out" (length d)))
+      (map Ptr d).
+  Definition out_len_name := Var (name_of_len "Out").
 
-  Definition env_of_sa (xas : SA.t) : (Env varA (string * list string) _) :=
+  Definition env_of_sa (aty_env : Env varA (option Sx.Typ) _)  (xas : SA.t) :
+    (Env varA (var * list (var * CTyp)) _) :=
     let idxEnv := idxEnv_of_sa xas in
     fun xa =>
-      let size := len_of_ty (opt_def (aty_env xa) Sx.TZ) in
-      (len_name (idxEnv xa), arr_name (idxEnv xa) size).
+      let ctys := (ctyps_of_typ (opt_def (aty_env xa) Sx.TZ)) in
+      (len_name (idxEnv xa), arr_name (idxEnv xa) ctys).
 
   Definition zipWith {A B C : Type} (f : A -> B -> C) (xs : list A) (ys : list B) :=
     map (fun xy => f (fst xy) (snd xy)) (combine xs ys).
@@ -405,7 +441,8 @@ Section Compiler.
     compile_func_n 1 aenv (Sx.F ((i, Sx.TZ) :: nil)
                                 (Sx.EA arr (Sx.EVar i Sx.TZ) tyxa)).
 
-  Definition compile_AE avar_env (var_ptr_env : Env varA (hostVar * list hostVar) _) ae :
+  Definition compile_AE (aty_env : Env varA (option Sx.Typ) _)
+             avar_env (var_ptr_env : Env varA (hostVar * list hostVar) _) ae :
     ((var -> (cmd * list exp)) * expr) :=
     match ae with
     | Sx.DArr f len =>
@@ -455,6 +492,7 @@ Section Compiler.
 
   Fixpoint compile_prog
            (numVar : nat)
+           (aty_env : Env varA (option Sx.Typ) _)
            (host_var_env : Env varA (hostVar * list hostVar) _)
            (p : Sx.prog)
     : (CUDA * (hostVar * list hostVar) * list kernel) :=
@@ -466,43 +504,46 @@ Section Compiler.
       
       let fvs' := SA.elements fvs in
       (* from free variables, compute a map from each fv to a kernel parameter *)
-      let env := env_of_sa fvs in
-      let env' := env_map (fun x => (Var (fst x), map Var (snd x))) env in
+      let env := env_of_sa aty_env fvs in
 
       (* kernel parameters for input arrays *)
-      let inParams := concat (map (fun xa => fst (env xa) :: snd (env xa)) fvs') in
+      let inParams := concat (map (fun xa =>
+        let '(len, arr) := env xa in
+        (len, Int) :: arr) fvs') in
       (* kernel arguments for input arrays *)
       let inArgs := concat (map (fun xa => fst (host_var_env xa) :: snd (host_var_env xa)) fvs') in
 
       (* the dimension of the output array *)
-      let outDim := len_of_ty tyxa in
+      let outDim := ctyps_of_typ tyxa in
 
       (* the kernel parameter for output array *)
       let outsParam := out_name outDim in
       let outlenParam := out_len_name in
 
+      let env' := env_map (fun x => (fst x, List.map fst (snd x))) env in
+
       match skl, fs, aes with 
      | "map", (f :: nil), ((ae, tyAe) :: nil) =>
         (* the dimension of the input array *)
-        let inDim := len_of_ty tyAe in
-
-        let '(get, inlen) := compile_AE env' host_var_env ae in
+        let inDim := ctyps_of_typ tyAe in
+        let '(get, inlen) := compile_AE aty_env env' host_var_env ae in
         let func : list var -> (cmd * list exp) := compile_func_n 1 env' f in
         (* xs := allocs ...; l := Let inlen; invoke ...*)
         (* shift free vars index by (outDim + 1) *)
-        let outAllocs := alloc_tup_arr numVar outDim inlen in
-        let outs := seq numVar outDim in
-        let numVar := numVar + outDim in
+        let outAllocs := alloc_tup_arr numVar (length outDim) inlen in
+        let outs := seq numVar (length outDim) in
+        let numVar := numVar + (length outDim) in
         
         let letLen := iLet numVar inlen in
         let outLen := numVar in
         let numVar := numVar + 1 in
         
-        let ker := {| params_of := map Var (outlenParam :: outsParam ++ inParams);
+        let ker := {| params_of := (outlenParam, Int) :: outsParam ++ inParams;
                       body_of := {| get_sh_decl := nil;
                                     get_cmd := mkMap ntrd nblk inDim outDim get func |} |} in
-        let newEnv := upd host_var_env xa (outLen, outs) in
-        let '(instr, res, kenv) := compile_prog numVar newEnv rest in
+        let newHEnv := upd host_var_env xa (outLen, outs) in
+        let newAtyEnv := upd_opt aty_env xa tyxa in
+        let '(instr, res, kenv) := compile_prog numVar newAtyEnv newHEnv rest in
         let newID := List.length kenv in
         (outAllocs ++
          (letLen :: nil) ++
@@ -511,25 +552,25 @@ Section Compiler.
          res,
          kenv ++ (ker :: nil))
       | "reduce", (f :: nil), ((ae, tyAe) :: nil) =>
-        let inDim := len_of_ty tyAe in
+        let inDim := ctyps_of_typ tyAe in
 
         (* tmpAllocs. ..; allocs ...; iLet inlen; invoke ...*)
         (* shift free vars index by (2 * outDim + 1) *)
         let func : list var -> list var -> (cmd * list exp) := compile_func_n 2 env' f in
-        let '(get, inlen) := compile_AE env' host_var_env ae in
+        let '(get, inlen) := compile_AE aty_env env' host_var_env ae in
         
-        let tmpAllocs := alloc_tup_arr numVar outDim (Const (Z.of_nat nblk)) in
-        let tmps := seq numVar outDim in
-        let numVar := numVar + outDim in
-        let outAllocs := alloc_tup_arr numVar outDim (Const 1%Z) in
-        let outs := seq numVar outDim in
-        let numVar := numVar + outDim in
+        let tmpAllocs := alloc_tup_arr numVar (length outDim) (Const (Z.of_nat nblk)) in
+        let tmps := seq numVar (length outDim) in
+        let numVar := numVar + (length outDim) in
+        let outAllocs := alloc_tup_arr numVar (length outDim) (Const 1%Z) in
+        let outs := seq numVar (length outDim) in
+        let numVar := numVar + (length outDim) in
         let letLen := iLet numVar (Const 1%Z) in
         let outLen := numVar in
         let numVar := numVar + 1 in
         
         let reduce1 := {|
-          params_of := map Var (outlenParam :: outsParam ++ inParams);
+          params_of := ((outlenParam, Int) :: outsParam ++ inParams);
           body_of := Pr (sh_decl ntrd outDim) (mkFoldAll ntrd nblk inDim func (S (log2 ntrd)) get)
         |} in
         let inArgs := concat (map (fun xa => fst (host_var_env xa) :: snd (host_var_env xa)) fvs') in
@@ -539,28 +580,33 @@ Section Compiler.
         let len_var := len_name newParID in
         let arr_vars := arr_name newParID outDim in
         (* generating getter accesing the array (len_var, arr_vars) *)
-        let get x := accessor_of_array (emp_def (Var len_var, map Var arr_vars))
+        let get x := accessor_of_array (emp_def (len_var, List.map fst arr_vars))
                         (VarA "") tyxa (x :: nil) in
-        let inParam_f := concat (map (fun xa => fst (env xa) :: snd (env xa)) (SA.elements fvs_f)) ++
-                         (len_var :: arr_vars) in
+        let inParam_f := concat (map (fun xa => (fst (env xa), Int) :: snd (env xa)) (SA.elements fvs_f)) ++
+                         ((len_var, Int) :: arr_vars) in
         let inArgs_f := List.map VarE
           (concat (map (fun xa => fst (host_var_env xa) :: snd (host_var_env xa)) (SA.elements fvs_f))) ++ 
           (Const (Z.of_nat nblk) :: List.map VarE tmps)in
-                          
+        (* (Nat.min ((l + ntrd - 1) / ntrd) nblk ) *)
+        let ntrd' :=
+            Min (Div (Add inlen (Const (Z.of_nat ntrd - 1)%Z))
+                     (Const (Z.of_nat ntrd)))
+                (Const (Z.of_nat nblk)) in
         let reduce2 := {|
-          params_of := map Var (outlenParam :: outsParam ++ inParams ++ (len_var :: arr_vars));
+          params_of := ((outlenParam, Int) :: outsParam ++ inParam_f);
           body_of := Pr (sh_decl nblk outDim) (mkFoldAll nblk 1 inDim func (S (log2 nblk)) get)
         |} in
 
-        let newEnv := upd host_var_env xa (outLen, outs) in        
-        let '(instr, res, kenv) := compile_prog numVar newEnv rest in
+        let newEnv := upd host_var_env xa (outLen, outs) in
+        let newAtyEnv := upd_opt aty_env xa tyxa in
+        let '(instr, res, kenv) := compile_prog numVar newAtyEnv newEnv rest in
         let red1 := List.length kenv in
         let red2 := S red1 in
 
         (tmpAllocs ++ outAllocs ++
          (letLen :: nil) ++
-         (invoke red1 ntrd nblk (Const (Z.of_nat nblk) :: List.map VarE tmps ++ List.map VarE inArgs) :: nil) ++
-         (invoke red2 nblk 1    (List.map VarE (outLen :: outs) ++ inArgs_f) :: nil) ++
+         (invoke red1 ntrd nblk (inlen :: List.map VarE tmps ++ List.map VarE inArgs) :: nil) ++
+         (invoke red2 nblk 1    ((ntrd' :: List.map VarE outs) ++ inArgs_f) :: nil) ++
          instr,
          res, 
          kenv ++ (reduce1 :: reduce2 :: nil))
@@ -595,7 +641,7 @@ Section TestFullCompiler.
    ARet (VarA "t1"))).
 
   Goal False.
-    pose (compile_prog aty_env ntrd nblk 2 avar_env prog) as p.
+    pose (compile_prog ntrd nblk 2 aty_env avar_env prog) as p.
     compute in p.
   Abort.
 End TestFullCompiler.

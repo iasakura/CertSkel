@@ -1,12 +1,16 @@
 Require Import LibTactics GPUCSL Relations Env.
 
-Record kernel := BuildKer { params_of : list var; body_of : program }.
+Record kernel := BuildKer { params_of : list (var * CTyp); body_of : program }.
 
 Definition hostVar := nat.
 
 Inductive expr :=
 | VarE (x : hostVar)
-| Const (n : Z).
+| Const (n : Z)
+| Min (e1 e2 : expr)
+| Add (e1 e2 : expr)
+| Sub (e1 e2 : expr)
+| Div (e1 e2 : expr).
 
 Definition kerID := nat.
 Instance nat_eq : eq_type nat := {|eq_dec := Nat.eq_dec|}.
@@ -51,10 +55,10 @@ Fixpoint fill_obj (ls : list Z) (s : Z) (h : simple_heap) :=
     end
   end.
 
-Fixpoint bind_params (stk : stack) (xs : list var) (vs : list Z) : Prop :=
+Fixpoint bind_params (stk : stack) (xs : list (var * CTyp)) (vs : list Z) : Prop :=
   match xs, vs with
   | nil, nil => True
-  | x :: xs, v :: vs => bind_params stk xs vs /\ stk x = v
+  | (x, _) :: xs, v :: vs => bind_params stk xs vs /\ stk x = v
   | _, _ => False
   end.
 
@@ -78,9 +82,21 @@ Import Vector.VectorNotations.
 
 Definition henv_get (e : hostEnv) (x : nat) := e x.
 
-Inductive eval_expr : hostEnv -> expr -> Z -> Prop :=
-| eval_varE (s : hostEnv) (x : nat) : eval_expr s (VarE x) (henv_get s x)
-| eval_const (s : hostEnv) (c : Z) : eval_expr s (Const c) c.
+Definition lift {A B C : Type} (f : A -> B -> C) x y :=
+  match x, y with
+  | Some x, Some y => Some (f x y)
+  | _, _ => None
+  end.
+
+Fixpoint eval_expr (env : hostEnv) (e : expr) : Z :=
+  match e with
+  | VarE x => henv_get env x
+  | Const c => c
+  | Min e1 e2 => Z.min (eval_expr env e1) (eval_expr env e2)
+  | Add e1 e2 => Z.add (eval_expr env e1) (eval_expr env e2)
+  | Div e1 e2 => Z.div (eval_expr env e1) (eval_expr env e2)
+  | Sub e1 e2 => Z.sub (eval_expr env e1) (eval_expr env e2)
+  end.
 
 Inductive call_kernel : simple_heap -> kernel -> nat -> nat -> list Z -> simple_heap -> Prop :=
 | C_ker (gst gst' : simple_heap) (ker : kernel) (ntrd nblk : nat) (args : list Z) 
@@ -116,14 +132,14 @@ Definition set_henv (henv : hostEnv) i v := upd henv i v.
 
 Inductive Instr_exec : kerEnv -> instr -> GPUstate -> GPUstate -> Prop :=
 | Exec_alloc kenv x e (gst : GPUstate) start n :
-    eval_expr (fst gst) e (Z.of_nat n) ->
+    eval_expr (fst gst) e = (Z.of_nat n) ->
     hdisj (snd gst) (alloc_heap start n) ->
     Instr_exec kenv (alloc x e) gst (upd (fst gst) x (Z.of_nat start), hplus (snd gst) (alloc_heap start n))
 | Exec_iLet kenv x e (gst : GPUstate) n :
-    eval_expr (fst gst) e n ->
+    eval_expr (fst gst) e = n ->
     Instr_exec kenv (iLet x e) gst (upd (fst gst) x n, snd gst)
 | Exec_invoke kenv gst kerID ntrd nblk args vs h :
-    List.Forall2 (fun a v => eval_expr (fst gst) a v) args vs ->
+    List.Forall2 (fun a v => eval_expr (fst gst) a = v) args vs ->
     kerID < length kenv ->
     call_kernel (snd gst) (get_nth_ker kenv kerID) ntrd nblk vs h ->
     Instr_exec kenv (invoke kerID ntrd nblk args) gst (fst gst, h).
@@ -161,7 +177,7 @@ Inductive Instr_exec : kerEnv -> instr -> GPUstate -> GPUstate -> Prop :=
 Inductive CUDA_eval : kerEnv -> CUDA -> GPUstate -> GPUstate -> Prop :=
 | eval_nil kenv gst x e start len :
     henv_get (fst gst) x = start ->
-    eval_expr (fst gst) e len ->
+    eval_expr (fst gst) e = len ->
     CUDA_eval kenv nil gst gst 
 | eval_instr kenv i rst gst gst' gst'' :
     Instr_exec kenv i gst gst' ->
@@ -182,7 +198,7 @@ Import Vector.VectorNotations.
 
 Lemma rule_ker_call ntrd nblk args P_F P P' ker Q gst gst' :
   CSLg ntrd nblk P (body_of ker) Q ->
-  (P' ** !(assn_of_bind (params_of ker) args) |= P) ->
+  (P' ** !(assn_of_bind (map fst (params_of ker)) args) |= P) ->
   (forall s, (P' ** P_F) s (as_gheap (htop gst))) ->
   call_kernel gst ker ntrd nblk args gst' ->
   has_no_vars Q -> has_no_vars P_F ->
@@ -204,9 +220,9 @@ Proof.
   exists stk; split; eauto.
   apply H0.
   sep_split.
-  Lemma assn_of_bind_ok stk ps args : bind_params stk ps args -> assn_of_bind ps args stk (emp_ph loc).
+  Lemma assn_of_bind_ok stk ps args : bind_params stk ps args -> assn_of_bind (map fst ps) args stk (emp_ph loc).
   Proof.
-    revert args; induction ps; destruct args; simpl; intros; eauto.
+    revert args; induction ps as [|[? ?] ?]; destruct args; simpl; intros; eauto.
     apply emp_emp_ph.
     sep_split; unfold_conn; jauto.
   Qed.
