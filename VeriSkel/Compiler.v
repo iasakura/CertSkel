@@ -616,36 +616,6 @@ Section Compiler.
     end%list.
 End Compiler.
 
-Section TestFullCompiler.
-  Definition aty_env := (upd_opt emp_opt (VarA "arr") Sx.TZ).
-  Definition ntrd := 1024.
-  Definition nblk := 24.
-  Definition avar_env := (upd (emp_def (0, nil)) (VarA "arr") (0, 1 :: nil)).
-
-  Import SimplSkel.
-  Import Sx.
-  Definition prog :=
-    (* let t := map (fun x -> x * x) arr in *)
-    (* let t1 := reduce (fun x y -> x + y) t in *)
-    (* t1 *)
-    ALet (VarA "t") TZ "map" ((F ((VarE "x", TZ) :: nil)
-                                 (EBin Emult
-                                       (EVar (VarE "x") TZ)
-                                       (EVar (VarE "x") TZ) TZ)) :: nil)
-         ((VArr (VarA "arr"), TZ) :: nil) (
-    ALet (VarA "t1") TZ "reduce" ((F ((VarE "x", TZ) :: (VarE "y", TZ) :: nil)
-                                     (EBin Eplus
-                                           (EVar (VarE "x") TZ)
-                                           (EVar (VarE "y") TZ) TZ)) :: nil)
-         ((VArr (VarA "t"), TZ) :: nil) (
-   ARet (VarA "t1"))).
-
-  Goal False.
-    pose (compile_prog ntrd nblk 2 aty_env avar_env prog) as p.
-    compute in p.
-  Abort.
-End TestFullCompiler.
-
 (* Eval compute in "Finished !". *)
 
 (* Section CorrectnessProof. *)
