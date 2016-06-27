@@ -142,9 +142,11 @@ Module Syntax.
   | VArr (xa : varA).
 
   (* array expressions *)
-  Inductive prog :=
-    ALet (va : varA) (ty : Typ) (sk : name) (fs : list Func) (vas : list (AE * Typ)) (ea : prog)
+  Inductive AS :=
+    ALet (va : varA) (ty : Typ) (sk : name) (fs : list Func) (vas : list (AE * Typ)) (ea : AS)
   | ARet (va : varA).
+
+  Definition prog := (list (varA * Typ) * AS)%type.
 End Syntax.
 
 Section Semantics.
@@ -265,7 +267,7 @@ Section Semantics.
       (forall i, i < len -> evalFunc aenv (VZ (Z.of_nat i) :: nil) func (f (VZ (Z.of_nat i)))) ->
       evalSK aenv "map" (func :: nil) ((ae, typ) :: nil) (map f arr).
   
-  Inductive evalP : AEnv (option array) -> prog -> array -> Prop :=
+  Inductive evalP : AEnv (option array) -> AS -> array -> Prop :=
   | EvalP_ret aenv ax v :
       aenv ax = Some v -> evalP aenv (ARet ax) v
   | EvalP_alet (aenv : AEnv (option array)) ax ty skl fs ae e2 v1 v2 :

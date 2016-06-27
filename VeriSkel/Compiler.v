@@ -490,11 +490,11 @@ Section Compiler.
     | S n => alloc v len :: alloc_tup_arr (S v) n len
     end.
 
-  Fixpoint compile_prog
+  Fixpoint compile_AS
            (numVar : nat)
            (aty_env : Env varA (option Sx.Typ) _)
            (host_var_env : Env varA (hostVar * list hostVar) _)
-           (p : Sx.prog)
+           (p : Sx.AS)
     : (CUDA * (hostVar * list hostVar) * list kernel) :=
     match p with
     | Sx.ALet xa tyxa skl fs aes rest =>
@@ -543,7 +543,7 @@ Section Compiler.
                                     get_cmd := mkMap ntrd nblk inDim outDim get func |} |} in
         let newHEnv := upd host_var_env xa (outLen, outs) in
         let newAtyEnv := upd_opt aty_env xa tyxa in
-        let '(instr, res, kenv) := compile_prog numVar newAtyEnv newHEnv rest in
+        let '(instr, res, kenv) := compile_AS numVar newAtyEnv newHEnv rest in
         let newID := List.length kenv in
         (outAllocs ++
          (letLen :: nil) ++
@@ -599,7 +599,7 @@ Section Compiler.
 
         let newEnv := upd host_var_env xa (outLen, outs) in
         let newAtyEnv := upd_opt aty_env xa tyxa in
-        let '(instr, res, kenv) := compile_prog numVar newAtyEnv newEnv rest in
+        let '(instr, res, kenv) := compile_AS numVar newAtyEnv newEnv rest in
         let red1 := List.length kenv in
         let red2 := S red1 in
 
@@ -614,6 +614,17 @@ Section Compiler.
       end
     | Sx.ARet xa => (nil, host_var_env xa, nil)
     end%list.
+
+  Definition env_of_list {A B : Set} `{eq_type A} (xs : list (A * B)) : Env A (option B) _ :=
+    List.fold_right (fun x acc => upd_opt acc (fst x) (snd x)) emp_opt xs.
+
+  Definition compile_prog (p : Sx.prog) :=
+    let '(pars, body) := p in
+    let tyenv := env_of_list pars in
+    let parsC := List.fold_right (fun x acc =>
+      let (n, env) := acc in
+      (n, List.fold_right)) (0, emp_def (0, nil)) pars in
+
 End Compiler.
 
 (* Eval compute in "Finished !". *)

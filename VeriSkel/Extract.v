@@ -1,4 +1,4 @@
-Require Import Compiler Examples Ext.
+Require Import Compiler Ext.
 
 Require Import ExtrOcamlBasic ExtrOcamlBigIntConv ExtrOcamlIntConv ExtrOcamlNatBigInt
         ExtrOcamlNatInt  ExtrOcamlString ExtrOcamlZBigInt ExtrOcamlZInt.
@@ -9,7 +9,3 @@ Extraction Blacklist List String Int.
 (* Extract Inductive prod => "(,)" ["(,)"]. *)
 
 Extract Constant save_to_file => "Printer.save_to_file".
-
-Cd "extracted".
-
-Separate Extraction Examples.

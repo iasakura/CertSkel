@@ -1,4 +1,4 @@
-Require Import Compiler MyEnv SimplSkel Ext.
+Require Import Compiler MyEnv SimplSkel Ext Extract.
 Require Import List.
 
 Definition aty_env := (upd_opt emp_opt (VarA "arr") Sx.TZ).
@@ -57,3 +57,7 @@ Definition gen2 := Compiler.compile_prog 1024 24 2 aty_env avar_env prog2.
 Eval compute in gen2.
 
 Definition res2 := save_to_file gen2 "test2.cu".
+
+Cd "extracted".
+
+Separate Extraction res1 res2.
