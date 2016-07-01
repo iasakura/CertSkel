@@ -508,7 +508,7 @@ Section Compiler.
 
       (* kernel parameters for input arrays *)
       let inParams := concat (map (fun xa =>
-        let '(len, arr) := env xa in
+        let (len, arr) := env xa in
         (len, Int) :: arr) fvs') in
       (* kernel arguments for input arrays *)
       let inArgs := concat (map (fun xa => fst (host_var_env xa) :: snd (host_var_env xa)) fvs') in
@@ -526,7 +526,7 @@ Section Compiler.
      | "map", (f :: nil), ((ae, tyAe) :: nil) =>
         (* the dimension of the input array *)
         let inDim := ctyps_of_typ tyAe in
-        let '(get, inlen) := compile_AE aty_env env' host_var_env ae in
+        let (get, inlen) := compile_AE aty_env env' host_var_env ae in
         let func : list var -> (cmd * list exp) := compile_func_n 1 env' f in
         (* xs := allocs ...; l := Let inlen; invoke ...*)
         (* shift free vars index by (outDim + 1) *)
@@ -557,7 +557,7 @@ Section Compiler.
         (* tmpAllocs. ..; allocs ...; iLet inlen; invoke ...*)
         (* shift free vars index by (2 * outDim + 1) *)
         let func : list var -> list var -> (cmd * list exp) := compile_func_n 2 env' f in
-        let '(get, inlen) := compile_AE aty_env env' host_var_env ae in
+        let (get, inlen) := compile_AE aty_env env' host_var_env ae in
         
         let tmpAllocs := alloc_tup_arr numVar (length outDim) (Const (Z.of_nat nblk)) in
         let tmps := seq numVar (length outDim) in
@@ -615,16 +615,30 @@ Section Compiler.
     | Sx.ARet xa => (nil, host_var_env xa, nil)
     end%list.
 
-  Definition env_of_list {A B : Set} `{eq_type A} (xs : list (A * B)) : Env A (option B) _ :=
+  Definition env_of_list {A B : Type} `{eq_type A} (xs : list (A * B)) : Env A (option B) _ :=
     List.fold_right (fun x acc => upd_opt acc (fst x) (snd x)) emp_opt xs.
 
-  Definition compile_prog (p : Sx.prog) :=
-    let '(pars, body) := p in
-    let tyenv := env_of_list pars in
-    let parsC := List.fold_right (fun x acc =>
-      let (n, env) := acc in
-      (n, List.fold_right)) (0, emp_def (0, nil)) pars in
+  Definition hostVars_of_typ (ty : Sx.Typ) (n : nat) :=
+    let ctys := ctyps_of_typ ty in
+    (n, List.combine ctys (List.seq (S n) (length ctys))).
 
+  (* Sx.prog = (list (varA * Sx.Typ) * Sx.AS)%type *)
+  (* : Type *)
+  
+  Definition compile_prog (p : Sx.prog) :=
+    let (pars, body) := p in
+    let tyenv := env_of_list pars : Env varA (option Sx.Typ) eq_varA in
+    let (n, hostvarEnv) :=
+      List.fold_right (fun (x : varA * Sx.Typ) (acc : nat * Env varA (hostVar * list (CTyp * hostVar)) eq_varA) =>
+        let (n, acc) := acc in
+        let (x, typ) := x in
+        (n + S (length (ctyps_of_typ typ)), upd acc x (hostVars_of_typ typ n)))
+     ((0, emp_def (0, nil)) : nat * Env varA (hostVar * list (CTyp * hostVar)) eq_varA) pars in
+    let pars : list (CTyp * hostVar) :=
+        concat (List.map (fun x => (Int, fst (hostvarEnv (fst x))) ::
+                                   List.map (fun x => (Ptr (fst x), (snd x))) (snd (hostvarEnv (fst x)))) pars) in
+    let hostvarEnv' := env_map (fun x => (fst x, map snd (snd x))) hostvarEnv in
+    (pars, compile_AS n tyenv hostvarEnv' body).
 End Compiler.
 
 (* Eval compute in "Finished !". *)

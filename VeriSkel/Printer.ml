@@ -106,10 +106,15 @@ let instr_printer = function
 let instrs_printer is =
     List.fold_left (fun acc e -> acc ^ instr_printer e ^ ";\n") "" is 
 
-let cuda_printer ((is, (resLen, res)), kers) =
+let pars_printer pars =
+  String.concat "," @@
+    List.map (fun (ty, p) -> !% "%s %s" (ctyp_printer ty) (hostVar_printer p)) pars
+;;
+
+let cuda_printer (pars, ((is, (resLen, res)), kers)) =
   "#include \"certskel.h\"\n" ^ 
   (List.mapi (fun i -> kernel_printer (!% "__ker%d" i)) kers |> String.concat "\n\n") ^
-  "\n\nT f() {\n" ^
+  !% "\n\nT f(%s) {\n" (pars_printer pars) ^ 
     instrs_printer is ^ "\n" ^
     !% "return makeT(%s, %s);\n" (hostVar_printer resLen) 
     (List.map hostVar_printer res |> String.concat ",") ^
