@@ -65,7 +65,7 @@ Delimit Scope exp_scope with exp.
 (*                        is_array e n' f *)
 (*   end. *)
 
-Notation sat ss P := (P (fst ss) (snd ss)).
+Notation sat ss P := (P (fst ss) (snd ss)) (only parsing).
 
 Bind Scope assn_scope with assn.
 
