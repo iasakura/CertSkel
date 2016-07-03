@@ -21,17 +21,8 @@ Inductive instr :=
 | iLet : nat -> expr -> instr
 | invoke : kerID -> nat -> nat -> list expr -> instr.
 
-Definition CUDA := (list instr)%type.
-
-(* Inductive CUDA : Type -> Type := *)
-(* | alloc : nat -> CUDA Z *)
-(* | memCpy : list Z -> Z -> CUDA unit *)
-(* | callKer : kernel -> nat -> nat -> list Z -> CUDA unit (* ker<<<n, m>>>(ps) *) *)
-(* | getRes : Z -> nat -> CUDA (list Z) *)
-(* | ret : forall a, a -> CUDA a *)
-(* | bind : forall a b, CUDA a -> (a -> CUDA b) -> CUDA b. *)
-
-(* Arguments ret {a} n. *)
+Definition HostProg := (list instr)%type.
+Definition Prog := (HostProg * (hostVar * list hostVar) * list kernel)%type.
 
 Definition GPUstate := (hostEnv * simple_heap)%type.
 
@@ -144,45 +135,15 @@ Inductive Instr_exec : kerEnv -> instr -> GPUstate -> GPUstate -> Prop :=
     call_kernel (snd gst) (get_nth_ker kenv kerID) ntrd nblk vs h ->
     Instr_exec kenv (invoke kerID ntrd nblk args) gst (fst gst, h).
 
-(* Inductive CUDA_eval : CUDA -> GPUstate -> ? -> GPUstate -> Prop := *)
-(* | E_alloc n start gst : (* FIXME: more relaxed definition: one of the free area is chosen *) *)
-(*     hdisj gst (alloc_heap start n) -> *)
-(*     CUDA_eval _ *)
-(*       (alloc n) gst *)
-(*       (Z.of_nat start) (hplus gst (alloc_heap start n)) *)
-(* | E_memCpy ls p h h' gst : *)
-(*     fill_obj ls p h = Some h' -> *)
-(*     CUDA_eval _ *)
-(*       (memCpy ls p) gst *)
-(*       tt h' *)
-(* | E_callKer ker ntrd nblk args gst gst' : *)
-(*     call_kernel gst ker ntrd nblk args gst' ->  *)
-(*     CUDA_eval _ *)
-(*       (callKer ker ntrd nblk args) gst  *)
-(*       tt gst' *)
-(* | E_getRes p n vs gst : *)
-(*     getResFromHeap p n gst = Some vs -> *)
-(*     CUDA_eval _ *)
-(*       (getRes p n) gst *)
-(*       vs gst *)
-(* | E_ret a (v : a) gst : *)
-(*     CUDA_eval _ *)
-(*       (ret v) gst *)
-(*       v gst *)
-(* | E_bind a b (cu : CUDA a) v v' (k : a -> CUDA b) gst gst' gst'' : *)
-(*     CUDA_eval _ cu gst v gst' -> *)
-(*     CUDA_eval _ (k v) gst' v' gst'' -> *)
-(*     CUDA_eval _ (bind _ _ cu k) gst v' gst''. *)
-
-Inductive CUDA_eval : kerEnv -> CUDA -> GPUstate -> GPUstate -> Prop :=
+Inductive HostProg_eval : kerEnv -> HostProg -> GPUstate -> GPUstate -> Prop :=
 | eval_nil kenv gst x e start len :
     henv_get (fst gst) x = start ->
     eval_expr (fst gst) e = len ->
-    CUDA_eval kenv nil gst gst 
+    HostProg_eval kenv nil gst gst 
 | eval_instr kenv i rst gst gst' gst'' :
     Instr_exec kenv i gst gst' ->
-    CUDA_eval kenv rst gst' gst''  ->
-    CUDA_eval kenv (i :: rst) gst gst''.
+    HostProg_eval kenv rst gst' gst''  ->
+    HostProg_eval kenv (i :: rst) gst gst''.
 
 (* Parameter run : forall a, CUDA a -> a. *)
 (* Axiom runCorrect : forall a (cu : CUDA a) gst gst' v, CUDA_eval _ cu gst v gst' <-> run _ cu = v. *)

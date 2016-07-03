@@ -494,8 +494,7 @@ Section Compiler.
            (numVar : nat)
            (aty_env : Env varA (option Sx.Typ) _)
            (host_var_env : Env varA (hostVar * list hostVar) _)
-           (p : Sx.AS)
-    : (CUDA * (hostVar * list hostVar) * list kernel) :=
+           (p : Sx.AS) : Host.Prog :=
     match p with
     | Sx.ALet xa tyxa
               {| Sx.skel_name := skl; Sx.skel_fs := fs; Sx.skel_aes := aes; Sx.skel_les := se |} rest =>
