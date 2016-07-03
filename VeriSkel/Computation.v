@@ -125,9 +125,9 @@ Proof.
   Open Scope string_scope.
 
   (* Reifying type expressions *)
-  Ltac type_reify t k :=
+  Ltac reify_type t k :=
     idtac "type_reify t = " t;
-    let t := lazymatch t with list ?t => t end in
+    let t := lazymatch t with list ?t => t | ?t => t end in
     let rec tac t k :=
         lazymatch t with
         | Z => k Sx.TZ
@@ -140,11 +140,11 @@ Proof.
     tac t k.
 
   Goal False.
-    type_reify (list Z) ltac:(fun ty => pose ty).
+    reify_type (list Z) ltac:(fun ty => pose ty).
   Abort.
   
   (* Phantom type for tracking generated variable names *)
-  Definition VarA (x : varA) (T : Type) := T.
+  Definition TyVar {TyV : Type} (x : TyV) (T : Type) := T.
 
   Goal False.
     pose (fun x : nat => 0).
@@ -157,20 +157,69 @@ Proof.
   Ltac get_name x k :=
     idtac "get_name x =" x;
     lazymatch type of x with
-    | (_ -> Var ?name ?ty) =>
-      type_reify ty ltac:(fun ty' =>
+    | (_ -> TyVar ?name ?ty) =>
+      reify_type ty ltac:(fun ty' =>
+      idtac "get_name name ty' = " name ty';
       k name ty')
     | _ => k (VarA "error") Sx.TZ
     end.
 
+  Ltac collect_paramsE T :=
+    lazymatch T with
+    | (?t1 * ?t2)%type =>
+      let ps1 := collect_paramsE t1 in 
+      let ps2 := collect_paramsE t2 in 
+      eval compute in (ps1 ++ ps2)%list
+    | TyVar ?name ?ty =>
+      reify_type ty ltac:(fun ty =>
+      constr:((name, ty) :: nil))
+    | _ => constr:(@nil (varA * Sx.Typ))
+    end.
+
+  Ltac scalarExpr f n k :=
+    idtac "scalarExpr f = " f;
+    lazymatch f with
+    | _ => k (Sx.ENum 0)
+    end.
+
+  Ltac scalarFunc f n k :=
+    idtac "scalarFunc f = " f;
+    lazymatch f with
+    | (fun (x : ?T1) (y : ?T2) => @?f x y) =>
+      let name := eval cbv in (VarE ("x" ++ nat_to_string n)) in
+      let t := eval cbv beta in (fun (p : T1 * TyVar name T2) => f (fst p) (snd p)) in
+      scalarFunc t (S n) k
+    | (fun (x : ?T) => @f x) =>
+      let ps := collect_paramsE T in
+      scalarExpr f n ltac:(fun res => k (Sx.F ps res))
+    end.
+
+  Ltac lexpr e k :=
+    idtac "lexpr e = " e;
+    lazymatch e with
+    | (fun x => List.length (@?acc x)) =>
+      get_name acc ltac:(fun x _ => k (Sx.LLen x))
+    | (fun x => ?c) =>
+      lazymatch type of c with
+      | nat => k (Sx.LNum (Z.of_nat c))
+      | Z => k (Sx.LNum c)
+      end
+    end.
+
+  Goal False.
+    lexpr (fun _ : unit => 1) ltac:(fun e => pose e).
+  Abort.
+  
   (* ``skelApp'' generate a syntax tree from skeleton application expression.
      ``skelApp'' returns reifyed type of skeleton application and converted syntax tree *)
   Ltac skelApp f k :=
     idtac "skelApp f = " f;
     lazymatch f with
     | (fun (x : ?T) => ret (seq (@?begin x) (@?len x))) =>
+      lexpr begin ltac:(fun begin' =>
+      lexpr len ltac:(fun len' =>
       idtac "match to seq";
-      k Sx.TZ (Sx.Build_SkelExpr "seq" nil nil nil)
+      k Sx.TZ (Sx.Build_SkelExpr "seq" nil nil (begin' :: len' :: nil))))
     | (fun (x : ?T) => ret (zip (@?arr1 x) (@?arr2 x))) =>
       idtac "match to zip";
       get_name arr1 ltac:(fun var1 ty1 =>
@@ -193,7 +242,7 @@ Proof.
       idtac "match do case";
       let T_of_ae := lazymatch type of ae with _ -> comp ?T => T end in
       let name := eval cbv in (VarA ("x" ++ nat_to_string n)) in
-      let c' := eval cbv beta in (fun (x : T * Var name T_of_ae) => c (fst x) (snd x)) in
+      let c' := eval cbv beta in (fun (x : T * TyVar name T_of_ae) => c (fst x) (snd x)) in
       skelApp ae ltac:(fun ty sexp => 
       transform' c' (S n) ltac:(fun c' => k (Sx.ALet name ty sexp c')))
     | (fun (x : ?T) => ret (@?c x)) =>
@@ -201,13 +250,13 @@ Proof.
       get_name c ltac:(fun x ty => k (Sx.ARet x))
     end.
 
-  Ltac collect_params T :=
+  Ltac collect_paramsA T :=
     lazymatch T with
     | (?t1 * ?t2)%type =>
-      let ps1 := collect_params t1 in 
-      let ps2 := collect_params t2 in 
+      let ps1 := collect_paramsA t1 in 
+      let ps2 := collect_paramsA t2 in 
       eval compute in (ps1 ++ ps2)%list
-    | Var ?name _ => constr:((name, Sx.TZ) :: nil)
+    | TyVar ?name _ => constr:((name, Sx.TZ) :: nil)
     | _ => constr:(@nil (varA * Sx.Typ))
     end.
 
@@ -217,10 +266,10 @@ Proof.
     | (fun (x : ?T1) (y : ?T2) => @?f x y) =>
       idtac "match inductive";
       let name := eval cbv in (VarA ("x" ++ nat_to_string n)) in
-      let t := eval cbv beta in (fun (p : T1 * (Var name T2)) => f (fst p) (snd p)) in transform t (S n) k
+      let t := eval cbv beta in (fun (p : T1 * (TyVar name T2)) => f (fst p) (snd p)) in transform t (S n) k
     | (fun (x : ?T) => @?f x) =>
       idtac "match base";
-        let ps := collect_params T in
+        let ps := collect_paramsA T in
         pose T;
         transform' prog n ltac:(fun res => k (ps, res))
     end.
