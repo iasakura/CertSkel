@@ -13,16 +13,21 @@ Definition prog1 : prog :=
   (* let t1 := reduce (fun x y -> x + y) t in *)
   (* t1 *)
   ((VarA "arr", TZ) :: nil,
-   ALet (VarA "t") TZ "map" ((F ((VarE "x", TZ) :: nil)
-                                (EBin Emult
-                                      (EVar (VarE "x") TZ)
-                                      (EVar (VarE "x") TZ) TZ)) :: nil)
-        ((VArr (VarA "arr"), TZ) :: nil) (
-   ALet (VarA "t1") TZ "reduce" ((F ((VarE "x", TZ) :: (VarE "y", TZ) :: nil)
-                                    (EBin Eplus
-                                          (EVar (VarE "x") TZ)
-                                          (EVar (VarE "y") TZ) TZ)) :: nil)
-        ((VArr (VarA "t"), TZ) :: nil) (
+   ALet (VarA "t") TZ
+        (Build_SkelExpr "map" ((F ((VarE "x", TZ) :: nil)
+                                  (EBin Emult
+                                        (EVar (VarE "x") TZ)
+                                        (EVar (VarE "x") TZ) TZ)) :: nil)
+                        ((VArr (VarA "arr"), TZ) :: nil)
+                        nil) (
+   ALet (VarA "t1") TZ
+        (Build_SkelExpr "reduce"
+                        ((F ((VarE "x", TZ) :: (VarE "y", TZ) :: nil)
+                            (EBin Eplus
+                                  (EVar (VarE "x") TZ)
+                                  (EVar (VarE "y") TZ) TZ)) :: nil)
+                        ((VArr (VarA "t"), TZ) :: nil)
+                        nil) (
    ARet (VarA "t1")))).
 
 Definition gen1 := Compiler.compile_prog 1024 24 prog1.
@@ -36,23 +41,32 @@ Definition prog2 :=
   (* maxIdx *)
    ((VarA "arr", TZ) :: nil,
    ALet (VarA "idxs") TZ
-        "map" (F ((VarE "x", TZ) :: nil) (EVar (VarE "x") TZ) :: nil)
-        ((DArr (F ((VarE "i", TZ) :: nil) (EVar (VarE "i") TZ)) (LLen (VarA "arr")), TZ) :: nil) (
+        (Build_SkelExpr
+           "map"
+           (F ((VarE "x", TZ) :: nil) (EVar (VarE "x") TZ) :: nil)
+           ((DArr (F ((VarE "i", TZ) :: nil) (EVar (VarE "i") TZ)) (LLen (VarA "arr")), TZ) :: nil)
+           nil) (
    ALet (VarA "arrIdx") (TTup (TZ :: TZ :: nil))
-        "map" (F ((VarE "i", TZ) :: nil)
-                 (ECons ((EVar (VarE "i") TZ) :: (EA (VarA "arr") (EVar (VarE "i") TZ) TZ) :: nil)
-                        (TTup (TZ :: TZ :: nil))) :: nil)
-        ((VArr (VarA "idxs"), TZ) :: nil) (
+        (Build_SkelExpr
+           "map"
+           (F ((VarE "i", TZ) :: nil)
+              (ECons ((EVar (VarE "i") TZ) :: (EA (VarA "arr") (EVar (VarE "i") TZ) TZ) :: nil)
+                     (TTup (TZ :: TZ :: nil))) :: nil)
+           ((VArr (VarA "idxs"), TZ) :: nil)
+           nil) (
    ALet (VarA "maxIdx") (TTup (TZ :: TZ :: nil))
-        "reduce" (F ((VarE "ix", TTup (TZ :: TZ :: nil)) ::
-                      (VarE "iy", TTup (TZ :: TZ :: nil)) :: nil)
-                     (EIf (EBin Blt
-                                (EPrj (EVar (VarE "ix") (TTup (TZ :: TZ :: nil))) 1 TZ)
-                                (EPrj (EVar (VarE "iy") (TTup (TZ :: TZ :: nil))) 1 TZ) TBool)
-                          (EVar (VarE "ix") (TTup (TZ :: TZ :: nil)))
-                          (EVar (VarE "iy") (TTup (TZ :: TZ :: nil))) (TTup (TZ :: TZ :: nil)))
-                     :: nil)
-        ((VArr (VarA "arrIdx"), (TTup (TZ :: TZ :: nil))) :: nil) (
+        (Build_SkelExpr
+           "reduce"
+           (F ((VarE "ix", TTup (TZ :: TZ :: nil)) ::
+               (VarE "iy", TTup (TZ :: TZ :: nil)) :: nil)
+              (EIf (EBin Blt
+                         (EPrj (EVar (VarE "ix") (TTup (TZ :: TZ :: nil))) 1 TZ)
+                         (EPrj (EVar (VarE "iy") (TTup (TZ :: TZ :: nil))) 1 TZ) TBool)
+                   (EVar (VarE "ix") (TTup (TZ :: TZ :: nil)))
+                   (EVar (VarE "iy") (TTup (TZ :: TZ :: nil))) (TTup (TZ :: TZ :: nil)))
+              :: nil)
+           ((VArr (VarA "arrIdx"), (TTup (TZ :: TZ :: nil))) :: nil)
+           nil) (
    ARet (VarA "maxIdx"))))).
  
 Definition gen2 := Compiler.compile_prog 1024 24 prog2.

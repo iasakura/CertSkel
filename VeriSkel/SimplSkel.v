@@ -141,9 +141,16 @@ Module Syntax.
   | DArr (f : Func) (len : LExp)
   | VArr (xa : varA).
 
+  Record SkelExpr := {
+    skel_name : string;
+    skel_fs : list Func;
+    skel_aes : list (AE * Typ);
+    skel_les : list LExp
+  }.
+
   (* array expressions *)
   Inductive AS :=
-    ALet (va : varA) (ty : Typ) (sk : name) (fs : list Func) (vas : list (AE * Typ)) (ea : AS)
+    ALet (va : varA) (ty : Typ) (se : SkelExpr) (ea : AS)
   | ARet (va : varA).
 
   Definition prog := (list (varA * Typ) * AS)%type.
@@ -261,19 +268,22 @@ Section Semantics.
       (forall i, i < len -> evalFunc aenv (VZ (Z.of_nat i) :: nil) func (f i)) ->
       evalAE aenv (DArr func e) (ls_init 0 len f).
   
-  Inductive evalSK : AEnv (option array) -> name -> list Func -> list (AE * Typ) -> array -> Prop :=
+  Inductive evalSK : AEnv (option array) -> SkelExpr -> array -> Prop :=
   | Eval_map aenv func f ae typ arr len :
       evalAE aenv ae arr ->
       (forall i, i < len -> evalFunc aenv (VZ (Z.of_nat i) :: nil) func (f (VZ (Z.of_nat i)))) ->
-      evalSK aenv "map" (func :: nil) ((ae, typ) :: nil) (map f arr).
+      evalSK aenv {| skel_name := "map";
+                     skel_fs := (func :: nil);
+                     skel_aes := ((ae, typ) :: nil);
+                     skel_les := nil|} (map f arr).
   
   Inductive evalP : AEnv (option array) -> AS -> array -> Prop :=
   | EvalP_ret aenv ax v :
       aenv ax = Some v -> evalP aenv (ARet ax) v
-  | EvalP_alet (aenv : AEnv (option array)) ax ty skl fs ae e2 v1 v2 :
-      evalSK aenv skl fs ae v1 ->
+  | EvalP_alet (aenv : AEnv (option array)) ax ty se e2 v1 v2 :
+      evalSK aenv se v1 ->
       evalP (upd_opt aenv ax v1) e2 v2 ->
-      evalP aenv (ALet ax ty skl fs ae e2) v2.
+      evalP aenv (ALet ax ty se e2) v2.
 End Semantics.
 
 Section typing_rule.

@@ -86,6 +86,7 @@ Proof.
     let t := eval cbv beta in t in
     t.
 
+  (* convert last ``skel e1 e2'' to ``do! t <- skel e1 e2 in t'' *)
   Ltac bind_last term k :=
     idtac "term = " term;
     lazymatch term with
@@ -123,6 +124,7 @@ Proof.
 
   Open Scope string_scope.
 
+  (* Reifying type expressions *)
   Ltac type_reify t k :=
     idtac "type_reify t = " t;
     let t := lazymatch t with list ?t => t end in
@@ -140,7 +142,9 @@ Proof.
   Goal False.
     type_reify (list Z) ltac:(fun ty => pose ty).
   Abort.
-  Definition Var (x : varA) (T : Type) := T.
+  
+  (* Phantom type for tracking generated variable names *)
+  Definition VarA (x : varA) (T : Type) := T.
 
   Goal False.
     pose (fun x : nat => 0).
@@ -149,6 +153,7 @@ Proof.
     end.
   Abort.
 
+  (* get variable name information from type of expression fun (x : T1 * T2 * ..) -> ? *)
   Ltac get_name x k :=
     idtac "get_name x =" x;
     lazymatch type of x with
@@ -158,23 +163,25 @@ Proof.
     | _ => k (VarA "error") Sx.TZ
     end.
 
+  (* ``skelApp'' generate a syntax tree from skeleton application expression.
+     ``skelApp'' returns reifyed type of skeleton application and converted syntax tree *)
   Ltac skelApp f k :=
     idtac "skelApp f = " f;
     lazymatch f with
     | (fun (x : ?T) => ret (seq (@?begin x) (@?len x))) =>
       idtac "match to seq";
-      k Sx.TZ "seq" (@nil Sx.Func) (@nil (Sx.AE * Sx.Typ)%type)
+      k Sx.TZ (Sx.Build_SkelExpr "seq" nil nil nil)
     | (fun (x : ?T) => ret (zip (@?arr1 x) (@?arr2 x))) =>
       idtac "match to zip";
       get_name arr1 ltac:(fun var1 ty1 =>
       get_name arr2 ltac:(fun var2 ty2 =>
       idtac var1 var2;
       k (Sx.TTup (ty1 :: ty2 :: nil))
-        "zip" (@nil Sx.Func) ((Sx.VArr var1, ty1) :: (Sx.VArr var2, ty2) :: nil)))
+        (Sx.Build_SkelExpr "zip" nil ((Sx.VArr var1, ty1) :: (Sx.VArr var2, ty2) :: nil) nil)))
     | (fun (x : ?T) => reduceM ?f (@?arr x)) =>
       idtac "match to reduce";
       get_name arr ltac:(fun arr ty =>
-      k ty "reduce" (@nil Sx.Func) ((Sx.VArr arr, ty) :: nil))
+      k ty (Sx.Build_SkelExpr "reduce" (@nil Sx.Func) ((Sx.VArr arr, ty) :: nil) nil))
     | _ => k Sx.TZ "error" (@nil Sx.Func) (@nil (Sx.AE * Sx.Typ)%type)
     end.
   
@@ -187,8 +194,8 @@ Proof.
       let T_of_ae := lazymatch type of ae with _ -> comp ?T => T end in
       let name := eval cbv in (VarA ("x" ++ nat_to_string n)) in
       let c' := eval cbv beta in (fun (x : T * Var name T_of_ae) => c (fst x) (snd x)) in
-      skelApp ae ltac:(fun ty skel fs aes => 
-      transform' c' (S n) ltac:(fun c' => k (Sx.ALet name ty skel fs aes c')))
+      skelApp ae ltac:(fun ty sexp => 
+      transform' c' (S n) ltac:(fun c' => k (Sx.ALet name ty sexp c')))
     | (fun (x : ?T) => ret (@?c x)) =>
       idtac "match res case";
       get_name c ltac:(fun x ty => k (Sx.ARet x))

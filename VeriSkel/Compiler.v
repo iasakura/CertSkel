@@ -497,7 +497,8 @@ Section Compiler.
            (p : Sx.AS)
     : (CUDA * (hostVar * list hostVar) * list kernel) :=
     match p with
-    | Sx.ALet xa tyxa skl fs aes rest =>
+    | Sx.ALet xa tyxa
+              {| Sx.skel_name := skl; Sx.skel_fs := fs; Sx.skel_aes := aes; Sx.skel_les := se |} rest =>
       let fvs_f := List.fold_right (fun f sa => SA.union (free_av_func f) sa) SA.empty fs in
       let fvs_ae := List.fold_right (fun ae sa => SA.union (free_av_AE (fst ae)) sa) SA.empty aes in
       let fvs := SA.union fvs_f fvs_ae in
