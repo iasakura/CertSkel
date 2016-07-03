@@ -124,10 +124,21 @@ Proof.
 
   Open Scope string_scope.
 
+  (* Phantom type for tracking generated variable names *)
+  Definition TyVar {TyV : Type} (x : TyV) (T : Type) := T.
+
+
+  Ltac simplify_type t := 
+    lazymatch t with
+    | list ?t => simplify_type t
+    | comp ?t => simplify_type t
+    | TyVar _ ?ty => simplify_type ty
+    | ?t => t
+    end.
+
   (* Reifying type expressions *)
   Ltac reify_type t k :=
     idtac "type_reify t = " t;
-    let t := lazymatch t with list ?t => t | ?t => t end in
     let rec tac t k :=
         lazymatch t with
         | Z => k Sx.TZ
@@ -137,14 +148,12 @@ Proof.
           tac ty2 ltac:(fun ty2' =>
           k (Sx.TTup (ty1' :: ty2' :: nil))))
         end in
+    let t := simplify_type t in
     tac t k.
 
   Goal False.
     reify_type (list Z) ltac:(fun ty => pose ty).
   Abort.
-  
-  (* Phantom type for tracking generated variable names *)
-  Definition TyVar {TyV : Type} (x : TyV) (T : Type) := T.
 
   Goal False.
     pose (fun x : nat => 0).
@@ -164,34 +173,136 @@ Proof.
     | _ => k (VarA "error") Sx.TZ
     end.
 
-  Ltac collect_paramsE T :=
+  Ltac collect_params T k :=
+    idtac "collect_params T = " T;
     lazymatch T with
+    | (unit * ?t)%type => 
+      collect_params t k
     | (?t1 * ?t2)%type =>
-      let ps1 := collect_paramsE t1 in 
-      let ps2 := collect_paramsE t2 in 
-      eval compute in (ps1 ++ ps2)%list
+      collect_params t1 ltac:(fun ps1 =>
+      collect_params t2 ltac:(fun ps2 =>
+      idtac "collect_params t1 t2 = " t1 t2;
+      let t := eval compute in (ps1 ++ ps2)%list in k t))
     | TyVar ?name ?ty =>
       reify_type ty ltac:(fun ty =>
-      constr:((name, ty) :: nil))
-    | _ => constr:(@nil (varA * Sx.Typ))
+      k ((name, ty) :: nil))
     end.
 
-  Ltac scalarExpr f n k :=
-    idtac "scalarExpr f = " f;
-    lazymatch f with
-    | _ => k (Sx.ENum 0)
+  Goal False.
+    let t := constr:(unit * TyVar (VarE "xO") (Z * Z) * TyVar (VarE "xSO") (Z * Z))%type in
+    (* let t := constr:(TyVar (VarE "xO") (Z * Z)) in *)
+    collect_params t ltac:(fun t =>
+    pose t).
+  Abort.
+  
+  Goal False.
+    let t := lazymatch O with
+    | (?t : Z) => t
+    end in pose t.
+  Abort.
+  
+  Ltac binOp op k :=
+    match op with
+    | Z.add => k Sx.Eplus
+    | Z.mul => k Sx.Emult
+    | Z.min => k Sx.Emin
+    | Z.ltb => k Sx.Blt
+    | Z.eqb => k Sx.BEq
     end.
 
+  Ltac traverseTyVar acc k :=
+    idtac "traverseTyVar: T acc = " acc;
+    let rec tac acc k :=
+        idtac "tac in traverseTyVar: acc = " acc;
+        lazymatch acc with
+        | (fun (x : ?T) => x) => k T
+        | (fun (x : ?T) => myfst (@?acc x)) =>
+          tac acc ltac:(fun T =>
+          idtac "fst case of tac in traverseTyVar: T = " T;
+          lazymatch T with
+          | (?T * _)%type => k T
+          end)
+        | (fun (x : ?T) => mysnd (@?acc x)) =>
+          tac acc ltac:(fun T =>
+          idtac "snd case of tac in traverseTyVar: T = " T;
+          lazymatch T with
+          | (_ * ?T)%type => k T
+          end)
+        end in
+    tac acc ltac:(fun T =>
+    idtac "post processing in traverseTyVar: T = " T;
+    lazymatch T with
+    | TyVar ?name _ => k name
+    end).
+  
+  Ltac scalarExpr n f k :=
+    idtac "scalarExpr: f = " f;
+    let resTy := match type of f with _ -> ?Ty => Ty end in
+    idtac "scalarExpr: resTy = " resTy;
+    reify_type resTy ltac:(fun resTy' =>
+    idtac "scalarExpr: resTy' = " resTy';
+    match f with
+    | (fun _ => ?c) =>
+      idtac "scalarExpr: matched to constant case";
+      lazymatch type of c with Z => k n (Sx.ENum c) end
+    | (fun (x : ?T) => let y := @?t1 x in @?t2 x y) =>
+      idtac "scalarExpr: matched to let case";
+      lazymatch type of t1 with
+      | _ -> ?Ty =>
+        scalarExpr n t1 ltac:(fun n t1' =>
+        let y' := constr:(VarE ("x" ++ nat_to_string n)) in
+        scalarExpr (S n) (fun (p : T * TyVar y' Ty) => t2 (myfst p) (mysnd p)) ltac:(fun n t2' =>
+        k n (Sx.ELet y' t1' t2' resTy')))
+      end
+    | (fun (x : ?T) => if @?cond x then @?th x else @?el x) =>
+      idtac "scalarExpr: matched to if case";
+      scalarExpr n cond ltac:(fun n cond' =>
+      idtac "scalarExpr cond' = " cond';
+      scalarExpr n th ltac:(fun n th' =>
+      idtac "scalarExpr: th' = " th';
+      scalarExpr n el ltac:(fun n el' =>
+      idtac "scalarExpr: el' = " el';
+      k n (Sx.EIf cond' th' el' resTy'))))
+    | (fun (x : ?T) => ?op (@?e1 x) (@?e2 x)) =>
+      idtac "scalarExpr: matched to binop case";
+      binOp op ltac:(fun op' =>
+      scalarExpr n e1 ltac:(fun n e1' =>
+      scalarExpr n e2 ltac:(fun n e2' =>
+      k n (Sx.EBin op' e1' e2' resTy'))))
+    | (fun (x : ?T) => @fst _ _ (@?e x)) =>
+      idtac "scalarExpr: matched to fst case e =" e;
+      scalarExpr n e ltac:(fun n e' =>
+      idtac "scalarExpr: e' = " e';
+      k n (Sx.EPrj e' 0%nat resTy'))
+    | (fun (x : ?T) => @snd _ _ (@?e x)) =>
+      idtac "scalarExpr: matched to snd case e =" e;
+      scalarExpr n e ltac:(fun n e' =>
+      k n (Sx.EPrj e' 1%nat resTy'))
+    | (fun (x : ?T) => ret (@?e x)) =>
+      scalarExpr n e k
+    | (fun (x : ?T) => (@?e x)) =>
+      traverseTyVar e ltac:(fun name => idtac "id case in scalarExpr: name = " name; k n (Sx.EVar name resTy'))
+    end).
+
+  Goal False.
+    let t := constr:((fun p : unit * TyVar (VarE "xO") (Z * Z) * TyVar (VarE "xSO") (Z * Z) =>  ret (mysnd (myfst p)))) in
+    scalarExpr 0%nat t ltac:(fun _ t => pose t).
+  Abort.
+  
   Ltac scalarFunc f n k :=
     idtac "scalarFunc f = " f;
     lazymatch f with
     | (fun (x : ?T1) (y : ?T2) => @?f x y) =>
+      idtac "scalarFunc: matched to inductive case";
       let name := eval cbv in (VarE ("x" ++ nat_to_string n)) in
-      let t := eval cbv beta in (fun (p : T1 * TyVar name T2) => f (fst p) (snd p)) in
+      let t := eval cbv beta in (fun (p : T1 * TyVar name T2) => f (myfst p) (mysnd p)) in
       scalarFunc t (S n) k
-    | (fun (x : ?T) => @f x) =>
-      let ps := collect_paramsE T in
-      scalarExpr f n ltac:(fun res => k (Sx.F ps res))
+    | (fun (x : ?T) => @?f x) =>
+      idtac "scalarFunc: matched to base case";
+      idtac "scalarFunc: T = " T;
+      collect_params T ltac:(fun ps =>
+      idtac "scalarFunc: ps = " ps;
+      scalarExpr n f ltac:(fun _ res => k (Sx.F ps res)))
     end.
 
   Ltac lexpr e k :=
@@ -230,7 +341,8 @@ Proof.
     | (fun (x : ?T) => reduceM ?f (@?arr x)) =>
       idtac "match to reduce";
       get_name arr ltac:(fun arr ty =>
-      k ty (Sx.Build_SkelExpr "reduce" (@nil Sx.Func) ((Sx.VArr arr, ty) :: nil) nil))
+      scalarFunc (fun _ : unit => f) 0%nat ltac:(fun f =>
+      k ty (Sx.Build_SkelExpr "reduce" (f :: nil) ((Sx.VArr arr, ty) :: nil) nil)))
     | _ => k Sx.TZ "error" (@nil Sx.Func) (@nil (Sx.AE * Sx.Typ)%type)
     end.
   
@@ -242,7 +354,7 @@ Proof.
       idtac "match do case";
       let T_of_ae := lazymatch type of ae with _ -> comp ?T => T end in
       let name := eval cbv in (VarA ("x" ++ nat_to_string n)) in
-      let c' := eval cbv beta in (fun (x : T * TyVar name T_of_ae) => c (fst x) (snd x)) in
+      let c' := eval cbv beta in (fun (x : T * TyVar name T_of_ae) => c (myfst x) (mysnd x)) in
       skelApp ae ltac:(fun ty sexp => 
       transform' c' (S n) ltac:(fun c' => k (Sx.ALet name ty sexp c')))
     | (fun (x : ?T) => ret (@?c x)) =>
@@ -250,15 +362,15 @@ Proof.
       get_name c ltac:(fun x ty => k (Sx.ARet x))
     end.
 
-  Ltac collect_paramsA T :=
-    lazymatch T with
-    | (?t1 * ?t2)%type =>
-      let ps1 := collect_paramsA t1 in 
-      let ps2 := collect_paramsA t2 in 
-      eval compute in (ps1 ++ ps2)%list
-    | TyVar ?name _ => constr:((name, Sx.TZ) :: nil)
-    | _ => constr:(@nil (varA * Sx.Typ))
-    end.
+  (* Ltac collect_paramsA T := *)
+  (*   lazymatch T with *)
+  (*   | (?t1 * ?t2)%type => *)
+  (*     let ps1 := collect_paramsA t1 in  *)
+  (*     let ps2 := collect_paramsA t2 in  *)
+  (*     eval compute in (ps1 ++ ps2)%list *)
+  (*   | TyVar ?name _ => constr:((name, Sx.TZ) :: nil) *)
+  (*   | _ => constr:(@nil (varA * Sx.Typ)) *)
+  (*   end. *)
 
   Ltac transform prog n k :=
     idtac "transform prog = " prog;
@@ -266,12 +378,12 @@ Proof.
     | (fun (x : ?T1) (y : ?T2) => @?f x y) =>
       idtac "match inductive";
       let name := eval cbv in (VarA ("x" ++ nat_to_string n)) in
-      let t := eval cbv beta in (fun (p : T1 * (TyVar name T2)) => f (fst p) (snd p)) in transform t (S n) k
+      let t := eval cbv beta in (fun (p : T1 * (TyVar name T2)) => f (myfst p) (mysnd p)) in transform t (S n) k
     | (fun (x : ?T) => @?f x) =>
       idtac "match base";
-        let ps := collect_paramsA T in
+        collect_params T ltac:(fun ps =>
         pose T;
-        transform' prog n ltac:(fun res => k (ps, res))
+        transform' prog n ltac:(fun res => k (ps, res)))
     end.
   
   lazymatch goal with
@@ -281,3 +393,9 @@ Proof.
   end.
   
   exists p.
+(* Inductive SOp : Set := *)
+(*     Eplus : Sx.SOp *)
+(*   | Emult : Sx.SOp *)
+(*   | Emin : Sx.SOp *)
+(*   | BEq : Sx.SOp *)
+(*   | Blt : Sx.SOp *)
