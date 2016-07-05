@@ -5,45 +5,19 @@ Require Import Monad.
 Require Import LibTactics.
 Open Scope list_scope.
 
-Definition comp := option.
-Instance Monad_comp : Monad comp := option_monad.
-Definition mapM {A B : Type} (f : A -> comp B) (xs : list A) := sequence (List.map f xs).
-
-Definition lift_op {A : Type} (f : A -> A -> comp A) : comp A -> comp A -> comp A :=
-  fun x y => match x, y with
-             | Some x, Some y => (f x y)
-             | Some x, None | None, Some x => Some x
-             | None, None => None
-             end.
-
-Definition reduceM {A : Type} (f : A -> A -> comp A) (xs : list A) : comp (list A) :=
-  match List.fold_right (lift_op f) None (List.map Some xs) with
-  | Some x => ret (x :: nil)
-  | None => None
-  end.
-
-Definition zip {A B : Type} := @List.combine A B.
-
-Fixpoint nth_error {A : Type} (l:list A) (n:nat) : comp A :=
-  match n, l with
-  | O, x :: _ => Some x
-  | S n, _ :: l => nth_error l n
-  | _, _ => None
-  end.
-
-Definition seq s l := map Z.of_nat (seq s l).
-
 Open Scope Z_scope.
+
+Require Import SkelLib.
 
 Definition max_idx (arr : list Z) : comp (list (Z * Z)) :=
   reduceM (fun x y => if (fst x) <? (fst y) then ret x else ret y) (zip arr (seq 0 (length arr))).
 
-Module Sx := Syntax.
-Definition rel (p : Sx.prog) (f : list Z -> comp (list (Z * Z))) : Prop := True.
+Notation equiv := equiv1.
 
-Lemma ext_fun p f g : (forall x, f x = g x) -> rel p f -> rel p g.
+Lemma ext_fun {T U : Type} (p : Sx.prog) (f g : list T -> comp (list U)) :
+  (forall x, f x = g x) -> equiv f p -> equiv g p.
 Proof.
-  unfold rel; tauto.
+  unfold equiv; intros Heq; intros; rewrite <-Heq; eauto.
 Qed.
 
 Lemma change_spec {A : Type} (P Q : A -> Prop) : (forall x, P x -> Q x) -> {x : A | P x} -> {x : A | Q x}.
@@ -284,7 +258,7 @@ Ltac scalarExpr n f k :=
   end).
 
 Goal False.
-  let t := constr:((fun p : unit * TyVar (VarE "xO") (Z * Z) * TyVar (VarE "xSO") (Z * Z) =>  ret (mysnd (myfst p)))) in
+  let t := constr:((fun p : unit * TyVar (VarE "xO") (Z * Z) * TyVar (VarE "xSO") (Z * Z) => ret (mysnd (myfst p)) : comp _)) in
   scalarExpr 0%nat t ltac:(fun _ t => pose t).
 Abort.
 
@@ -385,13 +359,14 @@ Ltac transform prog n k :=
       transform' prog n ltac:(fun res => k (ps, res)))
   end.
 
-Goal {p : Sx.prog | rel p max_idx}.
+Goal {p : Sx.prog | equiv max_idx p}.
 Proof.
   unfold max_idx.
   eapply change_spec; [intros; eapply ext_fun; [intros|]|].
 
   rewrite (let_lift1 _ (zip _ _)).
-  cutrewrite (ret (zip x0 (seq 0 (length x0))) = do! t := ret (seq 0 (length x0)) in ret (zip x0 t)); [|eauto].
+  cutrewrite (ret (zip x0 (seq 0 (length x0))) =
+              (do! t := ret (seq 0 (length x0)) in ret (zip x0 t) : comp _)); [|eauto].
 
   repeat lazymatch goal with
   | [|- context [do! t := do! u := ret ?ae in @?f u in @?g t]] => 
@@ -413,11 +388,60 @@ Proof.
   cbv beta.
   
   lazymatch goal with
-  | [|- { x : Sx.prog  | rel x ?prog } ] =>
+  | [|- { x : Sx.prog  | equiv ?prog x } ] =>
     let prog := constr:(fun (_ : unit) => prog) in
-    transform prog O ltac:(fun res => pose res)
+    transform prog O ltac:(fun res => exists res)
   end.
-  
-  exists p.
-  unfold rel; auto.
+
+  unfold equiv; introv Hprem1 Hprem2.
+  split; intros H.
+  - (* apply the input *)
+    econstructor; [simpl; reflexivity|simpl].
+
+    repeat lazymatch type of H with
+    | ((do!x := ?t in @?rest x) = Some _) => 
+      let y := fresh "x" in
+      let Heq := fresh "Heq" in
+      destruct t as [y|] eqn:Heq; [|inversion H];
+      let t := eval cbv beta in (do! x := Some y in rest x) in
+      cutrewrite (t = rest y) in H; [|eauto]
+    end.
+      
+    Lemma equivArrayZ ls : 
+      EqSI.equivArray Z ls (map VZ ls).
+    Proof.
+      induction ls; constructor; eauto.
+      constructor.
+    Qed.
+    Lemma equivArrayTup T U ls1 arr1 ls2 arr2 :
+      EqSI.equivArray T ls1 arr1 ->
+      EqSI.equivArray U ls2 arr2 ->
+      EqSI.equivArray (T * U) (zip ls1 ls2) (map toVTup (zip arr1 arr2)).
+    Proof.
+      revert arr1 ls2 arr2; induction ls1; introv H1 H2.
+      - inverts H1; simpl; constructor.
+      - inverts H1; simpl; destruct ls2, arr2; simpl; try first [constructor | inverts H2].
+        + inverts H2; unfold toVTup; simpl; constructor; eauto.
+        + inverts H2; apply IHls1; eauto.
+    Qed.
+    Hint Resolve equivArrayZ equivArrayTup.
+    econstructor.
+    (* seq case *)
+    { econstructor; try reflexivity; eauto. }
+    econstructor.
+    (* zip case *)
+    { repeat econstructor; eauto.
+      apply equivArrayTup; eauto. }
+      
+    econstructor.
+    (* reduce case *)
+    { econstructor.
+      - econstructor; reflexivity.
+      - eauto.
+      - econstructor; intros.
+        
+        intros.
+        split; intros.
+        instantiate (1 := (fun x y1 : Z * Z => if fst x <? fst y1 then ret x else ret y1)).
+
 Defined.

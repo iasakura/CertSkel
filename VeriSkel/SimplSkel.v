@@ -7,6 +7,7 @@ Require Import LibTactics.
 Require Import Psatz.
 Require Import Monad.
 Require Import MyEnv.
+Require Import SkelLib.
 Definition name := string. 
 
 (* variables for scalar expressions/arrays *)
@@ -156,12 +157,26 @@ Module Syntax.
   Definition prog := (list (varA * Typ) * AS)%type.
 End Syntax.
 
+(* scalar/array values*)
+Inductive SVal : Set :=
+| VB (b : bool) | VZ (n : Z) | VTup (vs : list SVal).
+Definition array := list SVal.
+
+Module EqSI.
+  Inductive equivVal : forall T, T -> SVal -> Prop :=
+  | equivZ n : equivVal Z n (VZ n)
+  | equivB b : equivVal bool b (VB b)
+  | equivTup T1 T2 t1 t2 v1 v2 :
+      equivVal T1 t1 v1 ->
+      equivVal T2 t2 v2 ->
+      equivVal (T1 * T2) (t1, t2) (VTup (v1 :: v2 :: nil)).
+
+  Definition equivArray (T : Type) (ls : list T) (arr : array) : Prop :=
+    List.Forall2 (fun x y => equivVal T x y) ls arr.
+End EqSI.  
+
 Section Semantics.
   Import Syntax.
-  (* scalar/array values*)
-  Inductive SVal : Set :=
-  | VB (b : bool) | VZ (n : Z) | VTup (vs : list SVal).
-  Definition array := list SVal.
 
   (* environments for variables *)
   Definition AEnv (A : Type) := Env varA A _.
@@ -180,11 +195,10 @@ Section Semantics.
     Variable aenv : AEnv (option array).
 
     (* semantics of scalar expressions *)
-    Inductive evalSE : Env varE (option SVal) _  -> SExp -> SVal  -> Prop :=
+    Inductive evalSE : Env varE (option SVal) _  -> SExp -> SVal -> Prop :=
     | EvalSE_var senv sx v ty :
         senv sx = Some v -> evalSE senv (EVar sx ty) v
-    | EvalSE_Z senv n :
-        evalSE senv (ENum n) (VZ n)
+    | EvalSE_Z senv n : evalSE senv (ENum n) (VZ n)
     | EvalSE_elet senv sx e1 e2 v1 v2 ty:
         evalSE senv e1 v1 ->
         evalSE (upd_opt senv sx v1) e2 v2 ->
@@ -226,7 +240,8 @@ Section Semantics.
         evalTup senv (e :: es) (v :: vs).
 
     (* semantics of functions *)
-    Fixpoint bind_vars (xs : list (varE * Typ)) (vs : list SVal) :=
+    Fixpoint bind_vars {varTy V : Type} `{eq_type varTy}
+             (xs : list (varTy * Typ)) (vs : list V) : option (Env varTy (option V) _)  :=
       match xs, vs with
       | nil, nil => Some emp_opt
       | ((x, _) :: xs), (v :: vs) =>
@@ -249,14 +264,17 @@ Section Semantics.
 
   Definition Z_to_nat (n : Z) : option nat := if Z_le_dec 0 n then Some (Z.to_nat n) else None.
 
-  Fixpoint evalLExp (aenv : Env varA (option nat) _) (le : LExp) : option nat :=
+  Fixpoint evalLExp (aenv : Env varA (option array) _) (le : LExp) : option nat :=
     match le with
     | LNum n => Z_to_nat n
     (* | LBin op le1 le2 => *)
     (*   let! v1 := evalLExp aenv le1 in *)
     (*   let! v2 := evalLExp aenv le2 in *)
     (*   Some (op v1 v2) *)
-    | LLen xa => aenv xa
+    | LLen xa => match aenv xa with
+                 | Some a => Some (length a)
+                 | None => None
+                 end
     end.
 
   Inductive evalAE (aenv : AEnv (option array)) : AE -> array -> Prop :=
@@ -264,26 +282,77 @@ Section Semantics.
       aenv xa = Some arr ->
       evalAE aenv (VArr xa) arr
   | EvalAE_DArr func f e len :
-      evalLExp (fun x => option_map (@length _) (aenv x)) e = Some len ->
+      evalLExp aenv e = Some len ->
       (forall i, i < len -> evalFunc aenv (VZ (Z.of_nat i) :: nil) func (f i)) ->
       evalAE aenv (DArr func e) (ls_init 0 len f).
-  
+
+  Definition toVTup (xy : SVal * SVal) := VTup (fst xy :: snd xy :: nil).
+
+  Definition equivFun1 (T U : Type) (f : T -> comp U) aenv (func : Syntax.Func) :=
+    forall inpS outS inpI outI,
+      EqSI.equivVal T inpS inpI -> EqSI.equivVal U outS outI ->
+      f inpS = Some outS <-> evalFunc aenv (inpI :: nil) func outI.
+  Definition equivFun2 (T U V : Type) (f : T -> U -> comp V) aenv (func : Syntax.Func) :=
+    forall inpS1 inpS2 outS inpI1 inpI2 outI,
+      EqSI.equivVal T inpS1 inpI1 ->
+      EqSI.equivVal U inpS2 inpI2 ->
+      EqSI.equivVal V outS outI ->
+      f inpS1 inpS2 = Some outS <-> evalFunc aenv (inpI1 :: inpI2 :: nil) func outI.
+
   Inductive evalSK : AEnv (option array) -> SkelExpr -> array -> Prop :=
-  | Eval_map aenv func f ae typ arr len :
+  | Eval_seq aenv start s len l res :
+      evalLExp aenv start = Some s ->
+      evalLExp aenv len = Some l ->
+      EqSI.equivArray Z (seq s l) res ->
+      evalSK aenv {| skel_name := "seq";
+                     skel_fs := nil;
+                     skel_aes := nil;
+                     skel_les := start :: len :: nil |} res
+  | Eval_zip aenv ae1 ae2 T ls1 arr1 U ls2 arr2 ty1 ty2 res :
+      evalAE aenv ae1 arr1 ->
+      EqSI.equivArray T ls1 arr1 ->
+      evalAE aenv ae2 arr2 ->
+      EqSI.equivArray U ls2 arr2 ->
+      EqSI.equivArray (T * U) (zip ls1 ls2) res ->
+      evalSK aenv {| skel_name := "zip";
+                     skel_fs := nil;
+                     skel_aes := (ae1, ty1) :: (ae2, ty2) :: nil;
+                     skel_les := nil |} res
+  | Eval_map aenv func T U f ae typ ls ls' arr res :
       evalAE aenv ae arr ->
-      (forall i, i < len -> evalFunc aenv (VZ (Z.of_nat i) :: nil) func (f (VZ (Z.of_nat i)))) ->
+      EqSI.equivArray T ls arr ->
+      equivFun1 T U f aenv func ->
+      mapM f ls = Some ls' ->
+      EqSI.equivArray U ls' res ->
       evalSK aenv {| skel_name := "map";
                      skel_fs := (func :: nil);
                      skel_aes := ((ae, typ) :: nil);
-                     skel_les := nil|} (map f arr).
+                     skel_les := nil|} res
+  | Eval_reduce T aenv func (f : T -> T -> comp T) ae typ ls ls' arr res :
+      evalAE aenv ae arr ->
+      EqSI.equivArray T ls arr ->
+      equivFun2 T T T f aenv func ->
+      reduceM f ls = Some ls' ->
+      EqSI.equivArray T ls' res ->
+      (* (forall v1 v2 u, evalFunc aenv (v1 :: v2 :: nil) func u <-> f v1 v2 = Some u) -> *)
+      evalSK aenv {| skel_name := "reduce";
+                     skel_fs := (func :: nil);
+                     skel_aes := ((ae, typ) :: nil);
+                     skel_les := nil|} res.
   
-  Inductive evalP : AEnv (option array) -> AS -> array -> Prop :=
+  Inductive evalAS : AEnv (option array) -> AS -> array -> Prop :=
   | EvalP_ret aenv ax v :
-      aenv ax = Some v -> evalP aenv (ARet ax) v
+      aenv ax = Some v -> evalAS aenv (ARet ax) v
   | EvalP_alet (aenv : AEnv (option array)) ax ty se e2 v1 v2 :
       evalSK aenv se v1 ->
-      evalP (upd_opt aenv ax v1) e2 v2 ->
-      evalP aenv (ALet ax ty se e2) v2.
+      evalAS (upd_opt aenv ax v1) e2 v2 ->
+      evalAS aenv (ALet ax ty se e2) v2.
+  
+  Inductive applyProg : prog -> list array -> array -> Prop :=
+    AppProg pars as_ inps aenv out :
+      bind_vars pars inps = Some aenv ->
+      evalAS aenv as_ out ->
+      applyProg (pars, as_) inps out.
 End Semantics.
 
 Section typing_rule.
@@ -427,3 +496,8 @@ Section typing_rule.
       has_type atyenv env e ty ->
       has_type_es atyenv env (e :: es) (ty :: tys).
 End typing_rule.
+  
+Definition equiv1 {T U : Type} (f : list T -> comp (list U)) (p : Syntax.prog) : Prop := 
+  forall (arrS : list T) (arrI : array) (resS : list U) (resI : array),
+    EqSI.equivArray T arrS arrI -> EqSI.equivArray U resS resI ->
+    (f arrS = Some resS <-> applyProg p (arrI :: nil) resI).
