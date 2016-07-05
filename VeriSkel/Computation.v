@@ -15,12 +15,6 @@ Definition max_idx (arr : list Z) : comp (list (Z * Z)) :=
 
 (* Notation equiv := equiv1. *)
 
-(* Lemma ext_fun {T U : Type} (p : Sx.prog) (f g : list T -> comp (list U)) : *)
-(*   (forall x, f x = g x) -> equiv f p -> equiv g p. *)
-(* Proof. *)
-(*   unfold equiv; intros Heq; intros; rewrite <-Heq; eauto. *)
-(* Qed. *)
-
 Lemma change_spec {A : Type} (P Q : A -> Prop) : (forall x, P x -> Q x) -> {x : A | P x} -> {x : A | Q x}.
 Proof.
   intros ? [? ?]; eexists; eauto.
@@ -93,7 +87,7 @@ Ltac bind_last term k :=
   end.
 
 Ltac dest :=
-  simpl; repeat match goal with
+  unfold bind, ret; simpl; repeat match goal with
   | [|- context [bind_opt _ _ ?t _]] => destruct t; simpl
   end; eauto.
 
@@ -502,12 +496,32 @@ Goal False.
   Eval simpl in Skel.asDenote (Skel.TZ :: nil) _ prog.
 Abort.  
 
-Goal {p : Sx.prog | equiv max_idx p}.
+Arguments ret : simpl never.
+Arguments bind : simpl never.
+
+Definition equiv1 {T U : Skel.Typ}
+           (p_i : Skel.AS (T :: nil) U)
+           (p_g : list (Skel.typDenote T) -> comp (list (Skel.typDenote U))) :=
+  forall (x : list (Skel.typDenote T)),
+    p_g x =  Skel.asDenote _ _ (p_i) (HCons x HNil).
+
+Lemma ext_fun {T U : Skel.Typ} (p : Skel.AS (T :: nil) U) f g :
+  (forall x, f x = g x) -> equiv1 p f -> equiv1 p g.
+Proof.
+  unfold equiv1; intros Heq; intros; rewrite <-Heq; eauto.
+Qed.
+
+Goal {p : Skel.AS (Skel.TZ :: nil) (Skel.TTup Skel.TZ Skel.TZ) |
+      equiv1 p (max_idx)}.
 Proof.
   unfold max_idx.
+  simpl in *.
   eapply change_spec; [intros; eapply ext_fun; [intros|]|].
-
+  simpl in *.
   rewrite (let_lift1 _ (zip _ _)).
+  lazymatch goal with
+  | [|- _ = do! t := ?ae in @?res t] => pose ae
+  end.
   cutrewrite (ret (zip x0 (seq 0 (length x0))) =
               (do! t := ret (seq 0 (length x0)) in ret (zip x0 t) : comp _)); [|eauto].
 
@@ -531,60 +545,14 @@ Proof.
   cbv beta.
   
   lazymatch goal with
-  | [|- { x : Sx.prog  | equiv ?prog x } ] =>
-    let prog := constr:(fun (_ : unit) => prog) in
-    transform prog O ltac:(fun res => exists res)
+  | [|- { x : Skel.AS _ _  | equiv1 x ?prog } ] =>
+    transform prog ltac:(fun res => exists res)
   end.
 
-  unfold equiv; introv Hprem1 Hprem2.
-  split; intros H.
-  - (* apply the input *)
-    econstructor; [simpl; reflexivity|simpl].
-
-    repeat lazymatch type of H with
-    | ((do!x := ?t in @?rest x) = Some _) => 
-      let y := fresh "x" in
-      let Heq := fresh "Heq" in
-      destruct t as [y|] eqn:Heq; [|inversion H];
-      let t := eval cbv beta in (do! x := Some y in rest x) in
-      cutrewrite (t = rest y) in H; [|eauto]
-    end.
-      
-    Lemma equivArrayZ ls : 
-      EqSI.equivArray Z ls (map VZ ls).
-    Proof.
-      induction ls; constructor; eauto.
-      constructor.
-    Qed.
-    Lemma equivArrayTup T U ls1 arr1 ls2 arr2 :
-      EqSI.equivArray T ls1 arr1 ->
-      EqSI.equivArray U ls2 arr2 ->
-      EqSI.equivArray (T * U) (zip ls1 ls2) (map toVTup (zip arr1 arr2)).
-    Proof.
-      revert arr1 ls2 arr2; induction ls1; introv H1 H2.
-      - inverts H1; simpl; constructor.
-      - inverts H1; simpl; destruct ls2, arr2; simpl; try first [constructor | inverts H2].
-        + inverts H2; unfold toVTup; simpl; constructor; eauto.
-        + inverts H2; apply IHls1; eauto.
-    Qed.
-    Hint Resolve equivArrayZ equivArrayTup.
-    econstructor.
-    (* seq case *)
-    { econstructor; try reflexivity; eauto. }
-    econstructor.
-    (* zip case *)
-    { repeat econstructor; eauto.
-      apply equivArrayTup; eauto. }
-      
-    econstructor.
-    (* reduce case *)
-    { econstructor.
-      - econstructor; reflexivity.
-      - eauto.
-      - econstructor; intros.
-        
-        intros.
-        split; intros.
-        instantiate (1 := (fun x y1 : Z * Z => if fst x <? fst y1 then ret x else ret y1)).
-
+  unfold equiv1; simpl; intros; auto.
+  unfold ret, bind; simpl.
+  rewrite Nat2Z.id.
+  f_equal. f_equal.
+  repeat (let t := fresh "t" in extensionality t).
+  destruct (_ <? _); auto.
 Defined.
