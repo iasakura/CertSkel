@@ -163,7 +163,7 @@ Module Skel.
 
   Inductive AE : list Typ -> Typ -> Type :=
   | VArr GA t : member t GA -> AE GA t
-  | DArr GA cod : SExp GA (TZ :: nil) cod -> LExp GA TZ -> AE GA cod.
+  | DArr GA cod : Func GA (Fun1 TZ cod) -> LExp GA TZ -> AE GA cod.
 
   Definition aeDenote GA t (ae : AE GA t) :
     hlist aTypDenote GA -> comp (aTypDenote t).
@@ -172,7 +172,7 @@ Module Skel.
     | VArr _ _ x => fun sa => ret (hget sa x)
     | DArr _ _ f len => fun sa => _
     end).
-      pose (fun i => sexpDenote _ _ _ f sa (HCons i HNil)) as f'.
+      pose (fun i => funcDenote _ _ f sa i) as f'.
       pose (lexpDenote _ _ len sa) as n.
       apply (mapM f' (seq 0 (Z.to_nat n))).
   Defined.

@@ -363,18 +363,15 @@ Definition gen {T} (f : Z -> comp T) (len : Z) :=
 Ltac reifyAE GA f k :=
   idtac "reifyAE f = " f;
   lazymatch f with
-  | (fun (x : ?T) => gen (@?f x) (@?len x)) =>
+  | (fun (x : ?T) => gen ?f (@?len x)) =>
     idtac "match to gen case";
     idtac "reifyAE: f = " f;
     idtac "reifyAE: len = " len;
-    lazymatch type of f with
-    | unit -> Z -> ?U =>
-      let f := eval cbv beta in (fun x : (unit * Z) => (f (myfst x) (mysnd x))) in
-      scalarExpr GA (Skel.TZ :: nil) f ltac:(fun f' =>
-      lexpr GA len ltac:(fun l =>
-      idtac "reifyAE: f' l =" f' l;
-      k (Skel.DArr _ _ f' l)))
-    end
+    scalarFunc GA f ltac:(fun f' =>
+    idtac "reifyAE: f' = " f';                            
+    lexpr GA len ltac:(fun l =>
+    idtac "reifyAE: f' l =" f' l;
+    k (Skel.DArr _ _ f' l)))
   | (fun (x : ?T) => (@?acc x)) =>
     idtac "reifyAE: match to length case";
     idtac "reifyAE acc = " acc;
