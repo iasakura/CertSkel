@@ -1,8 +1,9 @@
 Require Import GPUCSL.
 Require Import Skel_lemma.
-Require Import Host SimplSkel Compiler.
+(* Require Import Host SimplSkel Compiler. *)
 Require Import Monad.
 Require Import LibTactics.
+Require Import TypedTerm.
 Open Scope list_scope.
 
 Open Scope Z_scope.
@@ -12,13 +13,13 @@ Require Import SkelLib.
 Definition max_idx (arr : list Z) : comp (list (Z * Z)) :=
   reduceM (fun x y => if (fst x) <? (fst y) then ret x else ret y) (zip arr (seq 0 (length arr))).
 
-Notation equiv := equiv1.
+(* Notation equiv := equiv1. *)
 
-Lemma ext_fun {T U : Type} (p : Sx.prog) (f g : list T -> comp (list U)) :
-  (forall x, f x = g x) -> equiv f p -> equiv g p.
-Proof.
-  unfold equiv; intros Heq; intros; rewrite <-Heq; eauto.
-Qed.
+(* Lemma ext_fun {T U : Type} (p : Sx.prog) (f g : list T -> comp (list U)) : *)
+(*   (forall x, f x = g x) -> equiv f p -> equiv g p. *)
+(* Proof. *)
+(*   unfold equiv; intros Heq; intros; rewrite <-Heq; eauto. *)
+(* Qed. *)
 
 Lemma change_spec {A : Type} (P Q : A -> Prop) : (forall x, P x -> Q x) -> {x : A | P x} -> {x : A | Q x}.
 Proof.
@@ -114,12 +115,12 @@ Ltac reify_type t k :=
   idtac "type_reify t = " t;
   let rec tac t k :=
       lazymatch t with
-      | Z => k Sx.TZ
-      | bool => k Sx.TBool
+      | Z => k Skel.TZ
+      | bool => k Skel.TBool
       | (?ty1 * ?ty2)%type =>
         tac ty1 ltac:(fun ty1' =>
         tac ty2 ltac:(fun ty2' =>
-        k (Sx.TTup (ty1' :: ty2' :: nil))))
+        k (Skel.TTup ty1' ty2')))
       end in
   let t := simplify_type t in
   tac t k.
@@ -136,6 +137,8 @@ Goal False.
 Abort.
 
 (* get variable name information from type of expression fun (x : T1 * T2 * ..) -> ? *)
+Notation VarA := id.
+Notation VarE := id.
 Ltac get_name x k :=
   idtac "get_name x =" x;
   lazymatch type of x with
@@ -143,7 +146,7 @@ Ltac get_name x k :=
     reify_type ty ltac:(fun ty' =>
     idtac "get_name name ty' = " name ty';
     k name ty')
-  | _ => k (VarA "error") Sx.TZ
+  | _ => k (VarA "error") Skel.TZ
   end.
 
 Ltac collect_params T k :=
@@ -176,11 +179,11 @@ Abort.
 
 Ltac binOp op k :=
   match op with
-  | Z.add => k Sx.Eplus
-  | Z.mul => k Sx.Emult
-  | Z.min => k Sx.Emin
-  | Z.ltb => k Sx.Blt
-  | Z.eqb => k Sx.BEq
+  | Z.add => k Skel.Eplus
+  | Z.mul => k Skel.Emult
+  | Z.min => k Skel.Emin
+  | Z.ltb => k Skel.Blt
+  | Z.eqb => k Skel.BEq
   end.
 
 Ltac traverseTyVar acc k :=
@@ -208,7 +211,45 @@ Ltac traverseTyVar acc k :=
   | TyVar ?name _ => k name
   end).
 
-Ltac scalarExpr n f k :=
+Arguments Skel.ENum {GA GS} _.
+
+Ltac searchType GS f :=
+  lazymatch f with
+  | (fun p => myfst (@?f' p)) =>
+    let res := searchType GS f' in
+    constr:(fun x : nat => res (S x))
+  | (fun p => mysnd (@?f' p)) =>
+    let res := searchType GS f' in
+    constr:(res 0%nat)
+  | (fun p => p) =>
+    constr:(fun x : nat => x)
+  end.
+
+Ltac proveMember GS n :=
+  lazymatch n with
+  | O => 
+    lazymatch GS with
+    | ?t :: ?GS => 
+      constr:(@HFirst _ t GS)
+    end
+  | S ?n => 
+    lazymatch GS with
+    | ?x :: ?GS => 
+      let t := proveMember GS n in
+      constr:(@HNext _ _ x GS t)
+    end
+  end.
+      
+Ltac member GS f :=
+  let t := searchType GS f in
+  let t := eval cbv beta in t in
+  proveMember GS t.
+
+Goal False.
+  let t := member (Z :: Z :: Z :: nil) (fun p : (unit * Z * Z * Z) => mysnd (myfst (myfst p))) in pose t.
+Abort.
+
+Ltac scalarExpr GA GS f k :=
   idtac "scalarExpr: f = " f;
   let resTy := match type of f with _ -> ?Ty => Ty end in
   idtac "scalarExpr: resTy = " resTy;
@@ -217,123 +258,210 @@ Ltac scalarExpr n f k :=
   match f with
   | (fun _ => ?c) =>
     idtac "scalarExpr: matched to constant case";
-    lazymatch type of c with Z => k n (Sx.ENum c) end
+    lazymatch type of c with Z => k (Skel.ENum GA GS c) end
   | (fun (x : ?T) => let y := @?t1 x in @?t2 x y) =>
     idtac "scalarExpr: matched to let case";
     lazymatch type of t1 with
     | _ -> ?Ty =>
-      scalarExpr n t1 ltac:(fun n t1' =>
-      let y' := constr:(VarE ("x" ++ nat_to_string n)) in
-      scalarExpr (S n) (fun (p : T * TyVar y' Ty) => t2 (myfst p) (mysnd p)) ltac:(fun n t2' =>
-      k n (Sx.ELet y' t1' t2' resTy')))
+      scalarExpr GA GS t1 ltac:(fun t1' =>
+      reify_type Ty ltac:(fun ty1 =>
+      let t2 := eval cbv beta in (fun (p : T * Ty) => t2 (myfst p) (mysnd p)) in
+      scalarExpr GA (ty1 :: GS) t2 ltac:(fun t2' =>
+      k (Skel.ELet _ _ _ _ t1' t2'))))
     end
   | (fun (x : ?T) => if @?cond x then @?th x else @?el x) =>
     idtac "scalarExpr: matched to if case";
-    scalarExpr n cond ltac:(fun n cond' =>
+    scalarExpr GA GS cond ltac:(fun cond' =>
     idtac "scalarExpr cond' = " cond';
-    scalarExpr n th ltac:(fun n th' =>
+    scalarExpr GA GS th ltac:(fun th' =>
     idtac "scalarExpr: th' = " th';
-    scalarExpr n el ltac:(fun n el' =>
+    scalarExpr GA GS el ltac:(fun el' =>
     idtac "scalarExpr: el' = " el';
-    k n (Sx.EIf cond' th' el' resTy'))))
+    k (Skel.EIf GA GS resTy' cond' th' el'))))
   | (fun (x : ?T) => ?op (@?e1 x) (@?e2 x)) =>
     idtac "scalarExpr: matched to binop case";
     binOp op ltac:(fun op' =>
-    scalarExpr n e1 ltac:(fun n e1' =>
-    scalarExpr n e2 ltac:(fun n e2' =>
-    k n (Sx.EBin op' e1' e2' resTy'))))
+    scalarExpr GA GS e1 ltac:(fun e1' =>
+    scalarExpr GA GS e2 ltac:(fun e2' =>
+    lazymatch type of op' with
+    | Skel.BinOp ?t1 ?t2 ?t3 => k (Skel.EBin GA GS t1 t2 t3 op' e1' e2')
+    end)))
   | (fun (x : ?T) => @fst _ _ (@?e x)) =>
     idtac "scalarExpr: matched to fst case e =" e;
-    scalarExpr n e ltac:(fun n e' =>
+    scalarExpr GA GS e ltac:(fun e' =>
     idtac "scalarExpr: e' = " e';
-    k n (Sx.EPrj e' 0%nat resTy'))
+    k (Skel.EPrj1 GA GS _ _ e'))
   | (fun (x : ?T) => @snd _ _ (@?e x)) =>
     idtac "scalarExpr: matched to snd case e =" e;
-    scalarExpr n e ltac:(fun n e' =>
-    k n (Sx.EPrj e' 1%nat resTy'))
+    scalarExpr GA GS e ltac:(fun e' =>
+    k (Skel.EPrj2 GA GS _ _ e'))
   | (fun (x : ?T) => ret (@?e x)) =>
-    scalarExpr n e k
+    idtac "scalarExpr: matched ret case e =" e;
+    scalarExpr GA GS e k
   | (fun (x : ?T) => (@?e x)) =>
-    traverseTyVar e ltac:(fun name => idtac "id case in scalarExpr: name = " name; k n (Sx.EVar name resTy'))
+    idtac "scalarExpr: matched var case e =" e;
+    let m := member GS e in
+    k (Skel.EVar GA GS _ m)
   end).
 
 Goal False.
-  let t := constr:((fun p : unit * TyVar (VarE "xO") (Z * Z) * TyVar (VarE "xSO") (Z * Z) => ret (mysnd (myfst p)) : comp _)) in
-  scalarExpr 0%nat t ltac:(fun _ t => pose t).
+  let t := constr:(fun p : unit * (Z * Z) * (Z * Z) => (mysnd (myfst p))) in
+  let GS := constr:((Skel.TTup Skel.TZ Skel.TZ) :: (Skel.TTup Skel.TZ Skel.TZ) :: nil) in
+  let GA := constr:(@nil Skel.Typ) in
+  scalarExpr GA GS t ltac:(fun t => pose t).
+
+  Eval simpl in (Skel.sexpDenote _ _ _ s HNil (HCons ((1, 3) : Skel.typDenote (Skel.TTup Skel.TZ Skel.TZ))
+                                              (HCons ((4, 5) : Skel.typDenote (Skel.TTup Skel.TZ Skel.TZ)) HNil)))%Z.
 Abort.
 
-Ltac scalarFunc f n k :=
+Ltac scalarFunc GA f k :=
   idtac "scalarFunc f = " f;
   lazymatch f with
   | (fun (x : ?T1) (y : ?T2) => @?f x y) =>
     idtac "scalarFunc: matched to inductive case";
-    let name := eval cbv in (VarE ("x" ++ nat_to_string n)) in
-    let t := eval cbv beta in (fun (p : T1 * TyVar name T2) => f (myfst p) (mysnd p)) in
-    scalarFunc t (S n) k
+    let t := eval cbv beta in (fun (p : unit * T1 * T2) => f (mysnd (myfst p)) (mysnd p)) in
+    reify_type T1 ltac:(fun ty1 =>
+    reify_type T2 ltac:(fun ty2 =>
+    scalarExpr GA (ty1 :: ty2 :: nil) t ltac:(fun res =>
+    k (Skel.F2 _ _ _ _  res))))
   | (fun (x : ?T) => @?f x) =>
     idtac "scalarFunc: matched to base case";
     idtac "scalarFunc: T = " T;
-    collect_params T ltac:(fun ps =>
-    idtac "scalarFunc: ps = " ps;
-    scalarExpr n f ltac:(fun _ res => k (Sx.F ps res)))
+    let t := eval cbv beta in (fun (p : unit * T) => f (mysnd p)) in
+    reify_type T ltac:(fun ty =>
+    scalarExpr GA (ty :: nil) t ltac:(fun res =>
+    k (Skel.F1 _ _ _  res)))
   end.
 
-Ltac lexpr e k :=
+Goal False.
+  scalarFunc (@nil Skel.Typ) (fun (x y : Z) => Z.min x y) ltac:(fun res => 
+  let t := eval simpl in (Skel.funcDenote nil _ res) in pose t).
+  scalarFunc (@nil Skel.Typ) (fun (x y : Z) => x + y) ltac:(fun res =>
+  let t := eval simpl in (Skel.funcDenote nil _ res) in pose t).
+  scalarFunc (@nil Skel.Typ) (fun (x y : Z) => let z := x + y in z) ltac:(fun res => 
+  let t := eval simpl in (Skel.funcDenote nil _ res) in pose t).
+  scalarFunc (@nil Skel.Typ) 
+             (fun (x y : Z * Z) => if (fst x) <? (fst y) then ret x else ret y) ltac:(fun res => 
+  let t := eval simpl in (Skel.funcDenote nil _ res) in pose t).
+Abort.
+
+Ltac lexpr GA e k :=
   idtac "lexpr e = " e;
   lazymatch e with
   | (fun x => List.length (@?acc x)) =>
-    get_name acc ltac:(fun x _ => k (Sx.LLen x))
+    let m := member GA acc in
+    k (Skel.LLen _ _ m)
   | (fun x => ?c) =>
     lazymatch type of c with
-    | nat => k (Sx.LNum (Z.of_nat c))
-    | Z => k (Sx.LNum c)
+    | nat => k (Skel.LNum GA (Z.of_nat c))
+    | Z => k (Skel.LNum GA c)
     end
   end.
 
 Goal False.
-  lexpr (fun _ : unit => 1) ltac:(fun e => pose e).
+  lexpr (@nil Skel.Typ) (fun _ : unit => 1) ltac:(fun e => pose e).
+  lexpr (Skel.TZ :: nil) (fun x : (unit * list Z) => (length (mysnd x))) ltac:(fun e => pose e).
+Abort.
+
+Definition gen {T} (f : Z -> comp T) (len : Z) :=
+  mapM f (seq 0 (Z.to_nat len)).
+
+Ltac reifyAE GA f k :=
+  idtac "reifyAE f = " f;
+  lazymatch f with
+  | (fun (x : ?T) => gen (@?f x) (@?len x)) =>
+    idtac "match to gen case";
+    idtac "reifyAE: f = " f;
+    idtac "reifyAE: len = " len;
+    lazymatch type of f with
+    | unit -> Z -> ?U =>
+      let f := eval cbv beta in (fun x : (unit * Z) => (f (myfst x) (mysnd x))) in
+      scalarExpr GA (Skel.TZ :: nil) f ltac:(fun f' =>
+      lexpr GA len ltac:(fun l =>
+      idtac "reifyAE: f' l =" f' l;
+      k (Skel.DArr _ _ f' l)))
+    end
+  | (fun (x : ?T) => (@?acc x)) =>
+    idtac "reifyAE: match to length case";
+    idtac "reifyAE acc = " acc;
+    let m := member GA acc in
+    idtac "reifyAE m = " m;
+    k (Skel.VArr _ _ m)
+  end.
+
+Goal False.
+  let t := constr:(fun (_ : unit) => gen (fun x : Z => ret x) 3) in
+  reifyAE (@nil Skel.Typ) t ltac:(fun res => pose res).
+  let t := constr:(fun (x : unit * list Z) => (mysnd x)) in
+  reifyAE (Skel.TZ :: nil) t ltac:(fun res => pose res).
 Abort.
 
 (* ``skelApp'' generate a syntax tree from skeleton application expression.
    ``skelApp'' returns reifyed type of skeleton application and converted syntax tree *)
-Ltac skelApp f k :=
+Ltac skelApp GA f k :=
   idtac "skelApp f = " f;
   lazymatch f with
   | (fun (x : ?T) => ret (seq (@?begin x) (@?len x))) =>
-    lexpr begin ltac:(fun begin' =>
-    lexpr len ltac:(fun len' =>
+    lexpr GA begin ltac:(fun begin' =>
+    lexpr GA len ltac:(fun len' =>
     idtac "match to seq";
-    k Sx.TZ (Sx.Build_SkelExpr "seq" nil nil (begin' :: len' :: nil))))
+    k (Skel.Seq GA begin' len')))
   | (fun (x : ?T) => ret (zip (@?arr1 x) (@?arr2 x))) =>
     idtac "match to zip";
-    get_name arr1 ltac:(fun var1 ty1 =>
-    get_name arr2 ltac:(fun var2 ty2 =>
-    idtac var1 var2;
-    k (Sx.TTup (ty1 :: ty2 :: nil))
-      (Sx.Build_SkelExpr "zip" nil ((Sx.VArr var1, ty1) :: (Sx.VArr var2, ty2) :: nil) nil)))
+    reifyAE GA arr1 ltac:(fun arr1 =>
+    reifyAE GA arr2 ltac:(fun arr2 =>
+    idtac arr1 arr2;
+    k (Skel.Zip _ _ _ arr1 arr2)))
   | (fun (x : ?T) => reduceM ?f (@?arr x)) =>
     idtac "match to reduce";
-    get_name arr ltac:(fun arr ty =>
-    scalarFunc (fun _ : unit => f) 0%nat ltac:(fun f =>
-    k ty (Sx.Build_SkelExpr "reduce" (f :: nil) ((Sx.VArr arr, ty) :: nil) nil)))
-  | _ => k Sx.TZ "error" (@nil Sx.Func) (@nil (Sx.AE * Sx.Typ)%type)
+    idtac "skelApp: f, arr = " f arr;
+    reifyAE GA arr ltac:(fun arr =>
+    scalarFunc GA f ltac:(fun f =>
+    k (Skel.Reduce _ _ f arr)))
   end.
 
-Ltac transform' prog n k :=
+Goal False.
+  let t := constr:(fun p : (unit * list Z) => ret (seq 0 (length (mysnd p)))) in
+  skelApp (Skel.TZ :: nil) t ltac:(fun x => pose x as seqex).
+  let t := constr:(fun p : (unit * list Z * list Z) => ret (zip (mysnd p) (mysnd (myfst p)))) in
+  skelApp (Skel.TZ :: Skel.TZ :: nil) t ltac:(fun x => pose x as zipex).
+  let t := constr:(fun (p : unit * list (Z * Z)) =>
+                  reduceM (fun x y => if fst x <? fst y then ret x else ret y) (mysnd p)) in
+  skelApp (Skel.TTup Skel.TZ Skel.TZ :: Skel.TTup Skel.TZ Skel.TZ :: nil) t ltac:(fun x => pose x as reduceex).
+  Eval simpl in (Skel.skelDenote (Skel.TZ :: nil) _ seqex).
+  Eval simpl in (Skel.skelDenote (Skel.TZ :: Skel.TZ :: nil) _ zipex).
+  Eval simpl in (Skel.skelDenote (Skel.TTup Skel.TZ Skel.TZ :: Skel.TTup Skel.TZ Skel.TZ :: nil) _ reduceex).  
+Abort.
+
+Ltac transform' GA prog k :=
   idtac "prog = " prog;
   lazymatch prog with
     (* Note that @?c x t should not be @?c t x, the captured term by c would be malformed *)
   | (fun (x : ?T) => do! t := @?ae x in @?c x t) =>
     idtac "match do case";
     let T_of_ae := lazymatch type of ae with _ -> comp ?T => T end in
-    let name := eval cbv in (VarA ("x" ++ nat_to_string n)) in
-    let c' := eval cbv beta in (fun (x : T * TyVar name T_of_ae) => c (myfst x) (mysnd x)) in
-    skelApp ae ltac:(fun ty sexp => 
-    transform' c' (S n) ltac:(fun c' => k (Sx.ALet name ty sexp c')))
+    let c' := eval cbv beta in (fun (x : T * T_of_ae) => c (myfst x) (mysnd x)) in
+    reify_type T_of_ae ltac:(fun ty =>
+    idtac "transform': ty = " ty;
+    skelApp GA ae ltac:(fun sexp => 
+    idtac "transform' : sexp = " sexp;
+    transform' (ty :: GA) c' ltac:(fun c' => k (Skel.ALet _ _ _ sexp c'))))
   | (fun (x : ?T) => ret (@?c x)) =>
     idtac "match res case";
-    get_name c ltac:(fun x ty => k (Sx.ARet x))
+    let m := member GA c in
+    k (Skel.ARet _ _ m)
   end.
+
+Goal False.
+  let t := constr:(
+  fun (x : unit * list Z) =>
+    do! idx := ret (seq 0 (Datatypes.length (mysnd x))) in
+    do! arrIdx := ret (zip (mysnd x) idx) in
+    do! res := reduceM (fun x y : Z * Z => if fst x <? fst y then ret x else ret y) arrIdx in
+    ret res : comp _) in
+  transform' (Skel.TZ :: nil) t ltac:(fun res => pose res as prog).
+  Eval simpl in Skel.asDenote (Skel.TZ :: nil) _ prog.
+Abort.
 
 (* Ltac collect_paramsA T := *)
 (*   lazymatch T with *)
@@ -345,19 +473,34 @@ Ltac transform' prog n k :=
 (*   | _ => constr:(@nil (varA * Sx.Typ)) *)
 (*   end. *)
 
-Ltac transform prog n k :=
+Ltac transform0 GA prog k :=
   idtac "transform prog = " prog;
   lazymatch prog with
   | (fun (x : ?T1) (y : ?T2) => @?f x y) =>
     idtac "match inductive";
-    let name := eval cbv in (VarA ("x" ++ nat_to_string n)) in
-    let t := eval cbv beta in (fun (p : T1 * (TyVar name T2)) => f (myfst p) (mysnd p)) in transform t (S n) k
+    let t := eval cbv beta in (fun (p : T1 * T2) => f (myfst p) (mysnd p)) in
+    reify_type T2 ltac:(fun ty =>
+    idtac ty;
+    transform0 (ty :: GA) t k)
   | (fun (x : ?T) => @?f x) =>
     idtac "match base";
-      collect_params T ltac:(fun ps =>
-      pose T;
-      transform' prog n ltac:(fun res => k (ps, res)))
+    transform' GA f ltac:(fun res => k res)
   end.
+
+Ltac transform prog k :=
+  let t := constr:(fun (_ : unit ) => prog) in
+  transform0 (@nil Skel.Typ) t ltac:(fun res => k res).
+
+Goal False.
+  let t := constr:(
+  fun (x : list Z) =>
+    do! idx := ret (seq 0 (Datatypes.length x)) in
+    do! arrIdx := ret (zip x idx) in
+    do! res := reduceM (fun x y : Z * Z => if fst x <? fst y then ret x else ret y) arrIdx in
+    ret res : comp _) in
+  transform t ltac:(fun res => pose res as prog).
+  Eval simpl in Skel.asDenote (Skel.TZ :: nil) _ prog.
+Abort.  
 
 Goal {p : Sx.prog | equiv max_idx p}.
 Proof.
