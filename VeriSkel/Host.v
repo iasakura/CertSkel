@@ -22,7 +22,12 @@ Inductive instr :=
 | invoke : kerID -> nat -> nat -> list expr -> instr.
 
 Definition HostProg := (list instr)%type.
-Definition Prog := (HostProg * (hostVar * list hostVar) * list kernel)%type.
+Record Prog := {
+  prog_params : list (CTyp * hostVar);
+  prog_hostprog : HostProg;
+  prog_res : hostVar * list hostVar;
+  prog_kernels : list kernel
+}.
 
 Definition GPUstate := (hostEnv * simple_heap)%type.
 
