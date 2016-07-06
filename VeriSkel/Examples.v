@@ -1,73 +1,62 @@
-Require Import Compiler MyEnv SimplSkel Ext Extract.
+Require Import Compiler MyEnv TypedTerm Ext Extract.
 Require Import List.
 
-Definition aty_env := (upd_opt emp_opt (VarA "arr") Sx.TZ).
+Definition aty_env := Skel.TZ :: nil.
 Definition ntrd := 1024.
 Definition nblk := 24.
-Definition avar_env := (upd (emp_def (0, nil)) (VarA "arr") (0, 1 :: nil)).
 
-Import SimplSkel.
-Import Sx.
-Definition prog1 : prog :=
+Import Skel.
+Arguments ALet {GA t1 t2} _ _.
+Arguments Map {GA dom cod} _ _ .
+Arguments F1 {GA dom cod} _.
+Arguments F2 {GA dom1 dom2 cod} _.
+Arguments EBin {GA GS t1 t2 t3} _ _ _.
+Arguments EVar {GA GS t} _.
+Arguments VArr {GA t} _.
+Arguments Reduce {GA t} _ _.
+Arguments ARet {GA t} _.
+Arguments DArr {GA cod} _ _.
+Arguments LLen {GA t} _.
+Arguments ECons {GA GS t1 t2} _ _.
+Arguments EA {GA GS t} _ _.
+Arguments EPrj1 {GA GS t1 t2} _.
+Arguments EPrj2 {GA GS t1 t2} _.
+Arguments EIf {GA GS t} _ _ _.
+Definition prog1 : Skel.AS (TZ :: nil) TZ :=
   (* let t := map (fun x -> x * x) arr in *)
   (* let t1 := reduce (fun x y -> x + y) t in *)
   (* t1 *)
-  ((VarA "arr", TZ) :: nil,
-   ALet (VarA "t") TZ
-        (Build_SkelExpr "map" ((F ((VarE "x", TZ) :: nil)
-                                  (EBin Emult
-                                        (EVar (VarE "x") TZ)
-                                        (EVar (VarE "x") TZ) TZ)) :: nil)
-                        ((VArr (VarA "arr"), TZ) :: nil)
-                        nil) (
-   ALet (VarA "t1") TZ
-        (Build_SkelExpr "reduce"
-                        ((F ((VarE "x", TZ) :: (VarE "y", TZ) :: nil)
-                            (EBin Eplus
-                                  (EVar (VarE "x") TZ)
-                                  (EVar (VarE "y") TZ) TZ)) :: nil)
-                        ((VArr (VarA "t"), TZ) :: nil)
-                        nil) (
-   ARet (VarA "t1")))).
+  ALet
+    (Map (F1 (EBin Emult (EVar HFirst) (EVar HFirst))) (VArr HFirst)) (
+  ALet (Reduce (F2 (EBin Eplus (EVar (HNext HFirst)) (EVar (HFirst)))) (VArr HFirst)) (
+  ARet HFirst)).
 
 Definition gen1 := Compiler.compile_prog 1024 24 prog1.
+(* Toplevel input, characters 32-36: *)
+(* > Definition res1 := save_to_file gen1 "test1.cu". *)
+(* >                                 ^^^^ *)
+(* Error: The term "gen1" has type *)
+(*  "(list (Lang.CTyp * Host.hostVar) * *)
+(*    (list Host.instr * (Host.hostVar * list Host.hostVar)) * *)
+(*    list Host.kernel)%type" while it is expected to have type *)
+(*  "(list (Lang.CTyp * Host.hostVar) * Host.Prog)%type". *)
 
 Definition res1 := save_to_file gen1 "test1.cu".
 
-Definition prog2 :=
+Definition prog2 : Skel.AS (TZ :: nil) (TTup TZ TZ) :=
   (* let idxs := map (fun x -> x) (Darr n (fun i -> i)) in *)
   (* let arrIdx := map (fun i -> (i, arr[i])) idxs in *)
   (* let maxIdx := reduce (fun (i, x) (j, y) -> if x < y then i else j) arrIdx in *)
   (* maxIdx *)
-   ((VarA "arr", TZ) :: nil,
-   ALet (VarA "idxs") TZ
-        (Build_SkelExpr
-           "map"
-           (F ((VarE "x", TZ) :: nil) (EVar (VarE "x") TZ) :: nil)
-           ((DArr (F ((VarE "i", TZ) :: nil) (EVar (VarE "i") TZ)) (LLen (VarA "arr")), TZ) :: nil)
-           nil) (
-   ALet (VarA "arrIdx") (TTup (TZ :: TZ :: nil))
-        (Build_SkelExpr
-           "map"
-           (F ((VarE "i", TZ) :: nil)
-              (ECons ((EVar (VarE "i") TZ) :: (EA (VarA "arr") (EVar (VarE "i") TZ) TZ) :: nil)
-                     (TTup (TZ :: TZ :: nil))) :: nil)
-           ((VArr (VarA "idxs"), TZ) :: nil)
-           nil) (
-   ALet (VarA "maxIdx") (TTup (TZ :: TZ :: nil))
-        (Build_SkelExpr
-           "reduce"
-           (F ((VarE "ix", TTup (TZ :: TZ :: nil)) ::
-               (VarE "iy", TTup (TZ :: TZ :: nil)) :: nil)
-              (EIf (EBin Blt
-                         (EPrj (EVar (VarE "ix") (TTup (TZ :: TZ :: nil))) 1 TZ)
-                         (EPrj (EVar (VarE "iy") (TTup (TZ :: TZ :: nil))) 1 TZ) TBool)
-                   (EVar (VarE "ix") (TTup (TZ :: TZ :: nil)))
-                   (EVar (VarE "iy") (TTup (TZ :: TZ :: nil))) (TTup (TZ :: TZ :: nil)))
-              :: nil)
-           ((VArr (VarA "arrIdx"), (TTup (TZ :: TZ :: nil))) :: nil)
-           nil) (
-   ARet (VarA "maxIdx"))))).
+  ALet
+    (Map (F1 (EVar HFirst)) (DArr (F1 (EVar HFirst)) (LLen HFirst))) (
+  ALet
+    (Map (F1 (ECons (EA (HNext HFirst) (EVar HFirst)) (EVar HFirst) )) (VArr HFirst)) (
+  ALet
+    (Reduce (F2 (EIf (EBin Blt (EPrj1 (EVar (HNext HFirst))) (EPrj1 (EVar HFirst)))
+                     (EVar (HNext HFirst)) (EVar HFirst))) (VArr HFirst)) (
+  ARet HFirst))).
+
  
 Definition gen2 := Compiler.compile_prog 1024 24 prog2.
 Eval compute in gen2.

@@ -7,7 +7,7 @@ Require Import LibTactics.
 Require Import Psatz.
 Require Import Monad.
 Require Import MyEnv.
-Require Import SimplSkel.
+Require Import TypedTerm.
 Require Import MyMSets.
 
 Open Scope string_scope.
@@ -41,32 +41,30 @@ Module Sx := Syntax.
 
 Section compiler.
   (* environment of variables of array in the generated code *)
-  Variable avarenv : Env varA (var * list var) _.
-
+  (* Variable avarenv : Env nat (var * list var) _. *)
+  Variable avarenv : list (var * list var).
 
   Fixpoint string_of_ty ty : string :=
     match ty with
-    | Sx.TBool => "Bool"
-    | Sx.TZ => "Z"
-    | Sx.TTup ls => "(" ++ fold_right (fun x y => string_of_ty x ++ y) ")" ls
+    | Skel.TBool => "Bool"
+    | Skel.TZ => "Z"
+    | Skel.TTup t1 t2 => "(" ++ string_of_ty t1 ++ ", " ++ string_of_ty t2 ++ ")"
     end%string.
 
   Fixpoint len_of_ty ty : nat :=
     match ty with
-    | Sx.TBool | Sx.TZ => 1
-    | Sx.TTup ls => fold_right (fun x y => len_of_ty x + y) 0 ls
+    | Skel.TBool | Skel.TZ => 1
+    | Skel.TTup t1 t2 => len_of_ty t1 + len_of_ty t2
     end.
   
   Definition len_until_i tys i : nat :=
     fold_right (fun ty n => len_of_ty ty + n) 0 (firstn i tys).
   
-  Definition len_at_i (tys : list Sx.Typ) i : nat :=
-    len_of_ty (nth i tys Sx.TZ).
+  Definition len_at_i (tys : list Skel.Typ) i : nat :=
+    len_of_ty (nth i tys Skel.TZ).
   
   Import Lang.
   Open Scope string_scope.
-
-  Notation SVEnv := (Env varE (list var) _).
 
   Definition str_of_pnat n m :=
     ("l" ++ S.nat_to_string n ++ "_" ++ S.nat_to_string m).
@@ -132,36 +130,51 @@ Section compiler.
     eapply S.string_inj2; eauto.
   Qed.
 
-  Definition compile_op (op : Sx.SOp) e1 e2 : (cmd * list exp) :=
+  Definition compile_op {t1 t2 t3 : Skel.Typ} (op : Skel.BinOp t1 t2 t3) e1 e2 : (cmd * list exp) :=
     match op with
-    | Sx.Eplus => (Cskip, Lang.Eplus e1 e2 :: nil)
-    | Sx.Emult => (Cskip, Lang.Emult e1 e2 :: nil)
-    | Sx.Emin => (Cskip, Lang.Emin e1 e2 :: nil)
-    | Sx.BEq => (Cskip, Lang.Eeq e1 e2 :: nil)
-    | Sx.Blt => (Cskip, Lang.Elt e1 e2 :: nil)
+    | Skel.Eplus => (Cskip, Lang.Eplus e1 e2 :: nil)
+    | Skel.Emult => (Cskip, Lang.Emult e1 e2 :: nil)
+    | Skel.Emin => (Cskip, Lang.Emin e1 e2 :: nil)
+    | Skel.BEq => (Cskip, Lang.Eeq e1 e2 :: nil)
+    | Skel.Blt => (Cskip, Lang.Elt e1 e2 :: nil)
     end.
 
-  Fixpoint ctyps_of_typ (ty : Sx.Typ) :=
+  Fixpoint ctyps_of_typ (ty : Skel.Typ) :=
     match ty with
-    | Sx.TBool => Int :: nil
-    | Sx.TZ => Int :: nil
-    | Sx.TTup ts => fold_right (fun ty acc => (ctyps_of_typ ty ++ acc)%list) nil ts
+    | Skel.TBool => Int :: nil
+    | Skel.TZ => Int :: nil
+    | Skel.TTup t1 t2 => (ctyps_of_typ t1 ++ ctyps_of_typ t2)%list
     end.
   
+  Fixpoint nat_of_member {GS : list Skel.Typ} {ty : Skel.Typ}  (mem : member ty GS) : nat :=
+    match mem with
+    | HFirst _ => 0
+    | HNext _ _ m => S (nat_of_member m)
+    end.
+
+  Definition get_env {T : Type} {GS : list Skel.Typ} {ty : Skel.Typ}
+             (env : list T) (mem : member ty GS) (d : T) : T :=
+    List.nth (nat_of_member mem) env d.
+
+  Definition get_env_opt {T : Type} {GS : list Skel.Typ} {ty : Skel.Typ}
+             (env : list T) (mem : member ty GS) (d : T) : option T :=
+    nth_error env (nat_of_member mem).
+
   (* compiler of scalar expressions *)
-  Fixpoint compile_sexp (se : Sx.SExp) (env : SVEnv) : M (cmd * list exp) := match se with
-    | Sx.EVar v _ => ret (Cskip, S.vars2es (env v))
-    | Sx.ENum z => ret (Cskip, Enum z :: nil)
-    | Sx.ELet x e1 e2 _ =>
+  Fixpoint compile_sexp {GA GS : list Skel.Typ} {typ : Skel.Typ}
+           (se : Skel.SExp GA GS typ) (env : list (list var)) : M (cmd * list exp) := match se with
+    | Skel.EVar _ _ _ v => ret (Cskip, S.vars2es (get_env env v nil))
+    | Skel.ENum _ _ z => ret (Cskip, Enum z :: nil)
+    | Skel.ELet _ _ t1 t2 e1 e2 =>
       compile_sexp e1 env >>= fun ces1 => 
       let (c1, es1) := ces1 in
       (* let dim := length es1 in *)
-      let dim := ctyps_of_typ (Sx.typ_of_sexp e1) in
+      let dim := ctyps_of_typ t1 in
       freshes (length dim) >>= fun xs =>
-      compile_sexp e2 (upd env x xs) >>= fun ces2 => 
+      compile_sexp e2 (xs :: env) >>= fun ces2 => 
       let (c2, es2) := ces2 in
       ret (c1 ;; S.read_tup xs dim es1 ;; c2, es2)
-    | Sx.EBin op e1 e2 _ => 
+    | Skel.EBin _ _ _ _ _ op e1 e2 => 
       compile_sexp e1 env >>= fun ces1 =>
       let (c1, es1) := ces1 in
       compile_sexp e2 env >>= fun ces2 =>
@@ -172,47 +185,39 @@ Section compiler.
         ret (c1;; c2;; c, es)
       | _, _ => fail ""
       end
-    | Sx.EA va e _ =>
-      let dim := ctyps_of_typ (Sx.typ_of_sexp se) in
+    | Skel.EA _ _ typ va e =>
+      let dim := ctyps_of_typ typ in
       compile_sexp e env >>= fun ces =>
       let (c, es) := ces in
-      let (_, aname) := avarenv va in
+      let (_, aname) := get_env avarenv va (Var "", nil) in
       freshes (length dim) >>= fun xs =>
       match es with
       | i :: nil => ret (c ;; S.gen_read Gl xs dim (S.vars2es aname) i, S.vars2es xs)
       | _ => fail ""
       end
-    | Sx.ELen xa =>
-      let (l, _) := avarenv xa in ret (Cskip, (Evar l) :: nil)
-    | Sx.EPrj e i ty =>
-      match Sx.typ_of_sexp e with
-      | Sx.TBool | Sx.TZ => fail ""
-      | Sx.TTup tys => 
-        let off := len_until_i tys i in
-        let l := len_at_i tys i in
-        compile_sexp e env >>= fun ces =>
-        let (c, es) := ces in
-        if le_dec (off + l) (len_of_ty (Sx.TTup tys)) then
-          ret (c, firstn l (skipn off es))
-        else (* fail ("overflow the index " ++ S.nat_to_string i ++ " of tuple:" ++ "type of tuple: " ++ string_of_ty ty ++ *)
-             (*       "expected length = " ++ S.nat_to_string (len_of_ty ty) ++ *)
-             (*       "actual length = " ++ S.nat_to_string off ++ " + " ++ S.nat_to_string l) *)
-             fail ""
-      end
-    | Sx.ECons es _ => 
-      let fix compile_sexps (es : list Sx.SExp) env : M (cmd * list exp) :=
-          match es with
-          | nil => ret (Cskip, nil)
-          | (e :: es)%list =>
-            compile_sexp e env >>= fun ces =>
-            let (c, ge) := ces in
-            compile_sexps es env >>= fun ces' =>
-            let (c', ges) := ces' in
-            ret (c ;; c', ge ++ ges)
-          end in
-      compile_sexps es env
-    | Sx.EIf e1 e2 e3 _ =>
-      let dim := ctyps_of_typ (Sx.typ_of_sexp se) in
+    | Skel.ELen _ _ _ xa =>
+      let (l, _) := get_env avarenv xa (Var "", nil) in ret (Cskip, (Evar l) :: nil)
+    | Skel.EPrj1 _ _ t1 t2 e =>
+      let off := 0 in
+      let l := len_of_ty t1 in
+      compile_sexp e env >>= fun ces =>
+      let (c, es) := ces in
+      ret (c, firstn l (skipn off es))
+    | Skel.EPrj2 _ _ t1 t2 e =>
+      let off := len_of_ty t1 in
+      let l := len_of_ty t2 in
+      (* ugly copy and paste !*)
+      compile_sexp e env >>= fun ces =>
+      let (c, es) := ces in
+      ret (c, firstn l (skipn off es))
+    | Skel.ECons _ _ t1 t2 e1 e2 => 
+      compile_sexp e1 env >>= fun ces =>
+      let (c1, ge1) := ces in
+      compile_sexp e2 env >>= fun ces =>
+      let (c2, ge2) := ces in
+      ret (c1 ;; c2, ge1 ++ ge2)
+    | Skel.EIf _ _ ty e1 e2 e3 =>
+      let dim := ctyps_of_typ ty in
       compile_sexp e1 env >>= fun ces1 => 
       let (c1, e1) := ces1 in
       compile_sexp e2 env >>= fun ces2 =>
@@ -229,30 +234,27 @@ Section compiler.
 End compiler.
 
 Section TestCompiler.
-  Import Sx.
-  Definition EVar' (x : varE) := EVar x TZ.
-  Definition ELet' (x : varE) (e e' : SExp)  := ELet x e e' TZ.
-  Definition EBin' (op : SOp) (e1 e2 : SExp) := EBin op e1 e2 TZ.
-  Definition EA' (x : varA) (e : SExp) (typ : Typ) := EA x e TZ.
-  Definition EPrj' (e : SExp) (i : nat) := EPrj e i TZ.
-  Definition ECons' (es : list SExp) := ECons es TZ.
-  Definition EIf' (e e' e'' : SExp) := EIf e e' e'' TZ.
+  Import Skel.
+
+  Arguments EVar {GA GS t} _.
+  Arguments ELet {GA GS t1 t2} _ _.
+  Arguments EBin {GA GS t1 t2 t3} _ _ _.
+  Arguments EA {GA GS t} _ _.
+  Arguments EPrj1 {GA GS t1 t2} _.
+  Arguments EPrj2 {GA GS t1 t2} _.
+  Arguments ECons {GA GS t1 t2} _ _.
+  Arguments EIf {GA GS t} _ _ _.
+  Arguments ENum {GA GS} _.
   
   Open Scope string_scope.
 
-  Coercion VarE : string >-> varE.
-  Coercion ENum : Z >-> SExp.
-  Coercion EVar' : varE >-> SExp.
-
-  Definition test1 :=
-    typing emp_opt emp_opt(
-             ELet' "x" (ECons' ((1%Z : SExp)  :: (2%Z : SExp) :: nil)) (
-                     ELet' "y" (ECons' ((3%Z : SExp)  :: (4%Z : SExp) :: nil)) (
-                             ELet' "z" (ECons' (("x" : SExp) :: ("y" : SExp) :: nil)) ( 
-                                     EPrj' "z" 0)))).
+  Definition test1 : Skel.SExp nil nil (TTup TZ TZ) :=
+    ELet (ECons (ENum 1%Z) (ENum 2%Z)) (
+    ELet (ECons (ENum 3%Z) (ENum 4%Z)) (
+    ELet (ECons (EVar HFirst) (EVar (HNext HFirst))) (
+    EPrj1 (EVar HFirst)))).
   
-  Eval cbv in test1.
-  Eval cbv in (match test1 with Some (t, _) => Some (compile_sexp (emp_def (Var "error", nil)) t (emp_def nil) 0) | None => None end).
+  Eval cbv in (compile_sexp nil test1 nil 0).
   
 End TestCompiler.
 
@@ -260,100 +262,115 @@ Require Import pmap_skel.
 Require Import Reduce_opt_skel.
 Import Skel_lemma scan_lib.
 
-Module VarE_eq : DecType with Definition t := varE with Definition eq_dec := eq_dec.
-  Definition t := varE.
+(* Module VarE_eq : DecType with Definition t := varE with Definition eq_dec := eq_dec. *)
+(*   Definition t := varE. *)
+(*   Definition eq (x y : t) := x = y. *)
+(*   Definition eq_equiv : Equivalence eq. *)
+(*   Proof. *)
+(*     split; cbv; intros; congruence. *)
+(*   Qed. *)
+(*   Definition eq_dec := eq_dec. *)
+(* End VarE_eq. *)
+
+(* Module VarA_eq : DecType with Definition t := varA with Definition eq_dec := @eq_dec varA _. *)
+(*   Definition t := varA. *)
+(*   Definition eq (x y : t) := x = y. *)
+(*   Definition eq_equiv : Equivalence eq. *)
+(*   Proof. *)
+(*     split; cbv; intros; congruence.  *)
+(*   Qed. *)
+(*   Definition eq_dec := @eq_dec t _. *)
+(* End VarA_eq. *)
+
+(* Instance eq_type_pair A B `{eq_type A} `{eq_type B} : eq_type (A * B) := { *)
+(*   eq_dec := _ *)
+(* }. *)
+(* Proof. *)
+(*   intros; destruct H, H0; repeat decide equality. *)
+(* Qed. *)
+
+(* Instance eq_type_STyp : eq_type Sx.Typ := { *)
+(*   eq_dec := Sx.STyp_eq_dec *)
+(* }. *)
+
+(* Module VarATy_eq : DecType with Definition t := (varA * Sx.Typ)%type with Definition eq_dec := @eq_dec (varA * Sx.Typ) _. *)
+(*   Definition t := (varA * Sx.Typ)%type. *)
+(*   Definition eq (x y : t) := x = y. *)
+(*   Definition eq_equiv : Equivalence eq. *)
+(*   Proof. *)
+(*     split; cbv; intros; congruence.  *)
+(*   Qed. *)
+(*   Definition eq_dec := @eq_dec t _. *)
+(* End VarATy_eq. *)
+
+(* Module SA := MSets VarA_eq. *)
+(* Module SATy := MSets VarATy_eq. *)
+(* Module SE := MSets VarE_eq. *)
+
+Instance eq_type_nat : eq_type nat := {eq_dec := eq_nat_dec}.
+
+Module Nat_eq : DecType with Definition t := nat with Definition eq_dec := eq_dec.
+  Definition t := nat.
   Definition eq (x y : t) := x = y.
   Definition eq_equiv : Equivalence eq.
   Proof.
     split; cbv; intros; congruence.
   Qed.
-  Definition eq_dec := eq_dec.
-End VarE_eq.
-
-Module VarA_eq : DecType with Definition t := varA with Definition eq_dec := @eq_dec varA _.
-  Definition t := varA.
-  Definition eq (x y : t) := x = y.
-  Definition eq_equiv : Equivalence eq.
-  Proof.
-    split; cbv; intros; congruence. 
-  Qed.
   Definition eq_dec := @eq_dec t _.
-End VarA_eq.
-
-Instance eq_type_pair A B `{eq_type A} `{eq_type B} : eq_type (A * B) := {
-  eq_dec := _
-}.
-Proof.
-  intros; destruct H, H0; repeat decide equality.
-Qed.
-
-Instance eq_type_STyp : eq_type Sx.Typ := {
-  eq_dec := Sx.STyp_eq_dec
-}.
-
-Module VarATy_eq : DecType with Definition t := (varA * Sx.Typ)%type with Definition eq_dec := @eq_dec (varA * Sx.Typ) _.
-  Definition t := (varA * Sx.Typ)%type.
-  Definition eq (x y : t) := x = y.
-  Definition eq_equiv : Equivalence eq.
-  Proof.
-    split; cbv; intros; congruence. 
-  Qed.
-  Definition eq_dec := @eq_dec t _.
-End VarATy_eq.
-
-Module SA := MSets VarA_eq.
-Module SATy := MSets VarATy_eq.
-Module SE := MSets VarE_eq.
+End Nat_eq.
+Module NatSet := MSets Nat_eq.
 
 Require Import Host.
 (* Instance CUDA_monad : Monad CUDA := {| ret := @ret; bind := bind |}. *)
 
 Section Compiler.
-  Fixpoint free_sv (e : Sx.SExp) : SE.t :=
+  (* Fixpoint free_sv {GA GS ty} (e : Skel.SExp GA GS ty) : NatSet.t := *)
+  (*   match e with *)
+  (*   | Skel.EVar _ _ _ v => NatSet.singleton (nat_of_member v) *)
+  (*   | Skel.ENum _ _ _ => NatSet.empty *)
+  (*   | Skel.ELet _ _ _ e1 e2 => *)
+  (*     NatSet.union (free_sv e1) (NatSet.remove (nat_of_member x) (free_sv e2)) *)
+  (*   | Skel.EBin _ _ _ _ _ _ e1 e2 => NatSet.union (free_sv e1) (free_sv e2) *)
+  (*   | Skel.EA _ _ _ _ e => free_sv e *)
+  (*   | Skel.ELen _ _ _ _ => NatSet.empty *)
+  (*   | Skel.EPrj1 _ _ _ _ e => free_sv e *)
+  (*   | Skel.EPrj2 _ _ _ _ e => free_sv e *)
+  (*   | Skel.ECons _ _ _ _ e1 e2 => NatSet.union (free_sv e1) (free_sv e2) *)
+  (*   | Skel.EIf _ _ _  e e' e'' => NatSet.union (free_sv e) (NatSet.union (free_sv e') (free_sv e'')) *)
+  (*   end. *)
+
+  Fixpoint free_av {GA GS ty} (e : Skel.SExp GA GS ty) : NatSet.t :=
     match e with
-    | Sx.EVar v _ => SE.singleton v
-    | Sx.ENum _   => SE.empty
-    | Sx.ELet x e1 e2 _ => 
-      SE.union (free_sv e1) (SE.remove x (free_sv e2))
-    | Sx.EBin _ e1 e2 _ => SE.union (free_sv e1) (free_sv e2)
-    | Sx.EA _ e _ => free_sv e
-    | Sx.ELen _ => SE.empty
-    | Sx.EPrj e _ _ => free_sv e
-    | Sx.ECons es _ => fold_right (fun e xs => SE.union (free_sv e) xs) SE.empty es
-    | Sx.EIf e e' e'' _ => SE.union (free_sv e) (SE.union (free_sv e') (free_sv e''))
+    | Skel.EVar _ _ _ _ => NatSet.empty
+    | Skel.ENum _ _ _ => NatSet.empty
+    | Skel.ELet _ _ _ _ e1 e2 =>
+      NatSet.union (free_av e1) (free_av e2)
+    | Skel.EBin _ _ _ _ _ _ e1 e2 => NatSet.union (free_av e1) (free_av e2)
+    | Skel.EA _ _ _ x e => NatSet.add (nat_of_member x) (free_av e)
+    | Skel.ELen _ _ _ x => NatSet.singleton (nat_of_member x)
+    | Skel.EPrj1 _ _ _ _ e => free_av e
+    | Skel.EPrj2 _ _ _ _ e => free_av e
+    | Skel.ECons _ _ _ _  e1 e2 => NatSet.union (free_av e1) (free_av e2)
+    | Skel.EIf _ _ _  e e' e'' => NatSet.union (free_av e) (NatSet.union (free_av e') (free_av e''))
     end.
 
-  Fixpoint free_av (e : Sx.SExp) : SA.t :=
-    match e with
-    | Sx.EVar v _ => SA.empty
-    | Sx.ENum _   => SA.empty
-    | Sx.ELet x e1 e2 _ => 
-      SA.union (free_av e1) (free_av e2)
-    | Sx.EBin _ e1 e2 _ => SA.union (free_av e1) (free_av e2)
-    | Sx.EA x e _ => SA.add x (free_av e)
-    | Sx.ELen x => SA.singleton x
-    | Sx.EPrj e _ _ => free_av e
-    | Sx.ECons es _ => fold_right (fun e xs => SA.union (free_av e) xs) SA.empty es
-    | Sx.EIf e e' e'' _ => SA.union (free_av e) (SA.union (free_av e') (free_av e''))
-    end.
-
-  Definition free_av_func (f : Sx.Func) :=
+  Definition free_av_func {GA fty} (f : Skel.Func GA fty) :=
     match f with
-    | Sx.F ps body => free_av body
+    | Skel.F1 _ _ _ body => free_av body
+    | Skel.F2 _ _ _ _ body => free_av body
     end.
 
-  Fixpoint free_av_lexp (e : Sx.LExp) : SA.t :=
+  Fixpoint free_av_lexp {GA ty} (e : Skel.LExp GA ty) : NatSet.t :=
     match e with
-    | Sx.LNum _   => SA.empty
-    (* | Sx.LBin _ e1 e2 => SA.union (free_av_lexp e1) (free_av_lexp e2) *)
-    | Sx.LLen x => SA.singleton x 
+    | Skel.LNum _ _ => NatSet.empty
+    | Skel.LLen _ _ x => NatSet.singleton (nat_of_member x)
     end.
 
-  Definition free_av_AE (ae : Sx.AE) :=
+  Definition free_av_AE {GA ty} (ae : Skel.AE GA ty) :=
     match ae with
-    | Sx.DArr f len =>
-      SA.union (free_av_func f) (free_av_lexp len)
-    | Sx.VArr xa => SA.singleton xa
+    | Skel.DArr _ _ f len =>
+      NatSet.union (free_av_func f) (free_av_lexp len)
+    | Skel.VArr _ _ xa => NatSet.singleton (nat_of_member xa)
     end.
 
   Fixpoint map_opt {A B : Type} (f : A -> option B) (xs : list A) : option (list B) :=
@@ -365,10 +382,10 @@ Section Compiler.
     | None => d
     end.
 
-  Definition idxEnv_of_sa (xas : SA.t) : Env varA nat _ :=
-    snd (SA.fold (fun xa (n_aenv : nat * Env varA nat _)  =>
-               let (n, aenv) := n_aenv in
-               (n + 1, upd aenv xa n)) xas (0, emp_def 0)).
+  (* Definition idxEnv_of_sa (xas : SA.t) : Env varA nat _ := *)
+  (*   snd (SA.fold (fun xa (n_aenv : nat * Env varA nat _)  => *)
+  (*              let (n, aenv) := n_aenv in *)
+  (*              (n + 1, upd aenv xa n)) xas (0, emp_def 0)). *)
 
   Definition arr_name n (d : list CTyp) :=
     List.combine
@@ -381,12 +398,12 @@ Section Compiler.
       (map Ptr d).
   Definition out_len_name := Var (name_of_len "Out").
 
-  Definition env_of_sa (aty_env : Env varA (option Sx.Typ) _)  (xas : SA.t) :
-    (Env varA (var * list (var * CTyp)) _) :=
-    let idxEnv := idxEnv_of_sa xas in
-    fun xa =>
-      let ctys := (ctyps_of_typ (opt_def (aty_env xa) Sx.TZ)) in
-      (len_name (idxEnv xa), arr_name (idxEnv xa) ctys).
+  (* Definition env_of_sa (aty_env : Env varA (option Sx.Typ) _)  (xas : SA.t) : *)
+  (*   (Env varA (var * list (var * CTyp)) _) := *)
+  (*   let idxEnv := idxEnv_of_sa xas in *)
+  (*   fun xa => *)
+  (*     let ctys := (ctyps_of_typ (opt_def (aty_env xa) Sx.TZ)) in *)
+  (*     (len_name (idxEnv xa), arr_name (idxEnv xa) ctys). *)
 
   Definition zipWith {A B C : Type} (f : A -> B -> C) (xs : list A) (ys : list B) :=
     map (fun xy => f (fst xy) (snd xy)) (combine xs ys).
@@ -409,63 +426,49 @@ Section Compiler.
     | S n => fun y => dumy_fun_n n x
     end.
 
-  Fixpoint compile_func_n' n (xs : list (varE * Sx.Typ)) svar_env avar_env body :=
-    match n return type_of_func n with
-    | O =>
-      match xs with
-      | nil => evalM (compile_sexp avar_env body svar_env) 0 (Cskip, nil)
-      | _ :: _ => (Cskip, nil)
-      end
-    | S n =>
-      match xs with
-      | nil => dumy_fun_n (S n) (Cskip, nil)
-      | (x, _) :: xs =>
-        fun x' =>
-          compile_func_n' n xs (upd svar_env x x') avar_env body
-      end
+  Definition type_of_ftyp (fty : Skel.FTyp) :=
+    match fty with
+    | Skel.Fun1 dom cod => list var -> (cmd * list exp)
+    | Skel.Fun2 dom1 dom2 cod  => list var -> list var -> (cmd * list exp)
     end.
 
-  Definition compile_func_n n avar_env f :=
-    match f with
-    | Sx.F ps body => compile_func_n' n ps (emp_def nil) avar_env body
+  Fixpoint compile_func {GA fty} avar_env (body : Skel.Func GA fty) :=
+    match body in Skel.Func _ fty' return type_of_ftyp fty' with
+    | Skel.F1 _ _ _ body => fun xs => evalM (compile_sexp avar_env body (xs :: nil)) 0 (Cskip, nil)
+    | Skel.F2 _ _ _ _ body => fun xs ys => evalM (compile_sexp avar_env body (xs :: ys :: nil)) 0 (Cskip, nil)
     end.
 
-  Definition compile_lexp (aenv : Env varA (hostVar * list hostVar) _) le : expr :=
+  Definition compile_lexp {GA ty} (aenv : list (hostVar * list hostVar)) (le : Skel.LExp GA ty) : expr :=
     match le with
-    | Sx.LNum n => Const n
-    | Sx.LLen a => VarE (fst (aenv a))
+    | Skel.LNum _ n => Const n
+    | Skel.LLen _ _ a => VarE (fst (get_env aenv a (0, nil)))
     end.
 
-  Definition accessor_of_array aenv arr tyxa :=
-    let i := SimplSkel.VarE "i" in
-    compile_func_n 1 aenv (Sx.F ((i, Sx.TZ) :: nil)
-                                (Sx.EA arr (Sx.EVar i Sx.TZ) tyxa)).
+  Definition accessor_of_array {GA tyxa} aenv (arr : member tyxa GA) :=
+    let f := compile_func aenv (Skel.F1 _ Skel.TZ _ (Skel.EA _ _ _ arr (Skel.EVar _ _ _ HFirst))) in
+    fun x => f (x :: nil).
 
-  Definition compile_AE (aty_env : Env varA (option Sx.Typ) _)
-             avar_env (var_ptr_env : Env varA (hostVar * list hostVar) _) ae :
+  Definition compile_AE {GA ty}
+             avar_env (var_ptr_env : list (hostVar * list hostVar)) (ae : Skel.AE GA ty) :
     ((var -> (cmd * list exp)) * expr) :=
     match ae with
-    | Sx.DArr f len =>
-      let f' := compile_func_n 1 avar_env f in
+    | Skel.DArr _ _ f len =>
+      let f' := compile_func avar_env f in
       let len' := compile_lexp var_ptr_env len in
       (fun x => f' (x :: nil), len')
-    | Sx.VArr xa =>
-      let tyxa := match aty_env xa with
-                  | None => Sx.TZ
-                  | Some tyxa => tyxa 
-                  end in
-      let get := accessor_of_array avar_env xa tyxa in
-      (fun x => get (x :: nil), VarE (fst (var_ptr_env xa)))
+    | Skel.VArr _ _ xa =>
+      let get := accessor_of_array avar_env xa in
+      (get, VarE (fst (get_env var_ptr_env xa (0, nil))))
     end.
 
   Variable ntrd : nat.
   Variable nblk : nat.
 
-  Definition Z_of_val (v : SVal) :=
-    match v with
-    | VB _ | VTup _ => 0%Z
-    | VZ n => n
-    end.
+  (* Definition Z_of_val (v : SVal) := *)
+  (*   match v with *)
+  (*   | VB _ | VTup _ => 0%Z *)
+  (*   | VZ n => n *)
+  (*   end. *)
   
   Open Scope string_scope.
 
@@ -475,14 +478,14 @@ Section Compiler.
     | xs :: xss => (xs ++ concat xss)%list
     end.
 
-  Definition shiftn n (var_host_env : Env varA (hostVar * list hostVar) _) :=
-    env_map (fun xs => (n + (fst xs), List.map (fun x => n + x) (snd xs))) var_host_env.
+  (* Definition shiftn n (var_host_env : list (hostVar * list hostVar)) := *)
+  (*   map (fun xs => (n + (fst xs), List.map (fun x => n + x) (snd xs))) var_host_env. *)
 
   Instance eq_kerID : eq_type kerID := {
     eq_dec := Nat.eq_dec
   }.
 
-  Eval compute in accessor_of_array (emp_def (Var "len", Var "a" :: nil)) (VarA "a") Sx.TZ (Var "i" :: nil).
+  (* Eval compute in accessor_of_array (emp_def (Var "len", Var "a" :: nil)) (VarA "a") Sx.TZ (Var "i" :: nil). *)
 
   Fixpoint alloc_tup_arr v n len :=
     match n with
@@ -490,155 +493,192 @@ Section Compiler.
     | S n => alloc v len :: alloc_tup_arr (S v) n len
     end.
 
-  Fixpoint compile_AS
-           (numVar : nat)
-           (aty_env : Env varA (option Sx.Typ) _)
-           (host_var_env : Env varA (hostVar * list hostVar) _)
-           (p : Sx.AS) : Host.Prog :=
+  (* TODO: should be moved to Monad.v *)
+  Definition state s a := s -> (a * s).
+  Instance state_Monad s : Monad (state s) := {
+     ret A x := fun n => (x, n);
+     bind A B x f := fun n => let (y, n) := x n in f y n
+  }.
+  Definition getS {s} : state s s := fun x => (x, x).
+  Definition setS {s} x : state s unit := fun _ => (tt, x).
+
+  Open Scope list_scope.
+
+  Definition CUDAM := state (nat * (list instr * list kernel)).
+  Definition fresh : CUDAM hostVar := 
+    do! st := getS in
+    let (n, x) := st : (nat * _) in
+    do! _ := setS (S n, x) in
+    ret n.
+
+  Definition setI (i : instr) : CUDAM unit :=
+    do! st := getS in
+    let '(n, (is_, kers)) := st in
+    setS (n, (is_ ++ (i :: nil), kers)).
+
+  Definition fLet e : CUDAM hostVar :=
+    do! x := fresh in
+    do! _ := setI (iLet x e) in
+    ret x.
+
+  Definition fAlloc e : CUDAM hostVar :=
+    do! x := fresh in
+    do! _ := setI (alloc x e) in
+    ret x.
+
+  Definition gen_kernel ker : CUDAM kerID :=
+    do! x := getS in
+    let '(n, (is_, kers)) := x in
+    let newID := length kers in
+    do! _ := setS (n, (is_, kers ++ (ker :: nil))) in
+    ret newID.
+
+  Definition mapM {B A M} `{Monad M} (f : A -> M B) (xs : list A) : M (list B) :=
+    sequence (map f xs).
+
+  Definition fAllocs (ctys : list CTyp) e : CUDAM (list hostVar) :=
+    mapM (fun cty => fAlloc e) ctys.
+
+  Definition getLen {GA typ} (x : member typ GA) (env : list (hostVar * list hostVar)) : Host.expr :=
+    Host.VarE (fst (get_env env x (0, nil))).
+
+  Definition gen_params (GA : list Skel.Typ) : list (var * CTyp * list (var * CTyp)) :=
+    let f (x : nat * Skel.Typ) :=
+        let (i, ty) := x in
+        let ctyp := ctyps_of_typ ty in
+        (len_name i, Int, arr_name i ctyp) in
+    List.map f (combine (seq 0 (length GA)) GA).
+
+  Definition remove_typeinfo : list (var * CTyp * list (var * CTyp)) -> list (var * list var) :=
+    map (fun x : var * CTyp * list (var * CTyp) => let (l, a) := x in (fst l, List.map fst a)).
+
+  Definition invokeKernel kerID ntrd nblk (args : list Host.expr) :=
+    setI (invoke kerID ntrd nblk args).
+
+  (* Definition collect_args (host_var_env : list (hostVar * list hostVar)) (GA : list Skel.CTyp) := *)
+  (*   let f i := *)
+  (*       let (len, arrs) := nth i host_var_env (0, nil) in *)
+  (*       (len :: arrs) in *)
+  (*   concat (List.map f fv). *)
+
+  Definition filter_idx {T : Type} (xs : list T) s : list T :=
+    let f (x : nat * T) :=
+        let (i, x) := x in
+        NatSet.mem i s in
+    map snd (filter f (combine (seq 0 (length xs)) xs)).
+
+  Definition flatten_param {A : Type} (x : (A * list A)) := fst x :: snd x.
+  Definition flatten_params {A : Type} (xs : list (A * list A)) := concat (List.map flatten_param xs).
+
+  Definition compile_Skel {GA typ} (host_var_env : list (hostVar * list hostVar))
+             (skel : Skel.SkelE GA typ) : CUDAM (hostVar * list hostVar) :=
+    match skel with
+    | Skel.Map _ dom cod f arr =>
+      let fvs := NatSet.union (free_av_func f) (free_av_AE arr) in
+      let inDim := ctyps_of_typ dom in
+      let outDim := ctyps_of_typ cod in
+
+      let arr_vars := gen_params GA in
+
+      let (g, outlen) := compile_AE (remove_typeinfo arr_vars) host_var_env arr in
+      let f := compile_func (remove_typeinfo arr_vars) f in
+
+      let params_in := concat (List.map (fun x => (fst x :: snd x)) (filter_idx arr_vars fvs)) in
+      let params_out := (out_len_name, Int) :: out_name outDim in
+
+      do! kerID := gen_kernel {| params_of := params_out ++ params_in;
+                                 body_of := Pr nil (mkMap ntrd nblk inDim outDim g f) |} in
+      do! outlenVar := fLet outlen in
+      do! outArr := fAllocs outDim outlen in
+      let args_in := concat (List.map (fun x => (fst x :: snd x)) (filter_idx host_var_env fvs)) in
+      let args_out := outlenVar :: outArr in
+      do! t := invokeKernel kerID ntrd nblk (List.map VarE (args_out ++ args_in)) in
+      ret (outlenVar, outArr)
+    | Skel.Reduce _ typ f arr => 
+      let fvs_f := free_av_func f in
+      let fvs := NatSet.union fvs_f (free_av_AE arr) in
+      let dim := ctyps_of_typ typ in
+
+      let arr_vars := gen_params GA in
+
+      let (get, outlen) := compile_AE (remove_typeinfo arr_vars) host_var_env arr in
+      let func := compile_func (remove_typeinfo arr_vars) f in
+
+      let params_in := concat (List.map (fun x => (fst x :: snd x)) (filter_idx arr_vars fvs)) in
+      let params_out := (out_len_name, Int) :: out_name dim in
+
+      do! kerID1 := gen_kernel {| params_of := params_out ++ params_in;
+                                  body_of := Pr (sh_decl ntrd dim)
+                                                (mkFoldAll ntrd nblk dim func (S (log2 ntrd)) get) |} in
+      do! lenVar := fLet outlen in
+      do! tempArr := fAllocs dim (Const (Z.of_nat nblk)) in
+      let args_in := concat (List.map (fun x => (fst x :: snd x)) (filter_idx host_var_env fvs)) in
+      let args_out := lenVar :: tempArr in
+      do! t := invokeKernel kerID1 ntrd nblk (List.map VarE (args_out ++ args_in)) in
+
+      let params_temp := 
+        let grp := NatSet.cardinal fvs_f in
+        ((len_name grp, Int), (arr_name grp dim)) in
+      let get := @accessor_of_array (typ :: GA) typ (remove_typeinfo (params_temp :: arr_vars))
+                                    HFirst in
+
+      let params_in := concat (List.map (fun x => (fst x :: snd x)) (filter_idx arr_vars fvs_f)) in
+      let params_out := (out_len_name, Int) :: out_name dim in
+      let params_temp := flatten_param params_temp in
+      do! kerID2 := gen_kernel {| params_of := params_out ++ params_in ++ params_temp;
+                                  body_of := Pr (sh_decl nblk dim)
+                                                (mkFoldAll nblk 1 dim func (S (log2 nblk)) get) |} in
+      (* (Nat.min ((l + ntrd - 1) / ntrd) nblk ) *)
+      do! lenVar := fLet (Min (Div (Add outlen (Const (Z.of_nat ntrd - 1)%Z)) (Const (Z.of_nat ntrd)))
+                              (Const (Z.of_nat nblk))) in
+      (* do! lenVar := fLet (Const (Z.of_nat nblk)) in *)
+      do! outlenVar := fLet (Const 1) in
+      do! outArr := fAllocs dim (Const 1%Z) in
+      let args_temp := lenVar :: tempArr in
+      let args_in := concat (List.map (fun x => (fst x :: snd x)) (filter_idx host_var_env fvs_f)) in
+      let args_out := lenVar :: outArr in
+      do! t := invokeKernel kerID2 nblk 1 (List.map VarE (args_out ++ args_in ++ args_temp)) in
+      ret (outlenVar, outArr)
+      (* TODO: implement *)
+    | Skel.Seq _ start len => ret (0, nil)
+    | Skel.Zip _ typ1 typ2 arr1 arr2 => ret (0, nil)
+    end.
+
+  Fixpoint compile_AS {GA typ} (host_var_env : list (hostVar * list hostVar))
+           (p : Skel.AS GA typ) : CUDAM (hostVar * list hostVar) :=
     match p with
-    | Sx.ALet xa tyxa
-              {| Sx.skel_name := skl; Sx.skel_fs := fs; Sx.skel_aes := aes; Sx.skel_les := se |} rest =>
-      let fvs_f := List.fold_right (fun f sa => SA.union (free_av_func f) sa) SA.empty fs in
-      let fvs_ae := List.fold_right (fun ae sa => SA.union (free_av_AE (fst ae)) sa) SA.empty aes in
-      let fvs := SA.union fvs_f fvs_ae in
-      
-      let fvs' := SA.elements fvs in
-      (* from free variables, compute a map from each fv to a kernel parameter *)
-      let env := env_of_sa aty_env fvs in
-
-      (* kernel parameters for input arrays *)
-      let inParams := concat (map (fun xa =>
-        let (len, arr) := env xa in
-        (len, Int) :: arr) fvs') in
-      (* kernel arguments for input arrays *)
-      let inArgs := concat (map (fun xa => fst (host_var_env xa) :: snd (host_var_env xa)) fvs') in
-
-      (* the dimension of the output array *)
-      let outDim := ctyps_of_typ tyxa in
-
-      (* the kernel parameter for output array *)
-      let outsParam := out_name outDim in
-      let outlenParam := out_len_name in
-
-      let env' := env_map (fun x => (fst x, List.map fst (snd x))) env in
-
-      match skl, fs, aes with 
-     | "map", (f :: nil), ((ae, tyAe) :: nil) =>
-        (* the dimension of the input array *)
-        let inDim := ctyps_of_typ tyAe in
-        let (get, inlen) := compile_AE aty_env env' host_var_env ae in
-        let func : list var -> (cmd * list exp) := compile_func_n 1 env' f in
-        (* xs := allocs ...; l := Let inlen; invoke ...*)
-        (* shift free vars index by (outDim + 1) *)
-        let outAllocs := alloc_tup_arr numVar (length outDim) inlen in
-        let outs := seq numVar (length outDim) in
-        let numVar := numVar + (length outDim) in
-        
-        let letLen := iLet numVar inlen in
-        let outLen := numVar in
-        let numVar := numVar + 1 in
-        
-        let ker := {| params_of := (outlenParam, Int) :: outsParam ++ inParams;
-                      body_of := {| get_sh_decl := nil;
-                                    get_cmd := mkMap ntrd nblk inDim outDim get func |} |} in
-        let newHEnv := upd host_var_env xa (outLen, outs) in
-        let newAtyEnv := upd_opt aty_env xa tyxa in
-        let '(instr, res, kenv) := compile_AS numVar newAtyEnv newHEnv rest in
-        let newID := List.length kenv in
-        (outAllocs ++
-         (letLen :: nil) ++
-         (invoke newID ntrd nblk (List.map VarE (outLen :: outs ++ inArgs)) :: nil) ++
-         instr,
-         res,
-         kenv ++ (ker :: nil))
-      | "reduce", (f :: nil), ((ae, tyAe) :: nil) =>
-        let inDim := ctyps_of_typ tyAe in
-
-        (* tmpAllocs. ..; allocs ...; iLet inlen; invoke ...*)
-        (* shift free vars index by (2 * outDim + 1) *)
-        let func : list var -> list var -> (cmd * list exp) := compile_func_n 2 env' f in
-        let (get, inlen) := compile_AE aty_env env' host_var_env ae in
-        
-        let tmpAllocs := alloc_tup_arr numVar (length outDim) (Const (Z.of_nat nblk)) in
-        let tmps := seq numVar (length outDim) in
-        let numVar := numVar + (length outDim) in
-        let outAllocs := alloc_tup_arr numVar (length outDim) (Const 1%Z) in
-        let outs := seq numVar (length outDim) in
-        let numVar := numVar + (length outDim) in
-        let letLen := iLet numVar (Const 1%Z) in
-        let outLen := numVar in
-        let numVar := numVar + 1 in
-        
-        let reduce1 := {|
-          params_of := ((outlenParam, Int) :: outsParam ++ inParams);
-          body_of := Pr (sh_decl ntrd outDim) (mkFoldAll ntrd nblk inDim func (S (log2 ntrd)) get)
-        |} in
-        let inArgs := concat (map (fun xa => fst (host_var_env xa) :: snd (host_var_env xa)) fvs') in
-
-        (* generating new parameter diffirent from all existing parameters *)
-        let newParID := SA.cardinal fvs in
-        let len_var := len_name newParID in
-        let arr_vars := arr_name newParID outDim in
-        (* generating getter accesing the array (len_var, arr_vars) *)
-        let get x := accessor_of_array (emp_def (len_var, List.map fst arr_vars))
-                        (VarA "") tyxa (x :: nil) in
-        let inParam_f := concat (map (fun xa => (fst (env xa), Int) :: snd (env xa)) (SA.elements fvs_f)) ++
-                         ((len_var, Int) :: arr_vars) in
-        let inArgs_f := List.map VarE
-          (concat (map (fun xa => fst (host_var_env xa) :: snd (host_var_env xa)) (SA.elements fvs_f))) ++ 
-          (Const (Z.of_nat nblk) :: List.map VarE tmps)in
-        (* (Nat.min ((l + ntrd - 1) / ntrd) nblk ) *)
-        let ntrd' :=
-            Min (Div (Add inlen (Const (Z.of_nat ntrd - 1)%Z))
-                     (Const (Z.of_nat ntrd)))
-                (Const (Z.of_nat nblk)) in
-        let reduce2 := {|
-          params_of := ((outlenParam, Int) :: outsParam ++ inParam_f);
-          body_of := Pr (sh_decl nblk outDim) (mkFoldAll nblk 1 inDim func (S (log2 nblk)) get)
-        |} in
-
-        let newEnv := upd host_var_env xa (outLen, outs) in
-        let newAtyEnv := upd_opt aty_env xa tyxa in
-        let '(instr, res, kenv) := compile_AS numVar newAtyEnv newEnv rest in
-        let red1 := List.length kenv in
-        let red2 := S red1 in
-
-        (tmpAllocs ++ outAllocs ++
-         (letLen :: nil) ++
-         (invoke red1 ntrd nblk (inlen :: List.map VarE tmps ++ List.map VarE inArgs) :: nil) ++
-         (invoke red2 nblk 1    ((ntrd' :: List.map VarE outs) ++ inArgs_f) :: nil) ++
-         instr,
-         res, 
-         kenv ++ (reduce1 :: reduce2 :: nil))
-      | _, _, _ => (nil, (0, nil), nil)
-      end
-    | Sx.ARet xa => (nil, host_var_env xa, nil)
+    | Skel.ALet _ tskel tyres skel res => 
+      do! outs := compile_Skel host_var_env skel in
+      compile_AS (outs :: host_var_env) res 
+    | Skel.ARet _ _ x =>
+      ret (get_env host_var_env x (0, nil))
     end%list.
 
   Definition env_of_list {A B : Type} `{eq_type A} (xs : list (A * B)) : Env A (option B) _ :=
     List.fold_right (fun x acc => upd_opt acc (fst x) (snd x)) emp_opt xs.
 
-  Definition hostVars_of_typ (ty : Sx.Typ) (n : nat) :=
+  Definition hostVars_of_typ (ty : Skel.Typ) (n : nat) :=
     let ctys := ctyps_of_typ ty in
     (n, List.combine ctys (List.seq (S n) (length ctys))).
 
   (* Sx.prog = (list (varA * Sx.Typ) * Sx.AS)%type *)
   (* : Type *)
+
+  Definition gen_env (GA : list Skel.Typ) : nat * list (hostVar * list (CTyp * hostVar)) :=
+    List.fold_right (fun typ (acc : nat * list (hostVar * list (CTyp * hostVar))) =>
+      let (n, acc) := acc in
+      (n + S (length (ctyps_of_typ typ)), (hostVars_of_typ typ n) :: acc))
+    (0, nil) GA.
   
-  Definition compile_prog (p : Sx.prog) :=
-    let (pars, body) := p in
-    let tyenv := env_of_list pars : Env varA (option Sx.Typ) eq_varA in
-    let (n, hostvarEnv) :=
-      List.fold_right (fun (x : varA * Sx.Typ) (acc : nat * Env varA (hostVar * list (CTyp * hostVar)) eq_varA) =>
-        let (n, acc) := acc in
-        let (x, typ) := x in
-        (n + S (length (ctyps_of_typ typ)), upd acc x (hostVars_of_typ typ n)))
-     ((0, emp_def (0, nil)) : nat * Env varA (hostVar * list (CTyp * hostVar)) eq_varA) pars in
-    let pars : list (CTyp * hostVar) :=
-        concat (List.map (fun x => (Int, fst (hostvarEnv (fst x))) ::
-                                   List.map (fun x => (Ptr (fst x), (snd x))) (snd (hostvarEnv (fst x)))) pars) in
-    let hostvarEnv' := env_map (fun x => (fst x, map snd (snd x))) hostvarEnv in
-    (pars, compile_AS n tyenv hostvarEnv' body).
+  Definition toPtr : list (CTyp * hostVar) -> list (CTyp * hostVar) :=
+    map (fun x => (Ptr (fst x), snd x)).
+
+  Definition compile_prog {GA ty} (p : Skel.AS GA ty) : Host.Prog :=
+    let (n, host_var_env) := gen_env GA in
+    let host_var_env' := map (fun x => (fst x, map snd (snd x))) host_var_env in
+    let '(res, (_, (instrs, kers))) := compile_AS host_var_env' p (n, (nil, nil)) in
+    let pars := concat (map (fun x => (Int, fst x) :: toPtr (snd x)) host_var_env) in
+    Build_Prog pars instrs res kers.
 End Compiler.
 
 (* Eval compute in "Finished !". *)
