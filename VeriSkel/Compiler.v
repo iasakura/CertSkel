@@ -364,6 +364,7 @@ Section Compiler.
     match e with
     | Skel.LNum _ _ => NatSet.empty
     | Skel.LLen _ _ x => NatSet.singleton (nat_of_member x)
+    | Skel.LMin _ le1 le2 => NatSet.union (free_av_lexp le1) (free_av_lexp le2) 
     end.
 
   Definition free_av_AE {GA ty} (ae : Skel.AE GA ty) :=
@@ -438,10 +439,11 @@ Section Compiler.
     | Skel.F2 _ _ _ _ body => fun xs ys => evalM (compile_sexp avar_env body (xs :: ys :: nil)) 0 (Cskip, nil)
     end.
 
-  Definition compile_lexp {GA ty} (aenv : list (hostVar * list hostVar)) (le : Skel.LExp GA ty) : expr :=
+  Fixpoint compile_lexp {GA ty} (aenv : list (hostVar * list hostVar)) (le : Skel.LExp GA ty) : expr :=
     match le with
     | Skel.LNum _ n => Const n
     | Skel.LLen _ _ a => VarE (fst (get_env aenv a (0, nil)))
+    | Skel.LMin _ e1 e2 => Min (compile_lexp aenv e1) (compile_lexp aenv e2) 
     end.
 
   Definition accessor_of_array {GA tyxa} aenv (arr : member tyxa GA) :=
@@ -570,30 +572,54 @@ Section Compiler.
   Definition flatten_param {A : Type} (x : (A * list A)) := fst x :: snd x.
   Definition flatten_params {A : Type} (xs : list (A * list A)) := concat (List.map flatten_param xs).
 
+  Definition compile_map {GA dom cod}
+             (host_var_env : list (hostVar * list hostVar))
+             (f : Skel.Func GA (Skel.Fun1 dom cod))
+             (arr : Skel.AE GA dom)
+    : CUDAM (hostVar * list hostVar) :=
+    let fvs := NatSet.union (free_av_func f) (free_av_AE arr) in
+    let inDim := ctyps_of_typ dom in
+    let outDim := ctyps_of_typ cod in
+    
+    let arr_vars := gen_params GA in
+
+    let (g, outlen) := compile_AE (remove_typeinfo arr_vars) host_var_env arr in
+    let f := compile_func (remove_typeinfo arr_vars) f in
+    
+    let params_in := concat (List.map (fun x => (fst x :: snd x)) (filter_idx arr_vars fvs)) in
+    let params_out := (out_len_name, Int) :: out_name outDim in
+    
+    do! kerID := gen_kernel {| params_of := params_out ++ params_in;
+                               body_of := Pr nil (mkMap ntrd nblk inDim outDim g f) |} in
+    do! outlenVar := fLet outlen in
+    do! outArr := fAllocs outDim outlen in
+    let args_in := concat (List.map (fun x => (fst x :: snd x)) (filter_idx host_var_env fvs)) in
+    let args_out := outlenVar :: outArr in
+    do! t := invokeKernel kerID ntrd nblk (List.map VarE (args_out ++ args_in)) in
+    ret (outlenVar, outArr).
+
+  Variable sorry : forall T, T.
+  Arguments sorry {T}.
+
+  Definition zip_AE {GA typ1 typ2} (arr1 : Skel.AE GA typ1) (arr2 : Skel.AE GA typ2) : Skel.AE GA (Skel.TTup typ1 typ2) :=
+    match arr1 in Skel.AE GA1 typ1 return Skel.AE GA1 typ2 -> _ with
+    | Skel.VArr _ _ a1 => fun arr2 =>
+        match arr2 in Skel.AE GA2 typ2 return member _ GA2 -> _ with
+        | Skel.VArr _ _ a2 => fun a1 =>
+                                Skel.DArr _ _ (Skel.F1 _ _ _ (Skel.ECons _ _ _ _
+                                                                         (Skel.EA _ _ _ a1 (Skel.EVar _ _ _ HFirst))
+                                                                         (Skel.EA _ _ _ a2 (Skel.EVar _ _ _ HFirst))))
+                                          (Skel.LMin _ (Skel.LLen _ _ a1) (Skel.LLen _ _ a2))
+        | Skel.DArr _ _ f le => 
+        end a1
+    | _ => sorry
+    end arr2.
+
   Definition compile_Skel {GA typ} (host_var_env : list (hostVar * list hostVar))
              (skel : Skel.SkelE GA typ) : CUDAM (hostVar * list hostVar) :=
     match skel with
     | Skel.Map _ dom cod f arr =>
-      let fvs := NatSet.union (free_av_func f) (free_av_AE arr) in
-      let inDim := ctyps_of_typ dom in
-      let outDim := ctyps_of_typ cod in
-
-      let arr_vars := gen_params GA in
-
-      let (g, outlen) := compile_AE (remove_typeinfo arr_vars) host_var_env arr in
-      let f := compile_func (remove_typeinfo arr_vars) f in
-
-      let params_in := concat (List.map (fun x => (fst x :: snd x)) (filter_idx arr_vars fvs)) in
-      let params_out := (out_len_name, Int) :: out_name outDim in
-
-      do! kerID := gen_kernel {| params_of := params_out ++ params_in;
-                                 body_of := Pr nil (mkMap ntrd nblk inDim outDim g f) |} in
-      do! outlenVar := fLet outlen in
-      do! outArr := fAllocs outDim outlen in
-      let args_in := concat (List.map (fun x => (fst x :: snd x)) (filter_idx host_var_env fvs)) in
-      let args_out := outlenVar :: outArr in
-      do! t := invokeKernel kerID ntrd nblk (List.map VarE (args_out ++ args_in)) in
-      ret (outlenVar, outArr)
+      compile_map host_var_env f arr
     | Skel.Reduce _ typ f arr => 
       let fvs_f := free_av_func f in
       let fvs := NatSet.union fvs_f (free_av_AE arr) in
@@ -640,8 +666,13 @@ Section Compiler.
       do! t := invokeKernel kerID2 nblk 1 (List.map VarE (args_out ++ args_in ++ args_temp)) in
       ret (outlenVar, outArr)
       (* TODO: implement *)
-    | Skel.Seq _ start len => ret (0, nil)
-    | Skel.Zip _ typ1 typ2 arr1 arr2 => ret (0, nil)
+    | Skel.Seq GA start len => 
+      let f := Skel.F1 GA Skel.TZ Skel.TZ (Skel.EVar _ _ _ HFirst) in
+      let g := Skel.DArr GA _ (Skel.F1 GA Skel.TZ Skel.TZ (Skel.EVar _ _ _ HFirst)) len in
+      compile_map host_var_env f g
+    | Skel.Zip _ typ1 typ2 arr1 arr2 => 
+      let f := Skel.F1 GA (Skel.TTup typ1 typ2) (Skel.TTup typ1 typ2) (Skel.EVar _ _ _ HFirst) in
+      ret (0, nil)
     end.
 
   Fixpoint compile_AS {GA typ} (host_var_env : list (hostVar * list hostVar))
