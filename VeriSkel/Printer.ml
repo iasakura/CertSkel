@@ -111,7 +111,7 @@ let pars_printer pars =
     List.map (fun (ty, p) -> !% "%s %s" (ctyp_printer ty) (hostVar_printer p)) pars
 ;;
 
-let cuda_printer (pars, ((is, (resLen, res)), kers)) =
+let cuda_printer {prog_params = pars; prog_hostprog = is; prog_res = (resLen, res); prog_kernels = kers} =
   "#include \"certskel.h\"\n" ^ 
   (List.mapi (fun i -> kernel_printer (!% "__ker%d" i)) kers |> String.concat "\n\n") ^
   !% "\n\nT f(%s) {\n" (pars_printer pars) ^ 
