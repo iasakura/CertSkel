@@ -508,7 +508,7 @@ Proof.
   unfold equiv1; intros Heq; intros; rewrite <-Heq; eauto.
 Qed.
 
-Goal {p : Skel.AS (Skel.TZ :: nil) (Skel.TTup Skel.TZ Skel.TZ) |
+Definition max_idx_IR:  {p : Skel.AS (Skel.TZ :: nil) (Skel.TTup Skel.TZ Skel.TZ) |
       equiv1 p (max_idx)}.
 Proof.
   unfold max_idx.
@@ -553,3 +553,18 @@ Proof.
   repeat (let t := fresh "t" in extensionality t).
   destruct (_ <? _); auto.
 Defined.
+
+Require Import Compiler Ext Extract.
+
+Definition max_idx_CUDA : Host.Prog :=
+  match max_idx_IR with
+  | exist ir _ =>
+    Compiler.compile_prog 1024 24 ir
+  end.
+
+
+Definition res := save_to_file max_idx_CUDA "max_idx.cu".
+
+Cd "extracted".
+
+Separate Extraction res.
