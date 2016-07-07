@@ -601,19 +601,26 @@ Section Compiler.
   Variable sorry : forall T, T.
   Arguments sorry {T}.
 
-  Definition zip_AE {GA typ1 typ2} (arr1 : Skel.AE GA typ1) (arr2 : Skel.AE GA typ2) : Skel.AE GA (Skel.TTup typ1 typ2) :=
-    match arr1 in Skel.AE GA1 typ1 return Skel.AE GA1 typ2 -> _ with
-    | Skel.VArr _ _ a1 => fun arr2 =>
-        match arr2 in Skel.AE GA2 typ2 return member _ GA2 -> _ with
-        | Skel.VArr _ _ a2 => fun a1 =>
-                                Skel.DArr _ _ (Skel.F1 _ _ _ (Skel.ECons _ _ _ _
-                                                                         (Skel.EA _ _ _ a1 (Skel.EVar _ _ _ HFirst))
-                                                                         (Skel.EA _ _ _ a2 (Skel.EVar _ _ _ HFirst))))
-                                          (Skel.LMin _ (Skel.LLen _ _ a1) (Skel.LLen _ _ a2))
-        | Skel.DArr _ _ f le => 
-        end a1
-    | _ => sorry
-    end arr2.
+  Definition darr_of_arr {GA typ} (arr : Skel.AE GA typ) : 
+    Skel.SExp GA (Skel.TZ :: nil) typ * Skel.LExp GA Skel.TZ :=
+    match arr with
+    | Skel.DArr _ _ f len => (fun f =>
+      match f in Skel.Func GA' ftyp return Skel.LExp GA' Skel.TZ -> match ftyp with 
+        | Skel.Fun1 dom cod => Skel.SExp GA' (dom :: nil) cod * Skel.LExp GA' Skel.TZ
+        | Skel.Fun2 _ _ _ => unit 
+        end with
+      | Skel.F1 _ _ _ f => fun len => (f, len)
+      | Skel.F2 _ _ _ _ _ => fun len => tt 
+      end) f len
+    | Skel.VArr _ _ arr => 
+      (Skel.EA _ _ _ arr (Skel.EVar _ _ _ HFirst), Skel.LLen _ _ arr)
+    end.
+
+  Definition zip_AE {GA typ1 typ2} (arr1 : Skel.AE GA typ1) (arr2 : Skel.AE GA typ2) :
+    Skel.AE GA (Skel.TTup typ1 typ2) :=
+    let (body1, len1) := darr_of_arr arr1 in
+    let (body2, len2) := darr_of_arr arr2 in
+    Skel.DArr _ _ (Skel.F1 _ _ _ (Skel.ECons _ _ _ _ body1 body2)) (Skel.LMin _ len1 len2).
 
   Definition compile_Skel {GA typ} (host_var_env : list (hostVar * list hostVar))
              (skel : Skel.SkelE GA typ) : CUDAM (hostVar * list hostVar) :=
@@ -671,8 +678,9 @@ Section Compiler.
       let g := Skel.DArr GA _ (Skel.F1 GA Skel.TZ Skel.TZ (Skel.EVar _ _ _ HFirst)) len in
       compile_map host_var_env f g
     | Skel.Zip _ typ1 typ2 arr1 arr2 => 
-      let f := Skel.F1 GA (Skel.TTup typ1 typ2) (Skel.TTup typ1 typ2) (Skel.EVar _ _ _ HFirst) in
-      ret (0, nil)
+      let f := Skel.F1 _ (Skel.TTup typ1 typ2) (Skel.TTup typ1 typ2) (Skel.EVar _ _ _ HFirst) in
+      let arr := zip_AE arr1 arr2 in
+      compile_map host_var_env f arr
     end.
 
   Fixpoint compile_AS {GA typ} (host_var_env : list (hostVar * list hostVar))
