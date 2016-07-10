@@ -2,7 +2,7 @@ Require Import Monad SkelLib Computation ZArith TypedTerm Program.
 Open Scope Z_scope.
 
 Definition max_idx (arr : list Z) : comp (list (Z * Z)) :=
-  reduceM (fun x y => if (fst x) <? (fst y) then ret x else ret y) (zip arr (seq 0 (length arr))).
+  reduceM (fun x y => if (fst x) <? (fst y) then ret x else ret y) (zip arr (seq 0 (len arr))).
 
 Definition max_idx_IR:  {p : Skel.AS (Skel.TZ :: nil) (Skel.TTup Skel.TZ Skel.TZ) |
       equiv1 p (max_idx)}.
@@ -15,8 +15,8 @@ Proof.
   lazymatch goal with
   | [|- _ = do! t := ?ae in @?res t] => pose ae
   end.
-  cutrewrite (ret (zip x0 (seq 0 (length x0))) =
-              (do! t := ret (seq 0 (length x0)) in ret (zip x0 t) : comp _)); [|eauto].
+  cutrewrite (ret (zip x0 (seq 0 (len x0))) =
+              (do! t := ret (seq 0 (len x0)) in ret (zip x0 t) : comp _)); [|eauto].
 
   repeat lazymatch goal with
   | [|- context [do! t := do! u := ret ?ae in @?f u in @?g t]] => 
@@ -44,7 +44,6 @@ Proof.
 
   unfold equiv1; simpl; intros; auto.
   unfold ret, bind; simpl.
-  rewrite Nat2Z.id.
   f_equal. f_equal.
   repeat (let t := fresh "t" in extensionality t).
   destruct (_ <? _); auto.

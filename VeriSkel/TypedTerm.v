@@ -177,7 +177,7 @@ Module Skel.
     end).
       pose (fun i => funcDenote _ _ f sa i) as f'.
       pose (lexpDenote _ _ len sa) as n.
-      apply (mapM f' (seq 0 (Z.to_nat n))).
+      apply (mapM f' (seq 0 n)).
   Defined.
   
   Inductive SkelE : list Typ -> Typ -> Type  :=
@@ -196,7 +196,7 @@ Module Skel.
       do! arr := aeDenote _ _ e sa in
       reduceM (funcDenote _ _ f sa) arr
     | Seq _ start len => fun sa => 
-      ret (seq (lexpDenote _ _ start sa) (Z.to_nat (lexpDenote _ _ len sa)))
+      ret (seq (lexpDenote _ _ start sa) (lexpDenote _ _ len sa))
     | Zip _ _ _ a1 a2 => fun sa =>
       do! a1 := aeDenote _ _ a1 sa in
       do! a2 := aeDenote _ _ a2 sa in
