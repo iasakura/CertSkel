@@ -2,3 +2,4 @@
 -I ../VeriSkel
 -I ../GPUCSL
 -I ../Skeletons
+-R ../repo/src Cpdt
