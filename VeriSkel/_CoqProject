@@ -1,3 +1,4 @@
 -R ../tlc/src TLC
 -I ../GPUCSL
 -I ../Skeletons
+-R ../repo/src Cpdt

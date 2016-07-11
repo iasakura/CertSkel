@@ -1,4 +1,4 @@
-Require Import Compiler MyEnv TypedTerm Ext Extract.
+Require Import DepList Compiler MyEnv TypedTerm Ext Extract.
 Require Import List.
 
 Definition aty_env := Skel.TZ :: nil.
