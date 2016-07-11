@@ -1,11 +1,14 @@
 Require Import Monad SkelLib Computation ZArith TypedTerm Program.
 Open Scope Z_scope.
 
-Definition max_idx (arr : list Z) : comp (list (Z * Z)) :=
-  reduceM (fun x y => if (fst x) <? (fst y) then ret x else ret y) (zip arr (seq 0 (len arr))).
+Definition max_idx (arr : list Z) : comp (list (Z * Z))
+  := reduceM
+       (fun x y => if (fst x) <? (fst y)
+                   then ret x else ret y)
+       (zip arr (seq 0 (len arr))).c
 
-Definition max_idx_IR:  {p : Skel.AS (Skel.TZ :: nil) (Skel.TTup Skel.TZ Skel.TZ) |
-      equiv1 p (max_idx)}.
+Definition max_idx_IR:
+  {p : Skel.AS (Skel.TZ :: nil) (Skel.TTup Skel.TZ Skel.TZ) | equiv1 p (max_idx)}.
 Proof.
   unfold max_idx.
   simpl in *.
