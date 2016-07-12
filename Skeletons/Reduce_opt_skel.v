@@ -134,12 +134,12 @@ Section Reduce.
       length rs = length dim.
   
   Hypothesis func_local :
-    forall x y, forall z, In z (writes_var (fst (func x y))) -> prefix "l" (var_of_str z) = true.
+    forall x y, forall z, In z (writes_var (fst (func x y))) -> prefix "l" (str_of_var z) = true.
   Hypothesis func_no_bars :
     forall x y, barriers (fst (func x y)) = nil.
   Hypothesis func_res_fv :
     forall x y e u, In e (snd (func x y)) -> In u (fv_E e) ->
-                    In u x \/ In u y \/ prefix "l" (var_of_str u) = true.
+                    In u x \/ In u y \/ prefix "l" (str_of_var u) = true.
   
   Hypothesis func_denote : forall (x y : list var) nt (tid : Fin.t nt) (vs us fv : list val) BS,
       f_den vs us fv -> 
@@ -842,10 +842,10 @@ Section Reduce.
   Hypothesis get_wf :
     forall x, length (snd (get x)) = length dim.
   Hypothesis get_wr :
-    forall x y, In x (writes_var (fst (get (y)))) -> prefix "l" (var_of_str y) = true.
+    forall x y, In x (writes_var (fst (get (y)))) -> prefix "l" (str_of_var y) = true.
   Hypothesis get_res_fv :
     forall x y e, In e (snd (get x)) -> In y (fv_E e) ->
-                  y = x \/ prefix "l" (var_of_str y) = true.
+                  y = x \/ prefix "l" (str_of_var y) = true.
   Hypothesis get_no_bar :
     forall x, barriers (fst (get x)) = nil.
   Variable get_den : val -> list val -> Prop.
@@ -1019,7 +1019,7 @@ Section Reduce.
     Qed.
 
     Lemma sublEs_locals x v y d :
-      prefix y (var_of_str x) = false ->
+      prefix y (str_of_var x) = false ->
       subEs x v (vars2es (locals y d)) = vars2es (locals y d).
     Proof.
       induction d; simpl; eauto.
@@ -1584,7 +1584,7 @@ Section Reduce.
       { Lemma reduce_writes n m w :
           In w (writes_var (reduce_aux n m)) ->
           (In w (if Nat.eq_dec m 0 then nil else (x ++ y ++ z)%list) \/
-           prefix "l" (var_of_str w) = true).
+           prefix "l" (str_of_var w) = true).
         Proof.
           revert n; induction m; simpl; eauto.
           intros n; rewrite !gen_read_writes; [|unfold vars2es; rewrite map_length, !locals_length; auto].
@@ -1913,10 +1913,10 @@ Section Reduce.
   Definition E (t : var) :=
     if var_eq_dec t (Var "bid") then Lo
     else if var_eq_dec t (Var "sh") then Lo
-    else if prefix "sdata" (var_of_str t) then Lo
-    else if prefix "Out" (var_of_str t) then Lo
-    else if prefix "sh" (var_of_str t) then Lo
-    else if prefix "arr" (var_of_str t) then Lo
+    else if prefix "sdata" (str_of_var t) then Lo
+    else if prefix "Out" (str_of_var t) then Lo
+    else if prefix "sh" (str_of_var t) then Lo
+    else if prefix "arr" (str_of_var t) then Lo
     else Hi.
 
   Lemma read_tup_no_bars xs tys es : barriers (read_tup xs tys es) = nil.
