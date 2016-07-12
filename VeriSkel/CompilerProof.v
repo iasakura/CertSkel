@@ -1,17 +1,22 @@
 Require Import Monad DepList GPUCSL TypedTerm Compiler.
-Require Import LibTactics.
+Require Import Program.Equality LibTactics.
 
 Section CorrectnessProof.
   Import Skel_lemma.
   (* the set of free variables *)
-  Variable GA : list Skel.Typ.
-  (* the evaluation environment *)
-  Variable aeval_env : hlist Skel.aTypDenote GA.
-  (* the typing environment *)
-  (* Variable aty_env : Env varA (option Sx.Typ) _. *)
-  (* the variable mapping environment between source and dest. *)
-  Variable avar_env : hlist (fun _ => var * list var)%type GA.
-  
+  (* Variable GA : list Skel.Typ. *)
+  (* (* the evaluation environment *) *)
+  (* Variable aeval_env : hlist Skel.aTypDenote GA. *)
+  (* (* the typing environment *) *)
+  (* (* Variable aty_env : Env varA (option Sx.Typ) _. *) *)
+  (* (* the variable mapping environment between source and dest. *) *)
+  (* Variable avar_env : hlist (fun _ => var * list var)%type GA. *)
+
+  Notation SVarEnv GS := (hlist (fun _ : Skel.Typ => list var) GS).
+  Notation SEvalEnv GS := (hlist Skel.typDenote GS).
+  Notation AVarEnv GA := (hlist (fun _ : Skel.Typ => (var * list var)%type) GA).
+  Notation AEvalEnv GA := (hlist Skel.aTypDenote GA).
+
   (* source lang. values -> dest. lang. values *)
   Fixpoint vs_of_sval {ty : Skel.Typ} :=
     match ty return Skel.typDenote ty -> list Z with
@@ -69,7 +74,8 @@ Section CorrectnessProof.
     end.
 
   (* precondition of free variable arrays *)
-  Definition assn_of_avs : assn :=
+  Definition assn_of_avs {GA : list Skel.Typ}
+    (aeval_env : AEvalEnv GA) (avar_env : AVarEnv GA) : assn :=
     let f (_ : Skel.Typ) x :=
         let '((len, arrs), ls) := x in
         !((len : var) === Z.of_nat (length ls)) **
@@ -162,12 +168,14 @@ Section CorrectnessProof.
     unfold ban, Aconj; rewrite H; split; eauto.
   Qed.
 
-  Lemma compile_don't_decrease se c es (svar_env : Env varE (list var) _) n m :
-    compile_sexp avar_env se svar_env n = (inl (c, es), m) ->
-    n <= m.
+  Lemma compile_don't_decrease GA GS typ
+    (se : Skel.SExp GA GS typ) c es
+    (avar_env : AVarEnv GA) (svar_env : SVarEnv GS) n0 n1 :
+    compile_sexp se avar_env svar_env n0 = (inl (c, es), n1) ->
+    n0 <= n1.
   Proof.
-    revert n m svar_env c es; induction se using Sx.SExp_ind'; simpl;
-      intros n m svar_env c es' Hsuc; eauto; try inverts Hsuc as Hsuc;
+    revert n0 n1 svar_env c es; induction se; simpl;
+      intros n0 n1 svar_env c es' Hsuc; eauto; try inverts Hsuc as Hsuc;
     eauto; unfoldM;
           (repeat lazymatch type of Hsuc with
              | context [compile_sexp ?X ?Y ?Z ?n] => destruct (compile_sexp X Y Z n) as [[(? & ?) | ?] ?] eqn:?
@@ -183,30 +191,18 @@ Section CorrectnessProof.
              forwards*: IHse1; forwards*: IHse2; forwards*: IHse3; forwards*: freshes_incr; omega |
              forwards*: IHse; forwards*: freshes_incr; omega |
              forwards*: IHse; omega]).
-    revert n m c es' Hsuc; induction es; introv; intros Hsuc; [inverts Hsuc; eauto|].
-    repeat lazymatch type of Hsuc with
-      | context [compile_sexp ?X ?Y ?Z ?W ?n] => destruct (compile_sexp X Y Z W n) as [[(? & ?) | ?] ?] eqn:?
-      end; try now inverts Hsuc.
-    repeat lazymatch type of Hsuc with
-      | context [let (_, _) := ?E in _] => destruct E as [[(? & ?)|?] ?] eqn:?
-      end; try now inverts Hsuc.
-    forwards*: IHes.
-    inverts H; eauto.
-    inverts Hsuc.
-    rewrite Forall_forall in H; forwards*: H; [left; auto|omega].
-    Grab Existential Variables.
   Qed.
 
-  Lemma fold_assn_svs se sv :
-    SE.assn_of_vs SVal se (fun (x_e : VarE_eq.t) (v : SVal) => !(vars2es (sv x_e) ==t vs_of_sval v)) =
-    assn_of_svs se sv. auto. Qed.
-  Lemma fold_assn_avs :
-    SA.assn_of_vs array aeval_env
-      (fun (x_a : VarA_eq.t) (a : array) =>
-         !(fst (avar_env x_a) === Z.of_nat (length a)) **
-         S.is_tuple_array_p (S.es2gls (S.vars2es (snd (avar_env x_a))))
-                            (length a) (fun i : nat => vs_of_sval (nth i a (VZ 0))) 0 1) =
-    assn_of_avs. auto. Qed.
+  (* Lemma fold_assn_svs se sv : *)
+  (*   SE.assn_of_vs SVal se (fun (x_e : VarE_eq.t) (v : SVal) => !(vars2es (sv x_e) ==t vs_of_sval v)) = *)
+  (*   assn_of_svs se sv. auto. Qed. *)
+  (* Lemma fold_assn_avs : *)
+  (*   SA.assn_of_vs array aeval_env *)
+  (*     (fun (x_a : VarA_eq.t) (a : array) => *)
+  (*        !(fst (avar_env x_a) === Z.of_nat (length a)) ** *)
+  (*        S.is_tuple_array_p (S.es2gls (S.vars2es (snd (avar_env x_a)))) *)
+  (*                           (length a) (fun i : nat => vs_of_sval (nth i a (VZ 0))) 0 1) = *)
+  (*   assn_of_avs. auto. Qed. *)
 
   Lemma inde_equiv P P' xs :
     (forall stk, stk ||= P <=> P') ->
@@ -220,318 +216,161 @@ Section CorrectnessProof.
     apply H; apply <-H0; eauto; apply H; eauto.
   Qed.
 
-  Lemma inde_assn_of_svs seval_env svar_env fvs (xs : list var) :
-    (forall x y, In x xs -> SE.In y fvs -> ~In x (svar_env y)) ->
-    inde (assn_of_svs seval_env svar_env fvs) xs.
+  Fixpoint hIn {A B : Type} {l : list A} (x : B) (ys : hlist (fun _ => B) l) :=
+    match ys with
+    | HNil => False
+    | y ::: ys => x = y \/ hIn x ys
+    end.
+
+  Lemma inde_assn_of_svs GS (seval_env : SEvalEnv GS)
+        (svar_env : SVarEnv GS) (xs : list var) :
+    (forall x y, In x xs -> hIn y svar_env -> ~In x y) ->
+    inde (assn_of_svs seval_env svar_env) xs.
   Proof.
-    destruct fvs as [fvs ok]; simpl.
-    simpl_avs.
-    induction fvs; simpl; repeat prove_inde.
-    destruct (seval_env a).
-    unfold SE.SE.Raw.fold; simpl.
-    intros H.
-    rewrites (>>inde_equiv).
-    { intros; rewrite SE.fold_left_assns; reflexivity. }
-    repeat prove_inde.
-    apply inde_eq_tup.
-    rewrite Forall_forall; intros; simplify; simpl; eauto.
-    apply H in H0; eauto.
-    left; auto.
-    eauto.
-    inverts keep ok as ? Hok; applys* (IHfvs Hok).
-    intros; apply H; eauto.
-    right; auto.
-    simpl_avs. rewrites (>>inde_equiv).
-    { intros; unfold SE.SE.Raw.fold; simpl.
-      rewrite SE.fold_left_assns.
-      instantiate (1 := FalseP).
-      split; [intros (? & ? & [] & ? & ? & ?) | destruct 1]. }
-    intros; prove_inde.
+    unfold assn_of_svs.
+    dependent induction seval_env; dependent destruction svar_env; simpl; repeat prove_inde.
+    intros H; prove_inde; eauto.
+    (* rewrites (>>inde_equiv). *)
+    (* { intros; rewrite SE.fold_left_assns; reflexivity. } *)
+    { apply inde_eq_tup.
+      rewrite Forall_forall; intros; simplify; simpl; eauto.
+      apply H in H0; eauto. }
   Qed.
   
-  Lemma inde_assn_of_avs fvs (xs : list var) :
-    (forall x y, In x xs -> SA.In y fvs -> ~In x (snd (avar_env y))) ->
-    (forall x y, In x xs -> SA.In y fvs -> x <> fst (avar_env y)) ->
-    inde (assn_of_avs fvs) xs.
+  Lemma inde_assn_of_avs GA (aeval_env : AEvalEnv GA) (avar_env : AVarEnv GA) (xs : list var) :
+    (forall x y, In x xs -> hIn y avar_env -> ~In x (snd y)) ->
+    (forall x y, In x xs -> hIn y avar_env -> x <> (fst y)) ->
+    inde (assn_of_avs aeval_env avar_env) xs.
   Proof.
-    destruct fvs as [fvs ok]; simpl.
-    unfold assn_of_avs, SA.assn_of_vs, SA.SE.fold, SA.SE.Raw.fold; simpl.
-    induction fvs; simpl; repeat prove_inde.
-    destruct (aeval_env a).
+    unfold assn_of_avs.
+    dependent induction aeval_env; dependent destruction avar_env; simpl; repeat prove_inde.
     intros H H'.
-    rewrites (>>inde_equiv).
-    { intros; rewrite SA.fold_left_assns; reflexivity. }
-    repeat prove_inde; try (rewrite Forall_forall; simplify; eauto).
-    forwards*: H'; left; eauto.
-    apply inde_is_tup_arr.
-    intros; simplify.
-    unfold S.es2gls in *; simplify.
-    apply H in H0; eauto.
-    left; auto.
-    inverts keep ok as ? Hok; applys* (IHfvs Hok).
-    intros; apply H; eauto.
-    right; auto.
-    intros; apply H'; eauto; right; eauto.
-    simpl_avs. rewrites (>>inde_equiv).
-    { intros; unfold SE.SE.Raw.fold; simpl.
-      rewrite SA.fold_left_assns.
-      instantiate (1 := FalseP).
-      split; [intros (? & ? & [] & ? & ? & ?) | destruct 1]. }
-    intros; prove_inde.
+    (* rewrites (>>inde_equiv). *)
+    (* { intros; rewrite SA.fold_left_assns; reflexivity. } *)
+    prove_inde; [|now (apply IHaeval_env; eauto)].
+    
+    destruct p as [len arrs] eqn:Heq; repeat prove_inde;
+    try (rewrite Forall_forall; simplify; eauto).
+    - eapply H'; eauto.
+    - apply inde_is_tup_arr; 
+      intros; simplify.
+      unfold S.es2gls in *; simplify.
+      forwards*: H.
   Qed.
   
-  Scheme evalSE_ind' := Minimality for evalSE Sort Prop with
-         evalTup_ind' := Minimality for evalTup Sort Prop.
-  Definition evalSE_ind'' aenv P := evalSE_ind' aenv P (fun senv => List.Forall2 (P senv)).
-  
-  Inductive has_type_val : SVal -> Sx.Typ -> Prop :=
-  | has_type_bool b : has_type_val (VB b) Sx.TBool
-  | has_type_z n : has_type_val (VZ n) Sx.TZ
-  | has_type_tup vs ts :
-      List.Forall2 (fun v ty => has_type_val v ty) vs ts ->
-      has_type_val (VTup vs) (Sx.TTup ts).
-  
-  Lemma type_preservation (se : Sx.SExp) (ty : Sx.Typ) (v : SVal)
-        (sty_env : Env varE (option Sx.Typ) _)
-        (seval_env : Env varE (option SVal) _) :
-    (forall x v ty, seval_env x = Some v ->
-                    sty_env x = Some ty ->
-                    has_type_val v ty) ->
-    (forall x arr ty d, aeval_env x = Some arr ->
-                        aty_env x = Some ty ->
-                        forall i, i < length arr -> has_type_val (nth i arr d) ty) ->
-    has_type aty_env sty_env se ty ->
-    evalSE aeval_env seval_env se v ->
-    has_type_val v ty.
+  Ltac unfoldM' := unfold get, set, ret in *; simpl in *; unfold bind_opt in *.
+
+  Lemma ctyps_of_typ__len_of_ty t : 
+    length (ctyps_of_typ t) = len_of_ty t.
   Proof.
-    Hint Constructors has_type_val.
-    intros Hsctx Hactx Hty Heval; revert sty_env ty Hsctx Hactx Hty.
-    pattern seval_env, se, v.
-    applys (>>evalSE_ind'' aeval_env seval_env Heval); intros; simpl; [hnf|..]; intros;
-      try lazymatch goal with
-          [ H : has_type _ _ _ _ |- _] => inverts H
-      end; eauto.
-    - forwards*: H0; forwards*: H2.
-      { intros; unfold upd_opt in H4, H5; case_if; inverts H4; inverts H5; eauto. }
-    - forwards*: H0; forwards*: H2.
-      destruct op; simpl in *; destruct v1, v2, ty1, ty2;
-        inverts H3; inverts H12; eauto;
-          case_if; inverts H6; eauto.
-    - applys* Hactx.
-      zify; rewrite Z2Nat.id; eauto.
-    - forwards* Htup: H0; inverts Htup.
-      Lemma Forall2_nth (A B : Type) i (xs : list A) (ys : list B) P dx dy :
-        i < length xs ->
-        Forall2 P xs ys ->
-        P (nth i xs dx) (nth i ys dy).
-      Proof.
-        intros; revert i H;induction H0.
-        - intros; simpl in *; omega.
-        - intros; simpl; destruct i; eauto.
-          apply IHForall2; simpl in *; omega.
-      Qed.
-      Lemma Forall2_length (A B : Type) (xs : list A) (ys : list B) P :
-        Forall2 P xs ys -> length xs = length ys.
-      Proof.
-        induction 1; simpl in *; congruence.
-      Qed.
-      forwards*: (>>Forall2_length H4).
-      applys* (>>Forall2_nth (VZ 0) Sx.TZ); try omega.
-    - constructor.
-      revert tys H5; induction H0; intros.
-      + inverts H5; eauto.
-      + inverts H5.
-        constructor; eauto.
-        apply IHForall2; eauto.
-        inverts* H.
+    induction t; simpl; eauto.
+    rewrite app_length; auto.
   Qed.
+  Hint Resolve ctyps_of_typ__len_of_ty app_length.
 
-  Scheme has_type_ind' := Minimality for evalSE Sort Prop with
-         has_type_es_ind' := Minimality for evalTup Sort Prop.
-
-  Definition has_type_ind'' aenv P := has_type_ind' aenv P (fun senv => Forall2 (P senv)).
-
-  Lemma compile_preserve (se : Sx.SExp)
-        (sty_env : Env varE (option Sx.Typ) _)
-        (svar_env : Env varE (list var) _) (n m : nat)
-        c es ty :
-    (forall x ty, sty_env x = Some ty ->
-                  length (svar_env x) = len_of_ty ty) ->
-    (forall x ty, aty_env x = Some ty ->
-                  length (snd (avar_env x)) = len_of_ty ty) ->
-    has_type aty_env sty_env se ty ->
-    compile_sexp avar_env se svar_env n =  (inl (c, es), m) ->
-    length es = len_of_ty ty.
+  Lemma compiler_preserve GA GS typ (se : Skel.SExp GA GS typ)
+        (avar_env : AVarEnv GA)
+        (svar_env : SVarEnv GS) (n0 n1 : nat)
+        c es :
+    (forall ty (m : member ty GS), length (hget svar_env m) = len_of_ty ty) ->
+    (forall ty (m : member ty GA), length (snd (hget avar_env m)) = len_of_ty ty) ->
+    compile_sexp se avar_env svar_env n0 = (inl (c, es), n1) ->
+    length es = len_of_ty typ.
   Proof.
-    intros Hsctx Hactx Htyp;
-      revert svar_env sty_env n m c es ty Htyp Hsctx.
-    induction se using Sx.SExp_ind'; simpl; introv Htyp Hsctx Hsucc.
-    - inverts Hsucc; inverts Htyp.
-      simplify; eauto.
-    - inverts Hsucc; inverts* Htyp.
-    - Ltac unfoldM' := unfold get, set, ret in *; simpl in *; unfold bind_opt in *.
-      unfoldM'.
-      destruct (compile_sexp _ se1 _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
-      destruct (freshes (length es1) _) as [[fvs1 | ?] n''] eqn:Hfeq1; [|inversion Hsucc].
-      destruct (compile_sexp _ se2 _ _) as [[(cs2 & es2) | ?] n'''] eqn:Hceq2; [|inversion Hsucc].
-      inverts Htyp as Htyp1 Htyp2.
-      forwards*: IHse1; forwards*: IHse2.
-      { intros; unfold upd_opt,  upd in *; case_if*.
-        forwards*: freshes_len; inverts H0; congruence. }
-      inverts* Hsucc.
+    revert svar_env n0 n1 c es.
+    induction se; simpls*; introv Hsctx Hactx Hsucc.
+    - inverts Hsucc; simplify; eauto.
+    - inverts* Hsucc.
     - unfoldM'.
-      destruct (compile_sexp _ se1 _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
-      destruct (compile_sexp _ se2 _ _) as [[(cs2 & es2) | ?] n'''] eqn:Hceq2; [|inversion Hsucc].
-      inverts Htyp as Htyp1 Htyp2 Hop.
-      destruct op, ty1, ty2, es1 as [|? [| ? ?]], es2 as [|? [| ? ?]];
+      destruct (compile_sexp se1 _ _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
+      destruct (compile_sexp se2 _ _ _) as [[(cs2 & es2) | ?] n'''] eqn:Hceq2; [|inversion Hsucc].
+      destruct b, es1 as [|? [| ? ?]], es2 as [|? [| ? ?]];
         inverts Hsucc; simpl in *; try congruence; eauto; simpl in *; try case_if; inverts* Hop.
     - unfoldM'.
-      destruct (compile_sexp _ se _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
-      destruct (avar_env x) as [? aname] eqn:Heq'.
+      destruct (compile_sexp se _ _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
+      destruct (hget avar_env m) as [? aname] eqn:Heq'.
       destruct (freshes _ _) as [[fvs1 | ?] n''] eqn:Hfeq1; [|inversion Hsucc].
       destruct es1 as [|i [|? ?]]; inverts Hsucc.
-      inverts Htyp as Htyp Havar.
       simplify.
       rewrites* (>>freshes_len Hfeq1).
-      forwards*: Hactx.
-      rewrite Heq' in H; eauto.
-    - destruct (avar_env x) eqn:Heq; simpl in *.
-      inverts Hsucc.
-      inverts Htyp; simpl; auto.
+    - destruct (hget avar_env m) eqn:Heq; simpl in *.
+      inverts* Hsucc.
     - unfoldM'.
-      Lemma typ_of_sexp_ok sty_env se ty :
-        has_type aty_env sty_env se ty ->
-        Sx.typ_of_sexp se = ty.
-      Proof.
-        induction 1; simpl; eauto.
-      Qed.
-      inverts Htyp as Htyp Hidx.
-      rewrites* (>>typ_of_sexp_ok Htyp) in Hsucc.
-      destruct (compile_sexp _ se _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
-      destruct le_dec; inverts Hsucc.
-      forwards* Hlen: IHse.
-      rewrite firstn_length, skipn_length.
-      unfold len_at_i in *; rewrite Hlen; simpl.
-      rewrite Nat.min_l; omega.
-    - revert c es0 n m ty ty0 Htyp Hsucc; induction H; introv Htyp Hsucc; inverts Htyp as Htyp.
-      + inverts Hsucc; inverts Htyp; auto.
-      + inverts Htyp as Hty Htys.
-        unfoldM'.
-        destruct (compile_sexp _ x _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
-        lazymatch type of Hsucc with
-        | context [let (_, _) := ?X in _]  =>
-          destruct X as [[(cs2 & es2) | ?] n''] eqn:Hceq2; [|inversion Hsucc]
-        end.
-        inverts Hsucc.
-        forwards* : (>>IHForall (Sx.TTup tys0) (Sx.TTup tys0)).
-        { constructor; eauto. }
-        forwards*: H.
-        simpl in *; rewrite app_length; congruence.
-    - unfoldM'.
-      destruct (compile_sexp _ se1 _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
-      destruct (compile_sexp _ se2 _ _) as [[(cs2 & es2) | ?] n''] eqn:Hceq2; [|inversion Hsucc].
-      destruct (compile_sexp _ se3 _ _) as [[(cs3 & es3) | ?] n'''] eqn:Hceq3; [|inversion Hsucc].
-      destruct (freshes (length es2) _) as [[fvs1 | ?] n''''] eqn:Hfeq1; [|inversion Hsucc].
+      destruct (compile_sexp se1 _ _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
+      destruct (compile_sexp se2 _ _ _) as [[(cs2 & es2) | ?] n''] eqn:Hceq2; [|inversion Hsucc].
+      destruct (compile_sexp se3 _ _ _) as [[(cs3 & es3) | ?] n'''] eqn:Hceq3; [|inversion Hsucc].
+      destruct (freshes _ _) as [[fvs1 | ?] n''''] eqn:Hfeq1; [|inversion Hsucc].
       destruct es1 as [|? [|? ?]]; simpl in *; inverts Hsucc.
       forwards*: freshes_len; simplify.
-      rewrites H.
-      inverts Htyp.
-      forwards*: IHse2.
+      rewrites* H.
+    - unfoldM'.
+      destruct (compile_sexp se1 _ _ _) as [[(ce1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
+      destruct (compile_sexp se2 _ _ _) as [[(ce2 & es2) | ?] n''] eqn:Hceq2; [|inversion Hsucc].
+      inversion Hsucc; rewrites* app_length.
+    - unfoldM'.
+      destruct (compile_sexp se _ _ _) as [[(ce1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
+      inverts* Hsucc; eauto.
+      rewrites* firstn_length; rewrites* min_l.
+      forwards*: IHse; omega.
+    - unfoldM'.
+      destruct (compile_sexp se _ _ _) as [[(ce1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
+      inverts* Hsucc; eauto.
+      rewrites* firstn_length; rewrites* skipn_length; rewrites* min_l.
+      forwards*: IHse; omega.
+    - unfoldM'.
+      destruct (compile_sexp se1 _ _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
+      destruct (freshes _ _) as [[fvs1 | ?] n''] eqn:Hfeq1; [|inversion Hsucc].
+      destruct (compile_sexp se2 _ _ _) as [[(cs2 & es2) | ?] n'''] eqn:Hceq2; [|inversion Hsucc].
+      forwards*: IHse1; forwards*: IHse2.
+      { intros ty m; dependent destruction m; simpl; eauto.
+        forwards*: freshes_len.
+        forwards*: (ctyps_of_typ__len_of_ty t1); congruence. }
+      inverts* Hsucc.
+  Qed.
+
+
+  Lemma read_tup_writes' (vs : list var) (ts : list CTyp) (es : list exp) :
+    forall x,  In x (writes_var (read_tup vs ts es)) -> In x vs.
+  Proof.
+    revert ts es; induction vs; simpl in *; introv; eauto.
+    destruct es, ts; simpl; first [now destruct 1| destruct 1; jauto].
+  Qed.
+
+  Lemma gen_read_writes' loc (vs : list var) (ts : list CTyp) (es : list exp) e:
+    forall x,  In x (writes_var (S.gen_read loc vs ts es e)) -> In x vs.
+  Proof.
+    revert ts es; induction vs; simpl in *; introv; eauto.
+    destruct es, ts; simpl; first [now destruct 1| destruct 1; jauto].
   Qed.
   
-  Lemma has_type_val_len v ty :
-    has_type_val v ty ->
-    length (vs_of_sval v) = len_of_ty ty.
-  Proof.
-    revert v; induction ty using Sx.STyp_rect'; try now (intros v H; inverts H; simpl; eauto).
-    introv Htyp; inverts Htyp as Htyp.
-    revert vs Htyp; induction X; introv Htyp.
-    - inverts* Htyp.
-    - inverts Htyp; simpl in *.
-      forwards*: IHX; forwards*: p.
-      rewrite app_length; congruence.
-  Qed.
-
-  Instance se_eqset_proper e1 e2 stk : Proper (SE.Equal ==> equiv_sep stk) (assn_of_svs e1 e2).
-  Proof.
-    intros s1 s2 Heq; apply SE.eqset_equiv; auto.
-  Qed.
-  Instance sa_eqset_proper stk : Proper (SA.Equal ==> equiv_sep stk) (assn_of_avs).
-  Proof.
-    intros s1 s2 Heq; apply SA.eqset_equiv; auto.
-  Qed.
-
-      (* fix compile_sexps (es : list Sx.SExp) (env : Env varE (list var) eq_varE) :  *)
-      (*  M (cmd * list exp) := *)
-      (*  match es with *)
-      (*  | Datatypes.nil => ret (SKIP, Datatypes.nil) *)
-      (*  | e :: es0 => *)
-      (*    fun n0 : nat => *)
-      (*      let (s, n1) := compile_sexp avar_env e env n0 in *)
-      (*      match s with *)
-      (*      | inl v => *)
-      (*        (let (c, ge) := v in *)
-      (*         fun n2 : nat => *)
-      (*           let (s0, n3) := compile_sexps es0 env n2 in *)
-      (*           match s0 with *)
-      (*           | inl v0 => (let (c', ges) := v0 in ret (c;; c', ge ++ ges)) n3 *)
-      (*           | inr msg => (inr msg, n3) *)
-      (*           end) n1 *)
-      (*      | inr msg => (inr msg, n1) *)
-      (*      end *)
-      (*  end *)
-
-  Lemma compile_sexps_don't_decrease svar_env cs2 es2 n' m l:
-    (fix compile_sexps (es0 : list Sx.SExp) (env0 : Env varE (list var) eq_varE) {struct es0} :
-          M (cmd * list exp) :=
-            match es0 with
-            | Datatypes.nil => ret (SKIP, Datatypes.nil)
-            | e :: es1 =>
-                compile_sexp avar_env e env0 >>=
-                (fun ces : cmd * list exp =>
-                 let (c, ge) := ces in
-                 compile_sexps es1 env0 >>= (fun ces' : cmd * list exp => let (c', ges) := ces' in ret (c;; c', ge ++ ges)))
-            end) l svar_env n' = (inl (cs2, es2), m) ->
-    n' <= m.
-  Proof.
-    revert cs2 es2 n' m; induction l; simpl; introv Hsuc.
-    - inverts Hsuc; eauto.
-    - unfoldM.
-      destruct (compile_sexp _ _ _ _) as [[(cs1 & es1) | ?]  n''] eqn:Hceq1; [|inversion Hsuc].
-      lazymatch type of Hsuc with
-      | context [let (_, _) := ?X in _]  =>
-        destruct X as [[(? & ?) | ?] ?] eqn:Hceq2; [|inversion Hsuc]
-      end.
-      forwards*: IHl.
-      forwards*: compile_don't_decrease.
-      inverts Hsuc.
-      omega.
-  Qed.
-
-  Lemma compile_wr_vars (se : Sx.SExp)
-        (svar_env : Env varE (list var) _) (n m : nat) c es :
-    compile_sexp avar_env se svar_env n =  (inl (c, es), m) ->
+  Lemma compile_wr_vars GA GS typ (se : Skel.SExp GA GS typ)
+        (svar_env : SVarEnv GS) (avar_env : AVarEnv GA) (n0 n1 : nat) c es :
+    compile_sexp se avar_env svar_env n0 =  (inl (c, es), n1) ->
     (forall x, In x (writes_var c) ->
-       exists k l, (Var (str_of_pnat k l)) = x /\ n <= k < m).
+               exists k l, (Var (str_of_pnat k l)) = x /\ n0 <= k < n1).
   Proof.
     Lemma id_mark A (x : A) :
       x = id x. eauto. Qed.
     Ltac t := do 2 eexists; splits*; omega.
     Ltac fwd H := first [forwards* (? & ? & ? & ?): H | forwards* (? & ? & ?): H ].
-    revert n m svar_env c es; induction se using Sx.SExp_ind'; simpl;
-      intros n m svar_env c es' Hsuc; eauto; try inverts Hsuc as Hsuc;
-    eauto; unfoldM';
+    revert n0 n1 svar_env c es; induction se; simpl;
+      intros n0 n1 svar_env c es' Hsuc; eauto; try inverts Hsuc as Hsuc;
+    eauto; unfoldM'; unfold compile_op in *;
           (repeat lazymatch type of Hsuc with
              | context [compile_sexp ?X ?Y ?Z ?n] => destruct (compile_sexp X Y Z n) as [[(? & ?) | ?] ?] eqn:?
              | context [freshes ?X ?Y] => destruct (freshes X Y) as ([? | ?] & ?) eqn:?
              end);
     (repeat lazymatch goal with [H : context [match ?E with | _ => _ end]|- _] => destruct E eqn:? end);
-    (try inverts Hsuc); simpl;
-      introv; try rewrite !in_app_iff; intros;
-        repeat lazymatch goal with
-        | [H : False |- _] => destruct H
-        | [H : _ \/ _ |- _] => destruct H
-        end;
+    (repeat lazymatch goal with [H : (_, _) = (_, _) |- _] => inverts* H end);
+    (try inverts Hsuc); simpl; try tauto; intros; repeat rewrite in_app_iff in *;
+    repeat lazymatch goal with
+      | [H : False |- _] => destruct H
+      | [H : _ \/ _ |- _] => destruct H
+      end;
+    try (forwards (? & ? & ? & ?): IHse; [now auto_star..|idtac]);
+    try (forwards (? & ? & ? & ?): IHse1; [now auto_star..|idtac]);
+    try (forwards (? & ? & ? & ?): IHse2; [now auto_star..|idtac]);
+    try (forwards (? & ? & ? & ?): IHse3; [now auto_star..|idtac]);
     repeat lazymatch goal with
       | [H : compile_sexp ?A ?B ?C ?D = ?E |- _] =>
           forwards*: (>>compile_don't_decrease H);
@@ -539,84 +378,21 @@ Section CorrectnessProof.
       | [H : freshes ?A ?B = ?C |- _] =>
         forwards*: (>>freshes_incr H);
             rewrite (id_mark _ (freshes A B = C)) in H
-      end; unfold id in *.
-    - forwards* (? & ? & ? & ?): (>>IHse1 H); t.
-    - rewrite read_tup_writes in *; [|forwards*: (>>freshes_len Heqp0)].
-      forwards* (? & ? & ?): freshes_vars; t.
-    - forwards* (? & ? & ? & ?): (>>IHse2 Heqp1). t.
-    - forwards* (? & ? & ? & ?): (>>IHse1 Heqp). t.
-    - forwards* (? & ? & ? & ?): (>>IHse2 Heqp0). t.
-    - destruct op; simpl in *; inverts Heqp1; substs; simpl in *; destruct H.
-    - forwards* (? & ? & ? & ?): (>>IHse Heqp). t.
-    - rewrite gen_read_writes in *; [|simplify; forwards*: (>>freshes_len Heqp1)].
-      forwards* (? & ? & ?): freshes_vars; t.
-    - revert n c es' H1 H0; induction H;
-      introv Hsuc Hin; [inverts Hsuc; simpl in *|].
-      + destruct Hin.
-      + unfold ">>=" in *.
-        destruct (compile_sexp _ x0 _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsuc].
-        lazymatch type of Hsuc with
-        | context [let (_, _) := ?X in _]  =>
-          destruct X as [[(cs2 & es2) | ?] n''] eqn:Hceq2; [|inversion Hsuc]
-        end.
-        inverts Hsuc.
-        forwards*: compile_sexps_don't_decrease.
-        simpl in Hin; rewrite in_app_iff in *.
-        destruct Hin as [Hin | Hin].
-        * forwards* (? & ? & ? & ?): H.
-          t.
-        * forwards* (? & ? & ? & ?): IHForall; substs.
-          forwards*: compile_don't_decrease.
-          t.
-    - substs.
-      forwards* (? & ? & ? & ?): (>>IHse1 Heqp). t.
-    - forwards* (? & ? & ? & ?): (>>IHse2 Heqp0). t.
-    - rewrite S.read_tup_writes in *; [|forwards*: freshes_len].
-      forwards* (? & ? & ?) : freshes_vars.
-      t.
-    - forwards* (? & ? & ? & ?): (>>IHse3).
-      t.
-    - Lemma read_tup_writes' (vs : list var) (es : list exp) :
-        forall x,  In x (writes_var (read_tup vs es)) -> In x vs.
-      Proof.
-        revert es; induction vs; simpl in *; introv; eauto.
-        destruct es; simpl.
-        - destruct 1.
-        - simpl in *; intros [? | ?]; eauto.
-      Qed.
-      apply read_tup_writes' in H.
-      forwards* (? & ? & ?) : freshes_vars; t.
+      end; unfold id in *; 
+    try (repeat eexists; eauto; omega);
+    try (forwards ?: gen_read_writes'; [now auto_star..|idtac]);
+    try (forwards ?: read_tup_writes'; [now auto_star..|idtac]);
+    try (forwards (? & ? & ?): freshes_vars; [now auto_star..|idtac]);
+    try (repeat eexists; eauto; omega).
+    Grab Existential Variables.
+    (* TODO: Fix me!*)
+    apply (Var "").
+    apply (Var "").
+    apply (Var "").
+    apply (Var "").
+    apply (Var "").
   Qed.
 
-  Lemma compile_sexps_wr_vars svar_env cs es n m l:
-    (fix compile_sexps (es0 : list Sx.SExp) (env0 : Env varE (list var) eq_varE) {struct es0} :
-       M (cmd * list exp) :=
-       match es0 with
-       | Datatypes.nil => ret (SKIP, Datatypes.nil)
-       | e :: es1 =>
-         compile_sexp avar_env e env0 >>=
-                (fun ces : cmd * list exp =>
-                 let (c, ge) := ces in
-                 compile_sexps es1 env0 >>= (fun ces' : cmd * list exp => let (c', ges) := ces' in ret (c;; c', ge ++ ges)))
-            end) l svar_env n  = (inl (cs, es), m) ->
-    (forall x, In x (writes_var cs) ->
-       exists k l, (Var (str_of_pnat k l)) = x /\ n <= k < m).
-  Proof.
-    revert cs es n m; induction l; simpl; introv Hsuc.
-    - unfoldM; inverts Hsuc; simpl; eauto.
-      destruct 1.
-    - unfoldM; destruct (compile_sexp _ _ _ _) as [[(cs1 & es1) | ?]  n''] eqn:Hceq1; [|inversion Hsuc].
-      lazymatch type of Hsuc with
-      | context [let (_, _) := ?X in _]  =>
-        destruct X as [[(? & ?) | ?] ?] eqn:Hceq2; [|inversion Hsuc]
-      end.
-      inverts Hsuc; simpl; introv; rewrite in_app_iff; intros [? | ?].
-      forwards*: compile_sexps_don't_decrease.
-      forwards* (? & ? & ? & ?) : (compile_wr_vars). t.
-      forwards*: compile_don't_decrease.
-      forwards* (? & ? & ? & ?) : (IHl). t.
-  Qed.
-  
   Lemma freshes_disjoint d n m xs :
     freshes d n = (inl xs, m) ->
     disjoint_list xs.
@@ -641,10 +417,6 @@ Section CorrectnessProof.
       forwards*: H; omega.
   Qed.
 
-  Create HintDb setop.
-  Hint Rewrite SE.add_spec SE.union_spec SE.remove_spec SE.diff_spec
-       SA.add_spec SA.union_spec SA.remove_spec SA.diff_spec : setop.
-  
   Lemma compile_ok (se : Sx.SExp)
         (sty_env : Env varE (option Sx.Typ) _)
         (seval_env : Env varE (option SVal) _)
@@ -715,7 +487,7 @@ Section CorrectnessProof.
       forwards* (Hres2 & Htri2): IHse2; [..|clear IHse2].
       { unfold upd_opt, upd; intros; case_if*.
         rewrites* (>>freshes_len Hfeq1).
-        inverts H; forwards*: compile_preserve. }
+        inverts H; forwards*: compiler_preserve. }
       { unfold upd_opt, upd; intros; case_if*.
         inverts H; inverts H0.
         forwards*: type_preservation. }
@@ -792,7 +564,7 @@ Section CorrectnessProof.
         forwards* (? & ? & ?): Hfvs; substs.
         intros Hc; forwards*: Hres1; try omega. }
       { forwards*: freshes_disjoint. }
-      { forwards*: (compile_preserve se1).
+      { forwards*: (compiler_preserve se1).
         forwards*: (type_preservation se1).
         rewrites* (>>has_type_val_len). }
       { rewrites* (>>freshes_len). }
@@ -1178,7 +950,7 @@ Section CorrectnessProof.
       eapply Hforward; eauto.
       simpl; intros s h H; sep_split_in H; sep_split; eauto.
       forwards*: type_preservation.
-      forwards*: compile_preserve.
+      forwards*: compiler_preserve.
       forwards*: (>>has_type_val_len H0).
       assert (Hlen : length es1 = length (vs_of_sval (VTup tup))) by congruence.
       inverts H0.
@@ -1486,7 +1258,7 @@ Section CorrectnessProof.
         { forwards*: freshes_disjoint. }
         { forwards*: (>>type_preservation Htyp2).
           unfold val in * ; rewrites* (>> has_type_val_len H0).
-          forwards*: (>>compile_preserve Hceq2). }
+          forwards*: (>>compiler_preserve Hceq2). }
         { forwards*: (>>freshes_len Hfeq1). }
         { prove_inde; first [apply inde_assn_of_avs | apply inde_assn_of_svs];
           introv; autorewrite with setop; unfold not; intros; forwards*: (read_tup_writes');
@@ -1622,10 +1394,10 @@ Section CorrectnessProof.
         { forwards*: freshes_disjoint. }
         { forwards*: (>>type_preservation Htyp3).
           unfold val in * ; rewrites* (>> has_type_val_len H0).
-          forwards*: (>>compile_preserve Hceq3). }
+          forwards*: (>>compiler_preserve Hceq3). }
         { forwards*: (>>freshes_len Hfeq1).
-          forwards*: (>>compile_preserve Hceq3).
-          forwards*: (>>compile_preserve Hceq2).
+          forwards*: (>>compiler_preserve Hceq3).
+          forwards*: (>>compiler_preserve Hceq2).
           congruence. }
         { prove_inde; first [apply inde_assn_of_avs | apply inde_assn_of_svs];
           introv; autorewrite with setop; unfold not; intros; forwards*: (read_tup_writes');
