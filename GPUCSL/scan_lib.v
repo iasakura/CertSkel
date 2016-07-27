@@ -815,7 +815,7 @@ Qed.
 
 Fixpoint has_no_vars_lE (e : loc_exp) :=
   match e with
-    | Sh e | Gl e => has_no_vars_E e
+    | Addr _ e => has_no_vars_E e
     | (e1 +o e2) => has_no_vars_lE e1 /\ has_no_vars_E e2
   end.
 

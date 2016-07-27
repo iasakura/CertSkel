@@ -1686,7 +1686,7 @@ Section Reduce.
             sep_split_in Heq.
             Lemma ls_idx l1 l2 e s h : (l1 ===l l2) s h -> (l1 +o e ===l l2 +o e) s h.
             Proof.
-              revert l2 e; induction l1; simpl; intros [?|?|?] e' H;
+              revert l2 e; induction l1; simpl; intros [[|]?|?] e' H;
                 unfold_conn_all; simpl in *; inverts H; try congruence;
               rewrite H1; eauto.
             Qed.

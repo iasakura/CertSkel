@@ -79,7 +79,7 @@ Qed.
 Lemma indelE_fv (e : loc_exp) (v : var) :
   ~List.In v (fv_lE e) -> indelE e v.
 Proof.
-  unfold indelE; induction e; simpl; intros; intuition; try (f_equal).
+  unfold indelE; induction e; try destruct p; simpl; intros; intuition; try (f_equal).
   lets Heq: (indeE_fv e v); unfold indeE in Heq; eauto.
   lets Heq: (indeE_fv e v); unfold indeE in Heq; eauto.
   assert (H' : ~In v (fv_E e0)).
@@ -144,7 +144,7 @@ Qed.
 
 Lemma typing_lexp_Hi E (e : loc_exp) : typing_lexp E e Hi.
 Proof.
-  induction e; eauto; equates 1; eauto.
+  induction e; try destruct p; eauto; equates 1; eauto.
 Qed.  
 
 Hint Resolve typing_bexp_Hi typing_lexp_Hi.
