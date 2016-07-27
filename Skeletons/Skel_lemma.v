@@ -79,7 +79,7 @@ Qed.
 Lemma indelE_fv (e : loc_exp) (v : var) :
   ~List.In v (fv_lE e) -> indelE e v.
 Proof.
-  unfold indelE; induction e; simpl; intros; intuition; try (f_equal).
+  unfold indelE; induction e; try destruct p; simpl; intros; intuition; try (f_equal).
   lets Heq: (indeE_fv e v); unfold indeE in Heq; eauto.
   lets Heq: (indeE_fv e v); unfold indeE in Heq; eauto.
   assert (H' : ~In v (fv_E e0)).
@@ -144,7 +144,7 @@ Qed.
 
 Lemma typing_lexp_Hi E (e : loc_exp) : typing_lexp E e Hi.
 Proof.
-  induction e; eauto; equates 1; eauto.
+  induction e; try destruct p; eauto; equates 1; eauto.
 Qed.  
 
 Hint Resolve typing_bexp_Hi typing_lexp_Hi.
@@ -521,7 +521,7 @@ Hint Rewrite sublEs_es2gls sublEs_es2shs subEs_vs2es : subE_simpl.
 
 Tactic Notation "subE_simpl" "in" "*" := repeat (autorewrite with subE_simpl in *).
 
-Definition var_of_str v : string :=
+Definition str_of_var v : string :=
   match v with
     | Var v => v
   end.
@@ -531,7 +531,7 @@ Notation string_eq s1 s2 := (if string_dec s1 s2 then true else false).
 Definition vars2es := List.map Evar.
 
 Lemma subE_vars2es x e vs :
-  List.Forall (fun v => string_eq v (var_of_str x) = false) vs -> subEs x e (ss2es vs) = ss2es vs.
+  List.Forall (fun v => string_eq v (str_of_var x) = false) vs -> subEs x e (ss2es vs) = ss2es vs.
 Proof.  
   induction vs; simpl; eauto; intros.
   inversion H; subst.
@@ -611,8 +611,8 @@ Proof.
 Qed.
       
 Lemma names_of_array_compare x grp n :
-  prefix "arr" (var_of_str x) = false ->
-  List.Forall (fun v => string_eq v (var_of_str x) = false) (names_of_array grp n).
+  prefix "arr" (str_of_var x) = false ->
+  List.Forall (fun v => string_eq v (str_of_var x) = false) (names_of_array grp n).
 Proof.
   unfold names_of_array; generalize 0; induction n.
   - simpl; intros _; constructor.
@@ -939,7 +939,7 @@ Proof.
 Qed.    
 
 Lemma subEs_ss2es (ss : list string) (x : var) (e : exp) :
-  (forall s, In s ss -> var_of_str x <> s) ->
+  (forall s, In s ss -> str_of_var x <> s) ->
   subEs x e (ss2es ss) = ss2es ss.
 Proof.
   induction ss; simpl; eauto.
@@ -1009,8 +1009,8 @@ Proof.
 Qed.
 
 Lemma subA_input_spec var e E Ed p :
-  prefix "arr" (var_of_str var) = false ->
-  prefix "sh" (var_of_str var) = false ->
+  prefix "arr" (str_of_var var) = false ->
+  prefix "sh" (str_of_var var) = false ->
   subA var e (input_spec E Ed p) |=
   input_spec E Ed p.
 Proof.
@@ -1044,7 +1044,7 @@ Proof.
 Qed.
 
 Lemma outs_prefix x v grp d pl :
-  In x (fst (fst (writeArray grp d pl))) -> In v (fv_E x) -> prefix "arr" (var_of_str v) = true.
+  In x (fst (fst (writeArray grp d pl))) -> In v (fv_E x) -> prefix "arr" (str_of_var v) = true.
 Proof.
   unfold writeArray, names_of_arg, ss2es, names_of_array; simpl.
   intros H; apply in_map_iff in H as [? [? H]]; subst;
@@ -1060,7 +1060,7 @@ Proof.
 Qed.
 
 (* Lemma outs_inde vs : *)
-(*   List.Forall (fun e => prefix "arr" (var_of_str e) = false) vs -> *)
+(*   List.Forall (fun e => prefix "arr" (str_of_var e) = false) vs -> *)
 (*   List.Forall (fun e => forall v, List.In v vs -> indeE e v) . *)
 (* Proof. *)
 (*   rewrite !Forall_forall. *)
@@ -1121,7 +1121,7 @@ Proof.
   rewrite IHs1; destruct Ascii.ascii_dec; congruence.
 Qed.  
 
-Lemma locals_pref grp d x : List.In x (locals grp d) -> prefix grp (var_of_str x) = true.
+Lemma locals_pref grp d x : List.In x (locals grp d) -> prefix grp (str_of_var x) = true.
 Proof.
   induction d; simpl; [destruct 1|].
   intros [H|H]; subst; simpl; eauto.
@@ -1208,8 +1208,8 @@ Proof.
 Qed.  
 
 Lemma inde_input_spec E Ed p vs :
-  (forall v, In v vs -> prefix "arr" (var_of_str v) = false) ->
-  (forall v, In v vs -> prefix "sh" (var_of_str v) = false) ->
+  (forall v, In v vs -> prefix "arr" (str_of_var v) = false) ->
+  (forall v, In v vs -> prefix "sh" (str_of_var v) = false) ->
   inde (input_spec E Ed p) vs.
 Proof.
   revert Ed; induction E as [|[? ?] ?]; intros Ed; simpl.
@@ -1324,8 +1324,8 @@ Proof.
 Qed.  
 
 Lemma low_assn_input_spec E Es Ed p  :
-  (forall v, prefix "arr" (var_of_str v) = true -> E v = Lo) ->
-  (forall v, prefix "sh" (var_of_str v) = true -> E v = Lo) ->
+  (forall v, prefix "arr" (str_of_var v) = true -> E v = Lo) ->
+  (forall v, prefix "sh" (str_of_var v) = true -> E v = Lo) ->
    low_assn E (input_spec Es Ed p).
 Proof.
   unfold low_assn.
@@ -1615,7 +1615,7 @@ Ltac simplify :=
           | [|- indeE _ _] => apply indeE_fv
           | [|- indelE _ _] => apply indelE_fv
           | [|- indeB _ _] => apply indeB_fv
-          | [H : context [var_of_str ?x] |- _] => destruct x
+          | [H : context [str_of_var ?x] |- _] => destruct x
           | [|- inde (_ ==t _) _] => apply inde_eq_tup
           | [|- inde (_ -->l (_, _)) _] => apply inde_is_tup
           | [|- inde (is_tuple_array_p _ _ _ _ _) _] => apply inde_is_tup_arr

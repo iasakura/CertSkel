@@ -1,16 +1,16 @@
 Require Import Monad SkelLib Computation ZArith TypedTerm Program.
 Open Scope Z_scope.
 
-Definition max_idx (arr : list Z) : comp (list (Z * Z))
+Definition min_idx (arr : list Z) : comp (list (Z * Z))
   := reduceM
        (fun x y => if (fst x) <? (fst y)
                    then ret x else ret y)
-       (zip arr (seq 0 (len arr))).c
+       (zip arr (seq 0 (len arr))).
 
-Definition max_idx_IR:
-  {p : Skel.AS (Skel.TZ :: nil) (Skel.TTup Skel.TZ Skel.TZ) | equiv1 p (max_idx)}.
+Definition min_idx_IR:
+  {p : Skel.AS (Skel.TZ :: nil) (Skel.TTup Skel.TZ Skel.TZ) | equiv1 p (min_idx)}.
 Proof.
-  unfold max_idx.
+  unfold min_idx.
   simpl in *.
   eapply change_spec; [intros; eapply ext_fun; [intros|]|].
   simpl in *.
@@ -54,13 +54,13 @@ Defined.
 
 Require Import Compiler Ext Extract.
 
-Definition max_idx_CUDA : Host.Prog :=
-  match max_idx_IR with
+Definition min_idx_CUDA : Host.Prog :=
+  match min_idx_IR with
   | exist ir _ =>
     Compiler.compile_prog 1024 24 ir
   end.
 
-Definition res := save_to_file max_idx_CUDA "max_idx.cu".
+Definition res := save_to_file min_idx_CUDA "min_idx.cu".
 
 Cd "extracted".
 

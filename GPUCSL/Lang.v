@@ -20,9 +20,11 @@ Unset Strict Implicit.
 Require Import PHeap.
 (* Definition of Language *)
 
-Inductive loc :=
-| SLoc : Z -> loc | GLoc : Z -> loc.
+Inductive PL := Shared | Global.
 
+Inductive loc := Loc (pl : PL) (l : Z).
+Notation SLoc := (Loc Shared).
+Notation GLoc := (Loc Global).
 Inductive var := Var : string -> var.
 Definition stack := var -> Z.
 Require Import Classes.EquivDec.
@@ -59,9 +61,10 @@ Inductive bexp :=
 | Bnot (b: bexp).
 
 Inductive loc_exp :=
-| Sh : exp -> loc_exp
-| Gl : exp -> loc_exp
+| Addr : PL -> exp -> loc_exp
 | loc_offset : loc_exp -> exp -> loc_exp.
+Notation Sh := (Addr Shared).
+Notation Gl := (Addr Global).
 
 Inductive CTyp := Int | Bool | Ptr (cty : CTyp).
 
@@ -113,12 +116,10 @@ Fixpoint edenot e s :=
 
 Fixpoint ledenot e s :=
   match e with
-    | Sh e => SLoc (edenot e s)
-    | Gl e => GLoc (edenot e s)
+    | Addr p e => Loc p (edenot e s)
     | loc_offset e e' =>
       match ledenot e s with
-        | SLoc lv => SLoc (lv + edenot e' s)
-        | GLoc lv => GLoc (lv + edenot e' s)
+      | Loc p lv => Loc p (lv + edenot e' s)
       end
   end%Z.
 
@@ -1100,7 +1101,7 @@ Section Substitution.
   Lemma sublE_assign : forall (x : var) (e : exp) (e' : loc_exp) (s : stack),
     ledenot (sublE x e e') s = ledenot e' (var_upd s x (edenot e s)).
   Proof.
-    intros; induction e'; simpl; eauto; rewrite subE_assign; eauto.
+    intros; induction e'; simpl; try destruct p; simpl; eauto; rewrite subE_assign; eauto.
     rewrite IHe'; auto.
   Qed.
 
