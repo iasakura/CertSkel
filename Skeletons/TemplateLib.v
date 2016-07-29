@@ -39,7 +39,7 @@ Res : an assertion for resource
 P : an assertion for pure constraint
 Env : an assertion for variables/expression bindings
  *)
-Definition Assn Res P (Env : list entry) :=
+Definition Assn Res (P : Prop) (Env : list entry) :=
   pure (has_no_vars Res) //\\
   Res ** !(pure P) ** !(env_assns_denote Env).
 
@@ -254,9 +254,9 @@ Proof.
       applys* remove_var_imp.
 Qed.    
 
-Lemma rule_read ntrd BS (tid : Fin.t ntrd) le l x cty p (v : val) Env P (Res Res' : assn) :
+Lemma rule_read ntrd BS (tid : Fin.t ntrd) le l x cty p (v : val) Env (P : Prop) (Res Res' : assn) :
   evalLExp Env le l ->
-  (Res |= l -->p (p, v) ** Res') ->
+  (P -> (Res |= l -->p (p, v) ** Res')) ->
   CSL BS tid
       (Assn Res P Env)
       (x ::T cty ::= [le])
@@ -450,13 +450,15 @@ Proof.
   rewrite <-H0; congruence.
 Qed.
 
-Fixpoint array (ptr : loc) (arr : list val) p :=
+Fixpoint arrays (ptr : loc) (arr : list val) p :=
   match arr with
-  | nil => emp
+  | nil => nil
   | v :: arr =>
-    ptr -->p (p, v) ** array (loc_off ptr 1) arr p
+    ptr -->p (p, v) :: arrays (loc_off ptr 1) arr p
   end.
 Close Scope Q_scope.
+
+Definition array ptr arr p := conj_xs (arrays ptr arr p).
 
 Lemma loc_off0 ptr : loc_off ptr 0 = ptr.
 Proof.
@@ -476,6 +478,7 @@ Lemma array_unfold i arr ptr p:
    (loc_off ptr (Zn i) -->p (p, nth i arr 0%Z)) **
    (array (loc_off ptr (Z.succ (Zn i))) (skipn (S i) arr) p)).
 Proof.
+  unfold array.
   simpl; unfold equiv_sep;
   revert arr ptr; induction i; intros arr ptr.
   - destruct arr; simpl; try (intros; omega); intros _ s h.
@@ -517,13 +520,13 @@ Qed.
 
 Lemma rule_read_array (ntrd : nat) (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd)
       (tid : Fin.t ntrd) (le : loc_exp) (l : loc) (x : var)
-      (cty : option CTyp) (p : Qc) (v : val) (Env : list entry) 
+      (cty : option CTyp) (p : Qc) (Env : list entry) 
       (P : Prop) (Res Res' : assn) (arr : list val) ix i iz:
   evalLExp Env le l ->
-  Res |= array l arr p ** Res' ->
   evalExp Env ix iz ->
+  Res |= array l arr p ** Res' ->
   iz = Zn i ->
-  i < length arr ->
+  (P -> i < length arr) ->
   CSL BS tid
       (Assn Res P Env)
       (x ::T cty ::= [le +o ix])
@@ -533,13 +536,13 @@ Proof.
   eapply forward; [|applys (>>rule_read (loc_off l iz) p (nth i arr 0%Z) ) ].
   2: constructor; eauto.
   Focus 2.
-  intros s h Hres.
-  apply H0 in Hres.
-  rewrites* (array_unfold i arr) in Hres.
-  repeat rewrite <-sep_assoc in *.
-  subst; unfold sat in *; sep_cancel; eauto.
+  { intros s h Hp Hres.
+    apply H1 in Hres.
+    rewrites* (array_unfold i arr) in Hres.
+    repeat rewrite <-sep_assoc in *.
+    subst; unfold sat in *; sep_cancel; eauto. } Unfocus.
   auto.
-Qed.
+Qed. 
 
 Fixpoint assigns (vs : list var) (ctys : list CTyp) (es : list exp) :=
   match vs, es, ctys with
