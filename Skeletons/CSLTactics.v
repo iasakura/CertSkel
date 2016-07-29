@@ -1,4 +1,4 @@
-Require Import GPUCSL scan_lib LibTactics Psatz TemplateLib SetoidClass.
+Require Import GPUCSL scan_lib LibTactics Psatz CSLLemma SetoidClass.
 
 Arguments Z.add _ _ : simpl never.
 
@@ -404,18 +404,18 @@ Definition inv arr l vs :=
           Ent I (Zn i) :: 
           Ent L (Zn l) :: nil).
 
-
 Lemma sum_ofS i vs :
   (Zn i < Zn (length vs) ->
    (sum_of (firstn i vs) + nth i vs 0) = sum_of (firstn (1 + i) vs))%Z.
 Proof.
   intros H.
   assert (H' : i < length vs) by nia.
-  clear H; revert H';
-  revert i; induction vs; intros i; simpl; try nia.
-  unfold sum_of in *; destruct i; try (simpl; nia).
-  simpl in *.
-  intros; rewrite <-IHvs; omega.
+  clear H; revert H'.
+  revert i; induction vs; intros i ?; simpl; try nia.
+  - unfold sum_of in *; destruct i; try (simpl; nia).
+  - simpl in *.
+    intros; destruct i; simpl; try omega.
+    rewrite <-IHvs; omega.
 Qed.
 
 Lemma firstn_full i (vs : list Z) :
@@ -451,3 +451,4 @@ Proof.
   prove_imp.
   prove_imp. 
 Qed.
+

@@ -518,7 +518,7 @@ Proof.
   split; apply scC; auto.
 Qed.
 
-Lemma rule_read_array (ntrd : nat) (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd)
+Lemma rule_read_array ntrd BS
       (tid : Fin.t ntrd) (le : loc_exp) (l : loc) (x : var)
       (cty : option CTyp) (p : Qc) (Env : list entry) 
       (P : Prop) (Res Res' : assn) (arr : list val) ix i iz:
@@ -539,6 +539,155 @@ Proof.
   { intros s h Hp Hres.
     apply H1 in Hres.
     rewrites* (array_unfold i arr) in Hres.
+    repeat rewrite <-sep_assoc in *.
+    subst; unfold sat in *; sep_cancel; eauto. } Unfocus.
+  auto.
+Qed. 
+
+Fixpoint distribute (d : nat) (assns : list assn)
+         (dist : nat -> nat) (s : nat) : list assn :=
+  match assns with
+  | nil => nseq d emp
+  | a :: assns =>
+      add_nth (dist s) a (distribute d assns dist (S s))
+  end.
+
+Definition sarray i d ptr arr p s : assn :=
+  nth i (distribute d (arrays ptr arr p) (fun x => x mod d) s) emp.
+  
+Lemma distribute_length d a dist s:
+  length (distribute d a dist s) = d.
+Proof.
+  revert s; induction a; intros; simpl;
+  [rewrite length_nseq|rewrite add_nth_length]; eauto.
+Qed.  
+
+Lemma emp_unit_l P : (emp ** P) == P.
+Proof.
+  intros s h; split; intros; apply emp_unit_l; auto.
+Qed.
+
+Lemma emp_unit_r P : (P ** emp) == P.
+Proof.
+  intros s h; split; intros; apply emp_unit_r; auto.
+Qed.    
+
+Lemma distribute_unfold d assns dist s i j :
+  j < length assns ->
+  dist (s + j) = i -> 
+  (forall i, dist i < d) ->
+  nth i (distribute d assns dist s) emp ==
+  (nth i (distribute d (firstn j assns) dist s) emp **
+   nth j assns emp **
+   nth i (distribute d (skipn (S j) assns) dist (s + j + 1)) emp).
+Proof.
+  revert s i j; induction assns; intros s i j.
+  - simpl; try omega.
+  - intros Hj Hdist Hi.
+    destruct j.
+    + repeat rewrite <-plus_n_Sm; repeat rewrite <-plus_n_O in *; simpl.
+      rewrite nth_add_nth; [|rewrite distribute_length; substs; eauto..].
+      subst; rewrite <-beq_nat_refl.
+      rewrite nth_nseq; destruct Compare_dec.leb;
+      rewrite emp_unit_l; reflexivity.
+    + simpl in *.
+      rewrite nth_add_nth; [|rewrite distribute_length; substs; eauto..].
+      destruct (beq_nat i _) eqn:Heq; [forwards*: beq_nat_true|forwards*: beq_nat_false].
+      * rewrites* (IHassns (S s) i j);
+        repeat rewrites* <-plus_n_Sm in *; repeat rewrites* <-plus_n_O in *; try omega.
+        rewrite nth_add_nth; [|rewrite distribute_length; substs; eauto..].
+        destruct (beq_nat i _) eqn:Heq'; [forwards*: beq_nat_true|forwards*: beq_nat_false]; try omega.
+        repeat rewrite <-sep_assoc.
+        reflexivity.
+      * rewrites* (IHassns (S s) i j);
+        repeat rewrites* <-plus_n_Sm in *; repeat rewrites* <-plus_n_O in *; try omega.
+        rewrite nth_add_nth; [|rewrite distribute_length; substs; eauto..].
+        destruct (beq_nat i _) eqn:Heq'; [forwards*: beq_nat_true|forwards*: beq_nat_false]; try omega.
+        repeat rewrite <-sep_assoc.
+        reflexivity.
+Qed.
+
+Lemma length_arrays ptr arr p : length (arrays ptr arr p) = length arr.
+Proof. revert ptr; induction arr; intros; simpl; congruence. Qed.
+
+Lemma firstn_arrays n ptr arr p : firstn n (arrays ptr arr p) = arrays ptr (firstn n arr) p.
+Proof.
+  revert ptr arr; induction n; intros; simpl; eauto.
+  destruct arr; simpl; congruence.
+Qed.
+
+Lemma skipn_arrays n ptr arr p : skipn n (arrays ptr arr p) = arrays (loc_off ptr (Zn n)) (skipn n arr) p.
+Proof.
+  revert ptr arr; induction n; intros; simpl; eauto.
+  - rewrite loc_off0; eauto.
+  - destruct arr; eauto; simpl.
+    rewrite IHn.
+    unsimpl (Z.of_nat (S n)).
+    rewrite Nat2Z.inj_succ, loc_offS; eauto.
+Qed.
+
+Lemma nth_arrays n ptr arr p :
+  nth n (arrays ptr arr p) emp = if lt_dec n (length arr) then (loc_off ptr (Zn n) -->p  (p,  (nth n arr 0%Z))) else emp.
+Proof.
+  revert ptr arr; induction n; intros ptr [|? arr]; simpl; eauto.
+  - rewrite loc_off0; eauto.
+  - rewrite IHn; repeat destruct lt_dec; try omega; eauto.
+    unsimpl (Z.of_nat (S n)).
+    rewrite Nat2Z.inj_succ, loc_offS; eauto.
+Qed.
+
+Lemma loc_off_nest p i j : 
+  loc_off (loc_off p i) j = loc_off p (i + j).
+Proof.
+  destruct p; simpl; f_equal; omega.
+Qed.
+
+Lemma sarray_unfold d arr ptr p i j :
+  d <> 0 ->
+  j < length arr ->
+  j mod d = i ->
+  sarray i d ptr arr p 0 ==
+  (sarray i d ptr (firstn j arr) p 0 **
+   (loc_off ptr (Zn j) -->p (p, nth j arr 0%Z)) **
+   sarray i d (loc_off ptr (Z.succ (Zn j))) (skipn (S j) arr) p (S j)).
+Proof.
+  intros.
+  unfold sarray.
+  rewrites* (>>distribute_unfold d 0 i j); simpl.
+  rewrites* length_arrays.
+  rewrite firstn_arrays.
+  rewrite nth_arrays; destruct lt_dec; try omega.
+  lazymatch goal with
+  | [|- equiv_sep (_ ** _ ** ?P) (_ ** _ ** ?Q)] =>
+    assert (Heq: P == Q); [|rewrite Heq; repeat rewrite sep_assoc; reflexivity]
+  end.
+  destruct arr; simpl.
+  - destruct j; simpl; reflexivity.
+  - rewrite <-plus_n_Sm, <-plus_n_O, skipn_arrays, loc_off_nest, Z.add_1_l; reflexivity.
+Qed.
+
+Lemma rule_read_sarray ntrd BS
+      (tid : Fin.t ntrd) (le : loc_exp) (l : loc) (x : var)
+      (cty : option CTyp) (p : Qc) (Env : list entry) 
+      (P : Prop) (Res Res' : assn) (arr : list val) ix i iz d j:
+  d <> 0 ->
+  evalLExp Env le l ->
+  evalExp Env ix iz ->
+  Res |= sarray j d l arr p 0 ** Res' ->
+  iz = Zn i ->
+  (P -> i < length arr /\ i mod d = j) ->
+  CSL BS tid
+      (Assn Res P Env)
+      (x ::T cty ::= [le +o ix])
+      (Assn Res P (Ent x (nth i arr 0%Z) :: (remove_var Env x))).
+Proof.
+  intros.
+  eapply forward; [|applys (>>rule_read (loc_off l iz) p (nth i arr 0%Z) ) ].
+  2: constructor; eauto.
+  Focus 2.
+  { intros s h Hp Hres.
+    apply H2 in Hres.
+    rewrites* (sarray_unfold d arr l p j i) in Hres.
     repeat rewrite <-sep_assoc in *.
     subst; unfold sat in *; sep_cancel; eauto. } Unfocus.
   auto.
