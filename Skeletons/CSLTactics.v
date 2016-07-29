@@ -107,7 +107,7 @@ Ltac lift_ex :=
   let H := fresh in
   lazymatch goal with
   | [|- CSL _ _ ((Ex j, @?P j) ** _) _ _] =>
-    idtac j;
+    let j := fresh j in
     eapply backward; [intros ? ? H; rewrite ex_lift_r in H; exact H|];
     apply rule_ex; intros j
   end.
@@ -152,11 +152,36 @@ Qed.
 Create HintDb pure_lemma.
 Create HintDb no_vars_lemma.
 
-Ltac prove_pure := 
+Ltac prove_mod_eq :=
+  match goal with
+  | [|- ?x mod ?n = ?m] =>
+    let rec iter t :=
+      match t with
+      | ?t + ?u =>
+        (* t = t + t' * n *)
+        match iter t with (?t, ?t') =>
+        match iter u with (?u, ?u') =>
+        constr:(t + u, t' + u') end end
+      | ?t * n => constr:(0, t)
+      | n * ?t => constr:(0, t)
+      | _ => constr:(t, 0)
+      end in
+    match iter x with
+    | (?t, ?u) => cutrewrite (x = t + u * n);
+      [rewrite Nat.mod_add; [|eauto] | ring];
+      apply Nat.mod_small; first [now eauto; nia]
+    end
+  end.
+
+Ltac prove_pure :=
+  intros; 
+  repeat match goal with
+  | [H : _ /\ _ |- _] => destruct H as (H & ?)
+  end; substs; repeat split;
   repeat match goal with
   | [H : context [Assn _ _ _]|- _] => clear H
   end;
-  first [now (eauto with pure_lemma) | nia].
+  first [prove_mod_eq |now (eauto with pure_lemma) | nia].
 
 Ltac is_const v :=
   match v with
@@ -228,6 +253,12 @@ Ltac append_assn P Q :=
   | _ => constr:(P ** Q)
   end.
 
+(*
+  prove P |= Q ** ?R
+  where 
+    Q contains evars (index, contents)
+    R is an evar.
+*)
 Ltac find_res' acc :=
   let H := fresh "H" in
   let H' := fresh "H'" in
@@ -258,12 +289,57 @@ Ltac find_res' acc :=
 
 Ltac find_res := find_res' emp.
 
+Create HintDb sep.
+Hint Rewrite emp_unit_l emp_unit_r sep_assoc : sep.
+
+Ltac sep_auto := 
+  intros ? ? ?;
+  repeat autorewrite with sep in *;
+  unfold sat in *; 
+  sep_cancel.
+
+(*
+  find an R in Res that contains le in its arguments, 
+  and prove resource and bound check condution, then apply appropriate rule
+ *)
+Ltac apply_read_rule Hle Hv Hn P Res le i :=
+  let checkR Res' R :=
+    idtac "checkR: Res', R, le = " Res' "," R ", " le;
+    let Hres := fresh "Hres" in
+    let Hbnd := fresh "Hbnd" in
+    match R with
+    | array le ?arr _ =>
+      idtac "apply read rule: match array case.";
+      assert (Hres : Res |= R ** Res') by sep_auto;
+      assert (Hbnd : P -> i < length arr) by prove_pure;
+      applys (>> rule_read_array Hle Hv Hres Hn Hbnd)
+    | sarray ?j ?d le ?arr _ _ =>
+      idtac "apply read rule: match sarray case.";
+      assert (Hres : Res |= R ** Res') by sep_auto;
+      assert (Hbnd : P -> i < length arr /\ i mod d = j) by prove_pure;
+      applys (>> rule_read_sarray Hle Hv Hres Hn Hbnd); eauto
+    end in
+  let rec iter acc Res :=
+    match Res with
+    | ?R ** ?Res =>
+      first [let Res' := append_assn acc Res in checkR Res' R |
+             iter (R ** acc) Res]
+    | ?R => checkR acc R
+    end in
+  iter emp Res.
+
 Ltac hoare_forward_prim :=
   lazymatch goal with
-  | [|- CSL _ _ ?P (?x ::T _ ::= [?le +o ?ix]) ?Q] =>
-    idtac "hoare_forward_prim: match read_array case";
-    eapply rule_read_array; [evalLExp | evalExp | find_res |
-                             solve_zn | try prove_pure ]
+  | [|- CSL _ _ (Assn ?Res ?P ?Env) (?x ::T _ ::= [?le +o ?ix]) ?Q] =>
+    let Hle := fresh "Hle" in let l := fresh "l" in
+    evar (l : loc); assert (Hle : evalLExp Env le l) by (unfold l; evalLExp); unfold l in Hle;
+    let Hv := fresh "Hv" in let v := fresh "v" in
+    evar (v : val); assert (Hv : evalExp Env ix v) by (unfold v; evalLExp); unfold v in Hv;
+    let Hn := fresh "Hn" in let n := fresh "n" in
+    evar (n : nat); assert (Hn : v = Zn n) by (unfold v, n; solve_zn); unfold n in Hn;
+    let le := eval cbv in l in
+    let i := eval cbv in n in
+    apply_read_rule Hle Hv Hn P Res le i
   | [|- CSL _ _ ?P (?x ::T _ ::= [?e]) ?Q] =>
     idtac "hoare_forward_prim: match read case";
     eapply rule_read; [evalExp | find_res | ]
@@ -294,9 +370,6 @@ Ltac hoare_forward :=
              eapply forwardR; [hoare_forward_prim|]];
       idtac "ok"
   end.
-
-Create HintDb sep.
-Hint Rewrite emp_unit_l emp_unit_r sep_assoc.
 
 Ltac fold_sat :=
   match goal with
@@ -331,7 +404,8 @@ Ltac choose_var_vals :=
 
 Ltac lift_ex_in H :=
   repeat match type of H with
-         | sat _ _ ((Ex i, @?f i) ** ?P) => 
+         | sat _ _ ((Ex i, @?f i) ** ?P) =>
+           let i := fresh i in
            rewrite ex_lift_r in H; destruct H as (i & H); fold_sat_in H
          end.
 
@@ -376,13 +450,15 @@ Qed.
 
 Hint Resolve has_no_vars_array : novars_lemma.
 
+Module SumOf.
+
 Definition sum_of vs := List.fold_right Z.add 0%Z vs.
 
-Notation I := (Var "I").
-Notation T := (Var "T").
-Notation L := (Var "L").
-Notation SUM := (Var "SUM").
-Notation ARR := (Var "ARR").
+Local Notation I := (Var "I").
+Local Notation T := (Var "T").
+Local Notation L := (Var "L").
+Local Notation SUM := (Var "SUM").
+Local Notation ARR := (Var "ARR").
 
 Definition sum_of_array inv :=
   I :T Int ::= 0%Z ;;
@@ -395,14 +471,14 @@ Definition sum_of_array inv :=
 
 Notation ArrL := (Gl ARR).
 
-Definition inv arr l vs :=
+Definition inv arr vs :=
   Ex i sum, 
     Assn (array (GLoc arr) vs 1%Qc)
-         (i <= l /\ sum = sum_of (firstn i vs))
+         (i <= length vs /\ sum = sum_of (firstn i vs))
          (Ent SUM sum  ::
           Ent ARR arr ::
           Ent I (Zn i) :: 
-          Ent L (Zn l) :: nil).
+          Ent L (Zn (length vs)) :: nil).
 
 Lemma sum_ofS i vs :
   (Zn i < Zn (length vs) ->
@@ -435,7 +511,7 @@ Lemma sum_of_array_ok ntrd BS (tid : Fin.t ntrd) vs arr :
       (Assn (array (GLoc arr) vs 1%Qc)
             (True)
             (ARR |-> arr :: L |-> (Zn (length vs)) :: nil))
-      (sum_of_array (inv arr (length vs) vs))
+      (sum_of_array (inv arr vs))
       (Ex s, Assn (array (GLoc arr) vs 1%Qc)
                   (s = sum_of vs)
                   (SUM |-> s :: ARR |-> arr :: nil)).
@@ -445,10 +521,69 @@ Proof.
   hoare_forward.
   hoare_forward.
   hoare_forward.
+  
   hoare_forward.
   hoare_forward.
   prove_imp.
   prove_imp.
   prove_imp. 
 Qed.
+End SumOf.
 
+Module ParMap.
+
+Variable ntrd : nat.
+Hypothesis ntrd_neq_0 : ntrd <> 0.
+Hint Resolve ntrd_neq_0.
+Variable tid : Fin.t ntrd.
+
+Local Notation I := (Var "I").
+Local Notation T := (Var "T").
+Local Notation L := (Var "L").
+Local Notation ARR := (Var "ARR").
+Notation OUT := (Var "out").
+Notation TID := (Var "tid").
+
+Definition map inv :=
+  I :T Int ::= TID ;;
+  WhileI inv (I <C L) (
+    T :T Int ::= [Gl ARR +o I] ;;
+    [Gl OUT +o I] ::= T ;;
+    I ::= Zn ntrd +C I
+  ).
+
+Definition inv arr out varr :=
+  Ex j i vout, 
+    Assn (sarray (nf tid) ntrd (GLoc arr) varr 1%Qc 0 **
+          sarray (nf tid) ntrd (GLoc out) vout 1%Qc 0)
+         (i = j * ntrd + nf tid /\
+          i <= length varr /\
+          firstn i varr = firstn i vout)
+         (ARR |-> arr ::
+          OUT |-> out ::
+          I   |-> Zn i ::
+          L   |-> (Zn (length varr)) :: nil).
+
+Lemma map_ok BS arr out varr vout : 
+  CSL BS tid 
+      (Assn (sarray (nf tid) ntrd (GLoc arr) varr 1%Qc 0 **
+             sarray (nf tid) ntrd (GLoc arr) vout 1%Qc 0)
+            True
+            (TID |-> Zn (nf tid) ::
+             L   |-> Zn (length varr) :: 
+             ARR |-> arr ::
+             OUT |-> out :: nil))
+      (map (inv arr out varr))
+      (Assn (sarray (nf tid) ntrd (GLoc arr) varr 1%Qc 0 **
+             sarray (nf tid) ntrd (GLoc arr) varr 1%Qc 0)
+            True
+            (TID |-> Zn (nf tid) ::
+             L   |-> Zn (length varr) ::
+             ARR |-> arr ::
+             OUT |-> out :: nil)).
+Proof.
+  unfold map, inv.
+  hoare_forward.
+  hoare_forward.
+  hoare_forward.
+  
