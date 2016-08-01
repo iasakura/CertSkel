@@ -1,4 +1,4 @@
-Require Import GPUCSL scan_lib LibTactics Psatz Skel_lemma Classical.
+Require Import GPUCSL scan_lib LibTactics Skel_lemma Psatz Classical.
 
 Require Import SetoidClass.
 Definition equiv_sep (P Q : assn) := (forall s h, P s h <-> Q s h).
