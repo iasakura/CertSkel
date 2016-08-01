@@ -89,7 +89,7 @@ Variable env_den : list (list Z * nat * (nat -> list val)).
 Hypothesis env_env_den_same_len : length env = length env_den.
 
 Hypothesis get_local :
-  forall v, forall u, In u (writes_var (fst (get v))) -> prefix "l" (var_of_str u) = true.
+  forall v, forall u, In u (writes_var (fst (get v))) -> prefix "l" (str_of_var u) = true.
 (* free variable conditions *)
 Lemma get_fv :
   forall v, disjoint [I; BID] (writes_var (fst (get v))) .
@@ -98,14 +98,14 @@ Proof.
 Qed.
 
 Lemma get_fv_sh :
-  forall u v, List.In u (writes_var (fst (get v))) -> prefix "sh" (var_of_str u) = false.
+  forall u v, List.In u (writes_var (fst (get v))) -> prefix "sh" (str_of_var u) = false.
 Proof.
   intros u v H; apply get_local in H.
   apply prefix_ex in H as [s H]; rewrite H; cbv; eauto.
 Qed.
 
 Lemma get_fv_arr :
-  forall u v, List.In u (writes_var (fst (get v))) -> prefix "arr" (var_of_str u) = false.
+  forall u v, List.In u (writes_var (fst (get v))) -> prefix "arr" (str_of_var u) = false.
 Proof.
   intros u v H; apply get_local in H.
   apply prefix_ex in H as [s H]; rewrite H; cbv; eauto.
@@ -113,7 +113,7 @@ Qed.
 
 (* result expressions only contain "l"-prefixed variables or passed variables  *)
 Hypothesis get_res_fv :
-  forall v u e, In e (snd (get v)) -> In u (fv_E e) -> u = v \/ prefix "l" (var_of_str u) = true.
+  forall v u e, In e (snd (get v)) -> In u (fv_E e) -> u = v \/ prefix "l" (str_of_var u) = true.
 (* get has no barriers *)
 Hypothesis get_no_bar :
   forall v, barriers (fst (get v)) = nil.
@@ -143,7 +143,7 @@ Hypothesis get_length :
   forall v, length (snd (get v)) = length inDim.
 
 Hypothesis func_local :
-  forall v, forall u, In u (writes_var (fst (func v))) -> prefix "l" (var_of_str u) = true.
+  forall v, forall u, In u (writes_var (fst (func v))) -> prefix "l" (str_of_var u) = true.
 Lemma func_fv :
   forall v, disjoint [I; BID] (writes_var (fst (func v))) .
 Proof.
@@ -153,27 +153,27 @@ Hypothesis func_no_bar :
   forall v, barriers (fst (func v)) = nil.
 
 Lemma func_fv_sh :
-  forall u v, List.In u (writes_var (fst (func v))) -> prefix "sh" (var_of_str u) = false.
+  forall u v, List.In u (writes_var (fst (func v))) -> prefix "sh" (str_of_var u) = false.
 Proof.
   intros u v H; apply func_local in H.
   apply prefix_ex in H as [s H]; rewrite H; cbv; eauto.
 Qed.
 
 Lemma func_fv_arr :
-  forall u v, List.In u (writes_var (fst (func v))) -> prefix "arr" (var_of_str u) = false.
+  forall u v, List.In u (writes_var (fst (func v))) -> prefix "arr" (str_of_var u) = false.
 Proof.
   intros u v H; apply func_local in H.
   apply prefix_ex in H as [s H]; rewrite H; cbv; eauto.
 Qed.
 
 Lemma func_fv_x :
-  forall u v, List.In u (writes_var (fst (func v))) -> prefix "x" (var_of_str u) = false.
+  forall u v, List.In u (writes_var (fst (func v))) -> prefix "x" (str_of_var u) = false.
   intros u v H; apply func_local in H.
   apply prefix_ex in H as [s H]; rewrite H; cbv; eauto.
 Qed.
 
 Hypothesis func_res_fv :
-  forall v u e, In e (snd (func v)) -> In u (fv_E e) -> In u v \/ prefix "l" (var_of_str u) = true.
+  forall v u e, In e (snd (func v)) -> In u (fv_E e) -> In u v \/ prefix "l" (str_of_var u) = true.
 
 (* {v == val} func {ret == f_den val} *)
 Hypothesis func_denote : forall (x : list var) nt (tid : Fin.t nt) (vs fv : list val),
@@ -613,8 +613,8 @@ Definition out_vars := List.map Var (names_of_array "Out" (length outDim)).
 
 Definition E : Lang.env := fun v =>
   if var_eq_dec v BID then Lo
-  else if prefix "sh" (var_of_str v) then Lo
-  else if prefix "arr" (var_of_str v) then Lo
+  else if prefix "sh" (str_of_var v) then Lo
+  else if prefix "arr" (str_of_var v) then Lo
   else Hi.  
 Close Scope Qc_scope.
 Close Scope Q_scope.
@@ -700,9 +700,9 @@ Proof.
     apply typing_cmd_Hi; eauto.
     intros.
     unfold E; repeat destruct var_eq_dec; subst; lets: (get_fv I); simpl in *; try tauto.
-    destruct (prefix "sh" (var_of_str v)) eqn:Heq.
+    destruct (prefix "sh" (str_of_var v)) eqn:Heq.
     apply get_fv_sh in H; congruence.
-    destruct (prefix "arr" (var_of_str v)) eqn:Heq'; auto.
+    destruct (prefix "arr" (str_of_var v)) eqn:Heq'; auto.
     apply get_fv_arr in H; congruence.
     
     apply read_tup_hi.
@@ -837,7 +837,7 @@ Proof.
     intros x H; apply writeArray_vars in H.
     destruct H as [? [? H]]; subst.
     constructor; unfold E.
-    unfold var_of_str. rewrite H.
+    unfold str_of_var. rewrite H.
     repeat lazymatch goal with [|- context [if ?X then _ else _]] => destruct X; auto end.
     jauto.
     constructor; eauto.

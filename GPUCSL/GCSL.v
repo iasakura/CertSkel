@@ -70,7 +70,7 @@ Definition as_gheap' (h : zpheap') : pheap' :=
 
 Lemma as_gh_is_ph (h : zpheap) : is_pheap (as_gheap' h).
 Proof.
-  intros [v | v]; unfold as_gheap'; eauto.
+  intros [[|] v]; unfold as_gheap'; eauto.
   destruct h as [? isph]; simpl; specialize (isph v); auto.
 Qed.
 
@@ -95,9 +95,9 @@ Qed.
 
 Lemma sh_gh_disj (sh : heap) (gh : pheap') : is_sheap sh -> is_gheap gh -> pdisj (htop' sh) gh.
 Proof.
-  unfold is_sheap, is_gheap, htop, htop'; intros; intros [? | ?]; simpl; auto;
+  unfold is_sheap, is_gheap, htop, htop'; intros; intros [[|] ?]; simpl; auto;
   try rewrite H; try rewrite H0; auto.
-  destruct (sh (SLoc z)); auto.
+  destruct (sh (SLoc l)); auto.
 Qed.
 Hint Resolve sh_gh_disj as_sh_is_sh as_gh_is_gh.
 Lemma sh_gl_is_ph (sh : simple_heap) (gh : zpheap) : pdisj (htop (as_sheap sh)) (as_gheap gh).
@@ -361,13 +361,13 @@ Section For_List_Notation.
       Lemma as_gheap_pdisj' (h1 h2 : zpheap') :
         pdisj h1 h2 -> pdisj (as_gheap' h1) (as_gheap' h2).
       Proof.
-        intros H; intros [l | l]; simpl; auto.
+        intros H; intros [[|] l]; simpl; auto.
         specialize (H l); auto.
       Qed.
       Lemma as_gheap_pdisj (h1 h2 : zpheap) :
         pdisj h1 h2 -> pdisj (as_gheap h1) (as_gheap h2).
       Proof.
-        intros H; intros [l | l]; simpl; auto.
+        intros H; intros [[|]l]; simpl; auto.
         specialize (H l); auto.
       Qed.
       Hint Resolve as_gheap_pdisj' as_gheap_pdisj.
@@ -375,7 +375,7 @@ Section For_List_Notation.
       Lemma phplus_as_gheap (h1 h2 : zpheap') :
         as_gheap' (phplus h1 h2) = phplus (as_gheap' h1) (as_gheap' h2).
       Proof.
-        extensionality x; destruct x; unfold hplus; simpl; auto.
+        extensionality x; destruct x as [[|] x]; unfold hplus; simpl; auto.
       Qed.        
 
       Lemma disj_eq_as_gh {n : nat} (hs : Vector.t zpheap n) (h : zpheap) :
@@ -383,7 +383,7 @@ Section For_List_Notation.
       Proof.
         dependent induction hs; intros Heq; inversion Heq; subst.
         - assert (as_gheap (emp_ph Z) = emp_ph loc).
-          { apply pheap_eq; extensionality l; destruct l as [l | l]; unfold emp_h; eauto. }
+          { apply pheap_eq; extensionality l; destruct l as [[|]l]; unfold emp_h; eauto. }
           rewrite H; constructor.
         - apply Eqdep.EqdepTheory.inj_pair2 in H2; subst.
           assert (Hdis : pdisj (as_gheap h) (as_gheap ph)) by (simpl; auto).
@@ -403,7 +403,7 @@ Section For_List_Notation.
       Lemma sh_gl_heap_hplus (h1 h2 : simple_heap) :
         sh_gl_heap h1 h2 = hplus (as_sheap h1) (as_npgheap h2).
       Proof.
-        extensionality l; destruct l; unfold hplus; simpl; auto.
+        extensionality l; destruct l as [[|] z]; unfold hplus; simpl; auto.
         destruct (h1 z); auto.
       Qed.
 
@@ -437,7 +437,7 @@ Section For_List_Notation.
         htop (sh_gl_heap h1 h2) = sh_gl_pheap h1 (htop h2).
       Proof.
         apply pheap_eq; unfold sh_gl_heap, as_sheap, as_gheap, phplus, htop, htop'.
-        extensionality l; destruct l as [l|l]; simpl.
+        extensionality l; destruct l as [[|]l]; simpl.
         destruct (h1 l); eauto.
         destruct (h2 l); eauto.
       Qed.
@@ -588,7 +588,7 @@ Section For_List_Notation.
         Lemma htop_as_npgheap h:
           htop' (as_npgheap h) = as_gheap (htop h).
         Proof.
-          extensionality l; destruct l as [l | l]; unfold htop', as_npgheap, as_gheap';
+          extensionality l; destruct l as [[|]l]; unfold htop', as_npgheap, as_gheap';
           eauto.
         Qed.
         assert (hdisj (as_sheap shs[@bid]) (as_npgheap h)).
@@ -659,17 +659,17 @@ Section For_List_Notation.
       Proof.
         set (hs := (fun l => match l with SLoc _ => this h l | _ => None end)).
         assert (is_pheap hs).
-        { intros [l | l]; specialize (is_p h (SLoc l)); intros; unfold hs; eauto. }
+        { intros [[|]l]; specialize (is_p h (SLoc l)); intros; unfold hs; eauto. }
         set (hg := (fun l => match l with GLoc _ => this h l | _ => None end)).
         assert (is_pheap hg).
-        { intros [l | l]; specialize (is_p h (GLoc l)); intros; unfold hg; eauto. }
+        { intros [[|]l]; specialize (is_p h (GLoc l)); intros; unfold hg; eauto. }
         exists (Pheap H) (Pheap H0); repeat split; simpl in *.
         assert (pdisj hs hg).
-        { intros [l | l]; simpl; eauto.
+        { intros [[|]l]; simpl; eauto.
           destruct (this h (SLoc l)) as [[? ?] | ]; eauto. }
         exists H1; repeat split; simpl in *.
-        destruct h as [h ?]; apply pheap_eq; extensionality l; destruct l; unfold phplus; simpl; auto.
-        destruct (h (SLoc z)) as [[? ?]|]; auto.
+        destruct h as [h ?]; apply pheap_eq; extensionality l; destruct l as [[|] l]; unfold phplus; simpl; auto.
+        destruct (h (SLoc l)) as [[? ?]|]; auto.
       Qed.
 
       destruct (sh_gl_decomp ph'') as (sph'' & gph'' & (? & Heqph'' & Hiss & Hisg)); subst.
@@ -680,7 +680,7 @@ Section For_List_Notation.
         phplus hs1 hg1 = phplus hs2 hg2 -> hs1 = hs2 /\ hg1 = hg2.
       Proof.
         intros Hs1 Hs2 Hg1 Hg2 Heq; split; extensionality l; apply (f_equal (fun f => f l)) in Heq;
-        destruct l as [l | l]; repeat match goal with [H : _ |- _ ] => specialize (H l) end;
+        destruct l as [[|]l]; repeat match goal with [H : _ |- _ ] => specialize (H l) end;
         unfold phplus in *;
         repeat match goal with [H : context [match ?X with _ => _ end] |- _] => destruct X end;
         try congruence.
@@ -688,7 +688,7 @@ Section For_List_Notation.
       apply ptoheap_eq in Heq''; simpl in Heq''.
       rewrite htop_hplus', htop_as_npgheap in Heq''; eauto.
 
-      2: intros [l | l]; unfold as_sheap, as_npgheap; first [now left; eauto | now right; eauto].
+      2: intros [[|]l]; unfold as_sheap, as_npgheap; first [now left; eauto | now right; eauto].
 
       assert (phplus gph'' (phplus (as_gheap' hb) (as_gheap' hF)) = as_gheap (htop gh'')).
       { apply sh_gl_eq in Heq''; auto.
@@ -710,7 +710,7 @@ Section For_List_Notation.
         assert (is_pheap h').
         { unfold h'; intros l; specialize (is_p h (GLoc l)); eauto. }
         intros; exists (Pheap H); simpl; destruct h as [h ?]; apply pheap_eq; extensionality l.
-        destruct l as [l | l]; specialize (H0 l); simpl; auto.
+        destruct l as [[|]l]; specialize (H0 l); simpl; auto.
       Qed.
       
       apply is_gheap_as_gheap in Hisg as [hg'' ?]; subst.
@@ -1021,7 +1021,7 @@ Section For_List_Notation.
           rewrite <-padd_assoc, Heqr; simpl.
           apply ptoheap_eq in Heq; rewrite Heq; simpl; auto.
 
-          intros [l | l]; unfold as_sheap, as_npgheap; auto. }
+          intros [[|]l]; unfold as_sheap, as_npgheap; auto. }
         
         (* assert (pdisj ghs[@bid] (phplus hrest hF)). *)
         (* { apply pdisj_padd_expand; eauto. *)
@@ -1038,16 +1038,16 @@ Section For_List_Notation.
         (* rewrite Heq'' in Hdomeq. *)
         unfold dom_eq in Hdomeq.
         assert (hdisj (as_sheap shs[@bid]) (as_npgheap h)).
-        { intros [l | l]; unfold as_sheap, as_npgheap; eauto. }
+        { intros [[|]l]; unfold as_sheap, as_npgheap; eauto. }
 
         Lemma hdisj_as_sh_as_gh h1 h2 : hdisj (as_sheap h1) (as_npgheap h2).
         Proof.
-          intros [l | l]; eauto.
+          intros [[|]l]; eauto.
         Qed.
         Hint Resolve hdisj_as_sh_as_gh.
         simpl in Hdomeq; rewrite htop_hplus' in Hdomeq; eauto.
         assert (gh' = sh_gl_heap sh'' gh''); [|subst gh'].
-        { extensionality l; destruct l as [l | l]; unfold htop'; rewrite Hheq; auto. }
+        { extensionality l; destruct l as [[|] l]; unfold htop'; rewrite Hheq; auto. }
 
         rewrite sh_gl_heap_hplus, htop_hplus' in Hdomeq; eauto.
         rewrite <-!htop_hplus' in Hdomeq; eauto.
@@ -1059,9 +1059,9 @@ Section For_List_Notation.
           unfold dom_eq, dom_eqp, htop, htop', hplus, as_sheap, as_gheap; simpl; intros H; introv.
           lets~ (H1 & H2): (H l full_p); clear H.
           split; intros [v H'].
-          - destruct l as [z | z]; destruct (sh1 z); try congruence.
+          - destruct l as [[|]z]; destruct (sh1 z); try congruence.
             forwards [? H]: H1; [eauto|]; destruct (sh2 z); inversion H'; eauto.
-          - destruct l as [z | z]; destruct (sh2 z); try congruence.
+          - destruct l as [[|]z]; destruct (sh2 z); try congruence.
             forwards [? H]: H2; [eauto|]; destruct (sh1 z); inversion H'; eauto.
         Qed.
 
@@ -1313,7 +1313,7 @@ Proof.
       sh_spec sdecs stk (htop (as_sheap h)).
     Proof.
       intros Hdisj; induction 1; simpl.
-      - unfold_conn; unfold htop, htop', as_sheap; simpl; intros [|]; eauto.
+      - unfold_conn; unfold htop, htop', as_sheap; simpl; intros [[|] l]; eauto.
       - set (ph1' := fun l =>
                        match l with
                          | SLoc l => 
@@ -1321,7 +1321,7 @@ Proof.
                          | GLoc _ => None
                        end).
         assert (Hph1 : is_pheap ph1').
-        { intros x; unfold ph1'; destruct x as [l | l]; [destruct Z_range_dec|]; eauto.
+        { intros x; unfold ph1'; destruct x as [[|]l]; [destruct Z_range_dec|]; eauto.
           split; cbv; congruence. }
         set (ph1 := Pheap Hph1 : pheap).
         assert (forall l, (loc <= l < loc + Z.of_nat len)%Z -> sh l = None).
@@ -1335,7 +1335,7 @@ Proof.
           rewrite Heq, H0; eauto. }
 
         assert (pdisj ph1 (htop (as_sheap sh))).
-        { simpl; unfold ph1', htop'; intros [l | l]; simpl; eauto.
+        { simpl; unfold ph1', htop'; intros [[|]l]; simpl; eauto.
           destruct Z_range_dec; eauto.
           rewrite H1; eauto. }
         assert (Heq : phplus ph1 (htop (as_sheap sh)) = 
@@ -1343,7 +1343,7 @@ Proof.
                                (fun l : Z =>
                                   if Z_range_dec loc l (loc + Z.of_nat len) then Some 0%Z else sh l)))).
         { unfold phplus, htop, htop'; simpl; unfold ph1', as_sheap; extensionality l.
-          destruct l as [l | l]; simpl; eauto.
+          destruct l as [[|]l]; simpl; eauto.
           destruct Z_range_dec.
           rewrite H1; eauto.
           destruct (sh l); eauto. }
@@ -1381,7 +1381,7 @@ Proof.
             is_array (Sh v) len (fun _:nat => 0%Z) s stk (Pheap H).
         Proof.
           revert s; induction len; [simpl|]; intros.
-          - unfold_conn; simpl; intros [l | l]; [destruct Z_range_dec; try omega|]; eauto.
+          - unfold_conn; simpl; intros [[|]l]; [destruct Z_range_dec; try omega|]; eauto.
           - Arguments Z.of_nat _ : simpl never.
             simpl.
             set (ph1 := fun l => match l with
@@ -1394,21 +1394,21 @@ Proof.
                            then Some (1%Qc, 0%Z) else None
                          | GLoc _ => None end).
             assert (is_pheap ph1).
-            { unfold ph1; intros [l|l]; [destruct Z.eq_dec|]; eauto; cbv; split; congruence. }
+            { unfold ph1; intros [[|]l]; [destruct Z.eq_dec|]; eauto; cbv; split; congruence. }
             assert (is_pheap ph2).
-            { unfold ph2; intros [l|l]; [destruct Z_range_dec|]; eauto; cbv; split; congruence. }
+            { unfold ph2; intros [[|]l]; [destruct Z_range_dec|]; eauto; cbv; split; congruence. }
             assert (pdisj ph1 ph2).
-            { intros [l|l]; unfold ph1, ph2; eauto.
+            { intros [[|]l]; unfold ph1, ph2; eauto.
               destruct Z.eq_dec; [destruct Z_range_dec|]; eauto.
               rewrite Nat2Z.inj_succ in a; omega. }
             assert (h = phplus ph1 ph2).
-            { unfold ph1, ph2; extensionality l; destruct l as [l | l]; eauto.
+            { unfold ph1, ph2; extensionality l; destruct l as [[|]l]; eauto.
               Arguments Z.of_nat n : simpl never.
               Arguments Z.add _ _ : simpl never.
               unfold phplus; simpl; (do 2 destruct Z_range_dec); destruct Z_eq_dec; 
               rewrite !Nat2Z.inj_succ in *; try omega; eauto. }
             exists (Pheap H1) (Pheap H2); repeat split; simpl; eauto.
-            unfold_conn; intros [l | l]; simpl; eauto.
+            unfold_conn; intros [[|]l]; simpl; eauto.
             destruct Z.eq_dec, (eq_dec (SLoc _)); try congruence.
             rewrite e, H0 in n; forwards: n; [f_equal; omega | tauto].
             inversion e.
