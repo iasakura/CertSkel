@@ -62,6 +62,59 @@ Ltac t :=
                    end;
              do 2 f_equal; lia). 
 
+
+Lemma loop_inv_ok i j vs (varr vout : list val) :
+  i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
+  vs = firstn i varr ++ skipn i vout ->
+  (Zn i < Zn (length varr))%Z ->
+  length varr = length vout ->
+  set_nth' i (arri vs) (get varr i) =
+  arri (firstn (ntrd * nblk + i) varr ++ skipn (ntrd * nblk + i) vout).
+Proof.
+  intros; substs.
+  applys (>>(@eq_from_nth) (@None Z)).
+  { t. }
+  { intros i; repeat autorewrite with pure; simpl in *.
+    destruct lt_dec; [|false; lia]; intros H.
+    assert (i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
+            i mod (ntrd * nblk) = nf tid + nf bid * ntrd) by (intros; substs; prove_mod_eq).
+    assert (ntrd * nblk <> 0) by eauto with pure_lemma.
+    assert (j * (ntrd * nblk) + (nf tid + nf bid * ntrd) < i < S j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
+            i mod (ntrd * nblk) <> nf tid + nf bid * ntrd).
+    { intros; apply (mod_between j); eauto with pure_lemma. }
+    Time t. }
+Qed.
+
+Lemma before_loop_ok (varr vout : list val) :
+  nf tid < ntrd ->
+  nf tid + nf bid * ntrd < ntrd * nblk ->
+  length varr = length vout ->
+  arri vout = 
+  arri (firstn (nf tid + nf bid * ntrd) varr ++ skipn (nf tid + nf bid * ntrd) vout).
+Proof.
+  intros; applys (>>(@eq_from_nth) (@None Z)).
+  { t. }
+  { intros.
+    repeat autorewrite with pure; simpl in *.
+    assert (i < nf tid + nf bid * ntrd -> (i mod (ntrd * nblk)) <> nf tid + nf bid * ntrd).
+    { intros; rewrite Nat.mod_small; eauto; try lia. }
+  Time t. }
+Qed.
+
+Lemma after_loop_ok (varr vout : list val) vs i :
+  ~(Zn i < Zn (length varr))%Z ->
+  length varr = length vout ->
+  vs = firstn i varr ++ skipn i vout ->
+  arri vs = arri varr.
+Proof.
+  intros; substs; eapply (@eq_from_nth _ None).
+  { t. }
+intros i'; repeat autorewrite with pure; simpl; intros ?.
+Time t.
+Qed.
+
+Hint Resolve loop_inv_ok before_loop_ok after_loop_ok : pure_lemma.
+
 Lemma map_ok BS arr out varr vout : 
   CSL BS tid 
       (Assn (array' (GLoc arr) (arri varr) 1%Qc **
@@ -90,40 +143,13 @@ Proof.
   hoare_forward.
   hoare_forward.
   prove_imp.
-  { eapply array'_eq; [|unfold sat; eauto].
-    substs.
-    revert H4 H8; clear; intros ? ?.
-    applys (>>(@eq_from_nth) (@None Z)).
-    { t. }
-    { intros i; repeat autorewrite with pure; simpl in *.
-      destruct lt_dec; [|false; lia]; intros H.
-      assert (i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
-              i mod (ntrd * nblk) = nf tid + nf bid * ntrd) by (intros; substs; prove_mod_eq).
-      assert (ntrd * nblk <> 0) by eauto with pure_lemma.
-      assert (j * (ntrd * nblk) + (nf tid + nf bid * ntrd) < i < S j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
-              i mod (ntrd * nblk) <> nf tid + nf bid * ntrd).
-      { intros; apply (mod_between j); eauto with pure_lemma. }
-      Time t. } }
+  eapply array'_eq; [eapply loop_inv_ok|]; eauto.
 
   prove_imp.
-  clear H2.
-  eapply array'_eq; [|eauto].
-  applys (>>(@eq_from_nth) (@None Z)).
-  { t. }
-  { intros.
-    repeat autorewrite with pure; simpl in *.
-    assert (i < nf tid + nf bid * ntrd -> (i mod (ntrd * nblk)) <> nf tid + nf bid * ntrd).
-    { intros; rewrite Nat.mod_small; eauto; try lia. }
-    Time t. }
+  eapply array'_eq; [eapply before_loop_ok|]; eauto.
 
   prove_imp.
-  clear H2.
-  eapply array'_eq; [|unfold sat; eauto].
-  subst vs.
-  eapply (@eq_from_nth _ None).
-  { t. }
-  intros i'; repeat autorewrite with pure; simpl; intros ?.
-  Time t.
+  eapply array'_eq; [eapply after_loop_ok|]; eauto.
 Qed.
 
 End map.
