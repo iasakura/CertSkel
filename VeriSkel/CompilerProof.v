@@ -498,6 +498,18 @@ Section CorrectnessProof.
     match type of H with
     | ?X _ _ => pattern X in H
     end; rewrites lem in H; cbv beta in H.
+  Ltac sep_rewrites_in_r lem H :=
+    match type of H with
+    | ?X _ _ => pattern X in H
+    end; rewrites <- lem in H; cbv beta in H.
+  Ltac sep_rewrites lem :=
+    match goal with
+    | |- ?X _ _ => pattern X
+    end; rewrites lem; cbv beta.
+  Ltac sep_rewrites_r lem :=
+    match goal with
+    | |- ?X _ _ => pattern X
+    end; rewrites <- lem; cbv beta.
   Hint Rewrite len_of_val : core.
   Hint Unfold S.es2gls S.vars2es.
 
@@ -520,6 +532,79 @@ Section CorrectnessProof.
   Qed.
   Hint Rewrite prefix_nil ctyps_of_typ__len_of_ty gen_read_writes : core.
 
+  Ltac no_side_cond tac :=
+    tac; [now auto_star..|idtac].
+
+  Opaque freshes. 
+
+  Lemma compile_gens GA GS typ (se : Skel.SExp GA GS typ) avar_env svar_env n0 n1 c es :
+    compile_sexp se avar_env svar_env n0 = (inl (c, es), n1) ->
+    (forall ty (m : member ty GS),
+       forall k l, In (Var (str_of_pnat k l)) (hget svar_env m) -> k < n0) -> (* fvs are not in the future generated vars *)
+    (forall ty (m : member ty GA),
+        prefix "l" (S.str_of_var (fst (hget avar_env m))) = false) ->
+    (forall e k l , In e es -> In (Var (str_of_pnat k l)) (fv_E e) -> k < n1).
+  Proof.
+    Definition used {A : Type} (x : A) := x.
+    Lemma used_id (A : Type) (x : A) : x = used x. auto. Qed.
+
+    revert avar_env svar_env n0 n1 c es; induction se; introv; simpl;
+    intros H; unfold bind_opt, compile_op in *;
+    repeat match type of H with
+           | context [compile_sexp ?x ?y ?z ?w] =>
+             destruct (compile_sexp x y z w) as [[(? & ?) | ?] ?] eqn:?; [|inversion H]; simpl in *
+           | context [hget avar_env ?y] => 
+             destruct (hget avar_env y) eqn:?; simpl in *
+           | context [freshes ?x ?y ] => 
+             destruct (freshes x y) as [[? | ?] ?] eqn:?; [|inversion H]; simpl in *
+           | context [match ?t with _ => _ end] =>
+             lazymatch type of t with list _ => idtac | Skel.BinOp _ _ _ => idtac end;
+               destruct t; try now inversion H
+           end; inverts H; intros; simplify; try tauto;
+    (try now forwards*: H);
+    repeat match goal with
+    | [H : compile_sexp ?x ?y ?z ?w = ?u |- _] => 
+      forwards*: (>>compile_don't_decrease H);
+        rewrite (used_id _ (compile_sexp x y z w = u)) in H
+    end; unfold used in *;
+    try (forwards ?: IHse; [simpl; now auto_star..|idtac]);
+    try (forwards ?: IHse1; [simpl; now auto_star..|idtac]);
+    try (forwards ?: IHse2; [first [simpl; now auto_star | intros; forwards*: H; omega]..|idtac]);
+    try (forwards ?: IHse3; [first [simpl; now auto_star | intros; forwards*: H; omega]..|idtac]); try omega;
+    try now (forwards* (? & ? & ?): freshes_vars;
+             forwards*: freshes_incr;
+             lazymatch goal with
+             | [H : Var (str_of_pnat _ _) = Var (str_of_pnat _ _) |- _ ] =>
+               apply var_str_of_pnat_inj in H; omega
+             end).
+    forwards*: (>>H0 m); rewrite Heqp in *; simpl in *; autorewrite with core in *; congruence.
+    Lemma in_firstn (A : Type) (x : A) l n : In x (firstn n l) -> In x l.
+    Proof.
+      revert l; induction n; intros l; simpl; try tauto.
+      destruct l; simpl; try tauto.
+      destruct 1; auto.
+    Qed.
+    apply in_firstn in H1.
+    forwards*: IHse.
+    Lemma in_skipn (A : Type) (x : A) l n : In x (skipn n l) -> In x l.
+    Proof.
+      revert l; induction n; intros l; simpl; try tauto.
+      destruct l; simpl; try tauto.
+      eauto.
+    Qed.
+    apply in_firstn, in_skipn in H1.
+    forwards*: IHse.
+
+    forwards*: IHse2.
+    introv H'; dependent destruction m; simpl in *.
+    forwards* (? & ? & ?): freshes_vars; substs.
+    apply var_str_of_pnat_inj in H5.
+    forwards*: freshes_incr. omega.
+    
+    forwards*: H.
+    forwards*: freshes_incr. omega.
+  Qed.
+
   Lemma compile_ok GA GS typ (se : Skel.SExp GA GS typ)
         (seval_env : SEvalEnv GS)
         (svar_env : SVarEnv GS)
@@ -537,7 +622,7 @@ Section CorrectnessProof.
         In y (snd (hget avar_env m)) -> prefix "l" (S.str_of_var y) = false) ->
     (forall ty (m : member ty GA),
         prefix "l" (S.str_of_var (fst (hget avar_env m))) = false) ->
-    (forall e k l , In e es -> In (Var (str_of_pnat k l)) (fv_E e) -> k < m) /\ (* (iii) return exps. don't have future generated vars*)
+    (* (iii) return exps. don't have future generated vars*)
     CSL BS tid  (* correctness of gen. code *)
         (!(assn_of_svs seval_env svar_env) **
           (assn_of_avs aeval_env avar_env))
@@ -551,13 +636,11 @@ Section CorrectnessProof.
     - (* case of var *)
       inverts Hcompile.
       inverts Heval.
-      splits; [now (simplify; jauto)|].
       { eapply Hforward; eauto using rule_skip.
         intros; sep_split; sep_split_in H; repeat sep_cancel.
         eauto using member_assn_svs. }
     - (* the case of const *)
       inverts Hcompile; substs.
-      splits; [simplify; tauto|]; eauto.
       { eapply Hforward; [apply rule_skip|].
         intros; sep_split; sep_split_in H; eauto.
         inversion Heval; substs.
@@ -570,22 +653,15 @@ Section CorrectnessProof.
       destruct es2 as [|e2 [|]]; try now inverts Hcompile.
 
       destruct (compile_op _ _ _) as [c0 es0]; inverts Hcompile.
-
-      
-      splits; eauto; admit.
-
+      admit.
     - destruct (compile_sexp se _ _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inverts Hcompile].
       destruct (hget avar_env m) as [arr anames] eqn:Haname.
       destruct (freshes _ _) as [[fvs1 | ?] n''] eqn:Hfeq1; [|inverts Hcompile].
       destruct es1 as [|i [|? ?]]; inverts Hcompile.
       
-      split.
-      { simplify; intros; forwards* (? & ? & ?): freshes_vars.
-        forwards* (? & ?): (>>var_str_of_pnat_inj H); substs.
-        forwards*: freshes_incr; omega. }
       unfold Monad.bind_opt in Heval.
       destruct (Skel.sexpDenote _ _ _ _ _ _) as [iv|] eqn:Heval1; inverts Heval.
-      forwards* (? & ?): IHse.
+      forwards* ?: IHse.
       eapply rule_seq; [eauto|].
       lets (P & Heq & HPinde): (member_assn_avs GA _ m avar_env aeval_env).
       eapply Hbackward.
@@ -606,6 +682,7 @@ Section CorrectnessProof.
         repeat sep_rewrite_in_r sep_assoc Hpre.
         rewrite Z2Nat.id in Hpre; [|forwards*: (>>nth_error_lt H0)].
         sep_rewrites_in (>>S.mps_eq1_tup' i) Hpre; [unfold_conn_all; eauto|].
+        clear HP1; sep_combine_in Hpre.
         instantiate (1 :=
           (S.es2gls (S.vars2es (snd (hget avar_env m))) +ol i -->l (1,
             S.vs2es (vs_of_sval (nth_arr (Z.to_nat iv) (hget aeval_env m))))) **
@@ -614,6 +691,10 @@ Section CorrectnessProof.
             (Z.to_nat iv)
             (fun i0 : nat => vs_of_sval (nth_arr i0 (hget aeval_env m))) 0
             1 **
+          !(assn_of_svs seval_env svar_env) **
+          !(fst (hget avar_env m) ===
+            G.Zn (Datatypes.length (hget aeval_env m))) **
+          !(i === iv) **
           S.is_tuple_array_p
             (S.es2gls (S.vars2es (snd (hget avar_env m))))
             (Datatypes.length (hget aeval_env m) - Z.to_nat iv - 1)
@@ -623,11 +704,29 @@ Section CorrectnessProof.
 
       rewrite Haname; simpl.
       cutrewrite (anames = snd (hget avar_env m)); [|rewrite Haname; auto].
-      assert (length (S.vars2es (snd (hget avar_env m))) = length fvs1).
+      assert (length (snd (hget avar_env m)) = length fvs1).
       { simplify.
         rewrites* (>>freshes_len fvs1).
         rewrites* (>>Havctx). }
-      eapply Hforward; [apply rule_frame; [applys* S.gen_read_correct|]|]; eauto.
+      forwards*: compile_don't_decrease.
+      forwards*: freshes_incr; substs.
+      eapply Hforward; [apply rule_frame; [applys* S.gen_read_correct|]|]; eauto;
+      prove_inde; try repeat first [apply HPinde | apply S.inde_is_tup_arr | apply inde_assn_of_svs];
+      autounfold; introv; autorewrite with core; simplify; eauto;
+      try lazymatch goal with
+      | [Hfv : In _ fvs1 |- _] => 
+        forwards* (? & ? & ?): (>>freshes_vars Hfv); substs
+      end.
+      match goal with
+      | [Hin : In _ ?xs |- _] =>
+        match xs with
+        | fvs1 => fail 
+        | S.fv_E ?e => 
+          match goal with
+          | [H : compile_sexp _ _ _ _ = (inl (_, ?f e), _) |- _] => forwards*: comp
+        
+      
+      
       { simplify; simpl in *; eauto.
         forwards* (? & ? & ?): (freshes_vars); substs.
         forwards*: H; omega. }
@@ -637,17 +736,71 @@ Section CorrectnessProof.
       { forwards*: (freshes_disjoint). }
       { rewrites* (>>freshes_len fvs1).
         repeat autorewrite with core; auto. }
-      { autorewrite with core.
+      { autorewrite with core; auto.
+        Ltac contains expr n :=
+          match expr with
+          | n => idtac
+          | S ?e => contains e n
+          end.
+        Ltac states_cond P n m :=
+          let rel lhs rhs := first [contains lhs n; contains rhs m | contains lhs m; contains rhs n] in
+          match P with
+          | ?lhs < ?rhs => rel lhs rhs
+          | ?lhs <= ?rhs => rel lhs rhs
+          | ?lhs > ?rhs => rel lhs rhs
+          | ?lhs >= ?rhs => rel lhs rhs
+          | ?lhs = ?rhs => rel lhs rhs
+          end.
+        Ltac des :=
+          first [ simpl in *; autorewrite with core in *; congruence |
+                  match goal with
+                  | [n : nat, m : nat |- _] =>
+                    match goal with
+                    | [H : ?P, Hcomp : compile_sexp _ _ _ n = (_, m) |- _] =>
+                      states_cond P n m; 
+                        no_side_cond ltac:(forwards*: (>>compile_don't_decrease Hcomp)); omega
+                    end
+                  end].
         prove_inde;
+          try repeat first [apply HPinde | apply S.inde_is_tup_arr | apply inde_assn_of_svs];
+        autounfold in *;
+        simplify; forwards*(? & ? & ?): freshes_vars; substs;
+        match goal with
+        | [H : In _ (snd (hget avar_env ?m)) |- _] => forwards*: (>>Havar1 H); try des
+        | [H : In _ (fst (hget avar_env ?m)) |- _] => forwards*: (>>Havar2 H); try des
+        | [H : In _ (hget svar_env ?m) |- _] => forwards*: (>>Hsvar H); try des
+        | _ => idtac
+        end.
+        
+
+
+
+        try first [no_side_cond ltac:(forwards*: Havar1)]. 
           try (apply inde_is_tup_arr; autounfold; simplify; eauto;
            forwards* (? & ? & ?): (freshes_vars); substs; forwards*: (>>Havar1);
-           simpl in *; autorewrite with core in *; congruence).
-        apply HPinde.
-        - simplify; forwards* (? & ? & ?): freshes_vars; substs; forwards*: (>>Havar1);
-          simpl in *; autorewrite with core in *; congruence.
-        - simplify; forwards* (? & ? & ?): freshes_vars; substs; forwards*: (>>Havar2 m1).
-          rewrite H4 in H6; simpl in *; autorewrite with core in *; congruence.
-        - forwards*: freshes_len. }
+           simpl in *; autorewrite with core in *; congruence);
+          try (prove_inde; simplify; forwards* (? & ? & ?): freshes_vars; substs; 
+          forwards*: H; omega); auto.
+        - apply inde_assn_of_svs; simplify.
+          forwards* (? & ? & ?): freshes_vars; substs; 
+          forwards*: (>>Hsvar m1).
+          forwards*: (compile_don't_decrease); omega.
+        - apply HPinde; auto; simplify; forwards* (? & ? & ?): freshes_vars; substs;
+          [forwards*: Havar1 | forwards*: (>>Havar2 m1)]; simpl in *; autorewrite with core in *.
+          congruence.
+          rewrite H4 in H6; simpl in *; autorewrite with core in *; congruence. }
+      introv Hpre; sep_rewrites Heq; sep_normal; sep_normal_in Hpre;
+      sep_split_in Hpre;
+      sep_rewrites (>>S.is_array_tup_unfold (Z.to_nat iv)).
+      { simpl; intros.
+        autorewrite with core; autounfold; simplify.
+        forwards*: Havctx. }
+      { forwards*: (>>nth_error_lt H0).
+        unfold len in *. 
+        rewrite Nat2Z.inj_lt; rewrite Z2Nat.id; omega. }
+      sep_rewrites (>>S.mps_eq1_tup' i); [unfold_conn_all; simpl; rewrite Z2Nat.id; forwards*: (>>nth_error_lt H0); try omega|].
+      sep_normal; sep_split; repeat sep_cancel.
+      
     - admit.
     - admit.
     - admit.
