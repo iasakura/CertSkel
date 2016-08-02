@@ -2,7 +2,6 @@ Require Export Lang CSL GCSL PHeap.
 Require Export assertion_lemmas assertions VCG array_dist sep_tacs.
 Require Export Qcanon List MyList ZArith NPeano Arith.
 Close Scope Qc_scope.
-Global Notation TID := (Var 0).
 
 Set Implicit Arguments.
 Unset Strict Implicit.
