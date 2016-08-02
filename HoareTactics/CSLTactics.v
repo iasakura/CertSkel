@@ -2,66 +2,6 @@ Require Import GPUCSL scan_lib LibTactics Psatz CSLLemma SetoidClass.
 
 Arguments Z.add _ _ : simpl never.
 
-Notation "x |-> v" := (Ent x v) (at level 58).
-
-Lemma Ent_eq_dec (e1 e2 : entry) : {e1 = e2} + {e1 <> e2}.
-Proof. repeat decide equality. Qed.
-
-Lemma remove_var_cons x Env :
-  ent_assn_denote x //\\ env_assns_denote (remove Ent_eq_dec x Env)
-  ===> env_assns_denote Env.
-Proof.
-  induction Env; simpl.
-  - intros s h [? ?]; eauto using env_assns_emp.
-  - destruct Ent_eq_dec; simpl; substs.
-    + intros; split; eauto.
-      destruct H; eauto.
-    + intros s h (? & ? & ?); split; eauto.
-      apply IHEnv; split; eauto.
-Qed.
-
-Lemma in_remove T dec (a : T) x l :
-  In a (remove dec x l) -> a <> x /\ In a l.
-Proof.
-  induction l; simpl; eauto.
-  destruct (dec _ _); substs; simpl; intros; split; eauto; try tauto.
-  destruct H; substs; eauto; try tauto.
-Qed.
-
-Lemma env_incl_imp (Env1 Env2 : list entry ) :
-  incl Env2 Env1 ->
-  (env_assns_denote Env1 ===> env_assns_denote Env2).
-Proof.
-  revert Env2; induction Env1 as [|[x v] Env1]; unfold incl; intros Env2.
-  - simpl; intros H.
-    assert (Env2 = nil).
-    { destruct Env2; eauto.
-      false; eapply H; simpl; eauto. }
-    subst; simpl; eauto.
-  - simpl; intros H s h Hsat; destruct Hsat as [? Hsat].
-    applys (>>remove_var_cons (x |-> v)); simpl.
-    split; eauto.
-    apply IHEnv1; eauto.
-    unfold incl; intros.
-    forwards*(? & ?): in_remove.
-    forwards*[? | ?]: H; substs.
-    congruence.
-Qed.
-
-Lemma Assn_imply (Res1 Res2 : assn) (P1 P2 : Prop) Env1 Env2 :
-  incl Env2 Env1 ->
-  (P1 -> (Res1 ===> Res2)) ->
-  (P1 -> P2) ->
-  has_no_vars Res2 ->
-  Assn Res1 P1 Env1 ===> Assn Res2 P2 Env2.
-Proof.
-  unfold Assn; intros Henv HP Hres ? s h Hsat.
-  destruct Hsat as [? Hsat]; sep_split_in Hsat; 
-  split; eauto; sep_split; eauto.
-  - unfold_conn; eauto.
-  - applys* env_incl_imp.
-Qed.
-
 Lemma ex_lift_r T P Q :
   ((Ex x : T, P x) ** Q) == (Ex x : T, P x ** Q).
 Proof.
@@ -136,19 +76,6 @@ Ltac simpl_env :=
   | [|- context [remove_var ?env ?x]] => elim_remove env x
   | _ => idtac
   end.
-
-Lemma backwardR ntrd BS (tid : Fin.t ntrd) P P' Q C :
-  CSL BS tid P C Q -> P' |= P -> CSL BS tid P' C Q.
-Proof.
-  intros; forwards*: backward.
-Qed.
-
-Lemma forwardR ntrd BS (tid : Fin.t ntrd) P Q Q' C :
-  CSL BS tid P C Q -> Q |= Q' -> CSL BS tid P C Q'.
-Proof.
-  intros; forwards*: forward.
-Qed.
-
 Create HintDb pure_lemma.
 
 Ltac prove_mod_eq :=

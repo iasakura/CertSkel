@@ -31,6 +31,8 @@ Definition ent_assn_denote va :=
   match va with
   | Ent x v => x === v
   end.
+Notation "x |-> v" := (Ent x v) (at level 58).
+
 Definition env_assns_denote env :=
   List.fold_right (fun x y => ent_assn_denote x //\\ y) emp env.
 
@@ -1106,6 +1108,143 @@ Proof.
   eauto with novars_lemma.
 Qed.
 
+Lemma Ent_eq_dec (e1 e2 : entry) : {e1 = e2} + {e1 <> e2}.
+Proof. repeat decide equality. Qed.
+
+Lemma env_assns_emp Env s h:
+  env_assns_denote Env s h -> emp s h.
+Proof.
+  induction Env; simpl; eauto.
+  intros [? ?]; eauto.
+Qed.
+
+Lemma remove_var_cons x Env :
+  ent_assn_denote x //\\ env_assns_denote (remove Ent_eq_dec x Env)
+  ===> env_assns_denote Env.
+Proof.
+  induction Env; simpl.
+  - intros s h [? ?]; eauto using env_assns_emp.
+  - destruct Ent_eq_dec; simpl; substs.
+    + intros; split; eauto.
+      destruct H; eauto.
+    + intros s h (? & ? & ?); split; eauto.
+      apply IHEnv; split; eauto.
+Qed.
+
+Lemma in_remove T dec (a : T) x l :
+  In a (remove dec x l) -> a <> x /\ In a l.
+Proof.
+  induction l; simpl; eauto.
+  destruct (dec _ _); substs; simpl; intros; split; eauto; try tauto.
+  destruct H; substs; eauto; try tauto.
+Qed.
+
+Lemma env_incl_imp (Env1 Env2 : list entry ) :
+  incl Env2 Env1 ->
+  (env_assns_denote Env1 ===> env_assns_denote Env2).
+Proof.
+  revert Env2; induction Env1 as [|[x v] Env1]; unfold incl; intros Env2.
+  - simpl; intros H.
+    assert (Env2 = nil).
+    { destruct Env2; eauto.
+      false; eapply H; simpl; eauto. }
+    subst; simpl; eauto.
+  - simpl; intros H s h Hsat; destruct Hsat as [? Hsat].
+    applys (>>remove_var_cons (x |-> v)); simpl.
+    split; eauto.
+    apply IHEnv1; eauto.
+    unfold incl; intros.
+    forwards*(? & ?): in_remove.
+    forwards*[? | ?]: H; substs.
+    congruence.
+Qed.
+
+Lemma Assn_imply (Res1 Res2 : assn) (P1 P2 : Prop) Env1 Env2 :
+  incl Env2 Env1 ->
+  (P1 -> (Res1 ===> Res2)) ->
+  (P1 -> P2) ->
+  has_no_vars Res2 ->
+  Assn Res1 P1 Env1 ===> Assn Res2 P2 Env2.
+Proof.
+  unfold Assn; intros Henv HP Hres ? s h Hsat.
+  destruct Hsat as [? Hsat]; sep_split_in Hsat; 
+  split; eauto; sep_split; eauto.
+  - unfold_conn; eauto.
+  - applys* env_incl_imp.
+Qed.
+
+Lemma Assn_split R1 R2 P E :
+  has_no_vars R1 -> has_no_vars R2 ->
+  Assn (R1 ** R2) P E |=
+  Assn R1 P E ** Assn R2 P E.
+Proof.
+  intros ? ? s h [? H]; sep_split_in H.
+  destruct H as (h1 & h2 & ? & ? & ? & ?).
+  exists h1 h2.
+  split; [|split; [|split]]; eauto;
+  unfold Assn; split; eauto; sep_split; eauto.
+Qed.
+
+Lemma Assn_combine R1 R2 P1 P2 E1 E2 :
+  has_no_vars R1 -> has_no_vars R2 ->
+  Assn R1 P1 E1 ** Assn R2 P2 E2 |=
+  Assn (R1 ** R2) (P1 /\ P2) (E1 ++ E2).
+Proof.
+  unfold Assn; intros ? ? s h (h1 & h2 & Hsat1 & Hsat2 & ? & ?).
+  destruct Hsat1 as [? Hsat1], Hsat2 as [? Hsat2].
+  unfold Apure in H3, H4.
+  split; try now unfold_conn; eauto with novars_lemma.
+  sep_split_in Hsat1; sep_split_in Hsat2; sep_split; try now unfold_conn; tauto.
+  Lemma env_assns_app E1 E2 s h :
+    (env_assns_denote (E1 ++ E2)) s h <->
+    (env_assns_denote E1 s h /\ env_assns_denote E2 s h).
+  Proof.
+    induction E1; simpl; intros.
+    - split; intros; try split; try destruct H; eauto.
+      eauto using env_assns_emp.
+    - destruct (IHE1); split; intros;
+      unfold_conn_all; tauto.
+  Qed.
+  rewrite env_assns_app; unfold sat; unfold_conn; tauto.
+  exists h1 h2; tauto.
+Qed.
+
+Lemma backwardR ntrd BS (tid : Fin.t ntrd) P P' Q C :
+  CSL BS tid P C Q -> P' |= P -> CSL BS tid P' C Q.
+Proof.
+  intros; forwards*: backward.
+Qed.
+
+Lemma forwardR ntrd BS (tid : Fin.t ntrd) P Q Q' C :
+  CSL BS tid P C Q -> Q |= Q' -> CSL BS tid P C Q'.
+Proof.
+  intros; forwards*: forward.
+Qed.
+
+Lemma rule_barrier ntrd BS b (i : Fin.t ntrd) Res Res_pre Res_post Res_f P P_pre P_post Env Env_pre Env_post :
+  has_no_vars Res_pre -> has_no_vars Res_f ->
+  has_no_vars Res_post ->
+  Vector.nth (fst (BS b)) i = Assn Res_pre P_pre Env_pre ->
+  Vector.nth (snd (BS b)) i = Assn Res_post P_post Env_post ->
+  (Assn Res P Env ===> Assn (Res_pre ** Res_f) P_pre Env_pre) ->
+  CSL BS i
+      (Assn Res P Env)
+      (Cbarrier b)
+      (Assn (Res_f ** Res_post) (P_pre /\ P_post) (Env_pre ++ Env_post)).
+Proof.
+  intros ? ? ? Heq1 Heq2 ?.
+  eapply backward.
+  { intros s h H'.
+    apply H2, Assn_split in H'; auto; eauto. }
+  rewrite <- Heq1.
+  eapply forwardR.
+  eapply rule_frame; [| unfold inde; simpl; tauto ].
+  eapply rule_barrier.
+  rewrite Heq2.
+  intros; apply Assn_combine; eauto.
+  unfold sat in *; repeat sep_cancel.
+Qed.  
+
 Fixpoint assigns (vs : list var) (ctys : list CTyp) (es : list exp) :=
   match vs, es, ctys with
   | v :: vs, e :: es, cty :: ctys => (v :T cty ::= e) ;; assigns vs ctys es
@@ -1139,13 +1278,6 @@ Notation "e1 ==t e2" := (eq_tup e1 e2) (at level 70, right associativity).
 
 Definition evalExps (Env : list entry) (e : list exp) (v : list val) :=
   List.Forall2 (fun e v => evalExp Env e v) e v.
-
-Lemma env_assns_emp Env s h:
-  env_assns_denote Env s h -> emp s h.
-Proof.
-  induction Env; simpl; eauto.
-  intros [? ?]; eauto.
-Qed.
 
 Lemma evalExps_ok Env e v : 
   evalExps Env e v ->
@@ -1307,20 +1439,12 @@ Proof.
 Qed.
       
 Lemma env_assns_cons a env s h :
-  env_assns_denote (a :: env) s h <-> 
+  (env_assns_denote (a :: env)) s h <-> 
   (ent_e a === ent_v a) s h /\ (env_assns_denote env) s h.
 Proof.
   destruct a; simpl; split; intros [? ?]; split; eauto.
 Qed.
-Lemma env_assns_app env1 env2 s h :
-  env_assns_denote (env1 ++ env2) s h <-> 
-  env_assns_denote env1 s h /\ env_assns_denote env2 s h.
-Proof.
-  induction env1 as [| a env1]; simpl.
-  - split; intros; try split; try destruct H; eauto using env_assns_emp.
-  - unfold "//\\"; rewrite IHenv1.
-    split; tauto.
-Qed.
+
 Lemma env_assns_remove_cons a env x :
   ~In x (fv_E (ent_e a)) ->
   remove_var (a :: env) x = a :: remove_var env x.
