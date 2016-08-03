@@ -363,9 +363,16 @@ Ltac hoare_forward_prim :=
   | [|- CSL _ _ ?P (?x ::T _ ::= ?e) ?Q] =>
     idtac "hoare_forward_prim: match assign case";
     eapply rule_assign; evalExp
+
   | [|- CSL _ _ _ (WhileI ?inv _ _) _ ] =>
     idtac "hoare_forward_prim: match while case";
     eapply backwardR; [applys (>>rule_while inv)|]
+
+  | [|- CSL _ _ _ (Cif _ _ _) _] =>
+    eapply rule_if_disj; evalBExp
+
+  | [|- CSL _ _ _ Cskip _] =>
+    apply rule_skip
   | _ => idtac
   end.
 
