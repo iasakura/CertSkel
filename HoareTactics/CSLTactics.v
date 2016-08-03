@@ -278,11 +278,11 @@ Ltac apply_read_rule Hle Hv Hn P Res le i :=
       assert (Hres : Res |= R ** Res') by sep_auto;
       assert (Hbnd : P -> i < length arr) by prove_pure;
       applys (>> rule_read_array Hle Hv Hres Hn Hbnd)
-    | array' le (skip ?arr ?d ?j) _ =>
+    | array' le (ith_vals ?dist ?arr ?j ?s) _ =>
       idtac "apply read rule: match sarray case.";
       assert (Hres : Res |= R ** Res') by sep_auto;
-      assert (Hbnd : P -> i < length arr /\ i mod d = j); [prove_pure|
-      applys (>> rule_read_sarray Hle Hv Hres Hn Hbnd); eauto with novars_lemma pure_lemma]
+      assert (Hbnd : P -> i < length arr /\ dist (s + i) = j); [simpl; prove_pure|
+      applys (>> rule_read_array' Hle Hv Hres Hn Hbnd); eauto with novars_lemma pure_lemma]
     end in
   let rec iter acc Res :=
     match Res with
