@@ -460,6 +460,31 @@ Proof.
   rewrite <-H0; congruence.
 Qed.
 
+Lemma forward ntrd BS (tid : Fin.t ntrd) P Q Q' C :
+  (Q |= Q') ->
+  CSL BS tid P C Q -> 
+  CSL BS tid P C Q'.
+Proof.
+  intros; eapply Hforward; eauto.
+Qed.
+
+Lemma backward ntrd BS (tid : Fin.t ntrd) P P' Q C :
+  (P' |= P) ->
+  CSL BS tid P C Q -> 
+  CSL BS tid P' C Q.
+Proof.
+  intros; eapply Hbackward; eauto.
+Qed.
+
+Lemma rule_disj ntrd BS (tid : Fin.t ntrd) c P P1 P2 Res1 Res2 Env1 Env2:
+  CSL BS tid (Assn Res1 P1 Env1) c P ->
+  CSL BS tid (Assn Res2 P2 Env2) c P ->
+  CSL BS tid (AssnDisj P1 Res1 Env1 P2 Res2 Env2) c P.
+Proof.
+  intros; eapply forward; [|apply rule_disj; eauto].
+  unfold_conn; unfold sat; simpl; tauto.
+Qed.  
+
 Lemma loc_off0 ptr : loc_off ptr 0 = ptr.
 Proof.
   destruct ptr; simpl.
@@ -515,22 +540,6 @@ Proof.
     split; intros; sep_normal; sep_normal_in H; repeat sep_cancel.
     rewrites* IHi in H0.
     rewrites* IHi.
-Qed.
-
-Lemma forward ntrd BS (tid : Fin.t ntrd) P Q Q' C :
-  (Q |= Q') ->
-  CSL BS tid P C Q -> 
-  CSL BS tid P C Q'.
-Proof.
-  intros; eapply Hforward; eauto.
-Qed.
-
-Lemma backward ntrd BS (tid : Fin.t ntrd) P P' Q C :
-  (P' |= P) ->
-  CSL BS tid P C Q -> 
-  CSL BS tid P' C Q.
-Proof.
-  intros; eapply Hbackward; eauto.
 Qed.
 
 Lemma sep_assoc (P Q R : assn) : (P ** Q ** R) == ((P ** Q) ** R).

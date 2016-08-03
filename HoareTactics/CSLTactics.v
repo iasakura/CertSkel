@@ -56,19 +56,19 @@ Ltac evalExp :=
   repeat match goal with
   | [|- evalExp _ _ _] => constructor
   end;
-  simpl; eauto.
+  simpl; eauto 20.
 Ltac evalBExp := 
   repeat match goal with
          | [|- evalBExp _ _ _] => constructor
          | [|- _] => evalExp
   end;
-  simpl; eauto.
+  simpl; eauto 20.
 Ltac evalLExp := 
   repeat match goal with
          | [|- evalLExp _ _ _] => constructor
          | [|- _] => evalExp
   end;
-  simpl; eauto.
+  simpl; eauto 20.
 
 Ltac elim_remove env x := simpl.
 Ltac simpl_env := 
@@ -156,6 +156,9 @@ Ltac simpl_to_zn v :=
     let v1 := simpl_to_zn v1 in
     let v2 := simpl_to_zn v2 in
     constr:(v1 * v2)
+  | (Z.div2 ?v1)%Z =>
+    let v1 := simpl_to_zn v1 in
+    constr:(v1 / 2)
   | Zn ?v => v
   | ?v =>
     match is_const v with
@@ -164,7 +167,9 @@ Ltac simpl_to_zn v :=
   end.
 
 Create HintDb zn.
-Hint Rewrite 
+Hint Rewrite
+     Zdiv2_div
+     div_Zdiv
      Nat2Z.inj_0 
      Nat2Z.inj_succ 
      Nat2Z.is_nonneg 
@@ -216,6 +221,7 @@ Ltac remove_last_emp P :=
   | (?P1 ** ?P2) => 
     let t := remove_last_emp P2 in
     constr:(P1 ** t)
+  | emp => emp
   end.
 
 (*
@@ -280,9 +286,10 @@ Ltac apply_read_rule Hle Hv Hn P Res le i :=
       applys (>> rule_read_array Hle Hv Hres Hn Hbnd)
     | array' le (ith_vals ?dist ?arr ?j ?s) _ =>
       idtac "apply read rule: match sarray case.";
-      assert (Hres : Res |= R ** Res') by sep_auto;
+        idtac dist i;
+      assert (Hres : Res |= R ** Res'); [sep_auto|
       assert (Hbnd : P -> i < length arr /\ dist (s + i) = j); [simpl; prove_pure|
-      applys (>> rule_read_array' Hle Hv Hres Hn Hbnd); eauto with novars_lemma pure_lemma]
+      applys (>> rule_read_array' Hle Hv Hres Hn Hbnd); eauto with novars_lemma pure_lemma]]
     end in
   let rec iter acc Res :=
     match Res with
@@ -302,20 +309,20 @@ Ltac apply_write_rule Hle Hix He Hn P Res le i :=
     idtac "checkR: Res', R, le = " Res' "," R ", " le;
     let Hres := fresh "Hres" in
     let Hbnd := fresh "Hbnd" in
-    match R with
+    lazymatch R with
     | array le ?arr _ =>
       idtac "apply read rule: match array case.";
       assert (Hres : Res |= R ** Res') by sep_auto;
       assert (Hbnd : P -> i < length arr) by prove_pure;
       applys (>> rule_write_array Hle Hix Hn Hbnd He Hres)
-    | array' le (skip ?arr ?d ?j) _ =>
+    | array' le (ith_vals ?dist ?arr ?j ?s) _ =>
       idtac "apply read rule: match sarray case.";
-      assert (Hres : Res |= R ** Res') by sep_auto;
-      assert (Hbnd : P -> i < length arr /\ i mod d = j); [prove_pure|
-      applys (>> rule_write_sarray' Hle Hix Hres He Hn Hbnd); eauto with novars_lemma pure_lemma]
+      assert (Hres : Res |= R ** Res'); [sep_auto|
+      assert (Hbnd : P -> i < length arr /\ dist (s + i) = j); [prove_pure|
+      applys (>> rule_write_array' Hle Hix Hres He Hn Hbnd); eauto with novars_lemma pure_lemma]]
     end in
   let rec iter acc Res :=
-    match Res with
+    lazymatch Res with
     | ?R ** ?Res =>
       first [let Res' := append_assn acc Res in 
              idtac "append_assn: P, Q = " acc Res;
@@ -334,8 +341,8 @@ Ltac hoare_forward_prim :=
     evar (v : val); assert (Hv : evalExp Env ix v) by (unfold v; evalLExp); unfold v in *;
     let Hn := fresh "Hn" in let n := fresh "n" in
     evar (n : nat); assert (Hn : v = Zn n) by (unfold v, n; solve_zn); unfold n in *;
-    let le := eval cbv in l in
-    let i := eval cbv in n in
+    let le := eval unfold l in l in
+    let i := eval unfold n in n in
     unfold l, v, n in *; clear l v n;
     apply_read_rule Hle Hv Hn P Res le i
   | [|- CSL _ _ ?P (?x ::T _ ::= [?e]) ?Q] =>
@@ -355,8 +362,8 @@ Ltac hoare_forward_prim :=
     let Hn := fresh "Hn" in let n := fresh "n" in
     evar (n : nat); assert (Hn : i = Zn n) by (unfold i, n; solve_zn); unfold n in *;
     
-    let l' := eval cbv in l in
-    let n' := eval cbv in n in
+    let l' := eval unfold l in l in
+    let n' := eval unfold n in n in
     unfold l, i, v, n in *; clear l i v n;
       
     apply_write_rule Hle Hix He Hn P Res l' n'
@@ -381,6 +388,9 @@ Ltac hoare_forward :=
   | [|- CSL _ _ ((Ex _, _) ** _) _ _] =>
     idtac "hoare_forward: match ex case";
     lift_ex; hoare_forward
+  | [|- CSL _ _ (AssnDisj _ _ _ _ _ _) _ _] =>
+    idtac "hoare_forward: match disj case";
+      apply rule_disj
   | [|- CSL _ _ (_ ** _) _ _] =>
     idtac "hoare_forward: match conditional case";
     eapply cond_prop; [evalBExp|]; hoare_forward
@@ -511,3 +521,221 @@ Qed.
   
 Hint Rewrite length_set_nth ith_vals_length app_length : pure.
 Hint Rewrite nth_app nth_skip nth_set_nth nth_firstn nth_skipn : pure.
+
+Section reduce.
+Variable ntrd nblk : nat.
+Hypothesis ntrd_neq_0 : ntrd <> 0.
+Hypothesis nblk_neq_0 : nblk <> 0.
+Hint Resolve ntrd_neq_0 nblk_neq_0.
+Variable tid : Fin.t ntrd.
+Variable bid : Fin.t nblk.
+
+Coercion Var : string >-> var.
+Open Scope string_scope.
+Open Scope list_scope.
+
+Arguments div _ _ : simpl never.
+Arguments modulo _ _ : simpl never.
+
+Fixpoint zipWith {A B C : Type} (f : A -> B -> C) xs ys :=
+  match xs, ys with
+  | x :: xs, y :: ys => f x y :: zipWith f xs ys
+  | _, _ => nil
+  end.
+
+Definition next (x : nat * list val):=
+  let (l, ls) := x in
+  let d := ((l + 1) / 2) in
+  (d, zipWith Z.add (firstn (l - d) ls) (firstn (l - d) (skipn d ls)) ++ skipn (l - d) ls).
+
+Fixpoint iter {T : Type} n f (x : T) := 
+  match n with
+  | 0 => x
+  | S n => f (iter n f x)
+  end.
+
+Variable init_vals : list val.
+Variable arr : val.
+
+Local Notation c_state c := (iter c next (length init_vals, init_vals)).
+
+Definition reduce inv := 
+  "c" ::= 0%Z ;;
+  "st" ::= "l" ;;
+  WhileI inv (1%Z <C "st") (
+    "d" ::= ("st" +C 1%Z)>>1 ;;
+    Cif ("tid" +C "d" <C "st") (
+      "t1" ::= [ Sh "arr" +o "tid" ] ;;
+      "t2" ::= [ Sh "arr" +o ("tid" +C "d") ] ;;
+      [ Sh "arr" +o "tid" ] ::= "t1" +C "t2"
+    ) Cskip ;;
+    "st" ::= "d" ;;
+    "c" ::= "c" +C 1%Z ;;
+    Cbarrier 0
+  ).
+
+Definition dist st i :=
+  let d := (st + 1) / 2 in
+  if lt_dec (i + d) st then i
+  else if lt_dec i st then (i - d)
+  else 0.
+
+Definition inv :=
+  Ex st vals c,
+  Assn (array' (SLoc arr) (ith_vals (dist st) vals (nf tid) 0) 1)
+       (st = fst (c_state c) /\ vals = snd (c_state c))
+       ("tid" |-> Zn (nf tid) ::
+        "st" |-> Zn st ::
+        "arr" |-> arr ::
+        "c" |-> Zn c ::
+        nil).
+
+Definition BS0 :=
+  (MyVector.init (fun i : Fin.t ntrd =>
+     FalseP),
+   MyVector.init (fun i : Fin.t ntrd =>
+     FalseP)).
+
+Notation BS := (fun i => if Nat.eq_dec i 0 then BS0 else default ntrd).  
+
+Lemma zipWith_length (A B C : Type) (f : A -> B -> C) xs ys :
+  length (zipWith f xs ys) = if lt_dec (length xs) (length ys) then length xs else length ys.
+Proof.
+  revert ys; induction xs; intros [|? ?]; simpl; eauto.
+  destruct lt_dec; rewrite IHxs; destruct lt_dec; omega.
+Qed.
+
+Lemma div_spec x y :
+  y <> 0 ->
+  exists q r,  x / y = q /\ x = y * q + r /\ r < y.
+Proof.
+  intros; exists (x / y) (x mod y); repeat split; eauto.
+  applys* div_mod.
+Qed.
+
+Lemma Zdiv_spec x y :
+  (0%Z < y ->
+   exists q r,  (x / y = q /\ x = y * q + r /\ r < y))%Z.
+Proof.
+  intros; exists (x / y)%Z (x mod y)%Z; repeat split; eauto.
+  applys* Z.div_mod; lia.
+  apply Z_mod_lt; lia.
+Qed.
+
+Ltac elim_div :=
+  (repeat rewrite Z.div2_div in *);
+  repeat
+    (let Heq := fresh in
+     match goal with
+     | [|- context [?x / ?y]] =>
+       forwards*(? & ? & Heq & ? & ?): (>> div_spec x y); rewrite Heq in *; clear Heq
+     | [H : context [?x / ?y] |- _] =>
+       forwards*(? & ? & Heq & ? & ?): (>> div_spec x y); rewrite Heq in *; clear Heq
+     | [|- context [(?x / ?y)%Z]] =>
+       forwards*(? & ? & Heq & ? & ?): (>> Zdiv_spec x y); [cbv; auto|rewrite Heq in *; clear Heq]
+     | [H : context [(?x / ?y)%Z] |- _] =>
+       forwards*(? & ? & Heq & ? & ?): (>> Zdiv_spec x y); [cbv; auto |rewrite Heq in *; clear Heq]
+     end).
+
+Ltac div_lia :=
+  elim_div; lia.
+Hint Rewrite zipWith_length : pure.
+
+Lemma st_decrease c :
+  fst (c_state (S c)) <= fst (c_state c).
+Proof.
+  induction c; simpl; try div_lia.
+  unfold next; destruct (iter c _ _); simpl.
+  div_lia.
+Qed.
+
+Lemma st_length c :
+  fst (c_state c) <= length init_vals.
+Proof.
+  induction c.
+  - simpl; eauto.
+  - forwards*: (st_decrease c); simpl in *; lia.
+Qed.  
+
+Lemma stS c :
+  fst (c_state (S c)) = (fst (c_state c) + 1) / 2.
+Proof.
+  simpl; unfold next; destruct (iter c _ _); simpl; eauto.
+Qed.
+
+Lemma st_inv1 c :
+  1 < fst (c_state c) ->
+  (fst (c_state c) - (fst (c_state (S c)))) <= length init_vals.
+Proof.
+  intros; induction c. simpl in *. div_lia.
+  simpl in *.
+  unfold next in *; destruct (iter c _ _); simpl in *.
+  div_lia.
+Qed.  
+  
+Lemma st_inv2 c :
+  1 < fst (c_state c) ->
+  length (snd (c_state c)) = length init_vals.
+Proof.
+  intros; induction c; simpl; eauto.
+  lets: (st_decrease c).
+  lets: (st_length c).
+  unfold next in *; simpl in *; destruct (iter c _ _) eqn:Heq; simpl in *.
+  autorewrite with pure.
+  repeat destruct lt_dec; try div_lia.
+Qed.  
+  
+Lemma reduce_ok :
+  length init_vals = ntrd ->
+  CSL BS tid 
+      (Assn (array' (SLoc arr) (ith_vals (dist (length init_vals)) init_vals (nf tid) 0) 1)
+            True
+            ("arr" |-> arr ::
+             "l" |-> Zn (length init_vals) ::
+             nil))
+      (reduce inv)
+      (Ex vals st,
+         Assn (array' (SLoc arr) (ith_vals (dist st) vals (nf tid) 0) 1)
+              True
+              nil).
+Proof.
+  intros; unfold reduce, inv, dist.
+  assert (nf tid < ntrd) by eauto.
+  hoare_forward.
+  hoare_forward.
+  hoare_forward.
+  hoare_forward.
+
+  lets: (st_decrease c); rewrite stS in *.
+
+  hoare_forward. 
+  hoare_forward.
+  rewrite st_inv2; eauto; lia.
+  repeat (destruct lt_dec; eauto); div_lia.
+
+  hoare_forward.
+  forwards*: (st_length c).
+  forwards*: (st_inv2 c); try div_lia.
+  
+  repeat (destruct lt_dec; eauto); div_lia.
+
+  hoare_forward.
+  rewrite st_inv2; eauto; lia.
+  repeat (destruct lt_dec; eauto); div_lia.
+  
+  eauto.
+  hoare_forward.
+  eauto.
+
+  hoare_forward; do 2 hoare_forward.
+  forwards*: (st_length c).
+  forwards*: (st_inv2 c); try div_lia.
+  
+  repeat (destruct lt_dec; eauto); div_lia.
+
+  eapply rule_read_array'.
+  instantiate (1 := SLoc arr).
+  evalLExp. evalExp.
+  
+
+  hoare_forward.
