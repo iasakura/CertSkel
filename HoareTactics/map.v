@@ -68,7 +68,7 @@ Lemma loop_inv_ok i j vs (varr vout : list val) :
   vs = firstn i varr ++ skipn i vout ->
   (Zn i < Zn (length varr))%Z ->
   length varr = length vout ->
-  set_nth' i (arri vs) (get varr i) =
+  arri (set_nth i vs (get varr i)) =
   arri (firstn (ntrd * nblk + i) varr ++ skipn (ntrd * nblk + i) vout).
 Proof.
   intros; substs.
@@ -90,7 +90,7 @@ Lemma before_loop_ok (varr vout : list val) :
   nf tid + nf bid * ntrd < ntrd * nblk ->
   length varr = length vout ->
   arri vout =
-harri (firstn (nf tid + nf bid * ntrd) varr ++ skipn (nf tid + nf bid * ntrd) vout).
+  arri (firstn (nf tid + nf bid * ntrd) varr ++ skipn (nf tid + nf bid * ntrd) vout).
 Proof.
   intros; applys (>>(@eq_from_nth) (@None Z)).
   { t. }

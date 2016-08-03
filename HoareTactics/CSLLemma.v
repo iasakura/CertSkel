@@ -8,6 +8,7 @@ unfold equiv_sep; constructor.
 - intros P Q H s h; rewrite H; reflexivity.
 - intros P Q R H1 H2 s h; forwards*: (H1 s h); forwards*: (H2 s h); auto.
 Qed.
+
 Program Instance assn_setoid : Setoid assn :=
   {| equiv := equiv_sep;
      setoid_equiv := equiv_sep_equiv |}.
@@ -834,16 +835,15 @@ Proof.
            end; eauto; try now (destruct i; eauto); omega.
 Qed.
 
-Lemma rule_read_sarray ntrd BS
+Lemma rule_read_array' ntrd BS
       (tid : Fin.t ntrd) (le : loc_exp) (l : loc) (x : var)
       (cty : option CTyp) (p : Qc) (Env : list entry) 
-      (P : Prop) (Res Res' : assn) (arr : list val) ix i iz d j:
-  d <> 0 ->
+      (P : Prop) (Res Res' : assn) (arr : list val) dist ix i iz j st:
   evalLExp Env le l ->
   evalExp Env ix iz ->
-  Res |= array' l (skip arr d j) p ** Res' ->
+  Res |= array' l (ith_vals dist arr j st) p ** Res' ->
   iz = Zn i ->
-  (P -> i < length arr /\ i mod d = j) ->
+  (P -> i < length arr /\ dist (st + i) = j) ->
   CSL BS tid
       (Assn Res P Env)
       (x ::T cty ::= [le +o ix])
@@ -854,10 +854,10 @@ Proof.
   2: constructor; eauto.
   Focus 2.
   { intros Hp s h Hres.
-    apply H2 in Hres.
+    apply H1 in Hres.
     rewrites* (array'_unfold i) in Hres.
     2: rewrite ith_vals_length; tauto.
-    cutrewrite (nth i (skip arr d j) None = Some (get arr i)) in Hres.
+    cutrewrite (nth i (ith_vals dist arr j st) None = Some (get arr i)) in Hres.
     repeat rewrite <-sep_assoc in *.
     subst; unfold sat in *; sep_cancel; eauto.
     rewrite nth_skip; simpl.
@@ -865,6 +865,23 @@ Proof.
     destruct lt_dec; try tauto.
   } Unfocus.
   auto.
+Qed.
+
+Lemma rule_read_sarray ntrd BS
+      (tid : Fin.t ntrd) (le : loc_exp) (l : loc) (x : var)
+      (cty : option CTyp) (p : Qc) (Env : list entry) 
+      (P : Prop) (Res Res' : assn) (arr : list val) ix i iz d j:
+  evalLExp Env le l ->
+  evalExp Env ix iz ->
+  Res |= array' l (skip arr d j) p ** Res' ->
+  iz = Zn i ->
+  (P -> i < length arr /\ i mod d = j) ->
+  CSL BS tid
+      (Assn Res P Env)
+      (x ::T cty ::= [le +o ix])
+      (Assn Res P (Ent x (nth i arr 0%Z) :: (remove_var Env x))).
+Proof.
+  intros; eapply rule_read_array'; eauto.
 Qed.
 
 Fixpoint set_nth {A : Type} n (ls : list A) (x : A) :=
@@ -999,21 +1016,20 @@ Hint Resolve has_no_vars_array' : novars_lemma.
 
 Notation set_nth' i arr v := (set_nth i arr (Some v)).
 
-Lemma rule_write_sarray  ntrd BS
+Lemma rule_write_array'  ntrd BS
       (tid : Fin.t ntrd) (le : loc_exp) (l : loc) 
-      (Env : list entry) (P : Prop) (Res Res' : assn) (arr : list val) ix i iz d j e v:
-  d <> 0 ->
+      (Env : list entry) (P : Prop) (Res Res' : assn) (arr : list val) dist ix i iz j e v st:
   evalLExp Env le l ->
   evalExp Env ix iz ->
-  Res |= array' l (skip arr d j) 1 ** Res' ->
+  Res |= array' l (ith_vals dist arr j st) 1 ** Res' ->
   evalExp Env e v ->
   iz = Zn i ->
-  (P -> i < length arr /\ i mod d = j) ->
+  (P -> i < length arr /\ dist (st + i) = j) ->
   has_no_vars Res' ->
   CSL BS tid
       (Assn Res P Env)
       ([le +o ix] ::= e)
-      (Assn (array' l (skip (set_nth i arr v) d j) 1 ** Res') P Env).
+      (Assn (array' l (ith_vals dist (set_nth i arr v) j st) 1 ** Res') P Env).
 Proof.
   intros.
   eapply forward; [|applys (>>rule_write (loc_off l iz) (nth i arr 0%Z) )].
@@ -1021,20 +1037,19 @@ Proof.
   2: eauto.
   Focus 3.
   { intros s h Hp Hres.
-    apply H2 in Hres.
-    rewrites* (array'_unfold i (skip arr d j) l 1) in Hres; [|rewrites* ith_vals_length].
+    apply H1 in Hres.
+    rewrites* (array'_unfold i (ith_vals dist arr j st) l 1) in Hres; [|rewrites* ith_vals_length].
     repeat rewrite <-sep_assoc in *; substs.
     rewrite nth_skip in Hres.
-    forwards*: H5.
+    forwards*: H4.
     destruct Nat.eq_dec, (lt_dec i (length arr)); try now (simpl in *; omega).
     subst; unfold sat, val in *; sep_cancel; eauto. } Unfocus.
   unfold Assn; intros s h [? ?]; split.
   unfold Apure; simpl; eauto with novars_lemma.
-  sep_split_in H8; sep_split; eauto.
+  sep_split_in H7; sep_split; eauto.
   fold_sat.
   rewrites* (>>array'_unfold i l 1%Qc); [rewrite ith_vals_length, length_set_nth; tauto|].
-  repeat rewrite plus_O_n in H8.
-  unfold_conn_in HP; forwards*[? ?]: H5; substs.
+  unfold_conn_in HP; forwards*[? ?]: H4; substs.
   repeat rewrite <-sep_assoc in *; substs.
   rewrite nth_skip; destruct Nat.eq_dec; try (simpl in *; omega).
   destruct lt_dec; try (unfold_conn_all; tauto).
@@ -1056,7 +1071,7 @@ Proof.
     ith_vals dist (set_nth i ls x) j 0 =
     set_nth i (ith_vals dist ls j 0) (Some x).
   Proof. intros; substs; forwards*: (>>ith_vals_set_nth x 0). Qed.
-  rewrites* ith_vals_set_nth0.
+  rewrites* ith_vals_set_nth.
   rewrite firstn_set_nth_ignore.
   rewrite skipn_set_nth_ignore.
   eauto.
@@ -1066,7 +1081,6 @@ Qed.
 Lemma rule_write_sarray'  ntrd BS
       (tid : Fin.t ntrd) (le : loc_exp) (l : loc) (Env : list entry) 
       (P : Prop) (Res Res' : assn) (arr : list val) ix i iz d j e v:
-  d <> 0 ->
   evalLExp Env le l ->
   evalExp Env ix iz ->
   Res |= array' l (skip arr d j) 1 ** Res' ->
@@ -1077,35 +1091,9 @@ Lemma rule_write_sarray'  ntrd BS
   CSL BS tid
       (Assn Res P Env)
       ([le +o ix] ::= e)
-      (Assn ((array' l (set_nth' i (skip arr d j) v) 1) ** Res') P Env).
+      (Assn ((array' l (skip (set_nth i arr v) d j) 1) ** Res') P Env).
 Proof.
-  intros.
-  eapply forward; [|applys (>>rule_write (loc_off l iz) (nth i arr 0%Z) )].
-  2: constructor; eauto.
-  2: eauto.
-  Focus 3.
-  { intros s h Hp Hres.
-    apply H2 in Hres.
-    rewrites* (array'_unfold i (skip arr d j) l 1) in Hres; [|rewrites* ith_vals_length].
-    repeat rewrite <-sep_assoc in *; substs.
-    rewrite nth_skip in Hres.
-    forwards*: H5.
-    destruct Nat.eq_dec, (lt_dec i (length arr)); try now (simpl in *; omega).
-    subst; unfold sat, val in *; sep_cancel; eauto. } Unfocus.
-  unfold Assn; intros s h [? ?]; split.
-  unfold Apure; simpl; eauto with novars_lemma.
-  sep_split_in H8; sep_split; eauto.
-  fold_sat.
-  rewrites* (>>array'_unfold i l 1%Qc); [rewrite length_set_nth, ith_vals_length; tauto|].
-  repeat rewrite plus_O_n in H8.
-  unfold_conn_in HP; forwards*[? ?]: H5; substs.
-  repeat rewrite <-sep_assoc in *; substs.
-  rewrite firstn_set_nth_ignore.
-  rewrite skipn_set_nth_ignore.
-  rewrite nth_set_nth, ith_vals_length.
-  destruct (Nat.eq_dec i i), (lt_dec i (length arr)); try omega.
-  subst; unfold sat, val in *; repeat sep_cancel; eauto.
-  eauto with novars_lemma.
+  intros; applys* rule_write_array'.
 Qed.
 
 Lemma Ent_eq_dec (e1 e2 : entry) : {e1 = e2} + {e1 <> e2}.
