@@ -89,8 +89,8 @@ Lemma before_loop_ok (varr vout : list val) :
   nf tid < ntrd ->
   nf tid + nf bid * ntrd < ntrd * nblk ->
   length varr = length vout ->
-  arri vout = 
-  arri (firstn (nf tid + nf bid * ntrd) varr ++ skipn (nf tid + nf bid * ntrd) vout).
+  arri vout =
+harri (firstn (nf tid + nf bid * ntrd) varr ++ skipn (nf tid + nf bid * ntrd) vout).
 Proof.
   intros; applys (>>(@eq_from_nth) (@None Z)).
   { t. }
