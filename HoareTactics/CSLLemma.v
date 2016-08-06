@@ -1158,13 +1158,13 @@ Qed.
 
 Lemma Assn_imply (Res1 Res2 : assn) (P1 P2 : Prop) Env1 Env2 :
   incl Env2 Env1 ->
-  (P1 -> (Res1 ===> Res2)) ->
+  (P1 -> (Res1 |= Res2)) ->
   (P1 -> P2) ->
   has_no_vars Res2 ->
-  Assn Res1 P1 Env1 ===> Assn Res2 P2 Env2.
+  Assn Res1 P1 Env1 |= Assn Res2 P2 Env2.
 Proof.
   unfold Assn; intros Henv HP Hres ? s h Hsat.
-  destruct Hsat as [? Hsat]; sep_split_in Hsat; 
+  unfold sat in *; destruct Hsat as [? Hsat]; sep_split_in Hsat; 
   split; eauto; sep_split; eauto.
   - unfold_conn; eauto.
   - applys* env_incl_imp.
@@ -1184,26 +1184,32 @@ Qed.
 
 Lemma Assn_combine R1 R2 P1 P2 E1 E2 :
   has_no_vars R1 -> has_no_vars R2 ->
-  Assn R1 P1 E1 ** Assn R2 P2 E2 |=
+  (Assn R1 P1 E1 ** Assn R2 P2 E2) ==
   Assn (R1 ** R2) (P1 /\ P2) (E1 ++ E2).
 Proof.
-  unfold Assn; intros ? ? s h (h1 & h2 & Hsat1 & Hsat2 & ? & ?).
-  destruct Hsat1 as [? Hsat1], Hsat2 as [? Hsat2].
-  unfold Apure in H3, H4.
-  split; try now unfold_conn; eauto with novars_lemma.
-  sep_split_in Hsat1; sep_split_in Hsat2; sep_split; try now unfold_conn; tauto.
-  Lemma env_assns_app E1 E2 s h :
-    (env_assns_denote (E1 ++ E2)) s h <->
-    (env_assns_denote E1 s h /\ env_assns_denote E2 s h).
-  Proof.
-    induction E1; simpl; intros.
-    - split; intros; try split; try destruct H; eauto.
-      eauto using env_assns_emp.
-    - destruct (IHE1); split; intros;
-      unfold_conn_all; tauto.
-  Qed.
-  rewrite env_assns_app; unfold sat; unfold_conn; tauto.
-  exists h1 h2; tauto.
+  unfold Assn; intros ? ? s h; split.
+  - intros (h1 & h2 & Hsat1 & Hsat2 & ? & ?).
+    destruct Hsat1 as [? Hsat1], Hsat2 as [? Hsat2].
+    unfold Apure in H3, H4.
+    split; try now unfold_conn; eauto with novars_lemma.
+    sep_split_in Hsat1; sep_split_in Hsat2; sep_split; try now unfold_conn; tauto.
+    Lemma env_assns_app E1 E2 s h :
+      (env_assns_denote (E1 ++ E2)) s h <->
+      (env_assns_denote E1 s h /\ env_assns_denote E2 s h).
+    Proof.
+      induction E1; simpl; intros.
+      - split; intros; try split; try destruct H; eauto.
+        eauto using env_assns_emp.
+      - destruct (IHE1); split; intros;
+        unfold_conn_all; tauto.
+    Qed.
+    rewrite env_assns_app; unfold sat; unfold_conn; tauto.
+    exists h1 h2; tauto.
+  - intros [? Hsat]; sep_split_in Hsat.
+    destruct HP; rewrite env_assns_app in HP0.
+    destruct Hsat as (h1 & h2 & Hsat1 & Hsat2 & ? & ?).
+    exists h1 h2; split; [|split]; split; eauto;
+    sep_split; unfold_conn; tauto.
 Qed.
 
 Lemma backwardR ntrd BS (tid : Fin.t ntrd) P P' Q C :
@@ -1219,20 +1225,20 @@ Proof.
 Qed.
 
 Lemma rule_barrier ntrd BS b (i : Fin.t ntrd) Res Res_pre Res_post Res_f P P_pre P_post Env Env_pre Env_post :
-  has_no_vars Res_pre -> has_no_vars Res_f ->
-  has_no_vars Res_post ->
   Vector.nth (fst (BS b)) i = Assn Res_pre P_pre Env_pre ->
   Vector.nth (snd (BS b)) i = Assn Res_post P_post Env_post ->
   (Assn Res P Env ===> Assn (Res_pre ** Res_f) P_pre Env_pre) ->
+  has_no_vars Res_pre -> has_no_vars Res_f ->
+  has_no_vars Res_post ->
   CSL BS i
       (Assn Res P Env)
       (Cbarrier b)
       (Assn (Res_f ** Res_post) (P_pre /\ P_post) (Env_pre ++ Env_post)).
 Proof.
-  intros ? ? ? Heq1 Heq2 ?.
+  intros Heq1 Heq2 ? ? ? ? .
   eapply backward.
   { intros s h H'.
-    apply H2, Assn_split in H'; auto; eauto. }
+    apply H, Assn_split in H'; auto; eauto. }
   rewrite <- Heq1.
   eapply forwardR.
   eapply rule_frame; [| unfold inde; simpl; tauto ].
@@ -1539,4 +1545,4 @@ Qed.
 (*   CSL BS tid *)
 (*       (Assn Res P Env) *)
 (*       (x ::T cty ::= [le]) *)
-(*       (Assn Res P (Ent x v :: remove_var Env x)). *)
+(*       (Assn Res P (Ent x v :: remove_var Env x)). *)y

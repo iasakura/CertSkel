@@ -380,6 +380,10 @@ Ltac hoare_forward_prim :=
 
   | [|- CSL _ _ _ Cskip _] =>
     apply rule_skip
+
+  | [|- CSL _ _ _ Cbarrier ?i _] =>
+    idtac
+
   | _ => idtac
   end.
 
@@ -456,6 +460,7 @@ Ltac prove_imp :=
     repeat
       match goal with
       | [|- sat _ _ (Ex _, _)] => eexists; fold_sat
+      | [|- sat _ _ ((Ex _, _) ** _)] => rewrite ex_lift_r
       end;
     repeat autorewrite with sep in *;
     applys (>>Assn_imply s h H);
@@ -468,7 +473,6 @@ Ltac prove_imp :=
       intros H'; des_conj H'; repeat split; substs; try prove_pure |
       (* proof resource assertion does'nt have any vars *)
       eauto with novars_lemma ].
-
 
 Lemma array'_eq ls ls' ptr p: 
   ls = ls' -> array' ptr ls p |= array' ptr ls' p.
@@ -518,6 +522,115 @@ Proof.
                 | [|- context [if ?b then _ else _]] => destruct b
                 end; try omega; eauto.
 Qed.
+
+Lemma mps_eq (l : loc) (v v' : val) p : 
+  v = v' ->
+  (l -->p (p, v)) == (l -->p (p, v')).
+Proof.
+  intros->; reflexivity.
+Qed.
+
+Lemma array_eq l vs vs' p :
+  vs = vs' ->
+  array l vs p == array l vs' p.
+Proof.
+  intros ->; reflexivity.
+Qed.
+
+Lemma sep_mono P Q R1 R2 :
+  P |= Q ->
+  R1 |= R2 ->
+  (P ** R1) |= (Q ** R2).
+Proof.
+  intros; eapply scRw; eauto.
+Qed.
+
+Lemma sep_left_comm P Q R :
+  (P ** Q ** R) == (Q ** P ** R).
+Proof.
+  split; apply scCA.
+Qed.
+
+Ltac matches P Q :=
+  match constr:(P, Q) with
+  | (?P, ?P) => constr:(Some true)
+  | ((?l -->p (_, _)), (?l -->p (_, _))) => constr:(Some mps_eq)
+  | ((array ?l _ _), (array ?l _ _)) => constr:(Some array_eq)
+  | ((array' ?l _ _), (array' ?l _ _)) => constr:(Some array'_eq)
+  | _ => constr:false
+  end.
+
+Ltac find_idx P Q :=
+  lazymatch Q with
+  | ?Q1 ** ?Q2 =>
+    lazymatch matches P Q1 with
+    | Some _ => constr:0 
+    | false => let idx' := find_idx P Q2 in constr:(S idx') end
+  | ?Q1 =>
+    lazymatch matches P Q1 with
+    | Some _ => constr:0
+    end
+  end.
+
+Ltac lift_in idx H :=
+  lazymatch idx with
+  | 0 => idtac
+  | S ?idx =>
+    lazymatch type of H with
+    | sat _ _ (?P ** ?Q) =>
+      eapply sep_mono in H; [| clear H; intros ? ? H; apply H |
+                             clear H; intros ? ? H; lift_in idx H; apply H];
+      first [rewrite sep_left_comm in H | rewrite sep_comm in H]
+    end
+  end.
+
+Goal forall s h P Q R S, sat s h (P ** Q ** R ** S) -> False.
+Proof.
+  intros.
+  lift_in 3 H.
+Abort.
+
+Ltac prove_prim :=
+  lazymatch goal with
+  | [|- ?P |= ?Q] => 
+    lazymatch matches P Q with
+    | Some true => let H := fresh "H" in intros ? ? H; apply H
+    | Some ?lem => apply lem; eauto
+    end
+  end.
+
+Ltac sep_cancel' :=
+  lazymatch goal with
+  | [H : sat ?s ?h (?P1 ** ?P2) |- sat ?s ?h (?Q1 ** ?Q2) ] =>
+    let idx := find_idx Q1 (P1 ** P2) in
+    lift_in idx H; revert s h H; apply sep_mono; [
+      prove_prim
+    |intros s h H]
+  | [H : sat ?s ?h (?P1 ** ?P2) |- sat ?s ?h ?Q ] =>
+    rewrite <-emp_unit_r; sep_cancel'
+  | [H : sat ?s ?h ?P |- sat ?s ?h (?Q1 ** ?Q2) ] =>
+    rewrite <-emp_unit_r in H; sep_cancel'
+  | [H : sat ?s ?h ?P |- sat ?s ?h ?Q ] =>
+    revert s h H; prove_prim
+  end.
+
+Goal forall (l1 l2 l3 : loc) v1 vs2 vs3 vs4, 
+  ((l1 -->p (1, v1)) ** (array l2 vs2 1) ** (array' l3 vs3 1)) |=
+  ((array' l3 vs4 1) ** (l1 -->p (1, v1)) ** (array l2 vs2 1)).
+Proof.
+  intros.
+  let t := matches (array' l3 vs4 1) (array' l1 vs3 1) in pose t.
+  let idx := find_idx (array' l3 vs4 1) ((l1 -->p (1, v1)) ** (array l2 vs2 1) ** (array' l3 vs3 1)) in pose idx.
+  sep_cancel'.
+  admit.
+  sep_cancel'.
+  sep_cancel'.
+Qed.
+
+Ltac sep_auto' := 
+  intros ? ? ?;
+  repeat autorewrite with sep in *;
+  repeat sep_cancel'.
   
 Hint Rewrite length_set_nth ith_vals_length app_length : pure.
 Hint Rewrite nth_app nth_skip nth_set_nth nth_firstn nth_skipn : pure.
@@ -569,9 +682,9 @@ Definition reduce inv :=
       "t2" ::= [ Sh "arr" +o ("tid" +C "d") ] ;;
       [ Sh "arr" +o "tid" ] ::= "t1" +C "t2"
     ) Cskip ;;
+    Cbarrier 0 ;;
     "st" ::= "d" ;;
-    "c" ::= "c" +C 1%Z ;;
-    Cbarrier 0
+    "c" ::= "c" +C 1%Z
   ).
 
 Definition dist st i :=
@@ -592,11 +705,17 @@ Definition inv :=
 
 Definition BS0 :=
   (MyVector.init (fun i : Fin.t ntrd =>
-     FalseP),
+     Ex st c vals,
+     Assn (array' (SLoc arr) (ith_vals (dist st) vals (nf i) 0) 1)
+          (st = fst (c_state c) /\ vals = snd (c_state (S c)))
+          ("st" |-> Zn st :: "c" |-> Zn c :: nil)),
    MyVector.init (fun i : Fin.t ntrd =>
-     FalseP)).
+     Ex st c vals,
+     Assn (array' (SLoc arr) (ith_vals (dist st) vals (nf i) 0) 1)
+          (st = fst (c_state c) /\ vals = snd (c_state (S c)))
+          ("st" |-> Zn st :: "c" |-> Zn c :: nil))).
 
-Notation BS := (fun i => if Nat.eq_dec i 0 then BS0 else default ntrd).  
+Notation BS := (fun i => if Nat.eq_dec i 0 then BS0 else default ntrd).
 
 Lemma zipWith_length (A B C : Type) (f : A -> B -> C) xs ys :
   length (zipWith f xs ys) = if lt_dec (length xs) (length ys) then length xs else length ys.
@@ -727,15 +846,59 @@ Proof.
   hoare_forward.
   eauto.
 
-  hoare_forward; do 2 hoare_forward.
-  forwards*: (st_length c).
-  forwards*: (st_inv2 c); try div_lia.
-  
-  repeat (destruct lt_dec; eauto); div_lia.
-
-  eapply rule_read_array'.
-  instantiate (1 := SLoc arr).
-  evalLExp. evalExp.
-  
-
   hoare_forward.
+  Lemma rule_barrier n bs (i : Fin.t n) b A_pre Res_F A_post Res P Env:
+    (Vector.nth (fst (bs b)) i) = A_pre ->
+    (Vector.nth (snd (bs b)) i) = A_post ->
+    Assn Res P Env |= A_pre ** Assn Res_F P Env ->
+    CSL bs i (Assn Res P Env) (Cbarrier b) (Assn Res_F P Env ** A_post).
+  Proof.
+    intros Hpre Hpost Himp.
+    eapply backward.
+    { intros ? ? H; apply Himp in H; eauto. }
+    eapply forward.
+    { intros ? ? H; rewrite sep_comm; eauto. }
+    apply rule_frame; try rewrite <-Hpre, <-Hpost; eauto using CSL.rule_barrier.
+    simpl; intros ? ? ? ?; simpl; destruct 1.
+  Qed.
+  eapply rule_seq.
+  let unify_bspec := rewrite MyVector.init_spec; reflexivity in
+  eapply rule_barrier; simpl;
+  [unify_bspec | unify_bspec |
+   let t := fresh in
+   match goal with
+   | [|- _ |= _ ** Assn ?x _ _ ] => remember x as t
+   end;
+   let s := fresh "s" in
+   let h := fresh "h" in
+   let H := fresh "H" in
+   intros s h H;
+   try
+    match type of H with
+    | sat _ _ (_ ** _) =>
+        lift_ex_in H; rewrites cond_prop_in in H; [ idtac | evalBExp ]
+    end;
+   repeat match goal with
+          | |- sat _ _ (Ex _, _) => eexists; fold_sat
+          | |- sat _ _ ((Ex _, _) ** _) => rewrite ex_lift_r
+          end;
+  autorewrite with sep in * |..].
+  (* rewrite Assn_combine. *)
+  (* applys (>>Assn_imply s h H3). *)
+  (* choose_var_vals. *)
+  (* intros Hp; des_conj Hp. *)
+  (* sep_auto'. substs; eauto. *)
+
+  rewrite Assn_combine; [
+    applys (>> Assn_imply s h H3);
+    [choose_var_vals | intros Hp; des_conj Hp; sep_auto' |
+     let H' := fresh "H" in
+     intros H'; des_conj H'; repeat split; substs; try prove_pure | ..] |
+    .. ]; eauto with novars_lemma.
+  substs; eauto.
+  
+  revert s0 h0 H6; sep_auto'.
+  rewrite <-emp_unit_r.
+  instantiate (1 := emp).
+  fold_sat; fold_sat_in H5; autorewrite with sep in *.
+  eapply array'_eq; [|eauto]; simpl.
