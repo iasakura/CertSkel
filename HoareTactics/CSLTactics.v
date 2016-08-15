@@ -159,6 +159,10 @@ Ltac simpl_to_zn v :=
   | (Z.div2 ?v1)%Z =>
     let v1 := simpl_to_zn v1 in
     constr:(v1 / 2)
+  | (?v1 / ?v2)%Z =>
+    let v1 := simpl_to_zn v1 in
+    let v2 := simpl_to_zn v2 in
+    constr:(v1 / v2)
   | Zn ?v => v
   | ?v =>
     match is_const v with
@@ -391,6 +395,70 @@ Ltac sep_auto :=
   unfold sat in *; 
   repeat sep_cancel.
 
+Ltac lift_ex_in H :=
+  repeat match type of H with
+         | sat _ _ ((Ex i, @?f i) ** ?P) =>
+           let i := fresh i in
+           rewrite ex_lift_r in H; destruct H as (i & H); fold_sat_in H
+         end.
+
+Ltac des_disj H :=
+  repeat match type of H with
+  | _ \/ _ => 
+    let H1 := fresh "H" in
+    let H2 := fresh "H" in
+    destruct H as [H1 | H2]; 
+      des_disj H1; des_disj H2
+  end.
+
+Ltac des_conj H :=
+  repeat match type of H with
+  | _ /\ _ => 
+    let H1 := fresh "H" in
+    let H2 := fresh "H" in
+    destruct H as [H1 H2]; 
+      des_conj H1; des_conj H2
+  end.
+
+Ltac choose_var_vals :=
+  let H := fresh in
+  let e := fresh in
+  unfold incl; simpl; intros e H;
+  des_disj H; substs; eauto 10;
+  let rec tac :=
+      match goal with
+      | [|- ?x |-> ?v = ?x |-> ?v' \/ ?H] =>
+        left; cutrewrite (v = v'); eauto;
+        solve_zn
+      | [|- _ \/ ?H] => right; tac
+      end in tac.
+
+Ltac prove_imp :=
+  let s := fresh "s" in
+  let h := fresh "h" in
+  let H := fresh "H" in
+  intros s h H; 
+    try match type of H with
+        | sat _ _ (_ ** _) =>
+          lift_ex_in H;
+            rewrites cond_prop_in in H; [|evalBExp]
+        end;
+    repeat
+      match goal with
+      | [|- sat _ _ (Ex _, _)] => eexists; fold_sat
+      | [|- sat _ _ ((Ex _, _) ** _)] => rewrite ex_lift_r
+      | [|- sat _ _ (Assn _ _ _ ** Assn _ _ _)] => rewrite Assn_combine
+      end;
+    repeat autorewrite with sep in *;
+    applys (>>Assn_imply s h H);
+    [ (* proof impl. on environment *)
+      choose_var_vals |
+      (* proof impl. on resource assertion *)
+      intros Hp; des_conj Hp; sep_auto' |
+      (* proof impl. on pure assertion *)
+      let H' := fresh "H" in
+      intros H'; des_conj H'; repeat split; substs; try prove_pure].
+
 (*
   find an R in Res that contains le in its arguments, 
   and prove resource and bound check condution, then apply appropriate rule
@@ -454,6 +522,22 @@ Ltac apply_write_rule Hle Hix He Hn P Res le i :=
     end in
   iter Emp Res.
 
+Lemma rule_barrier n bs (i : Fin.t n) b A_pre Res_F A_post Res P Env:
+  (Vector.nth (fst (bs b)) i) = A_pre ->
+  (Vector.nth (snd (bs b)) i) = A_post ->
+  Assn Res P Env |= A_pre ** Assn Res_F P Env ->
+  CSL bs i (Assn Res P Env) (Cbarrier b) (A_post ** Assn Res_F P Env).
+Proof.
+  intros Hpre Hpost Himp.
+  eapply backward.
+  { intros ? ? H; apply Himp in H; eauto. }
+  eapply forward.
+  { intros ? ? H; rewrite sep_comm; eauto. }
+  eapply forward; [intros s h H; rewrite sep_comm; apply H|].
+  apply rule_frame; try rewrite <-Hpre, <-Hpost; eauto using CSL.rule_barrier.
+  simpl; intros ? ? ? ?; simpl; destruct 1.
+Qed.
+
 Ltac hoare_forward_prim :=
   lazymatch goal with
   | [|- CSL _ _ (Assn ?Res ?P ?Env) (?x ::T _ ::= [?le +o ?ix]) ?Q] =>
@@ -505,21 +589,48 @@ Ltac hoare_forward_prim :=
   | [|- CSL _ _ _ Cskip _] =>
     apply rule_skip
 
-  | [|- CSL _ _ _ Cbarrier ?i _] =>
-    idtac
-
+  | [|- CSL _ _ _ (Cbarrier ?i) _] =>
+    let unify_bspec := rewrite MyVector.init_spec; reflexivity in
+    eapply rule_barrier; simpl;
+    [unify_bspec | unify_bspec | prove_imp | ..]
   | _ => idtac
+  end.
+
+Lemma merge_var_val R1 R2 P1 P2 E1 E2 x v v' s h:
+  sat s h (Assn R1 P1 (x |-> v :: E1) ** Assn R2 P2 E2) ->
+  evalExp E2 x v' ->
+  sat s h (Assn R1 (v = v' /\ P1) E1 ** Assn R2 P2 E2).
+Proof.
+  unfold Assn, sat; intros Hsat Heval;
+  sep_normal_in Hsat; sep_normal; sep_split_in Hsat; sep_split; eauto;
+  simpl in *; repeat sep_cancel.
+  destruct HP0.
+  eapply evalExp_ok in Heval; eauto.
+  unfold_conn_all; simpl in *; split; try tauto.
+  congruence.
+  destruct HP0; eauto.
+Qed.
+
+Ltac merge_pre H :=
+  lazymatch type of H with
+  | sat _ _ (Assn _ _ (_ :: _) ** Assn _ _ _) =>
+    eapply merge_var_val in H; [|evalExp]; merge_pre H
+  | sat _ _ (Assn _ _ nil ** Assn _ _ _) =>
+    rewrite Assn_combine in H; simpl in H
   end.
 
 Ltac hoare_forward :=
   lazymatch goal with
+  | [|- CSL _ _ (Assn _ _ _ ** Assn _ _ _) _ _] =>
+    let H := fresh "H" in
+    eapply backward; [intros ? ? H; merge_pre H; apply H|]
   | [|- CSL _ _ ((Ex _, _) ** _) _ _] =>
     idtac "hoare_forward: match ex case";
     lift_ex; hoare_forward
   | [|- CSL _ _ (AssnDisj _ _ _ _ _ _) _ _] =>
     idtac "hoare_forward: match disj case";
-      apply rule_disj
-  | [|- CSL _ _ (_ ** _) _ _] =>
+    apply rule_disj
+  | [|- CSL _ _ (_ ** !(_)) _ _] =>
     idtac "hoare_forward: match conditional case";
     eapply cond_prop; [evalBExp|]; hoare_forward
   | [|- CSL _ _ ?P (_ ;; _) ?Q ] =>
@@ -527,75 +638,11 @@ Ltac hoare_forward :=
     eapply rule_seq; [hoare_forward |]; simpl_env
   | [|- CSL _ _ _ _ ?Q] =>
     idtac "hoare_forward: match prim case";
-      first [is_evar Q; hoare_forward_prim; idtac "ok" |
-             idtac "hoare_forward: match back case";
-             eapply forwardR; [hoare_forward_prim|]];
-      simpl_env
-  end.
-
-Ltac des_conj H :=
-  repeat match type of H with
-  | _ /\ _ => 
-    let H1 := fresh "H" in
-    let H2 := fresh "H" in
-    destruct H as [H1 H2]; 
-      des_conj H1; des_conj H2
-  end.
-
-Ltac des_disj H :=
-  repeat match type of H with
-  | _ \/ _ => 
-    let H1 := fresh "H" in
-    let H2 := fresh "H" in
-    destruct H as [H1 | H2]; 
-      des_disj H1; des_disj H2
-  end.
-
-Ltac choose_var_vals :=
-  let H := fresh in
-  let e := fresh in
-  unfold incl; simpl; intros e H;
-  des_disj H; substs; eauto 10;
-  let rec tac :=
-      match goal with
-      | [|- ?x |-> ?v = ?x |-> ?v' \/ ?H] =>
-        left; cutrewrite (v = v'); eauto;
-        solve_zn
-      | [|- _ \/ ?H] => right; tac
-      end in tac.
-
-Ltac lift_ex_in H :=
-  repeat match type of H with
-         | sat _ _ ((Ex i, @?f i) ** ?P) =>
-           let i := fresh i in
-           rewrite ex_lift_r in H; destruct H as (i & H); fold_sat_in H
-         end.
-
-Ltac prove_imp :=
-  let s := fresh "s" in
-  let h := fresh "h" in
-  let H := fresh "H" in
-  intros s h H; 
-    try match type of H with
-        | sat _ _ (_ ** _) =>
-          lift_ex_in H;
-            rewrites cond_prop_in in H; [|evalBExp]
-        end;
-    repeat
-      match goal with
-      | [|- sat _ _ (Ex _, _)] => eexists; fold_sat
-      | [|- sat _ _ ((Ex _, _) ** _)] => rewrite ex_lift_r
-      | [|- sat _ _ (Assn _ _ _ ** Assn _ _ _)] => rewrite Assn_combine
-      end;
-    repeat autorewrite with sep in *;
-    applys (>>Assn_imply s h H);
-    [ (* proof impl. on environment *)
-      choose_var_vals |
-      (* proof impl. on resource assertion *)
-      intros Hp; des_conj Hp; sep_auto' |
-      (* proof impl. on pure assertion *)
-      let H' := fresh "H" in
-      intros H'; des_conj H'; repeat split; substs; try prove_pure].
+    first [is_evar Q; hoare_forward_prim; idtac "ok" |
+           idtac "hoare_forward: match back case";
+           eapply forwardR; [hoare_forward_prim|]];
+    simpl_env
+end.
 
 Lemma nth_app (T : Type) i ls1 ls2 (v : T) :
   nth i (ls1 ++ ls2) v = if lt_dec i (length ls1) then nth i ls1 v else nth (i - length ls1) ls2 v.
@@ -713,15 +760,15 @@ Definition inv :=
 
 Definition BS0 :=
   (MyVector.init (fun i : Fin.t ntrd =>
-     Ex st c vals,
-     Assn (array' (SLoc arr) (ith_vals (dist st) vals (nf i) 0) 1)
-          (st = fst (c_state c) /\ vals = snd (c_state (S c)))
-          ("st" |-> Zn st :: "c" |-> Zn c :: nil)),
+     Ex c vals,
+     Assn (array' (SLoc arr) (ith_vals (dist (fst (c_state c))) vals (nf i) 0) 1)
+          (vals = snd (c_state (c + 1)))
+          ("c" |-> Zn c :: nil)),
    MyVector.init (fun i : Fin.t ntrd =>
-     Ex st c vals,
-     Assn (array' (SLoc arr) (ith_vals (dist st) vals (nf i) 0) 1)
-          (st = fst (c_state c) /\ vals = snd (c_state (S c)))
-          ("st" |-> Zn st :: "c" |-> Zn c :: nil))).
+     Ex c vals,
+     Assn (array' (SLoc arr) (ith_vals (dist (fst (c_state (c + 1)))) vals (nf i) 0) 1)
+          (vals = snd (c_state (c + 1)))
+          ("c" |-> Zn c :: nil))).
 
 Notation BS := (fun i => if Nat.eq_dec i 0 then BS0 else default ntrd).
 
@@ -730,6 +777,15 @@ Lemma zipWith_length (A B C : Type) (f : A -> B -> C) xs ys :
 Proof.
   revert ys; induction xs; intros [|? ?]; simpl; eauto.
   destruct lt_dec; rewrite IHxs; destruct lt_dec; omega.
+Qed.
+
+Lemma nth_zipWith (A B C : Type) (f : A -> B -> C) xs ys d i d1 d2:
+  nth i (zipWith f xs ys) d =
+  if Sumbool.sumbool_and _ _ _ _ (lt_dec i (length xs)) (lt_dec i (length ys)) then
+    f (nth i xs d1) (nth i ys d2) else d.
+Proof.
+  revert i ys; induction xs; intros [|i] [|? ?]; do 2 destruct lt_dec; simpl in *; eauto; try lia;
+  rewrite IHxs; do 2 destruct lt_dec; simpl; eauto; omega.
 Qed.
 
 Lemma div_spec x y :
@@ -742,10 +798,11 @@ Qed.
 
 Lemma Zdiv_spec x y :
   (0%Z < y ->
-   exists q r,  (x / y = q /\ x = y * q + r /\ r < y))%Z.
+   exists q r,  (x / y = q /\ x = y * q + r /\ 0 <= r < y))%Z.
 Proof.
   intros; exists (x / y)%Z (x mod y)%Z; repeat split; eauto.
   applys* Z.div_mod; lia.
+  apply Z_mod_lt; lia.
   apply Z_mod_lt; lia.
 Qed.
 
@@ -801,7 +858,6 @@ Proof.
 Qed.  
   
 Lemma st_inv2 c :
-  1 < fst (c_state c) ->
   length (snd (c_state c)) = length init_vals.
 Proof.
   intros; induction c; simpl; eauto.
@@ -811,7 +867,77 @@ Proof.
   autorewrite with pure.
   repeat destruct lt_dec; try div_lia.
 Qed.  
-  
+
+Lemma barrier_sync_then vals st c :
+      st = fst (c_state c) ->
+      vals = snd (c_state c) ->
+      (1 < Zn st)%Z -> 
+      (Zn (nf tid) + (Zn st + 1) / 2 < Zn st)%Z ->
+      ith_vals (dist st)
+               (set_nth (nf tid) vals
+                        (get vals (nf tid) + get vals (nf tid + (st + 1) / 2))%Z) 
+               (nf tid) 0 =
+      ith_vals (dist (fst (c_state c))) (snd (c_state (c + 1))) (nf tid) 0.
+Proof.
+  intros.
+  substs.
+  rewrite (Nat.add_1_r c).
+  applys (>>(@eq_from_nth) (@None Z)).
+  autorewrite with pure.
+  rewrites (st_inv2); rewrites (st_inv2); lia.
+  autorewrite with pure.
+  intros.
+  autorewrite with pure.
+  repeat rewrites (st_inv2) in *.
+  unfold dist; simpl in *.
+  forwards*: (st_inv1 c); [lia|].
+  forwards*: (st_inv2 c).
+  forwards*: (st_length c).
+  destruct (c_state c); simpl in *; autorewrite with pure.
+  rewrites* (>> nth_zipWith 0 0 0)%Z.
+  autorewrite with pure.
+  elim_div.
+  Time (repeat match goal with
+     | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; lia)
+     | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; lia)
+   end);
+    first [do 3 f_equal; ring | do 2 f_equal; lia].
+Qed.
+
+Lemma barrier_sync_else vals st c :
+  st = fst (c_state c) ->
+  vals = snd (c_state c) ->
+  (1 < Zn st)%Z -> 
+  ~(Zn (nf tid) + (Zn st + 1) / 2 < Zn st)%Z ->
+  ith_vals (dist st) vals (nf tid) 0 =
+  ith_vals (dist (fst (c_state c))) (snd (c_state (c + 1))) (nf tid) 0.
+Proof.
+  intros.
+  substs.
+  rewrite (Nat.add_1_r c).
+  applys (>>(@eq_from_nth) (@None Z)).
+  autorewrite with pure.
+  rewrites (st_inv2); rewrites (st_inv2); lia.
+  autorewrite with pure.
+  intros.
+  autorewrite with pure.
+  repeat rewrites (st_inv2) in *.
+  unfold dist; simpl in *.
+  forwards*: (st_inv1 c); [lia|].
+  forwards*: (st_inv2 c).
+  forwards*: (st_length c).
+  destruct (c_state c); simpl in *; autorewrite with pure.
+  rewrites* (>> nth_zipWith 0 0 0)%Z.
+  autorewrite with pure.
+  elim_div.
+  Time (repeat match goal with
+     | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; lia)
+     | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; lia)
+   end).
+Qed.
+
+Hint Resolve barrier_sync_then barrier_sync_else : pure_lemma.
+
 Lemma reduce_ok :
   length init_vals = ntrd ->
   CSL BS tid 
@@ -819,14 +945,15 @@ Lemma reduce_ok :
             True
             ("arr" |-> arr ::
              "l" |-> Zn (length init_vals) ::
+             "tid" |-> Zn (nf tid) ::
              nil))
       (reduce inv)
-      (Ex vals st,
+      (Ex vals st c,
          Assn (array' (SLoc arr) (ith_vals (dist st) vals (nf tid) 0) 1)
-              True
+              (vals = snd (c_state c) /\ st = fst (c_state c) /\ st <= 1)
               nil).
 Proof.
-  intros; unfold reduce, inv, dist.
+  intros; unfold reduce, inv.
   assert (nf tid < ntrd) by eauto.
   hoare_forward.
   hoare_forward.
@@ -838,58 +965,46 @@ Proof.
   hoare_forward. 
   hoare_forward.
   rewrite st_inv2; eauto; lia.
-  repeat (destruct lt_dec; eauto); div_lia.
-
+  unfold dist; repeat (destruct lt_dec; eauto); div_lia.
+  
   hoare_forward.
   forwards*: (st_length c).
   forwards*: (st_inv2 c); try div_lia.
-  
-  repeat (destruct lt_dec; eauto); div_lia.
+  unfold dist; repeat (destruct lt_dec; eauto); div_lia.
 
   hoare_forward.
   rewrite st_inv2; eauto; lia.
-  repeat (destruct lt_dec; eauto); div_lia.
+  unfold dist; repeat (destruct lt_dec; eauto); div_lia.
   
   eauto.
   hoare_forward.
   eauto.
 
   hoare_forward.
-  Lemma rule_barrier n bs (i : Fin.t n) b A_pre Res_F A_post Res P Env:
-    (Vector.nth (fst (bs b)) i) = A_pre ->
-    (Vector.nth (snd (bs b)) i) = A_post ->
-    Assn Res P Env |= A_pre ** Assn Res_F P Env ->
-    CSL bs i (Assn Res P Env) (Cbarrier b) (Assn Res_F P Env ** A_post).
-  Proof.
-    intros Hpre Hpost Himp.
-    eapply backward.
-    { intros ? ? H; apply Himp in H; eauto. }
-    eapply forward.
-    { intros ? ? H; rewrite sep_comm; eauto. }
-    apply rule_frame; try rewrite <-Hpre, <-Hpost; eauto using CSL.rule_barrier.
-    simpl; intros ? ? ? ?; simpl; destruct 1.
-  Qed.
-  eapply rule_seq.
-  lazymatch goal with
-  | [|- CSL _ _ _ (Cbarrier ?i) _] =>
-    let unify_bspec := rewrite MyVector.init_spec; reflexivity in
-    eapply rule_barrier; simpl;
-    [unify_bspec | unify_bspec |
-     prove_imp | ..]
-  end.
-  eauto.
-  admit.
+  hoare_forward; eauto with pure_lemma.
 
-  rewrite Assn_combine; [
-    applys (>> Assn_imply s h H3);
-    [choose_var_vals | intros Hp; des_conj Hp; sep_auto' |
-     let H' := fresh "H" in
-     intros H'; des_conj H'; repeat split; substs; try prove_pure | ..] |
-    .. ]; eauto with novars_lemma.
-  substs; eauto.
+  hoare_forward.
   
-  revert s0 h0 H6; sep_auto'.
-  rewrite <-emp_unit_r.
-  instantiate (1 := emp).
-  fold_sat; fold_sat_in H5; autorewrite with sep in *.
-  eapply array'_eq; [|eauto]; simpl.
+  do 2 hoare_forward.
+  prove_imp; substs.
+  clear H2; unfold val in *.
+  repeat f_equal. 
+  rewrite Nat.add_1_r, stS; repeat f_equal; lia.
+  lia.
+  rewrite (Nat.add_1_r c), stS; repeat f_equal; lia.
+
+  hoare_forward; eauto with pure_lemma.
+
+  eauto.
+  hoare_forward.
+  do 2 hoare_forward.
+  prove_imp; substs.
+  clear H2; unfold val in *.
+  repeat f_equal. 
+  rewrite Nat.add_1_r, stS; repeat f_equal; lia.
+  lia.
+  rewrite (Nat.add_1_r c), stS; repeat f_equal; lia.
+  
+  prove_imp.
+  prove_imp.
+Qed.
