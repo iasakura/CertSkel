@@ -28,12 +28,11 @@ Definition map inv :=
 Notation arri a := (skip a (ntrd * nblk) (nf tid + nf bid * ntrd)).
 
 Definition inv arr out varr vout :=
-  Ex j i vs, 
-    Assn (array' (GLoc arr) (arri varr) 1%Qc **
-          array' (GLoc out) (arri vs) 1%Qc)
-         (vs = firstn i varr ++ skipn i vout /\
-          i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) /\
-          i < length varr + ntrd * nblk /\
+  Ex j i, 
+    Assn (array' (GLoc arr) (arri varr) 1%Qc ***
+          array' (GLoc out) (arri (firstn i varr ++ skipn i vout)) 1%Qc)
+          (i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) /\
+           i < length varr + ntrd * nblk /\
           length varr = length vout)
          (ARR |-> arr ::
           OUT |-> out ::
@@ -109,15 +108,15 @@ Lemma after_loop_ok (varr vout : list val) vs i :
 Proof.
   intros; substs; eapply (@eq_from_nth _ None).
   { t. }
-intros i'; repeat autorewrite with pure; simpl; intros ?.
-Time t.
+  intros i'; repeat autorewrite with pure; simpl; intros ?.
+  Time t.
 Qed.
 
 Hint Resolve loop_inv_ok before_loop_ok after_loop_ok : pure_lemma.
 
 Lemma map_ok BS arr out varr vout : 
   CSL BS tid 
-      (Assn (array' (GLoc arr) (arri varr) 1%Qc **
+      (Assn (array' (GLoc arr) (arri varr) 1%Qc ***
              array' (GLoc out) (arri vout) 1%Qc)
             (length varr = length vout)
             (TID |-> Zn (nf tid) ::
@@ -126,7 +125,7 @@ Lemma map_ok BS arr out varr vout :
              ARR |-> arr ::
              OUT |-> out :: nil))
       (map (inv arr out varr vout))
-      (Assn (array' (GLoc arr) (arri varr) 1%Qc **
+      (Assn (array' (GLoc arr) (arri varr) 1%Qc ***
              array' (GLoc out) (arri varr) 1%Qc)
             True
             (L   |-> Zn (length varr) ::
@@ -142,14 +141,11 @@ Proof.
   hoare_forward.
   hoare_forward.
   hoare_forward.
-  prove_imp.
-  eapply array'_eq; [eapply loop_inv_ok|]; eauto.
+  prove_imp; eauto with pure_lemma.
 
-  prove_imp.
-  eapply array'_eq; [eapply before_loop_ok|]; eauto.
+  prove_imp; eauto with pure_lemma.
 
-  prove_imp.
-  eapply array'_eq; [eapply after_loop_ok|]; eauto.
+  prove_imp; eauto with pure_lemma.
 Qed.
 
 End map.
