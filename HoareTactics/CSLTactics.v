@@ -134,7 +134,7 @@ Ltac prove_pure :=
        | [|- context [match ?b with _ => _ end]] => destruct b
        | [H : context [if ?b then _ else _] |- _] => destruct b
        end);
-  first [prove_mod_eq |now (eauto with pure_lemma) | nia].
+  first [prove_mod_eq |now (eauto with pure_lemma) | lia].
 
 Ltac is_const v :=
   match v with
