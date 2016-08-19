@@ -140,6 +140,7 @@ Proof.
   revert xs ys; induction n; intros [|x xs] [|y ys]; simpl; eauto.
   rewrite IHn; eauto.
 Qed.
+
 Lemma zipWith_sum_of xs ys:
   length xs = length ys ->
   sum_of (zipWith Z.add xs ys) = (sum_of xs + sum_of ys)%Z.
