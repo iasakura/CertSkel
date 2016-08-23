@@ -27,13 +27,13 @@ Definition map inv :=
 
 Notation arri a := (skip a (ntrd * nblk) (nf tid + nf bid * ntrd)).
 
-Definition inv arr out varr vout :=
-  Ex j i, 
+Definition inv' arr out varr vout :=
+  Ex j i,
     Assn (array' (GLoc arr) (arri varr) 1%Qc ***
           array' (GLoc out) (arri (firstn i varr ++ skipn i vout)) 1%Qc)
           (i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) /\
            i < length varr + ntrd * nblk /\
-          length varr = length vout)
+           length varr = length vout)
          (ARR |-> arr ::
           OUT |-> out ::
           I   |-> Zn i ::
@@ -124,7 +124,7 @@ Lemma map_ok BS arr out varr vout :
              L   |-> Zn (length varr) :: 
              ARR |-> arr ::
              OUT |-> out :: nil))
-      (map (inv arr out varr vout))
+      (map (inv' arr out varr vout))
       (Assn (array' (GLoc arr) (arri varr) 1%Qc ***
              array' (GLoc out) (arri varr) 1%Qc)
             True
@@ -132,13 +132,13 @@ Lemma map_ok BS arr out varr vout :
              ARR |-> arr ::
              OUT |-> out :: nil)).
 Proof.
-  unfold map, inv.
+  unfold map, inv'.
   forwards*: (nf_lt tid).
   forwards*: (tid_bid).
   assert (ntrd <> 0) by eauto.
   hoare_forward.
   hoare_forward.
-  hoare_forward.
+  hoare_forward. 
   hoare_forward.
   hoare_forward.
   prove_imp; eauto with pure_lemma.

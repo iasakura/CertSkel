@@ -1,5 +1,5 @@
-Require Import GPUCSL scan_lib LibTactics Psatz CSLLemma SetoidClass.
-
+Require Import GPUCSL LibTactics Psatz CSLLemma SetoidClass.
+Notation val := Z.
 Arguments Z.add _ _ : simpl never.
 
 Lemma ex_lift_r T P Q :
@@ -125,6 +125,9 @@ Ltac prove_pure :=
   end; substs; repeat split;
   repeat match goal with
   | [H : context [Assn _ _ _]|- _] => clear H
+  | [H : evalExp _ _ _ |- _] => clear H
+  | [H : evalLExp _ _ _ |- _] => clear H
+  | [H : _ |=R _ |- _] => clear H
   end;
   repeat autorewrite with pure in *;
   try now
@@ -317,6 +320,9 @@ Proof.
   apply emp_unit_l.
 Qed.
 
+Create HintDb sep_eq.
+Hint Rewrite emp_unit_l emp_unit_r sep_assoc : sep_eq.
+
 Ltac sep_cancel' :=
   lazymatch goal with
   | [H : sat_res ?s ?h (?P1 *** ?P2) |- sat_res ?s ?h (?Q1 *** ?Q2) ] =>
@@ -347,7 +353,7 @@ Qed.
 
 Ltac sep_auto' := 
   intros ? ? ?;
-  repeat autorewrite with sep in *;
+  repeat autorewrite with sep_eq in *;
   repeat sep_cancel'.
 
 (*
@@ -386,12 +392,9 @@ Ltac find_res' acc :=
 
 Ltac find_res := find_res' Emp.
 
-Create HintDb sep.
-Hint Rewrite emp_unit_l emp_unit_r sep_assoc : sep.
-
 Ltac sep_auto := 
   intros ? ? ?;
-  repeat autorewrite with sep in *;
+  repeat autorewrite with sep_eq in *;
   unfold sat in *; 
   repeat sep_cancel.
 
@@ -442,6 +445,8 @@ Ltac prove_imp :=
         | sat _ _ (_ ** _) =>
           lift_ex_in H;
             rewrites cond_prop_in in H; [|evalBExp]
+        | sat _ _ (AssnDisj _ _ _ _ _ _) =>
+          destruct H as [H|H]; fold_sat_in H
         end;
     repeat
       match goal with
@@ -449,15 +454,15 @@ Ltac prove_imp :=
       | [|- sat _ _ ((Ex _, _) ** _)] => rewrite ex_lift_r
       | [|- sat _ _ (Assn _ _ _ ** Assn _ _ _)] => rewrite Assn_combine
       end;
-    repeat autorewrite with sep in *;
-    applys (>>Assn_imply s h H);
-    [ (* proof impl. on environment *)
-      choose_var_vals |
-      (* proof impl. on resource assertion *)
-      intros Hp; des_conj Hp; sep_auto' |
-      (* proof impl. on pure assertion *)
-      let H' := fresh "H" in
-      intros H'; des_conj H'; repeat split; substs; try prove_pure].
+    repeat autorewrite with sep_eq in *;
+    [ applys (>>Assn_imply s h H);
+      [ (* proof impl. on environment *)
+        choose_var_vals |
+        (* proof impl. on resource assertion *)
+        intros Hp; des_conj Hp; sep_auto' |
+        (* proof impl. on pure assertion *)
+        let H' := fresh "H" in
+        intros H'; des_conj H'; repeat split; substs; try prove_pure]..].
 
 (*
   find an R in Res that contains le in its arguments, 
@@ -471,9 +476,9 @@ Ltac apply_read_rule Hle Hv Hn P Res le i :=
     match R with
     | array le ?arr _ =>
       idtac "apply read rule: match array case.";
-      assert (Hres : Res |=R R *** Res') by sep_auto';
-      assert (Hbnd : P -> i < length arr) by prove_pure;
-      applys (>> rule_read_array Hle Hv Hres Hn Hbnd)
+      assert (Hres : Res |=R R *** Res'); [sep_auto'|
+      assert (Hbnd : P -> i < length arr); [prove_pure|
+      applys (>> rule_read_array Hle Hv Hres Hn Hbnd); eauto with pure_lemma]]
     | array' le (ith_vals ?dist ?arr ?j ?s) _ =>
       idtac "apply read rule: match sarray case.";
       idtac dist i;
@@ -502,9 +507,9 @@ Ltac apply_write_rule Hle Hix He Hn P Res le i :=
     lazymatch R with
     | array le ?arr _ =>
       idtac "apply read rule: match array case.";
-      assert (Hres : Res |=R R *** Res') by sep_auto';
-      assert (Hbnd : P -> i < length arr) by prove_pure;
-      applys (>> rule_write_array Hle Hix Hn Hbnd He Hres)
+      assert (Hres : Res |=R R *** Res'); [sep_auto'|
+      assert (Hbnd : P -> i < length arr); [prove_pure|
+      applys (>> rule_write_array Hle Hix Hn Hbnd He Hres); eauto with pure_lemma]]
     | array' le (ith_vals ?dist ?arr ?j ?s) _ =>
       idtac "apply read rule: match sarray case.";
       assert (Hres : Res |=R R *** Res'); [sep_auto'|

@@ -1,5 +1,7 @@
 Require Import GPUCSL scan_lib LibTactics Skel_lemma Psatz Classical.
 
+Notation val := Z.
+
 Require Import SetoidClass.
 Definition equiv_sep (P Q : assn) := (forall s h, P s h <-> Q s h).
 Instance equiv_sep_equiv : Equivalence (equiv_sep).
@@ -88,13 +90,6 @@ Eval simpl in sat_res _ _ ((SLoc 1) |->p (1, 3%Z)).
 Definition env_assns_denote env :=
   List.fold_right (fun x y => ent_assn_denote x //\\ y) emp env.
 
-Create HintDb novars_lemma.
-
-Hint Resolve
-     has_no_vars_star
-     has_no_vars_mp
-     has_no_vars_emp : novars_lemma.
-
 (*
 Res : an assertion for resource
 P : an assertion for pure constraint
@@ -125,7 +120,7 @@ Inductive evalExp : list entry -> exp -> val -> Prop :=
     evalExp env (e1 -C e2) (v1 - v2)%Z
 | SEval_div2 env e1 v1 :
     evalExp env e1 v1 -> 
-    evalExp env (e1 >>1) (Z.div2 v1)
+    evalExp env (e1 >>1) (v1 / 2)%Z
 | SEval_var env e v : In (Ent e v) env -> evalExp env e v.
 
 Lemma env_denote_in Env e v:
@@ -146,6 +141,7 @@ Proof.
   try forwards*: IHevalExp;
   unfold_conn_all; simpl in *; try congruence;
   substs; auto.
+  - rewrite Zdiv2_div; eauto.
   - applys* env_denote_in.
 Qed.
 
@@ -1114,7 +1110,7 @@ Proof.
     rewrite nth_skip in Hres.
     forwards*: H4.
     destruct Nat.eq_dec, (lt_dec i (length arr)); try now (simpl in *; omega).
-    subst; unfold sat, val in *; sep_cancel; eauto. } Unfocus.
+    subst; unfold sat in *; sep_cancel; eauto. } Unfocus.
   unfold Assn; intros s h ?; unfold sat in *.
   sep_split_in H5; sep_split; eauto.
   fold_res_sat.
@@ -1125,7 +1121,7 @@ Proof.
   destruct lt_dec; try (unfold_conn_all; tauto).
   2:rewrite length_set_nth in *; tauto.
   rewrite nth_set_nth; destruct (Nat.eq_dec i i), (lt_dec i (length arr)); try omega.
-  subst; unfold sat, val in *; repeat sep_cancel; eauto.
+  subst; unfold sat in *; repeat sep_cancel; eauto.
   Lemma ith_vals_set_nth T dist ls (x : T) s i:
     ith_vals dist (set_nth i ls x) (dist (s + i)) s =
     set_nth i (ith_vals dist ls (dist (s + i)) s) (Some x).

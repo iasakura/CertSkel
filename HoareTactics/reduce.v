@@ -27,14 +27,32 @@ Fixpoint iter {T : Type} n f (x : T) :=
   | S n => f (iter n f x)
   end.
 
-Variable init_vals : list val.
-Variable arr : val.
+Variable init_vals out_vals sh_vals : list val.
+Variable arr inp out : val.
 
-Local Notation c_state c := (iter c next (length init_vals, init_vals)).
+Hypothesis inp_len : length init_vals = nblk * ntrd.
+Hypothesis out_len : length out_vals = nblk + 0.
+
+Definition reg_b' j := (firstn ntrd (skipn (ntrd * j) init_vals)).
+Notation reg_b := (reg_b' (nf bid)).
+
+Lemma reg_b_length:
+  length reg_b = ntrd.
+Proof.
+  unfold reg_b'; autorewrite with pure.
+  rewrite inp_len in *.
+  assert (nf bid < nblk) by eauto.
+  destruct lt_dec; nia.
+Qed.  
+
+Local Notation c_state c := (iter c next (length reg_b, reg_b)).
 
 Definition reduce inv := 
+  "t" ::= [Gl "inp" +o ("tid" +C "bid" *C Zn ntrd)] ;;
+  [Sh "arr" +o "tid"] ::= "t" ;;
+  Cbarrier 0 ;;
   "c" ::= 0%Z ;;
-  "st" ::= "l" ;;
+  "st" ::= Zn ntrd ;;
   WhileI inv (1%Z <C "st") (
     "d" ::= ("st" +C 1%Z)>>1 ;;
     Cif ("tid" +C "d" <C "st") (
@@ -42,10 +60,14 @@ Definition reduce inv :=
       "t2" ::= [ Sh "arr" +o ("tid" +C "d") ] ;;
       [ Sh "arr" +o "tid" ] ::= "t1" +C "t2"
     ) Cskip ;;
-    Cbarrier 0 ;;
+    Cbarrier 1 ;;
     "st" ::= "d" ;;
     "c" ::= "c" +C 1%Z
-  ).
+  ) ;;
+  Cif ("tid" == 0%Z) (
+    "t" ::= [ Sh "arr" +o 0%Z] ;;
+    [Gl "out" +o "bid"] ::= "t"
+  ) Cskip.
 
 Definition dist st i :=
   let d := (st + 1) / 2 in
@@ -53,29 +75,48 @@ Definition dist st i :=
   else if lt_dec i st then (i - d)
   else 0.
 
+Notation p := (1 / injZ (Zn (nblk * ntrd)))%Qc.
+
 Definition inv :=
-  Ex st vals c,
-  Assn (array' (SLoc arr) (ith_vals (dist st) vals (nf tid) 0) 1)
-       (st = fst (c_state c) /\ vals = snd (c_state c))
+  Ex st c,
+  let vals := snd (c_state c) in
+  Assn (array' (SLoc arr) (ith_vals (dist st) vals (nf tid) 0) 1 ***
+        array (GLoc inp) init_vals p ***
+        array' (GLoc out) (ith_vals (fun i => i * ntrd) out_vals (nf tid + nf bid * ntrd) 0) 1)
+       (st = fst (c_state c))
        ("tid" |-> Zn (nf tid) ::
+        "bid" |-> Zn (nf bid) ::
         "st" |-> Zn st ::
         "arr" |-> arr ::
+        "out" |-> out ::
         "c" |-> Zn c ::
         nil).
 
 Definition BS0 :=
   (MyVector.init (fun i : Fin.t ntrd =>
-     Ex c vals,
-     Assn (array' (SLoc arr) (ith_vals (dist (fst (c_state c))) vals (nf i) 0) 1)
-          (vals = snd (c_state (c + 1)))
+     Assn (array' (SLoc arr) (ith_vals (fun i => i) reg_b (nf i) 0) 1)
+          True
+          nil),
+   MyVector.init (fun i : Fin.t ntrd =>
+     Assn (array' (SLoc arr) (ith_vals (dist (length reg_b)) reg_b (nf tid) 0) 1)
+          True
+          nil)).
+
+Definition BS1 :=
+  (MyVector.init (fun i : Fin.t ntrd =>
+     Ex c,
+     Assn (array' (SLoc arr) (ith_vals (dist (fst (c_state c))) (snd (c_state (c + 1))) (nf i) 0) 1)
+          True
           ("c" |-> Zn c :: nil)),
    MyVector.init (fun i : Fin.t ntrd =>
-     Ex c vals,
-     Assn (array' (SLoc arr) (ith_vals (dist (fst (c_state (c + 1)))) vals (nf i) 0) 1)
-          (vals = snd (c_state (c + 1)))
+     Ex c,
+     Assn (array' (SLoc arr) (ith_vals (dist (fst (c_state (c + 1)))) (snd (c_state (c + 1))) (nf i) 0) 1)
+          True
           ("c" |-> Zn c :: nil))).
 
-Notation BS := (fun i => if Nat.eq_dec i 0 then BS0 else default ntrd).
+Definition BS := (fun i => if Nat.eq_dec i 0 then BS0
+                           else if Nat.eq_dec i 1 then BS1
+                           else default ntrd).
 
 Lemma st_decrease c :
   fst (c_state (S c)) <= fst (c_state c).
@@ -86,7 +127,7 @@ Proof.
 Qed.
 
 Lemma st_length c :
-  fst (c_state c) <= length init_vals.
+  fst (c_state c) <= length reg_b.
 Proof.
   induction c.
   - simpl; eauto.
@@ -100,7 +141,7 @@ Proof.
 Qed.
 
 Lemma st_inv1 c :
-  (fst (c_state c) - (fst (c_state (S c)))) <= length init_vals.
+  (fst (c_state c) - (fst (c_state (S c)))) <= length reg_b.
 Proof.
   intros; induction c. simpl in *. div_lia.
   simpl in *.
@@ -109,7 +150,7 @@ Proof.
 Qed.  
   
 Lemma st_inv2 c :
-  length (snd (c_state c)) = length init_vals.
+  length (snd (c_state c)) = length reg_b.
 Proof.
   intros; induction c; simpl; eauto.
   lets: (st_decrease c).
@@ -220,31 +261,31 @@ Qed.
 
 Lemma before_loop :
   sum_of (firstn (fst (c_state 0)) (snd (c_state 0))) = 
-  sum_of init_vals.
+  sum_of reg_b.
 Proof.
   simpl; rewrite firstn_length_self; eauto.
 Qed.
 
 Lemma sum_of_inv c:
   sum_of (firstn (fst (c_state c)) (snd (c_state c))) =
-  sum_of init_vals.
+  sum_of reg_b.
 Proof.
   induction c; eauto using before_loop.
   rewrite st_inv; eauto.
 Qed.
 
 Lemma st0 c :
-  fst (c_state c) = 0 -> init_vals = nil.
+  fst (c_state c) = 0 -> reg_b = nil.
 Proof.
   induction c; simpl.
-  - destruct init_vals; simpl; inversion 1; eauto.
+  - destruct reg_b; simpl; inversion 1; eauto.
   - destruct (c_state c); simpl in *.
     intros; apply IHc.
     div_lia.
 Qed.
 
 Lemma init_vals0 c:
-  init_vals = nil -> snd (c_state c) = nil.
+  reg_b = nil -> snd (c_state c) = nil.
 Proof.
   induction c; simpl; eauto.
   intros; destruct (c_state c); simpl in *.
@@ -254,7 +295,7 @@ Qed.
 
 Lemma after_loop c :
   fst (c_state c) <= 1 ->
-  nth 0 (snd (c_state c)) 0%Z = sum_of init_vals.
+  nth 0 (snd (c_state c)) 0%Z = sum_of reg_b.
 Proof.
   intros; rewrites<- (sum_of_inv c).
   lets: (st0 c).
@@ -263,7 +304,7 @@ Proof.
   assert (n = 0 \/ n = 1) as [|] by omega; substs; simpl.
   rewrite H1; eauto.
   destruct l; simpl; eauto.
-  unfold val in *; lia.
+  lia.
 Qed.  
 
 Lemma barrier_sync_then vals st c :
@@ -278,7 +319,7 @@ Lemma barrier_sync_then vals st c :
       ith_vals (dist (fst (c_state c))) (snd (c_state (c + 1))) (nf tid) 0.
 Proof.
   intros.
-  substs.
+  subst st vals.
   rewrite (Nat.add_1_r c).
   applys (>>(@eq_from_nth) (@None Z)).
   autorewrite with pure.
@@ -288,7 +329,7 @@ Proof.
   autorewrite with pure.
   repeat rewrites (st_inv2) in *.
   unfold dist; simpl in *.
-  forwards*: (st_inv1 c); [lia|].
+  forwards*: (st_inv1 c). 
   forwards*: (st_inv2 c).
   forwards*: (st_length c).
   destruct (c_state c); simpl in *; autorewrite with pure.
@@ -311,14 +352,14 @@ Lemma barrier_sync_else vals st c :
   ith_vals (dist (fst (c_state c))) (snd (c_state (c + 1))) (nf tid) 0.
 Proof.
   intros.
-  substs.
+  subst st vals.
   rewrite (Nat.add_1_r c).
   applys (>>(@eq_from_nth) (@None Z)).
   autorewrite with pure; repeat rewrites (st_inv2); lia.
   introv; autorewrite with pure; intros.
   repeat rewrites (st_inv2) in *.
   unfold dist; simpl in *.
-  forwards*: (st_inv1 c); [lia|].
+  forwards*: (st_inv1 c).
   forwards*: (st_inv2 c).
   forwards*: (st_length c).
   destruct (c_state c); simpl in *; autorewrite with pure.
@@ -333,31 +374,56 @@ Qed.
 
 Hint Resolve barrier_sync_then barrier_sync_else : pure_lemma.
 
+Hypothesis sh_vals_len : length sh_vals = ntrd + 0.
+
 Lemma reduce_ok :
-  length init_vals = ntrd ->
   CSL BS tid 
-      (Assn (array' (SLoc arr) (ith_vals (dist (length init_vals)) init_vals (nf tid) 0) 1)
+      (Assn (array' (SLoc arr) (ith_vals (fun i => i) sh_vals (nf tid) 0) 1 ***
+             array (GLoc inp) init_vals p ***
+             array' (GLoc out) (ith_vals (fun i => i * ntrd) out_vals (nf tid + nf bid * ntrd) 0) 1)
             True
             ("arr" |-> arr ::
+             "inp" |-> inp ::
+             "out" |-> out :: 
              "l" |-> Zn (length init_vals) ::
              "tid" |-> Zn (nf tid) ::
-             nil))
+             "bid" |-> Zn (nf bid) :: nil))
       (reduce inv)
-      (Ex vals st c,
-         Assn (array' (SLoc arr) (ith_vals (dist st) vals (nf tid) 0) 1)
-              (vals = snd (c_state c) /\ st = fst (c_state c) /\ st <= 1)
-              nil).
+      (Ex c,
+       Assn (array' (SLoc arr) (ith_vals (dist (fst (c_state c))) (snd (c_state c)) (nf tid) 0) 1 ***
+             array (GLoc inp) init_vals p ***
+             array' (GLoc out) (ith_vals (fun i => i * ntrd) (ls_init 0 nblk (fun i => sum_of (reg_b' i))) (nf tid + nf bid * ntrd) 0) 1)
+            True
+            ("c" |-> Zn c :: nil)).
 Proof.
-  intros; unfold reduce, inv.
+  intros; unfold reduce, inv, BS.
   assert (nf tid < ntrd) by eauto.
-  do 3 hoare_forward.
+  assert (nf bid < nblk) by eauto.
+  pose proof reg_b_length.
+  
+  hoare_forward.
+  rewrite inp_len; eauto.
+
   hoare_forward.
 
+  hoare_forward; eauto.
+  { applys (>>(@eq_from_nth) (@None Z)).
+    autorewrite with pure; rewrite* reg_b_length.
+    lia.
+    clear H2.
+    unfold reg_b'; intros i Hi; autorewrite with pure in *.
+    repeat match goal with
+     | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; nia)
+     | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; nia)
+    end; do 2 f_equal; nia. }
+
+  do 4 hoare_forward.
+  hoare_forward.
   lets: (st_decrease c); rewrite stS in *.
 
   hoare_forward.
   hoare_forward.
-  rewrite st_inv2; eauto; lia.
+  rewrite st_inv2; lia.
   unfold dist; repeat (destruct lt_dec; eauto); div_lia.
   
   hoare_forward.
@@ -366,7 +432,7 @@ Proof.
   unfold dist; repeat (destruct lt_dec; eauto); div_lia.
 
   hoare_forward; eauto.
-  rewrite st_inv2; eauto; lia.
+  rewrite st_inv2; lia.
   unfold dist; repeat (destruct lt_dec; eauto); div_lia.
 
   hoare_forward; eauto.
@@ -374,9 +440,9 @@ Proof.
   do 2 hoare_forward; eauto with pure_lemma.
 
   do 3 hoare_forward.
-  prove_imp; substs.
-  clear H2; unfold val in *.
-  repeat f_equal. 
+  prove_imp.
+  clear H3.
+  repeat f_equal; subst st.
   rewrite Nat.add_1_r, stS; repeat f_equal; lia.
   lia.
   rewrite (Nat.add_1_r c), stS; repeat f_equal; lia.
@@ -384,13 +450,83 @@ Proof.
   hoare_forward; eauto with pure_lemma.
   do 2 hoare_forward; prove_imp; substs.
   
-  clear H2; unfold val in *.
+  clear H3.
   repeat f_equal. 
   rewrite Nat.add_1_r, stS; repeat f_equal; lia.
   lia.
   rewrite (Nat.add_1_r c), stS; repeat f_equal; lia.
   
   prove_imp.
-  prove_imp.
+  
+  hoare_forward.
+  hoare_forward.
+  rewrite st_inv2, reg_b_length; lia.
+  cutrewrite (nf tid = 0); [|lia].
+  unfold dist; simpl; repeat destruct lt_dec; eauto.
+  
+  repeat hoare_forward; eauto.
+  hoare_forward; eauto.
+
+  Hint Rewrite @init_length @ls_init_spec : pure.
+  prove_imp; subst st; eauto; clear H2; applys (>>eq_from_nth (@None Z));
+  autorewrite with pure; try lia; intros i; autorewrite with pure; intros Hi;
+  rewrite out_len in *.
+  - cutrewrite (nf tid = 0); [|lia]; simpl.
+    assert (i * ntrd = nf bid * ntrd -> i = nf bid) by nia.
+    repeat match goal with
+     | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; nia)
+     | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; nia)
+    end.
+    f_equal.
+    apply after_loop; lia.
+  - simpl.
+    assert (nf tid <> 0) by lia.
+    assert (i * ntrd <> nf tid + nf bid * ntrd).
+    { intros Hc.
+      apply (f_equal (fun x => x mod ntrd)) in Hc.
+      rewrite Nat.mod_add, Nat.mod_mul, Nat.mod_small in Hc; eauto. }
+    repeat match goal with
+     | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; nia)
+     | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; nia)
+    end.
 Qed.
+    
 End reduce.
+
+Section reduce_b.
+  Variable ntrd nblk : nat.
+  Hypothesis ntrd_neq_0 : ntrd <> 0.
+  Hypothesis nblk_neq_0 : nblk <> 0.
+  Hint Resolve ntrd_neq_0 nblk_neq_0.
+  Variable bid : Fin.t nblk.
+
+  Open Scope string_scope.
+  Open Scope list_scope.
+  
+  Arguments div _ _ : simpl never.
+  Arguments modulo _ _ : simpl never.
+  Variable init_vals : list val.
+  Variable arr : val.
+
+  Definition E := fun x =>
+    if var_eq_dec x "arr" then Lo
+    else if var_eq_dec x "l" then Lo
+    else if var_eq_dec x "bid" then Lo
+    else Hi.
+
+
+
+  Lemma reduce_ok_b :
+    CSLp nblk E
+         (Assn (array (SLoc arr) init_vals 1)
+               True
+               ("arr" |-> arr :: "l" |-> Zn (length init_vals) :: nil))
+         (reduce TrueP)
+         (Ex (vals : list val) (st c : nat),
+            Assn (array (SLoc arr) vals 1)
+                 (vals = snd (iter c next (length init_vals, init_vals)) /\
+                  fst (iter c next (length init_vals, init_vals)) <= st)
+                 nil).
+  Proof.
+    eapply rule_par.
+    
