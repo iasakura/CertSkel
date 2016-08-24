@@ -54,9 +54,9 @@ Fixpoint res_denote m :=
   | Star r1 r2 => res_denote r1 ** res_denote r2
   end.
 
-Definition sat_res s h m := res_denote m s h.
+Definition sat_res s h m := sat s h (res_denote m).
 
-Definition equiv_res (P Q : res) := (forall s h, res_denote P s h <-> res_denote Q s h).
+Definition equiv_res (P Q : res) := (forall s h, sat_res s h P <-> sat_res s h Q).
 Instance equiv_res_equiv : Equivalence (equiv_res).
 unfold equiv_res; constructor.
 - intros P s h; reflexivity.
@@ -75,7 +75,7 @@ Qed.
 
 Instance sat_res_proper s h : Proper (equiv_res ==> iff) (sat_res s h).
 Proof.
-  intros p q; unfold equiv_res, sat_res; auto.
+  intros p q; unfold equiv_res, sat_res, sat; auto.
 Qed.
 
 Notation "x |-> v" := (Ent x v) (at level 58).
@@ -572,15 +572,16 @@ Lemma array_unfold i arr ptr p:
    (loc_off ptr (Zn i) |->p (p, nth i arr 0%Z)) ***
    (array (loc_off ptr (Z.succ (Zn i))) (skipn (S i) arr) p)).
 Proof.
-  simpl; unfold equiv_sep;
+  simpl; unfold equiv_sep, sat_res, sat;
   revert arr ptr; induction i; intros arr ptr.
-  - destruct arr; simpl; try (intros; omega); intros _ s h; simpl.
+  - destruct arr; simpl; try (intros; omega); intros _ s h; unfold sat_res, sat in *; simpl.
     split; intros; sep_normal; sep_normal_in H; rewrite loc_off0 in *; eauto. 
   - destruct arr as [|v arr]; try (simpl; intros; omega).
     intros Hlen'; simpl in Hlen'; assert (Hlen : i < length arr) by omega.
     rewrite Nat2Z.inj_succ.
     do 2 rewrite loc_offS; simpl.
-    split; intros; simpl in *; sep_normal; sep_normal_in H; repeat sep_cancel.
+    split; unfold sat_res, sat in *; unfold sat_res, sat in *;
+    intros; simpl in *; sep_normal; sep_normal_in H; repeat sep_cancel.
     apply IHi in H0; sep_normal_in H0; eauto.
     apply IHi; sep_normal; eauto.
 Qed.
@@ -780,7 +781,7 @@ Lemma array'_unfold i arr ptr p:
    (array' (loc_off ptr (Z.succ (Zn i))) (skipn (S i) arr) p)).
 Proof.
   unfold array.
-  simpl; unfold equiv_res;
+  simpl; unfold equiv_res, sat_res, sat;
   revert arr ptr; induction i; intros arr ptr.
   - destruct arr; simpl; try (intros; omega); intros _ s h.
     split; intros; sep_normal; sep_normal_in H; rewrite loc_off0 in *; eauto. 
