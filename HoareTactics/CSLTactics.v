@@ -1,4 +1,4 @@
-Require Import GPUCSL LibTactics Psatz CSLLemma SetoidClass.
+Require Import GPUCSL scan_lib LibTactics Psatz CSLLemma SetoidClass.
 Notation val := Z.
 Arguments Z.add _ _ : simpl never.
 
@@ -116,7 +116,123 @@ Proof.
   rewrite IHi; simpl in *; try omega.
 Qed.
 
-Hint Rewrite app_length firstn_length skipn_length : pure.
+Lemma firstn_app (A : Type) n (xs ys : list A) :
+  firstn n (xs ++ ys) = firstn n xs ++ firstn (n - length xs) ys.
+Proof.
+  revert xs ys; induction n; intros [|x xs] [|y ys]; simpl; eauto;
+  rewrite IHn; eauto.
+Qed.
+
+Lemma firstn_firstn (A : Type) n m (xs : list A) :
+  firstn n (firstn m xs) = if lt_dec n m then firstn n xs else firstn m xs.
+Proof.
+  revert m xs; induction n; intros [|m] [|x xs]; simpl; eauto.
+  destruct lt_dec; eauto.
+  rewrite IHn; do 2 destruct lt_dec; simpl; eauto; lia.
+Qed.
+
+Lemma skipn_skipn (A : Type) n m (xs : list A) :
+  skipn n (skipn m xs) = skipn (n + m) xs.
+Proof.
+  revert n xs; induction m; intros [|n] [|x xs]; try now (simpl; eauto).
+  simpl; f_equal; lia.
+  repeat rewrite <- plus_n_Sm.
+  forwards*: (IHm n xs).
+Qed.
+
+Fixpoint zipWith {A B C : Type} (f : A -> B -> C) xs ys :=
+  match xs, ys with
+  | x :: xs, y :: ys => f x y :: zipWith f xs ys
+  | _, _ => nil
+  end.
+
+Lemma firstn_zipWith (A B C : Type) (f : A -> B -> C) xs ys n :
+  firstn n (zipWith f xs ys) = zipWith f (firstn n xs) (firstn n ys).
+Proof.
+  revert xs ys; induction n; intros [|x xs] [|y ys]; simpl; eauto.
+  rewrite IHn; eauto.
+Qed.
+
+Lemma firstn_length_self (A : Type) (xs : list A) :
+  firstn (length xs) xs = xs.
+Proof.  
+  induction xs; simpl; eauto; rewrite IHxs; eauto.
+Qed.
+
+
+Lemma nth_app (T : Type) i ls1 ls2 (v : T) :
+  nth i (ls1 ++ ls2) v = if lt_dec i (length ls1) then nth i ls1 v else nth (i - length ls1) ls2 v.
+Proof.
+  revert i; induction ls1; simpl; eauto.
+  intros [|i]; simpl; eauto.
+  intros [|i]; simpl; eauto.
+  rewrite IHls1; repeat match goal with
+                | [|- context [if ?b then _ else _]] => destruct b
+                end; try omega; eauto.
+Qed.
+
+Lemma nth_firstn (T : Type) n i ls1 (v : T) :
+  nth i (firstn n ls1) v = if lt_dec i n then nth i ls1 v else v.
+Proof.
+  revert i n; induction ls1; simpl; eauto.
+  - intros [|i] [|n]; simpl; eauto.
+    destruct lt_dec; eauto.
+  - intros [|i] [|n]; simpl; eauto.
+    rewrite IHls1; repeat destruct lt_dec; try omega; eauto.
+Qed.
+
+Lemma nth_skipn (T : Type) n i ls1 (v : T) :
+  nth i (skipn n ls1) v = nth (n + i) ls1 v.
+Proof.
+  revert i n; induction ls1; eauto.
+  - intros [|i] [|n]; simpl; eauto.
+  - intros i [|n]; eauto; simpl.
+    eauto.
+Qed.        
+
+Lemma set_nth_app (T : Type) i xs ys (v : T) :
+  set_nth i (xs ++ ys) v =
+  if lt_dec i (length xs) then set_nth i xs v ++ ys
+  else xs ++ set_nth (i - length xs) ys v.
+Proof.
+  revert i; induction xs; simpl; eauto.
+  intros [|i]; simpl; eauto.
+  intros [|i]; simpl; eauto.
+  rewrite IHxs; repeat match goal with
+                | [|- context [if ?b then _ else _]] => destruct b
+                end; try omega; eauto.
+Qed.
+
+Lemma zipWith_length (A B C : Type) (f : A -> B -> C) xs ys :
+  length (zipWith f xs ys) = if lt_dec (length xs) (length ys) then length xs else length ys.
+Proof.
+  revert ys; induction xs; intros [|? ?]; simpl; eauto.
+  destruct lt_dec; rewrite IHxs; destruct lt_dec; omega.
+Qed.
+
+Lemma nth_zipWith (A B C : Type) (f : A -> B -> C) xs ys d i d1 d2:
+  nth i (zipWith f xs ys) d =
+  if Sumbool.sumbool_and _ _ _ _ (lt_dec i (length xs)) (lt_dec i (length ys)) then
+    f (nth i xs d1) (nth i ys d2) else d.
+Proof.
+  revert i ys; induction xs; intros [|i] [|? ?]; do 2 destruct lt_dec; simpl in *; eauto; try lia;
+  rewrite IHxs; do 2 destruct lt_dec; simpl; eauto; omega.
+Qed.
+
+Hint Rewrite length_set_nth ith_vals_length app_length zipWith_length : pure.
+Hint Rewrite nth_app nth_skip nth_set_nth nth_firstn nth_skipn : pure.
+
+Hint Rewrite
+     app_length
+     firstn_length
+     skipn_length
+     firstn_app
+     firstn_firstn
+     skipn_skipn
+     firstn_zipWith
+     firstn_length_self
+     @init_length
+     @ls_init_spec : pure.
 
 Ltac prove_pure :=
   intros; 
@@ -648,74 +764,6 @@ Ltac hoare_forward :=
            eapply forwardR; [hoare_forward_prim|]];
     simpl_env
 end.
-
-Lemma nth_app (T : Type) i ls1 ls2 (v : T) :
-  nth i (ls1 ++ ls2) v = if lt_dec i (length ls1) then nth i ls1 v else nth (i - length ls1) ls2 v.
-Proof.
-  revert i; induction ls1; simpl; eauto.
-  intros [|i]; simpl; eauto.
-  intros [|i]; simpl; eauto.
-  rewrite IHls1; repeat match goal with
-                | [|- context [if ?b then _ else _]] => destruct b
-                end; try omega; eauto.
-Qed.
-
-Lemma nth_firstn (T : Type) n i ls1 (v : T) :
-  nth i (firstn n ls1) v = if lt_dec i n then nth i ls1 v else v.
-Proof.
-  revert i n; induction ls1; simpl; eauto.
-  - intros [|i] [|n]; simpl; eauto.
-    destruct lt_dec; eauto.
-  - intros [|i] [|n]; simpl; eauto.
-    rewrite IHls1; repeat destruct lt_dec; try omega; eauto.
-Qed.
-
-Lemma nth_skipn (T : Type) n i ls1 (v : T) :
-  nth i (skipn n ls1) v = nth (n + i) ls1 v.
-Proof.
-  revert i n; induction ls1; eauto.
-  - intros [|i] [|n]; simpl; eauto.
-  - intros i [|n]; eauto; simpl.
-    eauto.
-Qed.        
-
-Lemma set_nth_app (T : Type) i xs ys (v : T) :
-  set_nth i (xs ++ ys) v =
-  if lt_dec i (length xs) then set_nth i xs v ++ ys
-  else xs ++ set_nth (i - length xs) ys v.
-Proof.
-  revert i; induction xs; simpl; eauto.
-  intros [|i]; simpl; eauto.
-  intros [|i]; simpl; eauto.
-  rewrite IHxs; repeat match goal with
-                | [|- context [if ?b then _ else _]] => destruct b
-                end; try omega; eauto.
-Qed.
-
-Fixpoint zipWith {A B C : Type} (f : A -> B -> C) xs ys :=
-  match xs, ys with
-  | x :: xs, y :: ys => f x y :: zipWith f xs ys
-  | _, _ => nil
-  end.
-
-Lemma zipWith_length (A B C : Type) (f : A -> B -> C) xs ys :
-  length (zipWith f xs ys) = if lt_dec (length xs) (length ys) then length xs else length ys.
-Proof.
-  revert ys; induction xs; intros [|? ?]; simpl; eauto.
-  destruct lt_dec; rewrite IHxs; destruct lt_dec; omega.
-Qed.
-
-Lemma nth_zipWith (A B C : Type) (f : A -> B -> C) xs ys d i d1 d2:
-  nth i (zipWith f xs ys) d =
-  if Sumbool.sumbool_and _ _ _ _ (lt_dec i (length xs)) (lt_dec i (length ys)) then
-    f (nth i xs d1) (nth i ys d2) else d.
-Proof.
-  revert i ys; induction xs; intros [|i] [|? ?]; do 2 destruct lt_dec; simpl in *; eauto; try lia;
-  rewrite IHxs; do 2 destruct lt_dec; simpl; eauto; omega.
-Qed.
-
-Hint Rewrite length_set_nth ith_vals_length app_length zipWith_length : pure.
-Hint Rewrite nth_app nth_skip nth_set_nth nth_firstn nth_skipn : pure.
 
 Lemma div_spec x y :
   y <> 0 ->
