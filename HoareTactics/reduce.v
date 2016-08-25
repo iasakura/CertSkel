@@ -350,7 +350,7 @@ Lemma reduce_ok :
              array (GLoc inp) init_vals p ***
              array' (GLoc out) (ith_vals (fun i => i * ntrd) (ls_init 0 nblk (fun i => sum_of (reg_b' i))) (nf tid + nf bid * ntrd) 0) 1)
             True
-            ("c" |-> Zn c :: nil)).
+            ("c" |-> Zn c :: "arr" |-> arr :: nil)).
 Proof.
   intros; unfold reduce, inv, BS.
   assert (nf tid < ntrd) by eauto.
@@ -478,7 +478,7 @@ Definition ith_post (tid : Fin.t ntrd) :=
       array' (GLoc out)
         (ith_vals (fun i : nat => i * ntrd)
            (ls_init 0 nblk (fun i : nat => sum_of (reg_b' i)))
-           (nf tid + nf bid * ntrd) 0) 1) True ("c" |-> Zn c :: nil)).
+           (nf tid + nf bid * ntrd) 0) 1) True ("c" |-> Zn c :: "arr" |-> arr :: nil)).
 
 Definition fin_star n (f : nat -> res) :=
   List.fold_right Star Emp (ls_init 0 n f).
@@ -508,7 +508,7 @@ Definition jth_post :=
         (ith_vals (fun i => i * ntrd) (ls_init 0 nblk (fun i : nat => sum_of (reg_b' i)))
            (tid + nf bid * ntrd) 0) 1))
      True
-     nil).
+     ("arr" |-> arr :: nil)).
 
 Definition E := fun x =>
   if var_eq_dec x "arr" then Lo
@@ -1012,6 +1012,41 @@ Ltac prove_typing_cmd :=
   | _ => idtac
   end.
 
+Lemma precise_ex T (P : T -> assn) :
+  (forall x, precise (P x)) ->
+  (forall x1 x2 s h1 h2, sat s h1 (P x1) -> sat s h2 (P x2) -> x1 = x2) ->
+  precise (Ex x, (P x)).
+Proof.
+  unfold precise; simpl; intros Hprec Heqx; introv [x Hsat] [x' Hsat'] Hdisj Hdisj' Heqh.
+  rewrites (Heqx x x' s h1 h1') in Hsat; auto.
+  eapply Hprec; eauto.
+Qed.
+
+Lemma eval_to_Zn_unique s h Res P Env (x : exp) v :
+  sat s h (Assn Res P Env) -> 
+  evalExp Env x (Zn v) -> 
+  v = Z.to_nat (edenot x s).
+Proof.
+  intros.
+  unfold Assn, sat in *; sep_split_in H.
+  forwards*: (>>evalExp_ok); unfold_pures.
+  rewrite H1, Nat2Z.id; auto.
+Qed.
+
+Ltac prove_uniq := match goal with
+| [H : context [?x |-> Zn ?v1], H' : context [?y |-> Zn ?v2] |- ?v1 = ?v2] =>
+  forwards*: (>>eval_to_Zn_unique x v1 H); [evalExp|];
+  forwards*: (>>eval_to_Zn_unique y v2 H'); [evalExp|];
+  congruence
+end.
+
+Ltac prove_precise :=
+  match goal with
+  | [|- precise (Ex _, _)] =>
+    apply precise_ex; [intros; eauto| intros; prove_uniq]
+  | [|- _] => eauto
+  end.
+
 Lemma reduce_ok_b :
   CSLp ntrd E
        jth_pre
@@ -1030,8 +1065,7 @@ Proof.
     rewrite array'_ok in H |- *; eauto; intros; try omega;
     rewrite st_inv2, reg_b_length in H1;
     unfold dist; repeat destruct lt_dec; try omega.
-  - unfold BS; intros [|[|i]] ?; simpl; rewrite !MyVector.init_spec; split; auto;
-    admit.
+  - unfold BS; intros [|[|i]] ?; simpl; rewrite !MyVector.init_spec; split; prove_precise.
   - unfold jth_pre, ith_pre.
     prove_istar_imp.
     repeat rewrite ls_star.
@@ -1052,5 +1086,5 @@ Proof.
     eapply rule_conseq; eauto using reduce_ok.
     unfold ith_pre; intros s h H; rewrite assn_var_in in H; revert s h H; prove_imp.
 Qed.
-    
+   
 End block.
