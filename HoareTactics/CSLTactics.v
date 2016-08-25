@@ -324,7 +324,7 @@ Ltac solve_zn :=
 Lemma scC2 P Q R :
   Q |=R R -> (P *** Q) |=R (P *** R).
 Proof.
-  intros H s h H'; unfold sat_res in *; simpl in *; sep_cancel; eauto.
+  intros H s h H'; unfold sat_res, sat in *; simpl in *; sep_cancel; eauto.
 Qed.
   
 Ltac same_res P Q := unify P Q.
@@ -442,15 +442,19 @@ Hint Rewrite emp_unit_l emp_unit_r sep_assoc : sep_eq.
 Ltac sep_cancel' :=
   lazymatch goal with
   | [H : sat_res ?s ?h (?P1 *** ?P2) |- sat_res ?s ?h (?Q1 *** ?Q2) ] =>
+    idtac "sep_cancel': match star case";
     let idx := find_idx Q1 (P1 *** P2) in
     lift_in idx H; revert s h H; apply res_mono; [
       prove_prim
     |intros s h H]
   | [H : sat_res ?s ?h (?P1 *** ?P2) |- sat_res ?s ?h ?Q ] =>
+    idtac "sep_cancel': match goal is atom case";
     rewrite <-emp_unit_r_res; sep_cancel'
   | [H : sat_res ?s ?h ?P |- sat_res ?s ?h (?Q1 *** ?Q2) ] =>
+    idtac "sep_cancel': match hypo is atom case ";
     rewrite <-emp_unit_r_res in H; sep_cancel'
   | [H : sat_res ?s ?h ?P |- sat_res ?s ?h ?Q ] =>
+    idtac "sep_cancel': match both is atom case ";
     revert s h H; prove_prim
   end.
 
