@@ -169,7 +169,7 @@ Section For_List_Notation.
       let sinv' bid := sh_inv' sh_decl locs[@bid] in
       disj_eq ghs gh ->
       (forall bid : Fin.t nblk,
-         safe_nk E n gs[@bid] (sh_gl_pheap shs[@bid] ghs[@bid]) (sinv' bid ** Qs[@bid])) ->
+         safe_nk E n gs[@bid] (sh_gl_pheap shs[@bid] ghs[@bid]) (Qs[@bid] ** sinv' bid)) ->
       (forall bid : Fin.t nblk, has_no_vars Qs[@bid]) ->
       Aistar_v Qs |= Q -> 
       (forall bid tid, (sinv' bid) (snd gs[@bid][@tid]) (htop (as_sheap shs[@bid]))) ->
@@ -426,7 +426,7 @@ Section For_List_Notation.
               ex_intro l H; simpl in *; eauto.
               apply IHsh_dc.
         Qed.            
-      
+        apply scC in H.
         apply (sc_cancel (sh_inv' sdec locs[@bid]) Qs[@bid] srep) in H; auto using precise_sh_spec.
         unfold has_no_vars, indeP in Hnov; simpl in Hnov.
         rewrite (Hnov _ _ default_stack _) in H; auto.
@@ -1454,7 +1454,7 @@ Theorem rule_grid (P : assn) Ps C Qs (Q : assn) sh_decl :
       let sinv' := sh_inv' sh_decl locs in
       CSLp ntrd E (Ps[@bid] ** sinv ** !(BID === zf bid)) 
            C 
-           (sinv' ** Qs[@bid])) ->
+           (Qs[@bid] ** sinv')) ->
   Aistar_v Qs |= Q ->
   (forall bid, inde Ps[@bid] ((BID :: TID :: nil))) ->
   (forall bid, low_assn E Ps[@bid]) ->
