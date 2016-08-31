@@ -45,13 +45,15 @@ Definition ent_assn_denote va :=
 Inductive res :=
 | Emp : res
 | Mps : loc -> Qc -> val -> res
-| Star : res -> res -> res.
+| Star : res -> res -> res
+| Bot : res.
 
 Fixpoint res_denote m :=
   match m with
   | Emp => emp
   | Mps cod p dom => cod -->p (p, dom)
   | Star r1 r2 => res_denote r1 ** res_denote r2
+  | Bot => FalseP
   end.
 
 Definition sat_res s h m := sat s h (res_denote m).
@@ -1450,6 +1452,7 @@ Fixpoint EEq_tup xs vs :=
   end.
 
 Definition fv_Es es := fold_right (fun e xs => fv_E e ++ xs) nil es.
+Definition fv_lEs es := fold_right (fun e xs => fv_lE e ++ xs) nil es.
 
 Lemma evalExp_remove e v (x : var) Env:
   evalExp Env e v -> ~In x (fv_E e) ->
@@ -1558,8 +1561,7 @@ Proof.
     eapply rule_conseq; eauto using rule_skip.
   - intros ctys [Hnin Hdisj] [Hxxs Hdisxs]  Hlen Heval.
     destruct vs.
-    { applys (>>Hbackward FalseP).
-      2: now (intros; unfold evalExps, Assn in *; simpl in *; destruct H as (? & ? & H'); sep_split_in H'; eauto).
+    { applys (>>Hbackward FalseP); [|now idtac].
       unfold CSL; destruct 1. }
     apply evalExps_cons in Heval as [Heval1 Heval2].
     let tac :=
@@ -1589,6 +1591,122 @@ Proof.
         simplify_env; simpl in *.
         tauto.
 Qed.
+
+Fixpoint Mpss (ls : list loc) p (vs : list val) :=
+  match ls, vs with
+  | l :: ls, v :: vs => l |->p (p, v) *** Mpss ls p vs
+  | nil, nil => Emp
+  | _, _ => Bot
+  end.
+
+Notation "ls '|->ps'  ( p , vs )" := (Mpss ls p vs) (at level 58).
+
+Lemma evalLExps_cons Env e es v vs:
+  evalLExps Env (e :: es) (v :: vs) -> evalLExp Env e v /\ evalLExps Env es vs.
+Proof.
+  intros H; inverts H; split; eauto.
+Qed.
+
+Lemma evalLExp_cons Env a e v:
+  evalLExp Env e v ->
+  evalLExp (a :: Env) e v.
+Proof.
+  induction 1;
+  constructor; eauto using evalExp_cons.
+Qed.
+
+Lemma evalLExp_remove e v (x : var) Env:
+  evalLExp Env e v -> ~In x (fv_lE e) ->
+  evalLExp (remove_var Env x) e v.
+Proof.
+  induction 1; intros; simpl in *; repeat rewrite in_app_iff in *.
+  econstructor; apply evalExp_remove; destruct p; eauto.
+  econstructor; eauto; simpl; eauto.
+  eapply evalExp_remove; eauto.
+Qed.
+
+Lemma evalLExps_remove e v (x : var) Env:
+  evalLExps Env e v -> ~In x (fv_lEs e) ->
+  evalLExps (remove_var Env x) e v.
+Proof.
+  induction 1; intros.
+  - constructor.
+  - constructor; eauto; simpl in *; rewrite in_app_iff in *.
+    simpl in *; apply evalLExp_remove; eauto.
+    apply IHForall2; eauto.
+Qed.
+
+Lemma evalLExps_cons_inv Env a e v:
+  evalLExps Env e v ->
+  evalLExps (a :: Env) e v.
+Proof.
+  induction 1; intros; simpl in *; constructor; eauto.
+  apply evalLExp_cons; auto.
+Qed.
+
+Lemma rule_reads
+  (ntrd : nat) (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd)
+  (tid : Fin.t ntrd) (es : list loc_exp) (xs : list var) (ctys : list CTyp) 
+  (ls : list loc) (vs : list val) Env (Res Res' : res) p (P : Prop) :
+  disjoint xs (fv_lEs es) ->
+  disjoint_list xs ->
+  length xs = length es ->
+  evalLExps Env es ls ->
+  (P -> Res |=R ls |->ps (p, vs) *** Res') ->
+  CSL BS tid
+      (Assn Res P Env)
+      (reads xs ctys es)
+      (Assn Res P (EEq_tup (vars xs) vs ++ (remove_vars Env xs))).
+Proof.
+  revert es ls vs Env ctys Res'; induction xs as [|x xs]; simpl in *;
+  intros [|e es] ls vs Env ctys Res'; simpl in *; try (intros; congruence).
+  - intros _ _ Hdisj Hlen Heval Hremove.
+    eapply rule_conseq; eauto using rule_skip.
+  - intros [Hnin Hdisj] [Hxxs Hdisxs]  Hlen Heval Hres.
+    destruct ls.
+    { applys (>>Hbackward FalseP); [|now idtac].
+      unfold CSL; destruct 1. }
+    apply evalLExps_cons in Heval as [Heval1 Heval2].
+    destruct vs as [|v vs].
+    { simpl in Hres.
+      eapply Hbackward.
+      Focus 2. {
+        unfold Assn; intros s h H; sep_split_in H.
+        apply (Hres HP) in H; unfold sat_res in H; simpl in H.
+        apply H. } Unfocus.
+      intros ? ? ?; unfold sat in *; simpl in *; destruct H as (? & ? & [] & ?). }
+    simpl in Hres.
+    assert (P -> Res |=R l |->p  (p, v) *** (ls |->ps  (p, vs)) *** Res') by (intros; rewrite res_assoc; eauto).
+    let tac :=
+        eapply rule_seq; eauto; try now forwards* Htri: (>>rule_read)
+    in
+    destruct ctys; tac.
+    + eapply Hforward; [applys* IHxs|].
+      * eapply disjoint_app_r2 in Hdisj; auto.
+      * rewrite in_app_iff in Hnin.
+        apply evalLExps_cons_inv, evalLExps_remove; try tauto.
+        apply Heval2.
+      * unfold Assn; intros ? ? ? ?; eauto.
+        assert (P -> Res |=R ls |->ps  (p, vs) *** l |->p  (p, v) *** Res') by (intros; apply res_CA; eauto); eauto.
+      * unfold Assn; intros ? ? Hsat; eauto;
+        sep_split_in Hsat; sep_split; eauto.
+        rewrite env_assns_removes_cons in *.
+        2: simpl; apply disjoint_comm; simpl; eauto.
+        simplify_env; simpl in *; tauto.
+    + eapply Hforward; [applys* IHxs|].
+      * eapply disjoint_app_r2 in Hdisj; auto.
+      * rewrite in_app_iff in Hnin.
+        apply evalLExps_cons_inv, evalLExps_remove; try tauto.
+        apply Heval2.
+      * unfold Assn; intros ? ? ? ?; eauto.
+        assert (P -> Res |=R ls |->ps  (p, vs) *** l |->p  (p, v) *** Res') by (intros; apply res_CA; eauto); eauto.
+      * unfold Assn; intros ? ? Hsat; eauto;
+        sep_split_in Hsat; sep_split; eauto.
+        rewrite env_assns_removes_cons in *.
+        2: simpl; apply disjoint_comm; simpl; eauto.
+        simplify_env; simpl in *; tauto.
+Qed.
+
 
 (* Lemma rule_read_tup_arr es len f s p P loc xs ts arrs ie iv : *)
 (*   evalLExp Env le l -> *)
