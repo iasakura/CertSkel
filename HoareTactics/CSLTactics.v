@@ -223,8 +223,26 @@ Proof.
   rewrite IHxs; do 2 destruct lt_dec; simpl; eauto; omega.
 Qed.
 
+Lemma nth_skip_Z i arr dist j s :
+  nth i (ith_vals dist arr j s) None =
+  (if Nat.eq_dec (dist (s + i)) j
+   then if lt_dec i (Datatypes.length arr) then Some (nth i arr 0%Z) else None
+   else None).
+Proof.
+  apply nth_skip.
+Qed.
+
+Lemma nth_skip_ls T i (arr : list (list T)) dist j s :
+  nth i (ith_vals dist arr j s) None =
+  (if Nat.eq_dec (dist (s + i)) j
+   then if lt_dec i (Datatypes.length arr) then Some (nth i arr nil) else None
+   else None).
+Proof.
+  apply nth_skip.
+Qed.
+
 Hint Rewrite length_set_nth ith_vals_length app_length zipWith_length : pure.
-Hint Rewrite nth_app nth_skip nth_set_nth nth_firstn nth_skipn : pure.
+Hint Rewrite nth_app nth_skip_Z nth_skip_ls nth_set_nth nth_firstn nth_skipn : pure.
 
 Hint Rewrite
      app_length

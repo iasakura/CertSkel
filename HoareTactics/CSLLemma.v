@@ -908,10 +908,10 @@ Qed.
 (*   - rewrite <-plus_n_Sm, <-plus_n_O, skipn_arrays, loc_off_nest, Z.add_1_l; reflexivity. *)
 (* Qed. *)
 
-Lemma nth_skip i (arr : list val) dist j s :
+Lemma nth_skip T d i (arr : list T) dist j s :
   nth i (ith_vals dist arr j s) None =
   if Nat.eq_dec (dist (s + i)) j then 
-    if lt_dec i (length arr) then Some (get arr i) 
+    if lt_dec i (length arr) then Some (nth i arr d) 
     else None
   else None.
 Proof.
@@ -951,7 +951,7 @@ Proof.
     repeat rewrite <-res_assoc in *.
     rewrite res_CA in Hres.
     subst; eauto.
-    rewrite nth_skip; simpl.
+    rewrite (nth_skip _ 0%Z); simpl.
     destruct Nat.eq_dec; try tauto.
     destruct lt_dec; try tauto.
   } Unfocus.
@@ -1110,7 +1110,7 @@ Proof.
     rewrites* (array'_unfold i (ith_vals dist arr j st) l 1) in Hres; [|rewrites* ith_vals_length].
     repeat rewrite <-res_assoc in *; substs.
     rewrite res_CA in Hres.
-    rewrite nth_skip in Hres.
+    rewrite (nth_skip _ 0%Z) in Hres.
     forwards*: H4.
     destruct Nat.eq_dec, (lt_dec i (length arr)); try now (simpl in *; omega).
     subst; unfold sat in *; sep_cancel; eauto. } Unfocus.
@@ -1120,7 +1120,7 @@ Proof.
   rewrites* (>>array'_unfold i l 1%Qc); [rewrite ith_vals_length, length_set_nth; tauto|].
   unfold_conn_in HP; forwards*[? ?]: H4; substs.
   repeat rewrite <-res_assoc in *; substs.
-  rewrite nth_skip; destruct Nat.eq_dec; try (simpl in *; omega).
+  rewrite (nth_skip _ 0%Z); destruct Nat.eq_dec; try (simpl in *; omega).
   destruct lt_dec; try (unfold_conn_all; tauto).
   2:rewrite length_set_nth in *; tauto.
   rewrite nth_set_nth; destruct (Nat.eq_dec i i), (lt_dec i (length arr)); try omega.
