@@ -20,17 +20,30 @@ Record Sdecl := SD {
 
 Inductive decl_sh : list Sdecl -> stack -> simple_heap -> Prop :=
 | decl_nil : forall stk, decl_sh nil stk (fun _ => None) 
-| decl_cons : forall ds stk sh v cty len loc,
+| decl_cons : forall ds stk sh v cty len loc (f : nat -> Z),
     decl_sh ds stk sh ->
     (forall i, i < len -> sh (loc + Z.of_nat i)%Z = None) ->
     decl_sh (SD v cty len :: ds) (fun v' => if var_eq_dec v' v then loc else stk v')
-            (fun l => if Z_range_dec loc l (loc + Z.of_nat len) then Some 0%Z else sh l).
+            (fun l => if Z_range_dec loc l (loc + Z.of_nat len) then Some (f (Z.to_nat (l - loc)))
+                      else sh l).
 
+Definition sh_val := (nat -> Z)%type.
 
-Fixpoint sh_spec (sh_decl : list Sdecl) : assn :=
-  match sh_decl with
-  | nil => emp
-  | SD sh _ len :: sh_decl => (Ex f, is_array (Sh sh) len f 0) ** sh_spec sh_decl
+Definition sh_ok (sh_decl : list Sdecl) (locs : list Z) (fs : list sh_val) :=
+  length sh_decl = length fs /\ length sh_decl = length locs.
+
+Fixpoint sh_spec (sh_decl : list Sdecl) (locs : list Z) (fs : list sh_val) : assn :=
+  match sh_decl, locs, fs with
+  | SD sh _ len :: sh_decl, l :: locs, f :: fs =>
+    !(sh === l) ** (is_array (Sh l) len f 0) ** sh_spec sh_decl locs fs
+  | _, _, _ => emp
+  end.
+
+Fixpoint sh_spec' (sh_decl : list Sdecl) (locs : list Z) (fs : list sh_val) : assn :=
+  match sh_decl, locs, fs with
+  | SD sh _ len :: sh_decl, l :: locs, f :: fs =>
+    (is_array (Sh l) len f 0) ** sh_spec' sh_decl locs fs
+  | _, _, _ => emp
   end.
 
 Section GlobalCSL.
@@ -143,24 +156,30 @@ Section For_List_Notation.
   Notation zf i := (Z.of_nat (nf i)).
 
   Definition has_no_vars (P : assn) : Prop := indeP (fun (_ _ : stack) => True) P.
+
+  Definition sh_inv sh_decl locs :=
+    Ex shv', pure (sh_ok sh_decl locs shv') //\\ sh_spec sh_decl locs shv'.
+
+  Definition sh_inv' sh_decl locs := 
+    Ex shv', pure (sh_ok sh_decl locs shv') //\\ sh_spec' sh_decl locs shv'.
   
   Lemma safe_gl (n : nat) :
-    forall (gs : glist nblk ntrd) (shs : Vector.t simple_heap nblk) (gh : zpheap) (ghs : Vector.t zpheap nblk) (Q : assn) (sh_decl : list Sdecl)
+    forall (gs : glist nblk ntrd) (shs : Vector.t simple_heap nblk) (gh : zpheap) (ghs : Vector.t zpheap nblk) (Q : assn) (sh_decl : list Sdecl) (locs : Vector.t (list Z) nblk)
            (Qs : Vector.t assn nblk),
-      let sinv := sh_spec sh_decl in
+      let sinv' bid := sh_inv' sh_decl locs[@bid] in
       disj_eq ghs gh ->
       (forall bid : Fin.t nblk,
-         safe_nk E n gs[@bid] (sh_gl_pheap shs[@bid] ghs[@bid]) (sinv ** Qs[@bid])) ->
+         safe_nk E n gs[@bid] (sh_gl_pheap shs[@bid] ghs[@bid]) (Qs[@bid] ** sinv' bid)) ->
       (forall bid : Fin.t nblk, has_no_vars Qs[@bid]) ->
       Aistar_v Qs |= Q -> 
-      (forall bid tid, sinv (snd gs[@bid][@tid]) (htop (as_sheap shs[@bid]))) ->
-      (forall bid tid, inde sinv (writes_var (fst gs[@bid][@tid]))) ->
-      (forall var, List.In var (List.map SD_var sh_decl) -> E var = Lo) ->
+      (forall bid tid, (sinv' bid) (snd gs[@bid][@tid]) (htop (as_sheap shs[@bid]))) ->
+      (* (forall bid tid, inde sinv' (writes_var (fst gs[@bid][@tid]))) -> *)
+      (* (forall var, List.In var (List.map SD_var sh_decl) -> E var = Lo) -> *)
       safe_ng n gs shs gh Q.
   Proof.
     induction n; [simpl; auto|].
     remember (safe_nk E (S n)).
-    simpl; intros gs shs gh ghs Q sdec Qs Hdeq Hsafe Hnov HQ Hsinv Hsvar Hslow; repeat split; subst.
+    simpl; intros gs shs gh ghs Q sdec locs Qs Hdeq Hsafe Hnov HQ Hsinv; repeat split; subst.
     - intros Hskip.
       evar (P : Fin.t nblk -> Prop); assert (Hskipb : forall bid, P bid); [|unfold P in *; clear P].
       { unfold P; intros bid; destruct (Hsafe bid) as (Hskipb & _).
@@ -168,28 +187,52 @@ Section For_List_Notation.
         unfold sat_k in H; simpl in H.
         lazymatch type of H with (let (_, _) := ?X in _) => destruct X as (srep & Hsrep) end.
 
-        Lemma sh_spec_inde (sdec : list Sdecl) (stk0 stk1 : stack) (E0 : env) : forall h,
-          (sh_spec sdec) stk0 h -> low_eq E0 stk0 stk1 ->
-          (forall var, List.In var (List.map SD_var sdec) -> E0 var = Lo) ->
-          (sh_spec sdec) stk1 h.
+        (* Lemma sh_spec_inde (sdec : list Sdecl) (stk0 stk1 : stack) (E0 : env) : forall h, *)
+        (*   (sh_spec sdec) stk0 h -> low_eq E0 stk0 stk1 -> *)
+        (*   (forall var, List.In var (List.map SD_var sdec) -> E0 var = Lo) -> *)
+        (*   (sh_spec sdec) stk1 h. *)
+        (* Proof. *)
+        (*   induction sdec as [|[v ty n] sdec]; simpl. *)
+        (*   - intros ? H ? ?; apply H. *)
+        (*   - intros h H Hlow Hv. *)
+        (*     destruct H as (ph1 & ph2 & ? & ? & ? & ?); exists ph1 ph2; repeat split; auto. *)
+        (*     destruct H as [f H]; exists f. *)
+        (*     clear IHsdec H1 H2; generalize dependent ph1.  *)
+        (*     generalize 0; induction n; simpl in *; intros st ph1 H; [apply H|]. *)
+        (*     destruct H as (ph1' & ph2' & ? & ? & ? & ?); exists ph1' ph2'; repeat split; auto. *)
+        (*     unfold low_eq in Hlow; unfold_conn_all; simpl in *; intros x; rewrite <-Hlow; auto. *)
+        (* Qed. *)
+
+        Lemma is_array_inde p (l : Z) n f s stk0 stk1 h:
+          (is_array (Addr p l) n f s) stk0 h ->
+          (is_array (Addr p l) n f s) stk1 h.
         Proof.
-          induction sdec as [|[v ty n] sdec]; simpl.
-          - intros ? H ? ?; apply H.
-          - intros h H Hlow Hv.
-            destruct H as (ph1 & ph2 & ? & ? & ? & ?); exists ph1 ph2; repeat split; auto.
-            destruct H as [f H]; exists f.
-            clear IHsdec H1 H2; generalize dependent ph1. 
-            generalize 0; induction n; simpl in *; intros st ph1 H; [apply H|].
-            destruct H as (ph1' & ph2' & ? & ? & ? & ?); exists ph1' ph2'; repeat split; auto.
-            unfold low_eq in Hlow; unfold_conn_all; simpl in *; intros x; rewrite <-Hlow; auto.
+          revert s h; induction n; simpl; intros; eauto.
+          destruct H as (h1 & h2 & ? & ? & ? & ?); exists h1 h2; repeat split; eauto.
+        Qed.
+          
+        Lemma sh_spec_inde (sdec : list Sdecl) (locs : list Z) (stk0 stk1 : stack) h :
+          sh_inv' sdec locs stk0 h ->
+          sh_inv' sdec locs stk1 h.
+        Proof.
+          revert h locs; unfold sh_inv'; induction sdec as [|[? ? ?] ?]; simpl; intros h [|l locs] [shv [? ?]]; try now (unfold Apure, sh_ok in *; destruct H; simpl in *; congruence).
+          - exists (nil : list sh_val); split; simpl; eauto.
+            unfold Apure, sh_ok; auto.
+          - unfold sh_ok in *; destruct shv as [|f shv]; simpl in *.
+            unfold Apure in H; destruct H; congruence.
+            destruct H0 as (? & ? & ? & ? & ?); eauto.
+            forwards* (? & ? & ?): (>>IHsdec locs).
+            exists shv; split; [unfold Apure in *; omega|eauto].
+            exists (f :: x1)%list; split; auto.
+            split; destruct H3; simpl; congruence.
+            exists x x0; repeat split; try tauto.
+            applys* is_array_inde.
         Qed.
 
-        assert ((sh_spec sdec) srep (htop (as_sheap shs[@bid]))).
+        assert ((sh_inv' sdec locs[@bid]) srep (htop (as_sheap shs[@bid]))).
         { assert (exists nt, ntrd = S nt) as [nt Hnt] by (exists (ntrd - 1); omega).
           generalize dependent gs; rewrite Hnt; intros.
-          apply (sh_spec_inde _ (snd gs[@bid][@Fin.F1]) _ E); auto.
-          specialize (Hsrep Fin.F1); erewrite nth_map in Hsrep; [apply Hsrep|]; auto. }
-
+          apply (sh_spec_inde _ _ (snd gs[@bid][@Fin.F1])); auto. }
 
         Lemma htop_hplus' (h1 h2 : heap) (H : hdisj h1 h2) :
           htop' (hplus h1 h2) = phplus (htop' h1) (htop' h2).
@@ -327,15 +370,64 @@ Section For_List_Notation.
             + apply IHn.
         Qed.
 
-        Lemma precise_sh_spec (sh_dc : list Sdecl) :
-          precise (sh_spec sh_dc).
+        Lemma precise_sat (P Q : assn) :
+          (Q |= P) -> precise P -> precise Q.
         Proof.
-          induction sh_dc as [|[v n] sh_dc]; simpl; auto.
-          - apply precise_emp.
-          - apply precise_star; auto using precise_is_array.
+          unfold precise; simpl; intros Hsat HprecP; introv.
+          intros HsatQ HsatQ' ? ? ?.
+          eapply HprecP; eauto; apply Hsat; eauto.
+        Qed.
+
+        Ltac ex_intro x H :=
+          let t := fresh in
+          let H' := fresh in 
+          lazymatch type of H with
+          | ?X ?s ?h => pose X as t; pattern x in t;
+                        match goal with
+                        | [t' := ?X x : _ |- _] => 
+                          let v := fresh in
+                          match t with t' => 
+                                       assert (H' : (Ex v, X v) s h) by (exists x; auto)
+                          end 
+                        end;
+                        clear t; clear H; rename H' into H
+          end.
+
+        Lemma precise_sh_spec (sh_dc : list Sdecl) locs:
+          precise (sh_inv' sh_dc locs).
+        Proof.
+          revert locs; unfold sh_inv'; induction sh_dc as [|[v n] sh_dc]; simpl; auto; introv.
+          - eapply precise_sat.
+            intros s h (? & ? & ?); eauto.
+            apply precise_emp.
+          - destruct locs.
+            + eapply precise_sat.
+              intros s h (? & ? & ?); eauto.
+              apply precise_emp.
+            + eapply precise_sat.
+              intros s h (? & ? & ?).
+              destruct x as [|f fs].
+              unfold sh_ok, Apure in *; simpl in *; omega.
+              assert (pure (sh_ok sh_dc locs fs) s h).
+              { unfold Apure, sh_ok in *; simpl in *; omega. }
+              assert (Hsat : (is_array (Sh z) SD_len0 f 0 ** ((pure (sh_ok sh_dc locs fs)) //\\ sh_spec' sh_dc locs fs)) s h).
+              { destruct H0 as (h1 & h2 & ? & ? & ?); exists h1 h2.
+                do 2 (split; eauto); split; eauto. }
+              remember (f, fs) as x.
+              cutrewrite (f = (fst x)) in Hsat; [|subst; auto].
+              cutrewrite (fs = snd x) in Hsat; [|subst; auto].
+              ex_intro x Hsat; eauto; simpl.
+              simpl.
+              apply precise_ex_star.
+              apply precise_star;
+                [eapply precise_sat; [intros ? ? ((? & ?) & ?)|]; simpl in *..].
+              ex_intro s0 H; simpl in *; eauto.
+              apply precise_is_array.
+              ex_intro l H; simpl in *; eauto.
+              apply IHsh_dc.
         Qed.            
-      
-        apply (sc_cancel (sh_spec sdec) Qs[@bid] srep) in H; auto using precise_sh_spec.
+        apply scC in H.
+        apply (sc_cancel (sh_inv' sdec locs[@bid]) Qs[@bid] srep) in H; auto using precise_sh_spec.
         unfold has_no_vars, indeP in Hnov; simpl in Hnov.
         rewrite (Hnov _ _ default_stack _) in H; auto.
         exact H. }
@@ -779,7 +871,7 @@ Section For_List_Notation.
         (* rewrite Heq, <-hplus_as_gheap in Hhb; clear Heq; apply as_gheap_inj in Hhb. *)
         (* rewrite Hhb in Hdis; eauto using hdisjE2. } *)
       { apply eq_ptoheap; simpl; eauto. }
-      applys (>> IHn (replace ghs bid hg'') sdec Qs); simpl; eauto.
+      applys (>> IHn (replace ghs bid hg'') sdec locs Qs); simpl; eauto.
       + Lemma disj_eq_update {n : nat} (hs : Vector.t zpheap n) (h h' hi : zpheap) (i : Fin.t n)
               (Hdis1 : pdisj hs[@i] h') (Hdis2 : pdisj hi h') :
           disj_eq hs h ->
@@ -974,19 +1066,33 @@ Section For_List_Notation.
             intros x Hxn; destruct Nat.eq_dec; omega.
         Qed.
 
-        Lemma shspec_dom_eq stk sdec : forall (h1 h2 : pheap),
-          dom_eqp h1 h2 ->
-          (sh_spec sdec) stk h1 ->
-          (sh_spec sdec) stk h2.
+        Lemma dom_eqb_emp s (h1 h2 : pheap) :
+          dom_eqp h1 h2 -> emp s h1 -> emp s h2.
         Proof.
-          induction sdec as [|[var len] sdec]; simpl; intros h1 h2 Heqb Hsat.
-          - unfold_conn_all; unfold dom_eqp in *; intros l; specialize (Hsat l); specialize (Heqb l).
-            destruct (this h1 l) as [[? ?]|], (this h2 l) as [[? ?]|]; try congruence.
-            destruct (Heqb q) as [_ H]; forwards [? ?]: H; [eauto | congruence].
+          unfold dom_eqp, emp; intros.
+          destruct (PHeap.this h2 x) as [[? ?] |]eqn:Heq; eauto.
+          lets*[? ?]: (H x q).
+          forwards*(? & ?): H2.
+          lets: (H0 x); congruence.
+        Qed.
+        
+        Lemma shspec_dom_eq stk sdec locs : forall (h1 h2 : pheap),
+          dom_eqp h1 h2 ->
+          (sh_inv' sdec locs) stk h1 ->
+          (sh_inv' sdec locs) stk h2.
+        Proof.
+          revert locs; induction sdec as [|[var len] sdec]; simpl; intros [|l locs] h1 h2 Heqb Hsat;
+          unfold sh_inv', sh_ok in *; destruct Hsat as [[| f shv'] [Hlen Hsat]];
+          unfold Apure in Hlen; simpl in *; try omega.
+          - exists (@nil (nat -> Z)); split; eauto.
+            apply* dom_eqb_emp.
           - destruct Hsat as (ph1 & ph2 & ? & ? & ? & ?).
             lets (ph1' & ph2' & Hdis' & Heq' & Heq1' & Heq2'): (>> dom_eq_phplus H1 H2 Heqb).
-            destruct H as (f & H).
-            lets Hsat':(>> is_arr_dom_eq Heq1' H).
+            lets (f' & Hsat'):(>> is_arr_dom_eq Heq1' H).
+            forwards*(shv'' & (? & ?)): (>>IHsdec locs).
+            exists shv'; split; unfold Apure; try omega; eauto.
+            exists (f' :: shv'')%list; split.
+            unfold Apure in *; simpl; try omega.
             exists ph1' ph2'; repeat split; eauto.
         Qed.
           
@@ -1068,7 +1174,7 @@ Section For_List_Notation.
         lets Heqsh: (>> dom_eq_sh_gh Hdomeq).
         pose proof (Hsinv bid tid) as Hsinvi.
 
-        assert (Hsat' : sh_spec sdec (snd gs[@bid][@tid]) (htop (as_sheap sh''))) 
+        assert (Hsat' : sh_inv' sdec locs[@bid] (snd gs[@bid][@tid]) (htop (as_sheap sh''))) 
         by (applys shspec_dom_eq; eauto).
         
         Lemma presrv_var {n : nat} (ks1 ks2 : klist n) h1 h2 P :
@@ -1113,63 +1219,67 @@ Section For_List_Notation.
         Qed.
 
         applys (@presrv_var ntrd); eauto.
-
-      + intros bid' tid; rewrite replace_nth; destruct fin_eq_dec; eauto.
-        subst bid'; specialize (Hsvar bid).
-
-        Lemma writes_inv (c1 c2 : cmd) (st1 st2 : state) :
-          c1 / st1 ==>s c2 / st2 -> forall x, In x (writes_var c2) -> In x (writes_var c1).
-        Proof.
-          induction 1; simpl; eauto.
-          - intros x H'; specialize (IHred x); apply in_app_iff. apply in_app_iff in H'; tauto.
-          - intros x H; apply in_app_iff; tauto.
-          - intros x H; apply in_app_iff; tauto.
-          - intros x H; apply in_app_iff in H; destruct H.
-            + apply in_app_iff in H; tauto.
-            + inversion H.
-        Qed.
-
-        Lemma inde_inv1 (c1 c2 : cmd) (st1 st2 : state) (R : assn) :
-          c1 / st1 ==>s c2 / st2 -> inde R (writes_var c1) -> inde R (writes_var c2).
-        Proof.
-          intros H hinde x s h v Hin; specialize (hinde x s h v). 
-          lets :  (>> writes_inv H); eauto.
-        Qed.
-
-        Lemma presrv_inde {n : nat} (ks1 ks2 : klist n) h1 h2 P :
-          (ks1, h1) ==>k (ks2, h2) ->
-          (forall tid, inde P (writes_var (fst ks1[@tid]))) ->
-          (forall tid, inde P (writes_var (fst ks2[@tid]))).
-        Proof.
-          intros Hred; dependent destruction Hred.
-          - intros; rewrite replace_nth; destruct fin_eq_dec; eauto; subst i.
-            applys inde_inv1; eauto.
-            specialize (H tid); rewrite H0 in H; eauto.
-          - intros.
-            Lemma wait_writes (c1 c2 : cmd) (j : nat) :
-              wait c1 = Some (j, c2) -> forall x, In x (writes_var c2) -> In x (writes_var c1).
-            Proof.
-              revert j c2; induction c1; simpl; try now inversion 1.
-              intros j c2; destruct (wait c1_1) as [[? ?]|]; intros H; inversion H; inversion H2.
-              simpl; intros x H'; apply in_app_iff in H'; apply in_app_iff.
-              specialize (IHc1_1 n c eq_refl x); tauto.
-            Qed.
-
-            Lemma inde_inv2 (c1 c2 : cmd) (j : nat) (R : assn) :
-              wait c1 = Some (j, c2) -> inde R (writes_var c1) -> inde R (writes_var c2).
-              intros H hinde x s h v Hin; specialize (hinde x s h v). 
-              lets: (>>wait_writes H) ; eauto.
-            Qed.
-            destructs 6 (H1 tid).
-            specialize (H tid).
-            repeat match goal with [H:_ |- _] => rewrite H in * end.
-            applys inde_inv2; eauto.
-        Qed.
-
-        applys (@presrv_inde ntrd); eauto.
-
+        unfold inde; simpl; split; intros; eauto using sh_spec_inde.
+        substs*.
         Grab Existential Variables.
         eauto.
+        
+      (* + intros bid' tid; rewrite replace_nth; destruct fin_eq_dec; eauto. *)
+      (*   subst bid'; specialize (Hsvar bid). *)
+
+      (*   Lemma writes_inv (c1 c2 : cmd) (st1 st2 : state) : *)
+      (*     c1 / st1 ==>s c2 / st2 -> forall x, In x (writes_var c2) -> In x (writes_var c1). *)
+      (*   Proof. *)
+      (*     induction 1; simpl; eauto. *)
+      (*     - intros x H'; specialize (IHred x); apply in_app_iff. apply in_app_iff in H'; tauto. *)
+      (*     - intros x H; apply in_app_iff; tauto. *)
+      (*     - intros x H; apply in_app_iff; tauto. *)
+      (*     - intros x H; apply in_app_iff in H; destruct H. *)
+      (*       + apply in_app_iff in H; tauto. *)
+      (*       + inversion H. *)
+      (*   Qed. *)
+
+      (*   Lemma inde_inv1 (c1 c2 : cmd) (st1 st2 : state) (R : assn) : *)
+      (*     c1 / st1 ==>s c2 / st2 -> inde R (writes_var c1) -> inde R (writes_var c2). *)
+      (*   Proof. *)
+      (*     intros H hinde x s h v Hin; specialize (hinde x s h v).  *)
+      (*     lets :  (>> writes_inv H); eauto. *)
+      (*   Qed. *)
+
+      (*   Lemma presrv_inde {n : nat} (ks1 ks2 : klist n) h1 h2 P : *)
+      (*     (ks1, h1) ==>k (ks2, h2) -> *)
+      (*     (forall tid, inde P (writes_var (fst ks1[@tid]))) -> *)
+      (*     (forall tid, inde P (writes_var (fst ks2[@tid]))). *)
+      (*   Proof. *)
+      (*     intros Hred; dependent destruction Hred. *)
+      (*     - intros; rewrite replace_nth; destruct fin_eq_dec; eauto; subst i. *)
+      (*       applys inde_inv1; eauto. *)
+      (*       specialize (H tid); rewrite H0 in H; eauto. *)
+      (*     - intros. *)
+      (*       Lemma wait_writes (c1 c2 : cmd) (j : nat) : *)
+      (*         wait c1 = Some (j, c2) -> forall x, In x (writes_var c2) -> In x (writes_var c1). *)
+      (*       Proof. *)
+      (*         revert j c2; induction c1; simpl; try now inversion 1. *)
+      (*         intros j c2; destruct (wait c1_1) as [[? ?]|]; intros H; inversion H; inversion H2. *)
+      (*         simpl; intros x H'; apply in_app_iff in H'; apply in_app_iff. *)
+      (*         specialize (IHc1_1 n c eq_refl x); tauto. *)
+      (*       Qed. *)
+
+      (*       Lemma inde_inv2 (c1 c2 : cmd) (j : nat) (R : assn) : *)
+      (*         wait c1 = Some (j, c2) -> inde R (writes_var c1) -> inde R (writes_var c2). *)
+      (*         intros H hinde x s h v Hin; specialize (hinde x s h v).  *)
+      (*         lets: (>>wait_writes H) ; eauto. *)
+      (*       Qed. *)
+      (*       destructs 6 (H1 tid). *)
+      (*       specialize (H tid). *)
+      (*       repeat match goal with [H:_ |- _] => rewrite H in * end. *)
+      (*       applys inde_inv2; eauto. *)
+      (*   Qed. *)
+
+      (*   applys (@presrv_inde ntrd); eauto. *)
+
+      (*   Grab Existential Variables. *)
+      (*   eauto. *)
 Qed.
 
 Definition CSLg (P : assn) (prog : program) (Q : assn) :=
@@ -1186,27 +1296,176 @@ Definition CSLg (P : assn) (prog : program) (Q : assn) :=
 
 Import List.
 
+Lemma decl_sh_spec sdecs stk h :
+  disjoint_list (List.map SD_var sdecs) ->
+  decl_sh sdecs stk h ->
+  exists locs, (sh_inv sdecs locs) stk (htop (as_sheap h)).
+Proof.
+  intros Hdisj; induction 1; simpl; unfold sh_inv, sh_ok.
+  - exists (@nil Z) (@nil sh_val).
+    unfold_conn; unfold htop, htop', as_sheap; simpl.
+    split; eauto.
+    intros [[|] l]; eauto.
+  - set (ph1' := fun l =>
+                   match l with
+                     | SLoc l => 
+                       if Z_range_dec loc l (loc + Z.of_nat len)
+                       then Some (1%Qc, f (Z.to_nat (l - loc)))
+                       else None
+                     | GLoc _ => None
+                   end).
+    assert (Hph1 : is_pheap ph1').
+    { intros x; unfold ph1'; destruct x as [[|]l]; [destruct Z_range_dec|]; eauto.
+      split; cbv; congruence. }
+    set (ph1 := Pheap Hph1 : pheap).
+    assert (forall l, (loc <= l < loc + Z.of_nat len)%Z -> sh l = None).
+    { intros; assert (exists i, i < len /\ (l = loc + Z.of_nat i)%Z) as [i [? Heq]].
+      { exists (Z.to_nat (l - loc)).
+        assert (l - loc < Z.of_nat len)%Z by omega.
+        split.
+        - rewrite Z2Nat.inj_lt in H2; try omega.
+          rewrite Nat2Z.id in H2; eauto.
+        - rewrite Z2Nat.id; omega. }
+      rewrite Heq, H0; eauto. }
+
+    assert (pdisj ph1 (htop (as_sheap sh))).
+    { simpl; unfold ph1', htop'; intros [[|]l]; simpl; eauto.
+      destruct Z_range_dec; eauto.
+      rewrite H1; eauto. }
+    assert (Heq : phplus ph1 (htop (as_sheap sh)) = 
+                  (htop (as_sheap
+                           (fun l : Z =>
+                              if Z_range_dec loc l (loc + Z.of_nat len)
+                              then Some (f (Z.to_nat (l - loc))) else sh l)))).
+    { unfold phplus, htop, htop'; simpl; unfold ph1', as_sheap; extensionality l.
+      destruct l as [[|]l]; simpl; eauto.
+      destruct Z_range_dec.
+      rewrite H1; eauto.
+      destruct (sh l); eauto. }
+    simpl in Hdisj.
+    forwards* (locs & shvs & (Hlen & IHdecl)): IHdecl_sh.
+    unfold Apure, sh_ok in Hlen.
+    exists (loc :: locs).
+    exists (f :: shvs).
+    split; [unfold Apure; simpl; omega|].
+    simpl.
+    Require Import assertions.
+    sep_split.
+    { unfold_conn; simpl.
+      destruct var_eq_dec; congruence. }
+    exists ph1 (htop (as_sheap sh)); repeat split; eauto.
+    
+    (* Lemma is_array_inde v n f s: *)
+    (*   indeP (fun s1 s2 => s1 v = s2 v) (is_array (Sh v) n f s). *)
+    (* Proof. *)
+    (*   intros s1 s2 h H; split; revert s h; induction n; simpl in *; eauto; *)
+    (*   intros s h (ph1 & ph2 & H1 & H2 & Hdis & Heq); exists ph1 ph2; repeat split; eauto; *)
+    (*   unfold_conn_all; simpl in *; [rewrite <-H | rewrite H]; eauto. *)
+    (* Qed.           *)
+
+    Focus 2.
+    { assert (low_eq (fun v => if in_dec var_eq_dec v (map SD_var ds) then Lo else Hi)
+                     stk (fun v' => if var_eq_dec v' v then loc else stk v')).
+      { intros v' Hlo; destruct var_eq_dec; eauto.
+        destruct in_dec; try congruence; subst v'.
+        simpl in Hdisj; tauto. }
+      Lemma emp_inde s s' h :
+        emp s h -> emp s' h.
+      Proof.
+        unfold emp; eauto.
+      Qed.
+
+      Lemma sh_spec_inde' (sdec : list Sdecl) locs svs (stk0 stk1 : stack) (E0 : env) : forall h,
+        (sh_spec sdec locs svs) stk0 h -> low_eq E0 stk0 stk1 ->
+        (forall var, List.In var (List.map SD_var sdec) -> E0 var = Lo) ->
+        (sh_spec sdec locs svs) stk1 h.
+      Proof.
+        revert locs svs; induction sdec as [| [? ? ?] ?]; intros [|l locs] [|f svs]; simpl; eauto using emp_inde.
+        introv Hsat Heq HLo; sep_split_in Hsat; sep_split.
+        unfold_conn_all; simpl in *.
+        unfold low_eq in Heq; rewrites* <-Heq.
+        destruct Hsat as (h1 & h2 & ? & ? & ?); exists h1 h2; repeat split; jauto.
+        applys* is_array_inde.
+      Qed.
+        
+      applys* sh_spec_inde'.
+      simpl; intros; destruct in_dec; tauto. } Unfocus.
+
+    Lemma sh_is_array_sat len s (stk : stack) loc f:
+      let h := fun l => match l with
+                          | SLoc l0 => 
+                            if Z_range_dec (Z.of_nat s + loc) l0 (Z.of_nat s + loc + Z.of_nat len)
+                            then Some (1%Qc, f (Z.to_nat (l0 - loc))) else None
+                          | GLoc _ => None end in
+      forall (H: is_pheap h),
+        is_array (Sh loc) len f s stk (Pheap H).
+    Proof.
+      revert s; induction len; [simpl|]; intros.
+      - unfold_conn; simpl; intros [[|]l]; [destruct Z_range_dec; try omega|]; eauto.
+      - Arguments Z.of_nat _ : simpl never.
+        simpl.
+        set (ph1 := fun l => match l with
+                     | SLoc l => 
+                       if Z.eq_dec l (Z.of_nat s + loc)
+                       then Some (1%Qc, f s) else None
+                     | GLoc _ => None end).
+        set (ph2 := fun l => match l with
+                     | SLoc l => 
+                       if Z_range_dec (Z.of_nat (S s) + loc) l (Z.of_nat (S s) + loc + Z.of_nat len)
+                       then Some (1%Qc, f (Z.to_nat (l - loc))) else None
+                     | GLoc _ => None end).
+        assert (is_pheap ph1).
+        { unfold ph1; intros [[|]l]; [destruct Z.eq_dec|]; eauto; cbv; split; congruence. }
+        assert (is_pheap ph2).
+        { unfold ph2; intros [[|]l]; [destruct Z_range_dec|]; eauto; cbv; split; congruence. }
+        assert (pdisj ph1 ph2).
+        { intros [[|]l]; unfold ph1, ph2; eauto.
+          destruct Z.eq_dec; [destruct Z_range_dec|]; eauto.
+          rewrite Nat2Z.inj_succ in a; omega. }
+        assert (h = phplus ph1 ph2).
+        { unfold ph1, ph2; extensionality l; destruct l as [[|]l]; eauto.
+          Arguments Z.of_nat n : simpl never.
+          Arguments Z.add _ _ : simpl never.
+          unfold phplus; simpl; (do 2 destruct Z_range_dec); destruct Z_eq_dec; 
+          rewrite !Nat2Z.inj_succ in *; try omega; eauto.
+          Require Import Psatz.
+          destruct o; try lia.
+          assert (l = Z.of_nat s + loc)%Z. lia.
+          do 3 f_equal; substs.
+          cutrewrite (Z.of_nat s + loc - loc = Z.of_nat s)%Z; [|lia].
+          rewrite Nat2Z.id; auto. }
+        exists (Pheap H0) (Pheap H1); repeat split; simpl; eauto.
+        unfold_conn; intros [[|]l]; simpl; eauto.
+        destruct Z.eq_dec, (eq_dec (SLoc _)); try congruence.
+        rewrite e in n; forwards: n; [f_equal; omega | tauto].
+        inversion e.
+        substs.
+        forwards*: n; omega.
+    Qed.
+    subst ph1 ph1'.
+    forwards* Hsat: (>>sh_is_array_sat len 0 loc f); simpl in Hsat.
+Qed.
+
+
 Theorem rule_grid (P : assn) Ps C Qs (Q : assn) sh_decl :
-  let sinv := sh_spec sh_decl in
   P |= Aistar_v Ps ->
-  (forall bid,
-     CSLp ntrd E (Ps[@bid] ** sinv ** !(BID === zf bid)) 
-                 C 
-                 (sinv ** Qs[@bid])) ->
+  (forall bid locs,
+      let sinv := sh_inv sh_decl locs in
+      let sinv' := sh_inv' sh_decl locs in
+      CSLp ntrd E (Ps[@bid] ** sinv ** !(BID === zf bid)) 
+           C 
+           (Qs[@bid] ** sinv')) ->
   Aistar_v Qs |= Q ->
-  inde sinv (writes_var C) ->
   (forall bid, inde Ps[@bid] ((BID :: TID :: nil))) ->
   (forall bid, low_assn E Ps[@bid]) ->
   (forall bid : Fin.t nblk, has_no_vars Qs[@bid]) ->
   (forall v : var, List.In v (map SD_var sh_decl) -> E v = Lo) ->
   (E TID = Hi) ->
   (E BID = Lo) ->
-  ~In TID (List.map SD_var sh_decl) ->
-  ~In BID (List.map SD_var sh_decl) ->
   disjoint_list (List.map SD_var sh_decl) ->
   CSLg P (Pr sh_decl C) Q.
 Proof.
-  simpl; intros HP Htri HQ Hindsh Hindid Hlow Hnovar Hlo HtidHi HbidLo Htidsh Hbidsh Hdisvars; unfold CSLg; simpl.
+  simpl; intros HP Htri HQ Hindid Hlow Hnovar Hlo HtidHi HbidLo Hdisvars; unfold CSLg; simpl.
   introv Hdec HC HTID HBID (stkb & Hstkb) (stk & Hstk & HsatP); introv.
 
   (* split h into heaps of each thread block *)
@@ -1259,7 +1518,22 @@ Proof.
         destruct h0 as [h0 ?]; apply pheap_eq; eauto.
     Qed.
   lets (hs' & ? & Hdeq'): (>> (@disj_eq_as_gh') Hdeq).
-  applys* safe_gl; simpl; eauto.
+  Lemma fin_gt0_inhabit {n : nat} : n <> 0 -> exists (i : Fin.t n), True.
+  Proof.
+    intros.
+    assert (exists n', n = S n') as [n' ?]; subst.
+    destruct n; [omega | eauto]. 
+    exists (@Fin.F1 n'); eauto.
+  Qed.
+  destruct (fin_gt0_inhabit ntrd_neq_0) as [i _].
+  assert (exists locs,
+             forall bid,
+               sh_inv sh_decl locs[@bid] (snd ks[@bid][@i]) (htop (loc:=loc) (as_sheap sh))) as [locs Hsh].
+  { apply (vec_exvec (P := fun bid l => sh_inv sh_decl l (snd (ks[@bid])[@i])
+                                               (htop (loc:=loc) (as_sheap sh)))).
+    intros bid.
+    forwards*: (>>decl_sh_spec (Hdec i bid)). }
+  applys* (>>safe_gl sh_decl locs); simpl; eauto.
   - intros bid; unfold CSLp in Htri.
     assert (forall tid, fst ks[@bid][@tid] = C) by eauto.
     assert (forall tid, snd ks[@bid][@tid] TID = zf tid) by eauto.
@@ -1275,14 +1549,6 @@ Proof.
     sep_split.
     { (* BID === bid *)
       unfold_conn; simpl.
-      Lemma fin_gt0_inhabit {n : nat} : n <> 0 -> exists (i : Fin.t n), True.
-      Proof.
-        intros.
-        assert (exists n', n = S n') as [n' ?]; subst.
-        destruct n; [omega | eauto]. 
-        exists (@Fin.F1 n'); eauto.
-      Qed.
-      destruct (fin_gt0_inhabit ntrd_neq_0) as [i ?].
       specialize (Hstkr i); rewrite <-Hstkr; eauto.
       erewrite nth_map; [|reflexivity]; eauto. }
     specialize (Hsati bid) (* erewrite nth_map in Hsati; [|reflexivity] *).
@@ -1301,128 +1567,24 @@ Proof.
         rewrite H2, H3; split; eauto. }
       unfold low_assn, indeP in H1; simpl in H1; applys H2; eauto.
       intros x Hx; unfold var_upd; destruct var_eq_dec; try congruence.
-      destruct (fin_gt0_inhabit ntrd_neq_0) as [i _].
       specialize (Hstkr i); rewrite <-Hstkr; eauto.
       specialize (Hstk i bid); rewrite <-Hstk; eauto; try congruence.
       erewrite Vector.nth_map; eauto. }
     rewrite Vector.const_nth.
 
-    Lemma decl_sh_spec sdecs stk h :
-      disjoint_list (List.map SD_var sdecs) ->
-      decl_sh sdecs stk h ->
-      sh_spec sdecs stk (htop (as_sheap h)).
-    Proof.
-      intros Hdisj; induction 1; simpl.
-      - unfold_conn; unfold htop, htop', as_sheap; simpl; intros [[|] l]; eauto.
-      - set (ph1' := fun l =>
-                       match l with
-                         | SLoc l => 
-                           if Z_range_dec loc l (loc + Z.of_nat len) then Some (1%Qc, 0%Z) else None
-                         | GLoc _ => None
-                       end).
-        assert (Hph1 : is_pheap ph1').
-        { intros x; unfold ph1'; destruct x as [[|]l]; [destruct Z_range_dec|]; eauto.
-          split; cbv; congruence. }
-        set (ph1 := Pheap Hph1 : pheap).
-        assert (forall l, (loc <= l < loc + Z.of_nat len)%Z -> sh l = None).
-        { intros; assert (exists i, i < len /\ (l = loc + Z.of_nat i)%Z) as [i [? Heq]].
-          { exists (Z.to_nat (l - loc)).
-            assert (l - loc < Z.of_nat len)%Z by omega.
-            split.
-            - rewrite Z2Nat.inj_lt in H2; try omega.
-              rewrite Nat2Z.id in H2; eauto.
-            - rewrite Z2Nat.id; omega. }
-          rewrite Heq, H0; eauto. }
+    assert (sh_inv sh_decl locs[@bid] stkr (htop (as_sheap sh))).
+    { Lemma sh_inv_inde  (sdec : list Sdecl) (locs : list Z)
+            (stk0 stk1 : stack) (E0 : env) (h : pheap) :
+        sh_inv sdec locs stk0 h ->
+        low_eq E0 stk0 stk1 ->
+        (forall var0 : var, In var0 (map SD_var sdec) -> E0 var0 = Lo) ->
+        sh_inv sdec locs stk1 h.
+      Proof.
+        intros [fs [? ?]] ? ?; exists fs; split; eauto.
+        applys* sh_spec_inde'.
+      Qed.
 
-        assert (pdisj ph1 (htop (as_sheap sh))).
-        { simpl; unfold ph1', htop'; intros [[|]l]; simpl; eauto.
-          destruct Z_range_dec; eauto.
-          rewrite H1; eauto. }
-        assert (Heq : phplus ph1 (htop (as_sheap sh)) = 
-                      (htop (as_sheap
-                               (fun l : Z =>
-                                  if Z_range_dec loc l (loc + Z.of_nat len) then Some 0%Z else sh l)))).
-        { unfold phplus, htop, htop'; simpl; unfold ph1', as_sheap; extensionality l.
-          destruct l as [[|]l]; simpl; eauto.
-          destruct Z_range_dec.
-          rewrite H1; eauto.
-          destruct (sh l); eauto. }
-        
-        exists ph1 (htop (as_sheap sh)); repeat split; eauto.
-        
-        Lemma is_array_inde v n f s:
-          indeP (fun s1 s2 => s1 v = s2 v) (is_array (Sh v) n f s).
-        Proof.
-          intros s1 s2 h H; split; revert s h; induction n; simpl in *; eauto;
-          intros s h (ph1 & ph2 & H1 & H2 & Hdis & Heq); exists ph1 ph2; repeat split; eauto;
-          unfold_conn_all; simpl in *; [rewrite <-H | rewrite H]; eauto.
-        Qed.          
-
-        Focus 2.
-        { assert (low_eq (fun v => if in_dec var_eq_dec v (map SD_var ds) then Lo else Hi)
-                       stk (fun v' => if var_eq_dec v' v then loc else stk v')).
-          { intros v' Hlo; destruct var_eq_dec; eauto.
-            destruct in_dec; try congruence; subst v'.
-            simpl in Hdisj; tauto. }
-          applys* sh_spec_inde.
-          applys* IHdecl_sh.
-          simpl in Hdisj; jauto.
-          simpl; intros; destruct in_dec; tauto. } Unfocus.
-        exists (fun _ : nat => 0%Z).
-
-        Lemma sh_is_array_sat v len s (stk : stack) loc :
-          let h := fun l => match l with
-                              | SLoc l0 => 
-                                if Z_range_dec (Z.of_nat s + loc) l0 (Z.of_nat s + loc + Z.of_nat len)
-                                then Some (1%Qc, 0%Z) else None
-                              | GLoc _ => None end in
-          forall (H: is_pheap h),
-            stk v = loc ->
-            is_array (Sh v) len (fun _:nat => 0%Z) s stk (Pheap H).
-        Proof.
-          revert s; induction len; [simpl|]; intros.
-          - unfold_conn; simpl; intros [[|]l]; [destruct Z_range_dec; try omega|]; eauto.
-          - Arguments Z.of_nat _ : simpl never.
-            simpl.
-            set (ph1 := fun l => match l with
-                         | SLoc l => 
-                           if Z.eq_dec l (Z.of_nat s + loc) then Some (1%Qc, 0%Z) else None
-                         | GLoc _ => None end).
-            set (ph2 := fun l => match l with
-                         | SLoc l => 
-                           if Z_range_dec (Z.of_nat (S s) + loc) l (Z.of_nat (S s) + loc + Z.of_nat len)
-                           then Some (1%Qc, 0%Z) else None
-                         | GLoc _ => None end).
-            assert (is_pheap ph1).
-            { unfold ph1; intros [[|]l]; [destruct Z.eq_dec|]; eauto; cbv; split; congruence. }
-            assert (is_pheap ph2).
-            { unfold ph2; intros [[|]l]; [destruct Z_range_dec|]; eauto; cbv; split; congruence. }
-            assert (pdisj ph1 ph2).
-            { intros [[|]l]; unfold ph1, ph2; eauto.
-              destruct Z.eq_dec; [destruct Z_range_dec|]; eauto.
-              rewrite Nat2Z.inj_succ in a; omega. }
-            assert (h = phplus ph1 ph2).
-            { unfold ph1, ph2; extensionality l; destruct l as [[|]l]; eauto.
-              Arguments Z.of_nat n : simpl never.
-              Arguments Z.add _ _ : simpl never.
-              unfold phplus; simpl; (do 2 destruct Z_range_dec); destruct Z_eq_dec; 
-              rewrite !Nat2Z.inj_succ in *; try omega; eauto. }
-            exists (Pheap H1) (Pheap H2); repeat split; simpl; eauto.
-            unfold_conn; intros [[|]l]; simpl; eauto.
-            destruct Z.eq_dec, (eq_dec (SLoc _)); try congruence.
-            rewrite e, H0 in n; forwards: n; [f_equal; omega | tauto].
-            inversion e.
-            rewrite H6, H0 in n; forwards: n; [f_equal; omega|tauto].
-        Qed.
-        eapply (sh_is_array_sat _ _ 0).
-        
-        destruct var_eq_dec; congruence.
-    Qed.
-    destruct (fin_gt0_inhabit ntrd_neq_0) as [i _].
-    lets Hsh : (>> decl_sh_spec Hdisvars (Hdec i bid)).
-
-    assert (sh_spec sh_decl stkr (htop (as_sheap sh))).
-    { applys sh_spec_inde; eauto.
+      applys sh_inv_inde; eauto.
       unfold low_eq; intros x HElo; specialize (Hstkr i x); erewrite nth_map in Hstkr; [|reflexivity].
       apply Hstkr; eauto. }
     (* assert (is_gheap hs'[@bid]). *)
@@ -1436,12 +1598,25 @@ Proof.
     + apply pdisjC, sh_gl_is_ph.
     + simpl; rewrite phplus_comm; eauto.
   - introv.
-    apply decl_sh_spec; eauto.
     rewrite Vector.const_nth; eauto.
-  - intros.
-    rewrite HC; eauto.
-Grab Existential Variables.
-eauto.
+    eapply sh_spec_inde.
+    Lemma sh_inv_forget sh_decl locs s h:
+      sh_inv sh_decl locs s h -> 
+      sh_inv' sh_decl locs s h.
+    Proof.
+      unfold sh_inv, sh_inv', sh_ok; revert h locs; induction sh_decl as [|[? ? ?] sh_decl];
+      intros h [|l locs];
+      intros [[|f shv] [[? ?] Hsat]]; unfold Apure in *; simpl in *; try congruence.
+      - exists (@nil sh_val); split; eauto.
+      - sep_split_in Hsat.
+        destruct Hsat as (h1 & h2 & ? & ? & ? & ?).
+        forwards*(shv' & ? & ?): (>>IHsh_decl locs); [exists shv; split; eauto|].
+        exists (f :: shv'); split; unfold Apure; simpl; try omega.
+        exists h1 h2; repeat split; eauto.
+    Qed.
+    apply* sh_inv_forget.
+    Grab Existential Variables.
+    eauto.
 Qed.
 
 End For_List_Notation.

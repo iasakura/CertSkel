@@ -1,4 +1,4 @@
-Require Import GPUCSL scan_lib LibTactics Psatz CSLLemma SetoidClass.
+Require Import GPUCSL scan_lib LibTactics Psatz CSLLemma SetoidClass Skel_lemma scan_lib.
 Notation val := Z.
 Arguments Z.add _ _ : simpl never.
 
@@ -809,8 +809,6 @@ Ltac elim_div :=
 Ltac div_lia :=
   elim_div; lia.
 
-Require Import Skel_lemma scan_lib.
-
 Ltac no_side_cond tac :=
   (now tac) || (tac; [now auto_star..|idtac]).
 
@@ -1334,3 +1332,440 @@ Ltac prove_precise :=
     apply precise_ex; [intros; eauto| intros; prove_uniq]
   | [|- _] => eauto
   end.
+
+Lemma rule_p_conseq (P P' : assn) (n : nat) (E : env) (C : cmd) (Q Q' : assn) :
+  CSLp n E P C Q -> P' |= P -> Q |= Q' -> CSLp n E P' C Q'.
+Proof.
+  intros.
+  eapply CSLp_backward; [eapply CSLp_forward|]; eauto.
+Qed.
+
+Lemma rule_p_backward (P P' : assn) (n : nat) (E : env) (C : cmd) (Q : assn) :
+  CSLp n E P C Q -> P' |= P -> CSLp n E P' C Q.
+Proof.
+  intros.
+  eapply CSLp_backward; [eapply CSLp_forward|]; eauto.
+Qed.
+
+Lemma rule_p_forward (P : assn) (n : nat) (E : env) (C : cmd) (Q Q' : assn) :
+  CSLp n E P C Q -> Q |= Q' -> CSLp n E P C Q'.
+Proof.
+  intros.
+  eapply CSLp_backward; [eapply CSLp_forward|]; eauto.
+Qed.
+
+Fixpoint sh_spec_env sdecs locs :=
+  match sdecs, locs with
+  | SD x _ len :: sdecs, l :: locs =>
+    x |-> l :: sh_spec_env sdecs locs
+  | _, _ => nil
+  end.
+
+Fixpoint sh_spec_res sdecs locs vals :=
+  match sdecs, locs, vals with
+  | SD x _ len :: sdecs, l :: locs, vs :: vals =>
+    array (SLoc l) vs 1 *** sh_spec_res sdecs locs vals
+  | _, _, _ => Emp
+  end.
+
+Fixpoint sh_spec_pure sdecs (vals : list (list val)) :=
+  match sdecs, vals with
+  | SD x _ len :: sdecs, vs :: vals =>
+    length vs = len /\ sh_spec_pure sdecs vals
+  | _, _ => True
+  end.
+
+Definition sh_spec_assn sdecs locs vals :=
+  Assn (sh_spec_res sdecs locs vals)
+       (sh_spec_pure sdecs vals)
+       (sh_spec_env sdecs locs).
+
+Definition sh_spec_assn' sdecs locs vals :=
+  Assn (sh_spec_res sdecs locs vals)
+       (sh_spec_pure sdecs vals)
+       (nil).
+
+Definition sh_ok (sdecs : list Sdecl) (locs : list Z) (vals : list (list val)) :=
+  pure (length sdecs = length locs /\ length sdecs = length vals).
+
+Lemma array_is_array' pl loc len vs f s :
+  length vs = len ->
+  (forall i, i < len -> nth i vs 0%Z = f (s + i)) ->
+  res_denote (array (loc_off (Loc pl loc) (Z.of_nat s)) vs 1) == is_array (Addr pl loc) len f s.
+Proof.
+  revert len s; induction vs; intros [|len] s Hlen Heq; simpl in *; try omega.
+  reflexivity.
+  cutrewrite (loc + Zn s + 1 = loc + Zn (s + 1))%Z; [|rewrite Nat2Z.inj_add; lia].
+  rewrites* (>>IHvs len (s + 1)); try lia.
+  intros; forwards*Heq': (Heq (S i)); [lia|].
+  rewrite Heq'; f_equal; lia.
+  cutrewrite (S s = s +1); [apply* star_proper; [|reflexivity]|lia].
+  assert (Heq' : a = f s); [|rewrite Heq'; clear Heq'].
+  { forwards*: (Heq 0); [lia|].
+    rewrite H; f_equal; lia. }
+  split; unfold_conn; intros H x; rewrite H; destruct loc; simpl; auto.
+Qed.
+
+Lemma array_is_array pl loc len vs f :
+  length vs = len ->
+  (forall i, i < len -> nth i vs 0%Z = f i) ->
+  res_denote (array (Loc pl loc) vs 1) == is_array (Addr pl loc) len f 0.
+Proof.
+  intros; 
+  forwards*: (>>array_is_array' loc len vs f 0); eauto.
+  rewrite <- H1.
+  unfold loc_off; rewrite Z.add_0_r; reflexivity.
+Qed.
+
+
+Lemma sh_spec_assn_ok sdecs locs :
+  (Ex vals, (sh_ok sdecs locs vals) //\\ sh_spec_assn sdecs locs vals) == sh_inv sdecs locs.
+Proof.
+  unfold sh_spec_assn, sh_inv, sh_ok, GCSL.sh_ok; revert locs; induction sdecs as [|[? ? ?] ?];
+  intros [|l locs]; split; intros [[|vs vals] [Hlen Hsat]]; unfold Apure in Hlen; simpl in *;
+  try omega; unfold Assn in *; simpl in *; sep_split_in Hsat.
+  - exists (@nil sh_val); split; eauto.
+  - exists (@nil (list val)); split; sep_split; eauto using emp_emp_ph.
+    unfold Apure; eauto.
+  - destruct Hsat as (h1 & h2 & ? & ? & ?); eauto.
+    forwards* [IH1 IH2]: (IHsdecs locs).
+    forwards* [sh_vals' [Hlen' IH1']]: IH1.
+    { exists vals; unfold Apure; split; [omega|].
+      unfold Apure in *; sep_split; try tauto; destruct HP0; eauto. }
+    exists ((fun i => nth i vs 0%Z) :: sh_vals').
+    destruct HP0.
+    split; simpl; [unfold Apure in *; lia| sep_split; eauto].
+    exists h1 h2; repeat split; try tauto.
+
+    fold_sat.
+    rewrite <-array_is_array; destruct HP; eauto.
+  - destruct Hsat as (h1 & h2 & ? & ? & ?); eauto.
+    forwards* [IH1 IH2]: (IHsdecs locs).
+    forwards* [vss' [Hlen' IH2']]: IH2.
+    { exists vals; unfold Apure; split; [omega|]; eauto. }
+    exists ((ls_init 0 SD_len vs) :: vss').
+    sep_split_in IH2'.
+    split; simpl; [unfold Apure in *; lia..| sep_split; eauto].
+    unfold Apure in *; rewrite init_length; try tauto.
+    split; eauto.
+    exists h1 h2; repeat split; try tauto.
+    fold_sat.
+    rewrite array_is_array; destruct HP; eauto.
+    rewrite init_length; omega.
+    intros; rewrite ls_init_spec; destruct lt_dec; eauto; omega.
+Qed.
+
+Lemma sh_spec_assn'_ok sdecs locs :
+  (Ex vals, sh_ok sdecs locs vals //\\ sh_spec_assn' sdecs locs vals) == sh_inv' sdecs locs.
+Proof.
+  unfold sh_spec_assn', sh_inv', sh_ok, GCSL.sh_ok; revert locs; induction sdecs as [|[? ? ?] ?];
+  intros [|l locs]; split; intros [[|vs vals] [Hlen Hsat]]; unfold Apure in Hlen; simpl in *;
+  try omega; unfold Assn in *; simpl in *; sep_split_in Hsat.
+  - exists (@nil sh_val); split; eauto.
+  - exists (@nil (list val)); split; sep_split; eauto using emp_emp_ph.
+    unfold Apure; eauto.
+  - destruct Hsat as (h1 & h2 & ? & ? & ?); eauto.
+    forwards* [IH1 IH2]: (IHsdecs locs).
+    forwards* [sh_vals' [Hlen' IH1']]: IH1.
+    { exists vals; unfold Apure; split; [omega|].
+      unfold Apure in *; sep_split; try tauto; eauto. }
+    exists ((fun i => nth i vs 0%Z) :: sh_vals').
+    split; simpl; [unfold Apure in *; lia| sep_split; eauto].
+    exists h1 h2; repeat split; try tauto.
+
+    fold_sat.
+    rewrite <-array_is_array; destruct HP; eauto.
+  - destruct Hsat as (h1 & h2 & ? & ? & ?); eauto.
+    forwards* [IH1 IH2]: (IHsdecs locs).
+    forwards* [vss' [Hlen' IH2']]: IH2.
+    { exists vals; unfold Apure; split; [omega|]; eauto. }
+    exists ((ls_init 0 SD_len vs) :: vss').
+    sep_split_in IH2'.
+    split; simpl; [unfold Apure in *; lia..| sep_split; eauto].
+    unfold Apure in *; rewrite init_length; try tauto.
+    exists h1 h2; repeat split; try tauto.
+    fold_sat.
+    rewrite array_is_array; eauto.
+    rewrite init_length; omega.
+    intros; rewrite ls_init_spec; destruct lt_dec; eauto; omega.
+Qed.
+
+Lemma ex_lift_l T P Q :
+  (P ** (Ex x : T, Q x)) == (Ex x : T, P ** Q x).
+Proof.
+  intros s h; split; intros H.
+  - destruct H as (? & ? & ? & [? ?] & ? & ?).
+    do 3 eexists; repeat split; eauto.
+  - destruct H as (? & ? & ? & ? & ? & ? & ?).
+    do 2 eexists; repeat split; eauto.
+    eexists; eauto.
+Qed.
+
+Lemma CSLp_preprocess n E Res Res' P P' Env Env' C sdecs locs bid :
+  (forall vss,
+      length sdecs = length locs ->
+      length sdecs = length vss ->
+      CSLp n E 
+       ((Assn Res P ("bid" |-> bid :: Env)) ** sh_spec_assn sdecs locs vss)
+       C
+       (Ex vss, pure (length vss = length sdecs) //\\ (Assn Res' P' Env') ** sh_spec_assn' sdecs locs vss))
+  -> CSLp n E 
+       ((Assn Res P Env) ** sh_inv sdecs locs ** !("bid" === bid))
+       C
+       ((Assn Res' P' Env') ** sh_inv' sdecs locs).
+Proof.
+  intros.
+  applys (>>rule_p_backward (Ex vss, sh_ok sdecs locs vss //\\ (Assn Res P ("bid" |-> bid :: Env) ** sh_spec_assn sdecs locs vss))).
+  Focus 2.
+  { unfold sat; intros ? ? Hsat; sep_split_in Hsat.
+    fold_sat_in Hsat.
+    rewrite <-sh_spec_assn_ok in Hsat.
+    apply ex_lift_r_in in Hsat as [vss Hsat].
+    destruct Hsat as (h1 & h2  & ? & (? & ?) & ? & ?); unfold sh_ok in *; eauto.
+    exists vss; split; eauto.
+    apply scC; sep_cancel.
+    fold_sat; rewrite <-assn_var_in.
+    exists h2 h1; repeat split; eauto; sep_split; eauto.
+    rewrite phplus_comm; eauto. } Unfocus.
+  applys (>>rule_p_forward (Ex vss, sh_ok sdecs locs vss //\\ (Assn Res' P' Env' ** sh_spec_assn' sdecs locs vss))). 
+  Focus 2. {
+    unfold sat; intros s h [vss Hsat].
+    fold_sat; rewrite <-sh_spec_assn'_ok.
+    rewrite ex_lift_l; exists vss; eauto.
+    destruct Hsat as (? & h1 & h2 & ? & ? & ? & ?).
+    unfold sh_ok, Apure in *; exists h1 h2; repeat split; try tauto. } Unfocus.
+  Lemma rule_p_ex_pre n E T P C Q :
+    (forall x, CSLp n E (P x) C Q)
+    -> CSLp n E (Ex x : T, P x) C Q.
+  Proof.
+    intros H; simpl.
+    unfold CSLp, sat_k in *.
+    introv.
+    intros ? ?.
+    destruct (low_eq_repr _) eqn:Heq; simpl; intros [e Hsat] m.
+    forwards*: (>>H); simpl.
+    instantiate (2 := leqks); rewrite Heq; eauto.
+  Qed.
+  apply rule_p_ex_pre; intros.
+  Lemma rule_p_conj_pure n E(P : Prop) P' C Q :
+    (P -> CSLp n E (P') C Q)
+    -> CSLp n E (pure P //\\ P') C Q.
+  Proof.
+    intros H; simpl.
+    unfold CSLp, sat_k in *.
+    introv.
+    intros ? ?.
+    destruct (low_eq_repr _) eqn:Heq; simpl; intros [? ?] m.
+    forwards*: (>>H); simpl.
+    instantiate (1 := leqks); rewrite Heq; eauto.
+  Qed.
+  apply rule_p_conj_pure; intros [? ?].
+  applys* rule_p_forward.
+  intros ? ? [vss [? ?]]; exists vss; split; eauto.
+  unfold sh_ok; split; eauto.
+Qed.
+
+
+Lemma rule_p_assn n E Res (P : Prop) Env C Q :
+  (P -> CSLp n E (Assn Res P Env) C Q)
+  -> CSLp n E (Assn Res P Env) C Q.
+Proof.
+  intros H; simpl.
+  unfold CSLp, sat_k in *.
+  introv.
+  intros ? ?.
+  destruct (low_eq_repr _) eqn:Heq; simpl; intros ? m.
+  forwards*: (>>H); simpl.
+  unfold Assn, Apure in H2; sep_split_in H2; eauto.
+  instantiate (1 := leqks); rewrite Heq; eauto.
+Qed.
+
+
+Lemma rule_grid :
+  forall (ntrd nblk : nat) (E : env),
+    ntrd <> 0 ->
+    nblk <> 0 ->
+    forall (P : assn) (Ps : Vector.t assn nblk) (C : cmd)
+           (Qs : Vector.t assn nblk) (Q : assn) (sh_decl : list Sdecl),
+      P |= Bdiv.Aistar_v Ps ->
+      (forall (bid : Fin.t nblk) (locs : list val),
+          let sinv := sh_inv sh_decl locs in
+          let sinv' := sh_inv' sh_decl locs in
+          CSLp ntrd E (Vector.nth Ps bid ** sinv ** !("bid" === Zn (nf bid))) C
+               (Vector.nth Qs bid ** sinv')) ->
+      Bdiv.Aistar_v Qs |= Q ->
+      (forall bid : Fin.t nblk, inde (Vector.nth Ps bid) (Var "bid" :: Var "tid" :: nil)) ->
+      (forall bid : Fin.t nblk, low_assn E (Vector.nth Ps bid)) ->
+      (forall bid : Fin.t nblk, has_no_vars (Vector.nth Qs bid)) ->
+      (forall v : var, In v (map SD_var sh_decl) -> E v = Lo) ->
+      E "tid" = Hi ->
+      E "bid" = Lo ->
+      disjoint_list (map SD_var sh_decl) ->
+      CSLg ntrd nblk P {| get_sh_decl := sh_decl; get_cmd := C |} Q.
+Proof. eauto using rule_grid. Qed.
+
+Lemma inde_assn_vars:
+  forall (R : res) (P : Prop) (Env : list entry) (E : list var),
+    (forall (e : exp) (x : var) (v : val),
+        In (e |-> v) Env -> In x (Skel_lemma.fv_E e) -> ~In x E) ->
+    inde (Assn R P Env) E.
+Proof.
+  intros HEnv.
+  unfold inde; simpl.
+  unfold Assn; split; intros Hsat; sep_split_in Hsat; sep_split; eauto;
+  induction Env as [|[? ?] ?]; simpl in *; eauto; destruct HP0; split;
+  unfold_conn_all; simpl in *; eauto;
+  [erewrite fv_edenot; eauto;
+   unfold var_upd; intros; destruct var_eq_dec; substs; eauto;
+   forwards*: H..].
+Qed.
+
+Lemma has_no_vars_assn R P : 
+  has_no_vars (Assn R P nil).
+Proof.
+  unfold has_no_vars, Bdiv.indeP; simpl.
+  unfold Assn; split; intros Hsat; sep_split_in Hsat; sep_split; eauto.
+Qed.
+
+    
+Lemma conj_xs_init_flatten s l1 l2 f_ini :
+  istar (ls_init s l1 (fun i =>
+    istar (ls_init 0 l2 (fun j => f_ini (j + i * l2))))) ==
+  istar (ls_init (s * l2) (l1 * l2) (fun i => f_ini i)).
+Proof.
+  revert s; induction l1; simpl; [reflexivity|]; introv.
+  rewrite ls_init_app, istar_app.
+  apply res_star_proper.
+  - lazymatch goal with
+    | [|- equiv_res (istar ?X) (istar ?Y)] => cutrewrite (X = Y); [reflexivity|applys (>>eq_from_nth Emp)]
+    end.
+    rewrite !init_length; eauto.
+    intros i; rewrite init_length, !ls_init_spec; intros.
+    destruct lt_dec; eauto; f_equal; ring.
+  - rewrite IHl1.
+    cutrewrite (S s * l2 = s * l2 + l2); [|ring]; reflexivity.
+Qed.
+
+Lemma conj_xs_init_flatten0 l1 l2 f_ini :
+  istar (ls_init 0 l1 (fun i =>
+    istar (ls_init 0 l2 (fun j => f_ini (j + i * l2))))) ==
+  istar (ls_init 0 (l1 * l2) (fun i => f_ini i)).      
+Proof.
+  cutrewrite (0 = 0 * l2); [|omega].
+  rewrite <-conj_xs_init_flatten.
+  reflexivity.
+Qed.
+
+Ltac simpl_nested_istar := match goal with
+| [|- context [istar (ls_init 0 ?n (fun i => istar (ls_init 0 ?m (fun j => @?f i j)))) ]] =>
+  idtac f;
+  lazymatch f with
+  | fun i => fun j => array' ?loc (ith_vals ?dist ?vals (j + i * m) 0) 1%Qc =>
+    idtac vals;
+    rewrites (>>conj_xs_init_flatten0 n m (fun x => array' loc (ith_vals dist vals x 0) 1%Qc))
+  | fun i => fun j => ?X =>
+    idtac X;
+    rewrites (>>conj_xs_init_flatten0 n m (fun x : nat => X))
+  end
+| [H : context [istar (ls_init 0 ?n (fun i => istar (ls_init 0 ?m (fun j => @?f i j)))) ] |- _] =>
+  idtac f;
+  lazymatch f with
+  | fun i => fun j => array' ?loc (ith_vals ?dist ?vals (j + i * m) 0) 1%Qc =>
+    idtac vals;
+    rewrites (>>conj_xs_init_flatten0 n m (fun x => array' loc (ith_vals dist vals x 0) 1%Qc)) in H
+  | fun i => fun j => ?X =>
+    idtac X;
+    rewrites (>>conj_xs_init_flatten0 n m (fun x : nat => X)) in H
+  end
+end.
+
+Lemma mps_p_star loc v (p1 p2 : Qc) :
+  (0 < p1 -> p1 <= 1 -> 0 < p2 -> p2 <= 1 -> p1 + p2 <= 1 ->
+   (loc |->p (p1 + p2, v) == (loc |->p (p1, v) *** loc |->p (p2, v))))%Qc.
+Proof.
+  unfold "=="; simpl; unfold equiv_res, sat_res; simpl.
+  intros; apply pts_star_p; auto.
+Qed.
+
+Lemma array_p_star loc xs p q :
+  (0 < p -> p <= 1 -> 0 < q -> q <= 1 -> p + q <= 1 ->
+  array loc xs (p + q) == (array loc xs p *** array loc xs q))%Qc.
+Proof.
+  revert loc; induction xs; simpl; intros.
+  - rewrite emp_unit_l; reflexivity.
+  - rewrites* IHxs.
+    rewrite* mps_p_star; eauto.
+    rewrite <-!res_assoc; split; intros; repeat sep_cancel'.
+Qed.    
+
+Require Import QArith Qcanon.
+Ltac injZ_simplify :=
+  unfold injZ in *;
+  repeat rewrite Nat2Z.inj_succ in *;
+  repeat rewrite <-Z.add_1_r in *;
+  repeat rewrite inject_Z_plus in *;
+  repeat rewrite inject_Z_1 in *.
+
+Lemma QcmultQ p q : (this (p * q)%Qc == this p * this q)%Q.
+Proof.
+  unfold "*"%Qc.
+  unfold "!!"%Qc.
+  rewrite this_id.
+  apply Qred_correct.
+Qed.
+
+Lemma is_array_is_array_p_n loc xs (p : Qc) (nt : nat) :
+  (0 < p)%Qc -> (p <= 1)%Qc -> (injZ (Zn nt) * p <= 1)%Qc -> (nt <> 0)%nat -> 
+  forall st,
+    array loc xs (injZ (Z.of_nat nt) * p) == istar (ls_init st nt (fun i => array loc xs p)).
+Proof.
+  intros Hp0 Hp1 Hnp Hn0; induction nt as [|[|nt]]; intros; try omega.
+  - simpl.
+    asserts_rewrite (injZ 1 * p = p)%Qc.
+    { apply Qc_is_canon.
+      rewrite QcmultQ.
+      lra_Qc. }
+    rewrite emp_unit_r; reflexivity.
+  - remember (S nt) as nt'.
+    asserts_rewrite (Zn (S nt') = Zn nt' + 1)%Z.
+     { rewrite Nat2Z.inj_succ; omega. }
+     unfold injZ; rewrite inject_Z_plus; simpl.
+     asserts_rewrite (Q2Qc (inject_Z (Zn nt') + inject_Z 1) = injZ (Zn nt') + 1).
+     { apply Qc_is_canon.
+       unfold injZ, "+", Q2Qc.
+       rewrite !this_inv.
+       rewrite !Qred_correct.
+       reflexivity. }
+     rewrite Qcmult_plus_distr_l, Qcmult_1_l; eauto; simpl.
+Ltac Qc_to_Q :=
+  match goal with
+  | [q : Qc |- _] => destruct q; Qc_to_Q
+  | [|- _] =>
+    try applys Qc_is_canon;
+    repeat ( unfold Q2Qc, Qcmult, Qcplus, Qcdiv, Qcinv, Qclt, Qcle in *);
+    repeat (try rewrite this_inv in *; try rewrite Qred_correct in *)
+  end.
+
+     rewrite array_p_star, IHnt; [|subst nt'; unfold injZ in *; injZ_simplify; Qc_to_Q; eauto; pose proof (inject_Z_n_ge0 nt); try lra..|].
+     split; intros; eauto; repeat sep_cancel'; eauto.
+     repeat sep_cancel'.
+     assert (0 <= inject_Z (Zn nt) * this)%Q by (apply Qmult_le_0_compat; lra_Qc).
+     lra.
+     injZ_simplify.
+     Qc_to_Q.
+     lra.
+Qed.
+
+
+Lemma is_array_is_array_p_1 loc xs (nt : nat) st :
+  (nt <> 0)%nat ->
+  array loc xs 1 ==
+  istar (ls_init st nt (fun i => array loc xs (1 / (injZ (Zn nt))))).
+Proof.    
+  intros; rewrite (@one_div_n nt) at 1; eauto.
+  apply is_array_is_array_p_n; eauto;
+  unfold injZ; Qc_to_Q; destruct nt; try omega; lets: (inject_Z_Sn_gt0 nt).
+  apply Qlt_shift_div_l; lra.
+  apply Qle_shift_div_r; try lra.
+  lets Heq: Qmult_div_r; unfold Qdiv in Heq; rewrite Heq; lra.
+Qed.

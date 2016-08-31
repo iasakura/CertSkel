@@ -12,12 +12,11 @@ Hypothesis ntrd_neq_0 : ntrd <> 0.
 Hypothesis nblk_neq_0 : nblk <> 0.
 Hint Resolve ntrd_neq_0 nblk_neq_0.
 
-Variable init_vals out_vals sh_vals : list val.
-Variable arr inp out : val.
+Variable init_vals out_vals : list val.
+Variable inp out : val.
 
 Hypothesis inp_len : length init_vals = nblk * ntrd.
 Hypothesis out_len : length out_vals = nblk + 0.
-Hypothesis sh_vals_len : length sh_vals = ntrd + 0.
 
 Definition next (x : nat * list val):=
   let (l, ls) := x in
@@ -31,7 +30,9 @@ Fixpoint iter {T : Type} n f (x : T) :=
   end.
 
 Section block.
-
+Variable arr : val.
+Variable sh_vals : list val.
+Hypothesis sh_vals_len : length sh_vals = ntrd + 0.
 Variable bid : Fin.t nblk.
 
 Definition reg_b' j := (firstn ntrd (skipn (ntrd * j) init_vals)).
@@ -476,8 +477,8 @@ Definition ith_post (tid : Fin.t ntrd) :=
            (ls_init 0 nblk (fun i : nat => sum_of (reg_b' i)))
            (nf tid + nf bid * ntrd) 0) 1) True ("c" |-> Zn c :: "arr" |-> arr :: nil)).
 
-Definition fin_star n (f : nat -> res) :=
-  List.fold_right Star Emp (ls_init 0 n f).
+Definition fin_star n f :=
+  (istar (ls_init 0 n f)).
 
 Definition jth_pre :=
   (Assn
@@ -503,7 +504,7 @@ Definition jth_post :=
         array' (GLoc out)
         (ith_vals (fun i => i * ntrd) (ls_init 0 nblk (fun i : nat => sum_of (reg_b' i)))
            (tid + nf bid * ntrd) 0) 1))
-     True
+     (length sh_vals = ntrd)
      ("arr" |-> arr :: nil)).
 
 Definition E := fun x =>
@@ -547,6 +548,7 @@ Proof.
     rewrite array'_ok in H; eauto.
     intros i; rewrite st_inv2, reg_b_length; intros ?; unfold dist;
     repeat destruct lt_dec; lia.
+    rewrite st_inv2, reg_b_length; eauto.
   - unfold ith_pre; intros; rewrite MyVector.init_spec; prove_low_assn.
   - unfold ith_post; intros; rewrite MyVector.init_spec; prove_low_assn.
   - unfold reduce.
@@ -562,41 +564,93 @@ End block.
 
 Definition reduce_prog := Pr ((SD "arr" Int ntrd) :: nil) (reduce TrueP).
 
-Lemma rule_p_conseq (P P' : assn) (n : nat) (E : env) (C : cmd) (Q Q' : assn) :
-  CSLp n E P C Q -> P' |= P -> Q |= Q' -> CSLp n E P' C Q'.
-Proof.
-  intros.
-  eapply CSLp_backward; [eapply CSLp_forward|]; eauto.
-Qed.
+Definition jth_pre' (bid : Fin.t nblk) :=
+  (Assn
+      (fin_star ntrd (fun _  => array (GLoc inp) init_vals (1 / injZ (Zn (nblk * ntrd)))) ***
+       fin_star ntrd (fun tid =>
+         array' (GLoc out)
+         (ith_vals (fun i  => i * ntrd) out_vals
+            (tid + nf bid * ntrd) 0) 1))
+     True
+     ("inp" |-> inp ::
+      "out" |-> out ::
+      "l" |-> Zn (Datatypes.length init_vals) ::
+      nil)).
+
+Definition jth_post' (bid : Fin.t nblk) :=
+  (Assn
+      (fin_star ntrd (fun _  => array (GLoc inp) init_vals (1 / injZ (Zn (nblk * ntrd)))) ***
+       fin_star ntrd (fun tid =>
+         array' (GLoc out)
+         (ith_vals (fun i => i * ntrd) (ls_init 0 nblk (fun i : nat => sum_of (reg_b' i)))
+            (tid + nf bid * ntrd) 0) 1))
+     True
+     nil).
 
 Lemma reduce_ok_g :
   CSLg ntrd nblk
-       (Assn (array (SLoc arr) sh_vals 1 ***
-              array (GLoc inp) init_vals 1 ***
+       (Assn (array (GLoc inp) init_vals 1 ***
               array (GLoc out) out_vals 1)
              True
-             ("arr" |-> arr ::
-              "inp" |-> inp ::
+             ("inp" |-> inp ::
               "out" |-> out ::
               "l" |-> Zn (length init_vals) :: nil))
        reduce_prog
-       (Assn (array (SLoc arr) sh_vals 1 ***
-              array (GLoc inp) init_vals 1 ***
+       (Assn (array (GLoc inp) init_vals 1 ***
               array (GLoc out) (ls_init 0 nblk (fun i => reduce.sum_of (reg_b' i))) 1)
              True
              nil).
 Proof.
-  applys (>> rule_grid E (MyVector.init jth_pre) (MyVector.init jth_post));
-  unfold jth_pre, jth_post, E; eauto.
-  - admit.
-  - intros; eapply rule_p_conseq; eauto using (reduce_ok_b bid);
-    admit.
-  - admit.
-  -  
-  - admit.
-  - admit.
-  - admit.
-  - admit.
-  - admit.
-  - admit.
+  applys (>> rule_grid E (MyVector.init jth_pre') (MyVector.init jth_post'));
+  unfold jth_pre', jth_post'; eauto.
+  - prove_istar_imp.
+    rewrite ls_star.
+    unfold fin_star.
+    repeat simpl_nested_istar.
+    rewrite array'_ok. 
+    2: intros; nia.
+    rewrite <-is_array_is_array_p_1; eauto.
+    nia.
+  - introv; rewrite !MyVector.init_spec.
+
+    apply CSLp_preprocess; simpl.
+    intros [|vs [|? ?]] ? ?; simpl in *; try lia.
+    destruct locs as [|l [|? ?]]; simpl in *; try lia.
+    unfold sh_spec_assn; simpl.
+
+    eapply rule_p_backward; [|intros; rewrite Assn_combine in *; eauto].
+    apply rule_p_assn; intros.    
+    eapply rule_p_conseq; try applys (>>reduce_ok_b l vs bid); try lia.
+
+    + unfold jth_pre.
+      intros s h Hsat; rewrite assn_var_in; revert s h Hsat; prove_imp.
+      rewrite <-!res_assoc in H4.
+      repeat sep_cancel'.
+    + unfold jth_post.
+      intros s h [sh_vals Hsat].
+      exists (sh_vals :: nil); split; eauto.
+      fold_sat; fold_sat_in Hsat; unfold sh_spec_assn'.
+      revert s h Hsat; prove_imp.
+      rewrite <-!res_assoc; simpl.
+      repeat sep_cancel'.
+  - prove_istar_imp.
+    rewrite !ls_star in *.
+    unfold fin_star in *.
+    repeat simpl_nested_istar.
+    rewrite array'_ok in H.
+    2: intros; rewrite @init_length in *; nia.
+    rewrite <-is_array_is_array_p_1 in H; eauto.
+    nia.
+  - intros; rewrite MyVector.init_spec.
+    apply inde_assn_vars.
+    prove_low_expr; intros Hc; des_disj Hc; congruence.
+  - intros; rewrite MyVector.init_spec.
+    prove_low_assn.
+  - intros; rewrite MyVector.init_spec.
+    apply has_no_vars_assn.
+  - unfold E; simpl.
+    intros ? [? | []]; substs; eauto.
+  - simpl; tauto.
 Qed.
+
+End reduce.
