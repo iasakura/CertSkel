@@ -540,11 +540,11 @@ Proof.
   - unfold jth_pre, ith_pre.
     intros s h H; rewrite assn_var_in in H; revert s h H; 
     prove_istar_imp.
-    repeat rewrite ls_star.
+    repeat rewrite ls_star_res.
     rewrite array'_ok; [|intros; lia]; auto.
   - unfold jth_post, ith_post.
     prove_istar_imp.
-    repeat rewrite ls_star in H.
+    repeat rewrite ls_star_res in H.
     rewrite array'_ok in H; eauto.
     intros i; rewrite st_inv2, reg_b_length; intros ?; unfold dist;
     repeat destruct lt_dec; lia.
@@ -604,7 +604,7 @@ Proof.
   applys (>> rule_grid E (MyVector.init jth_pre') (MyVector.init jth_post'));
   unfold jth_pre', jth_post'; eauto.
   - prove_istar_imp.
-    rewrite ls_star.
+    rewrite ls_star_res.
     unfold fin_star.
     repeat simpl_nested_istar.
     rewrite array'_ok. 
@@ -634,7 +634,7 @@ Proof.
       rewrite <-!res_assoc; simpl.
       repeat sep_cancel'.
   - prove_istar_imp.
-    rewrite !ls_star in *.
+    rewrite !ls_star_res in *.
     unfold fin_star in *.
     repeat simpl_nested_istar.
     rewrite array'_ok in H.

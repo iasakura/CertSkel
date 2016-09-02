@@ -2,6 +2,7 @@ Require Import GPUCSL scan_lib LibTactics Skel_lemma Psatz Classical.
 
 Notation val := Z.
 
+(* Definition of equivalence between two assertion for rewrite *)
 Require Import SetoidClass.
 Definition equiv_sep (P Q : assn) := (forall s h, P s h <-> Q s h).
 Instance equiv_sep_equiv : Equivalence (equiv_sep).
@@ -726,40 +727,40 @@ Proof.
   - intros; rewrite emp_unit_l; auto.
 Qed.
 
-Lemma array'_ok n ptr dist arr s p :
-  (forall i, dist i < n) ->
-  conj_xs (ls_init 0 n (fun i => res_denote (array' ptr (ith_vals dist arr i s) p))) ==
-  res_denote (array ptr arr p).
-Proof.
-  intros H; revert s ptr; induction arr; intros; simpl.
-  - apply init_emp_emp.
-  - rewrite ls_star.
-    rewrite IHarr.
-    unfold array in *; simpl.
-    apply star_proper; try reflexivity.
-    lazymatch goal with
-    | [|- context [ls_init 0 n ?f]] =>
-      cutrewrite (ls_init 0 n f =
-                  (ls_init 0 (dist s) (fun _ => emp) ++
-                  (ptr -->p (p, a)) ::
-                  ls_init ((dist s) + 1) (n - dist s - 1) (fun _ => emp)))
-    end.
-    rewrite conj_xs_app, init_emp_emp; simpl; rewrite init_emp_emp.
-    rewrite emp_unit_l, emp_unit_r; reflexivity.
-    specialize (H s).
-    cutrewrite (n = (dist s) + 1 + (n - dist s - 1)); [| omega].
-    repeat rewrite ls_init_app; simpl.
-    rewrite <-app_assoc; simpl.
-    f_equal; [apply ls_init_eq'|f_equal]; eauto.
-    intros; simpl; destruct Nat.eq_dec; try omega; eauto.
-    intros; simpl; destruct Nat.eq_dec; try omega; eauto.
-    lazymatch goal with
-    | [|- _ _ ?p _ = _ _ ?q _] =>
-      cutrewrite (q = p); [|lia];
-      apply ls_init_eq';
-      intros; simpl; destruct Nat.eq_dec; try omega; eauto
-    end.
-Qed.    
+(* Lemma array'_ok n ptr dist arr s p : *)
+(*   (forall i, dist i < n) -> *)
+(*   conj_xs (ls_init 0 n (fun i => res_denote (array' ptr (ith_vals dist arr i s) p))) == *)
+(*   res_denote (array ptr arr p). *)
+(* Proof. *)
+(*   intros H; revert s ptr; induction arr; intros; simpl. *)
+(*   - apply init_emp_emp. *)
+(*   - rewrite ls_star. *)
+(*     rewrite IHarr. *)
+(*     unfold array in *; simpl. *)
+(*     apply star_proper; try reflexivity. *)
+(*     lazymatch goal with *)
+(*     | [|- context [ls_init 0 n ?f]] => *)
+(*       cutrewrite (ls_init 0 n f = *)
+(*                   (ls_init 0 (dist s) (fun _ => emp) ++ *)
+(*                   (ptr -->p (p, a)) :: *)
+(*                   ls_init ((dist s) + 1) (n - dist s - 1) (fun _ => emp))) *)
+(*     end. *)
+(*     rewrite conj_xs_app, init_emp_emp; simpl; rewrite init_emp_emp. *)
+(*     rewrite emp_unit_l, emp_unit_r; reflexivity. *)
+(*     specialize (H s). *)
+(*     cutrewrite (n = (dist s) + 1 + (n - dist s - 1)); [| omega]. *)
+(*     repeat rewrite ls_init_app; simpl. *)
+(*     rewrite <-app_assoc; simpl. *)
+(*     f_equal; [apply ls_init_eq'|f_equal]; eauto. *)
+(*     intros; simpl; destruct Nat.eq_dec; try omega; eauto. *)
+(*     intros; simpl; destruct Nat.eq_dec; try omega; eauto. *)
+(*     lazymatch goal with *)
+(*     | [|- _ _ ?p _ = _ _ ?q _] => *)
+(*       cutrewrite (q = p); [|lia]; *)
+(*       apply ls_init_eq'; *)
+(*       intros; simpl; destruct Nat.eq_dec; try omega; eauto *)
+(*     end. *)
+(* Qed.     *)
 
 Notation skip arr n i := (ith_vals (fun x => x mod n) arr i 0).
 Notation get v i := (nth i v 0%Z).
@@ -1300,3 +1301,250 @@ Proof.
   intros; apply Assn_combine; eauto.
   unfold sat in *; repeat sep_cancel.
 Qed.  
+
+Lemma precise_false : precise (fun _ _ => False).
+Proof.
+  unfold precise; intros; tauto.
+Qed.
+
+Lemma precise_sat (P Q : assn) :
+  (Q |= P) -> precise P -> precise Q.
+Proof.
+  unfold precise; simpl; intros Hsat HprecP; introv.
+  intros HsatQ HsatQ' ? ? ?.
+  eapply HprecP; eauto; apply Hsat; eauto.
+Qed.
+
+Definition precise_res P :=
+  forall (h1 h2 h1' h2' : pheap) s,
+    sat_res s h1 P ->
+    sat_res s h2 P ->
+    pdisj h1 h1' ->
+    pdisj h2 h2' ->
+    phplus h1 h1' = phplus h2 h2' -> h1 = h2. 
+
+Lemma precise_assn Res P Env :
+  precise_res Res
+  -> precise (Assn Res P Env).
+Proof.
+  unfold Assn; intros.
+  eapply precise_sat; unfold sat; intros s h Hsat; sep_split_in Hsat; eauto.
+Qed.
+
+Lemma precise_star (P Q : res) : precise_res P -> precise_res Q -> precise_res (P *** Q).
+Proof.
+  unfold_conn; intros pp pq h1 h2 h1' h2' s hsat hsat' hdis hdis' heq; simpl in *.
+  destruct hsat as [ph1 [ph1' [satp1 [satq1 [Hdis1 Heq1]]]]], 
+                   hsat' as [ph2 [ph2' [satp2 [satq2 [Hdis2 Heq2]]]]].
+  destruct h1 as [h1 ?], h2 as [h2 ?]; apply pheap_eq; simpl in *; rewrite <-Heq1, <-Heq2 in *.
+  apply pdisj_padd_expand in hdis; apply pdisj_padd_expand in hdis'; eauto.
+  rewrite !padd_assoc in heq; try tauto. 
+  f_equal; destruct hdis as [hdis1 hdis2], hdis' as [hdis1' hdis2'].
+  - rewrite (pp ph1 ph2 (phplus_pheap hdis2) (phplus_pheap hdis2') s); eauto.
+  - rewrite padd_left_comm in heq at 1; try tauto.
+    rewrite (@padd_left_comm _ ph2 ph2' h2') in heq; try tauto.
+    pose proof (pdisjE2 hdis1 hdis2) as dis12; pose proof (pdisjE2 hdis1' hdis2') as dis12'.
+    rewrite (pq ph1' ph2' (phplus_pheap dis12) (phplus_pheap dis12') s); simpl in *; eauto; 
+    apply pdisj_padd_comm; eauto.
+Qed.
+
+Lemma precise_mps l v p :
+  precise_res (l |->p (p, v)).
+Proof.
+  unfold precise_res, precise; intros; simpl in *.
+  unfold sat_res in *; simpl in *; unfold_conn_all; simpl in *.
+  destruct h1 as [h1 ?], h2 as [h2 ?]; apply pheap_eq.
+  extensionality x; simpl in *; rewrite H, H0; auto.
+Qed.
+
+Lemma precise_emp :
+  precise_res Emp.
+Proof.
+  unfold precise_res, sat_res, sat; simpl.
+  intros; applys precise_emp; simpl; eauto.
+Qed.
+
+Hint Resolve precise_star precise_mps precise_emp precise_false precise_assn.
+
+Lemma precise_array l vs p: 
+  precise_res (array l vs p).
+Proof.
+  revert l; induction vs; simpl; eauto.
+Qed.
+
+Lemma precise_array' l vs q :
+  precise_res (array' l vs q).
+Proof.
+  revert l; induction vs as [|[?|] ?]; simpl; eauto.
+Qed.              
+
+Hint Resolve precise_star precise_array precise_array'.
+
+Lemma emp_unit_l_res P: 
+  (Emp *** P) == P.
+Proof.
+  intros s h; unfold sat_res; simpl.
+  apply emp_unit_l.
+Qed.
+
+Lemma emp_unit_r_res P: 
+  (P *** Emp) == P.
+Proof.
+  intros s h; unfold sat_res; simpl.
+  apply emp_unit_r.
+Qed.
+
+Definition istar ls := List.fold_right Star Emp ls.
+
+Lemma init_emp_emp_res b n :
+  istar (ls_init b n (fun _ => Emp)) == Emp.
+Proof.
+  revert b; induction n; simpl; [reflexivity|]; intros.
+  rewrite IHn.
+  rewrite emp_unit_l_res; reflexivity.
+Qed.
+
+Lemma ls_star_res b n P Q :
+  istar (ls_init b n (fun i => P i *** Q i)) ==
+  (istar (ls_init b n (fun i => P i)) *** istar (ls_init b n (fun i => Q i))).
+Proof.
+   revert b; induction n; simpl; eauto.
+   - intros; rewrite emp_unit_l_res; reflexivity.
+   - intros; rewrite IHn; rewrite <-!res_assoc.
+     apply res_star_proper; [reflexivity|].
+     rewrite res_CA; reflexivity.
+Qed.
+
+Lemma istar_app Ps Qs: 
+  istar (Ps ++ Qs) == (istar Ps *** istar Qs).
+Proof.
+  induction Ps; simpl; eauto.
+  rewrite emp_unit_l_res; reflexivity.
+  rewrite IHPs, <-res_assoc; reflexivity.
+Qed.  
+                       
+Lemma array'_ok n ptr dist vals s p :
+  (forall i, s <= i < length vals + s -> dist i < n) ->
+  istar (ls_init 0 n (fun i => array' ptr (ith_vals dist vals i s) p)) ==
+  array ptr vals p.
+Proof.
+  revert s ptr; induction vals; intros; simpl.
+  - intros s' h.
+    rewrite init_emp_emp_res; reflexivity.
+  - rewrite ls_star_res.
+    rewrite IHvals.
+    apply res_star_proper; try reflexivity.
+    lazymatch goal with
+    | [|- context [ls_init 0 n ?f]] =>
+      cutrewrite (ls_init 0 n f =
+                  (ls_init 0 (dist s) (fun _ => Emp) ++
+                  (ptr |->p (p, a)) ::
+                  ls_init ((dist s) + 1) (n - dist s - 1) (fun _ => Emp)))
+    end.
+    rewrite istar_app, init_emp_emp_res; simpl; rewrite init_emp_emp_res.
+    rewrite emp_unit_l_res, emp_unit_r_res; reflexivity.
+    specialize (H s).
+    simpl in *.
+    cutrewrite (n = (dist s) + 1 + (n - dist s - 1)); [|omega].
+    repeat rewrite ls_init_app; simpl.
+    rewrite <-app_assoc; simpl.
+    f_equal; [apply ls_init_eq'|f_equal]; eauto.
+    intros; simpl; destruct Nat.eq_dec; try omega; eauto.
+    intros; simpl; destruct Nat.eq_dec; try omega; eauto.
+    lazymatch goal with
+    | [|- _ _ ?p _ = _ _ ?q _] =>
+      cutrewrite (q = p); [|lia];
+      apply ls_init_eq';
+      intros; simpl; destruct Nat.eq_dec; try omega; eauto
+    end.
+    intros; apply H; simpl; omega.
+Qed.
+
+Lemma mps_p_star loc v (p1 p2 : Qc) :
+  (0 < p1 -> p1 <= 1 -> 0 < p2 -> p2 <= 1 -> p1 + p2 <= 1 ->
+   (loc |->p (p1 + p2, v) == (loc |->p (p1, v) *** loc |->p (p2, v))))%Qc.
+Proof.
+  simpl; unfold equiv_res, sat_res; simpl.
+  intros; apply pts_star_p; auto.
+Qed.
+
+Lemma array_p_star loc xs p q :
+  (0 < p -> p <= 1 -> 0 < q -> q <= 1 -> p + q <= 1 ->
+  array loc xs (p + q) == (array loc xs p *** array loc xs q))%Qc.
+Proof.
+  revert loc; induction xs; simpl; intros.
+  - rewrite emp_unit_l_res; reflexivity.
+  - rewrites* IHxs.
+    rewrite* mps_p_star; eauto.
+    rewrite <-!res_assoc, (res_CA (array (loc_off loc 1) xs p)); reflexivity.
+Qed.   
+
+Require Import QArith Qcanon.
+Ltac injZ_simplify :=
+  unfold injZ in *;
+  repeat rewrite Nat2Z.inj_succ in *;
+  repeat rewrite <-Z.add_1_r in *;
+  repeat rewrite inject_Z_plus in *;
+  repeat rewrite inject_Z_1 in *.
+
+Lemma QcmultQ p q : (this (p * q)%Qc == this p * this q)%Q.
+Proof.
+  unfold "*"%Qc.
+  unfold "!!"%Qc.
+  rewrite this_id.
+  apply Qred_correct.
+Qed.
+
+Lemma is_array_is_array_p_n loc xs (p : Qc) (nt : nat) :
+  (0 < p)%Qc -> (p <= 1)%Qc -> (injZ (Zn nt) * p <= 1)%Qc -> (nt <> 0)%nat -> 
+  forall st,
+    array loc xs (injZ (Z.of_nat nt) * p) == istar (ls_init st nt (fun i => array loc xs p)).
+Proof.
+  intros Hp0 Hp1 Hnp Hn0; induction nt as [|[|nt]]; intros; try omega.
+  - simpl.
+    asserts_rewrite (injZ 1 * p = p)%Qc.
+    { apply Qc_is_canon.
+      rewrite QcmultQ.
+      lra_Qc. }
+    rewrite emp_unit_r_res; reflexivity.
+  - remember (S nt) as nt'.
+    asserts_rewrite (Zn (S nt') = Zn nt' + 1)%Z.
+     { rewrite Nat2Z.inj_succ; omega. }
+     unfold injZ; rewrite inject_Z_plus; simpl.
+     asserts_rewrite (Q2Qc (inject_Z (Zn nt') + inject_Z 1) = injZ (Zn nt') + 1).
+     { apply Qc_is_canon.
+       unfold injZ, "+", Q2Qc.
+       rewrite !this_inv.
+       rewrite !Qred_correct.
+       reflexivity. }
+     rewrite Qcmult_plus_distr_l, Qcmult_1_l; eauto; simpl.
+Ltac Qc_to_Q :=
+  match goal with
+  | [q : Qc |- _] => destruct q; Qc_to_Q
+  | [|- _] =>
+    try applys Qc_is_canon;
+    repeat ( unfold Q2Qc, Qcmult, Qcplus, Qcdiv, Qcinv, Qclt, Qcle in *);
+    repeat (try rewrite this_inv in *; try rewrite Qred_correct in *)
+  end.
+
+     rewrite array_p_star, IHnt; [|subst nt'; unfold injZ in *; injZ_simplify; Qc_to_Q; eauto; pose proof (inject_Z_n_ge0 nt); try lra..|].
+     rewrite res_comm; reflexivity.
+     assert (0 <= inject_Z (Zn nt) * this)%Q by (apply Qmult_le_0_compat; lra_Qc).
+     lra.
+     injZ_simplify.
+     Qc_to_Q.
+     lra.
+Qed.
+
+Lemma is_array_is_array_p_1 loc xs (nt : nat) st :
+  (nt <> 0)%nat ->
+  array loc xs 1 ==
+  istar (ls_init st nt (fun i => array loc xs (1 / (injZ (Zn nt))))).
+Proof.    
+  intros; rewrite (@one_div_n nt) at 1; eauto.
+  apply is_array_is_array_p_n; eauto;
+  unfold injZ; Qc_to_Q; destruct nt; try omega; lets: (inject_Z_Sn_gt0 nt).
+  apply Qlt_shift_div_l; lra.
+  apply Qle_shift_div_r; try lra.
+  lets Heq: Qmult_div_r; unfold Qdiv in Heq; rewrite Heq; lra.
+Qed.

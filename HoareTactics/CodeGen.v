@@ -1,5 +1,5 @@
 Require Import GPUCSL scan_lib LibTactics Psatz CSLLemma Skel_lemma SetoidClass.
-Require Import CSLLemma CSLTactics.
+Require Import CSLLemma.
 
 Fixpoint assigns (vs : list var) (ctys : list CTyp) (es : list exp) :=
   match vs, es, ctys with
@@ -512,7 +512,7 @@ Lemma mpss_p_star ls vs p1 p2 :
   ls |=>p  (p1 + p2, vs) == (ls |=>p  (p1, vs) *** ls |=>p  (p2, vs)).
 Proof.
   revert vs; induction ls; intros [|v vs]; simpl; intros; eauto;
-  try rewrite emp_unit_l; try rewrite bot_bot; try reflexivity.
+  try rewrite emp_unit_l_res; try rewrite bot_bot; try reflexivity.
   rewrites* mps_p_star; rewrites* IHls.
   rewrite <-!res_assoc.
   rewrite (res_CA (a |->p (p2, v))); reflexivity.
@@ -527,7 +527,7 @@ Lemma arrays_p_star loc xs p q :
   arrays loc xs (p + q) == (arrays loc xs p *** arrays loc xs q).
 Proof.
   revert loc; induction xs; simpl; intros; eauto.
-  - rewrite emp_unit_l; reflexivity.
+  - rewrite emp_unit_l_res; reflexivity.
   - rewrite* mpss_p_star; rewrite* IHxs.
     rewrite <-!res_assoc.
     rewrite (res_CA (arrays (locs_off loc 1) xs p)); reflexivity.
@@ -555,7 +555,7 @@ Proof.
     { apply Qc_is_canon.
       rewrite QcmultQ.
       lra_Qc. }
-    rewrite emp_unit_r; reflexivity.
+    rewrite emp_unit_r_res; reflexivity.
   - remember (S nt) as nt'.
     asserts_rewrite (Zn (S nt') = Zn nt' + 1)%Z.
      { rewrite Nat2Z.inj_succ; omega. }
@@ -568,8 +568,7 @@ Proof.
        reflexivity. }
      rewrite Qcmult_plus_distr_l, Qcmult_1_l; eauto; simpl.
      rewrite arrays_p_star, IHnt; [|subst nt'; unfold injZ in *; injZ_simplify; Qc_to_Q; eauto; pose proof (inject_Z_n_ge0 nt); try lra..|].
-     split; intros; eauto; repeat sep_cancel'; eauto.
-     repeat sep_cancel'.
+     rewrite res_comm; reflexivity.
      assert (0 <= inject_Z (Zn nt) * this)%Q by (apply Qmult_le_0_compat; lra_Qc).
      lra.
      injZ_simplify.
@@ -630,8 +629,8 @@ Lemma array'_ok n ptr dist vals s p :
 Proof.
   revert s ptr; induction vals; intros; simpl.
   - intros s' h.
-    rewrite init_emp_emp; reflexivity.
-  - rewrite ls_star.
+    rewrite init_emp_emp_res; reflexivity.
+  - rewrite ls_star_res.
     rewrite IHvals.
     apply res_star_proper; try reflexivity.
     lazymatch goal with
@@ -641,8 +640,8 @@ Proof.
                   (ptr |=>p (p, a)) ::
                   ls_init ((dist s) + 1) (n - dist s - 1) (fun _ => Emp)))
     end.
-    rewrite istar_app, init_emp_emp; simpl; rewrite init_emp_emp.
-    rewrite emp_unit_l, emp_unit_r; reflexivity.
+    rewrite istar_app, init_emp_emp_res; simpl; rewrite init_emp_emp_res.
+    rewrite emp_unit_l_res, emp_unit_r_res; reflexivity.
     specialize (H s).
     simpl in *.
     cutrewrite (n = (dist s) + 1 + (n - dist s - 1)); [|omega].
@@ -708,15 +707,16 @@ Lemma fv_lEs_off es ix:
 Proof.
   unfold incl; intros x; induction es; simpl; eauto; try tauto.
   rewrite !in_app_iff in *.
-  intros H; des_disj H; eauto.
-  forwards*: IHes.
+  intros [[? | ?] | ?]; tauto.
 Qed.
+
 Lemma disjoint_app T (xs ys zs : list T) :
   disjoint xs (ys ++ zs) <-> disjoint xs ys /\ disjoint xs zs.
 Proof.
   induction xs; simpl; try tauto.
   rewrite !in_app_iff; split; intros; tauto.
 Qed.
+
 Lemma locs_off_length es ix :
   length (es +os ix) = length es.
 Proof.
@@ -783,7 +783,7 @@ Proof.
   - intros; forwards*Himp: H5.
     rewrites (>>arrays'_unfold i_n) in Himp; [|].
     rewrite ith_vals_length; tauto.
-    rewrite nth_skip_ls in Himp.
+    rewrite (nth_skip _ nil) in Himp.
     destruct Nat.eq_dec; [|forwards*: H7; try lia].
     destruct lt_dec; [|forwards*: H7; try lia].
     substs; rewrite <-!res_assoc in Himp; rewrites* res_CA in Himp.
@@ -870,7 +870,7 @@ Proof.
   rewrite skipn_set_nth_ignore, firstn_set_nth_ignore; eauto.
 Qed.
 
-Lemma rule_write_array'  ntrd BS
+Lemma rule_writes_array'  ntrd BS
       (tid : Fin.t ntrd) (les : list loc_exp) (ls : list loc) 
       (Env : list entry) (P : Prop) (Res Res' : res) (arr : list vals) dist ix i iz j es vs st:
   length les = length es ->
@@ -894,7 +894,7 @@ Proof.
   forwards*: H4.
   rewrite (arrays'_unfold i).
   2: rewrite ith_vals_length, length_set_nth; lia.
-  rewrite nth_skip_ls.
+  rewrite (nth_skip _ nil).
   destruct Nat.eq_dec; try lia.
   rewrite length_set_nth; destruct lt_dec; [|lia].
   rewrite nth_set_nth.
@@ -907,11 +907,10 @@ Proof.
   forwards*: H4.
   rewrite (arrays'_unfold i) in Hsat.
   2: rewrite ith_vals_length; lia.
-  rewrite nth_skip_ls in Hsat.
+  rewrite (nth_skip _ nil) in Hsat.
   destruct Nat.eq_dec; try (false; lia).
   destruct lt_dec; [|false; lia].
   rewrite <-!res_assoc, res_CA in Hsat; substs; eauto.
   rewrite ith_vals_set_nth, firstn_set_nth_ignore, skipn_set_nth_ignore.
   eauto.
-Qed.  
-  
+Qed.
