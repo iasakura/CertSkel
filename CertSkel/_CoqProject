@@ -1,5 +1,5 @@
 -R ../tlc/src TLC
 -I ../GPUCSL
 -I ../Skeletons
--I ../HoareTactics
+-I ../GPUVeLib
 -R ../repo/src Cpdt

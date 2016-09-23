@@ -722,6 +722,9 @@ Ltac hoare_forward_prim :=
     unfold l, i, v, n in *; clear l i v n;
       
     apply_write_rule Hle Hix He Hn P Res l' n'
+  | [|- CSL _ _ ?P (assigns ?xs _ ?es) ?Q] =>
+    apply rule_assigns; eauto
+
   | [|- CSL _ _ ?P (?x ::T _ ::= ?e) ?Q] =>
     idtac "hoare_forward_prim: match assign case";
     eapply rule_assign; evalExp

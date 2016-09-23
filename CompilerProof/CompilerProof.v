@@ -1,5 +1,6 @@
 Require Import Monad DepList GPUCSL TypedTerm Compiler.
 Require Import Program.Equality LibTactics.
+Require Import CodeGen CSLLemma CSLTactics.
 
 Section CorrectnessProof.
   Import Skel_lemma.
@@ -73,14 +74,15 @@ Section CorrectnessProof.
                             @nth_arr t2 i (List.map snd xs))
     end.
 
+  Notation APtrEnv GA := (hlist ptrType GA).
+
   (* precondition of free variable arrays *)
-  Definition assn_of_avs {GA : list Skel.Typ}
-    (aeval_env : AEvalEnv GA) (avar_env : AVarEnv GA) : assn :=
+  Definition res_of_avs {GA : list Skel.Typ}
+    (aeval_env : AEvalEnv GA) (aptr_env : APtrEnv GA) : res :=
     let f (_ : Skel.Typ) x :=
-        let '((len, arrs), ls) := x in
-        !((len : var) === Z.of_nat (length ls)) **
-        S.is_tuple_array_p (S.es2gls (S.vars2es arrs)) (length ls) (fun i => vs_of_sval (nth_arr i ls)) 0 1 in
-    conj_xs (undep_list (hmap f (hzip avar_env aeval_env))).
+        let '(ptr, ls) := x in
+        arrays (GLs ls) 
+    istar (undep_list (hmap f (hzip aptr_env aeval_env))).
   
   (* (* the set of free variables of scalar exp *) *)
   (* Variable free_svs : list varE. *)

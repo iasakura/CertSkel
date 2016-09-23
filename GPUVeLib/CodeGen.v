@@ -1,5 +1,14 @@
 Require Import GPUCSL scan_lib LibTactics Psatz CSLLemma Skel_lemma SetoidClass.
-Require Import CSLLemma.
+Require Import CSLLemma TypedTerm.
+
+Definition SLs := map SLoc.
+Definition GLs := map GLoc.
+
+Fixpoint ptrType ty :=
+  match ty with
+  | Skel.TBool | Skel.TZ => val
+  | Skel.TTup t1 t2 => (ptrType t1 * ptrType t2)
+  end%type.
 
 Fixpoint assigns (vs : list var) (ctys : list CTyp) (es : list exp) :=
   match vs, es, ctys with

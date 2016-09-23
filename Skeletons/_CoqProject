@@ -1,4 +1,4 @@
 -I .
 -R ../tlc/src TLC
 -I ../GPUCSL
--I ../HoareTactics
+-I ../GPUVeLib
