@@ -81,7 +81,7 @@ Section CorrectnessProof.
     (aeval_env : AEvalEnv GA) (aptr_env : APtrEnv GA) : res :=
     let f (_ : Skel.Typ) x :=
         let '(ptr, ls) := x in
-        arrays (GLs ls) 
+        arrays (GLs ptr) ls 1 in
     istar (undep_list (hmap f (hzip aptr_env aeval_env))).
   
   (* (* the set of free variables of scalar exp *) *)
