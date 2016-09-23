@@ -1,4 +1,5 @@
 -R ../tlc/src TLC
 -I ../GPUCSL
 -I ../Skeletons
+-I ../HoareTactics
 -R ../repo/src Cpdt

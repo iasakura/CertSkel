@@ -1,5 +1,5 @@
 Require Import GPUCSL scan_lib LibTactics Psatz CSLLemma SetoidClass.
-Require Import CSLLemma CSLTactics.
+Require Import Grid CSLLemma CSLTactics.
 
 Arguments div _ _ : simpl never.
 Arguments modulo _ _ : simpl never.

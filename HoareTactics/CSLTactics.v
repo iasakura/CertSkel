@@ -1,4 +1,4 @@
-Require Import GPUCSL scan_lib LibTactics Psatz CSLLemma SetoidClass Skel_lemma scan_lib CodeGen.
+Require Import GPUCSL scan_lib LibTactics Psatz SetoidClass Skel_lemma scan_lib CodeGen Grid CSLLemma.
 Notation val := Z.
 Arguments Z.add _ _ : simpl never.
 
@@ -1284,7 +1284,7 @@ Qed.
 Lemma sh_spec_assn_ok sdecs locs :
   (Ex vals, (sh_ok sdecs locs vals) //\\ sh_spec_assn sdecs locs vals) == sh_inv sdecs locs.
 Proof.
-  unfold sh_spec_assn, sh_inv, sh_ok, GCSL.sh_ok; revert locs; induction sdecs as [|[? ? ?] ?];
+  unfold sh_spec_assn, sh_inv, sh_ok, Grid.sh_ok; revert locs; induction sdecs as [|[? ? ?] ?];
   intros [|l locs]; split; intros [[|vs vals] [Hlen Hsat]]; unfold Apure in Hlen; simpl in *;
   try omega; unfold Assn in *; simpl in *; sep_split_in Hsat.
   - exists (@nil sh_val); split; eauto.
@@ -1321,7 +1321,7 @@ Qed.
 Lemma sh_spec_assn'_ok sdecs locs :
   (Ex vals, sh_ok sdecs locs vals //\\ sh_spec_assn' sdecs locs vals) == sh_inv' sdecs locs.
 Proof.
-  unfold sh_spec_assn', sh_inv', sh_ok, GCSL.sh_ok; revert locs; induction sdecs as [|[? ? ?] ?];
+  unfold sh_spec_assn', sh_inv', sh_ok, Grid.sh_ok; revert locs; induction sdecs as [|[? ? ?] ?];
   intros [|l locs]; split; intros [[|vs vals] [Hlen Hsat]]; unfold Apure in Hlen; simpl in *;
   try omega; unfold Assn in *; simpl in *; sep_split_in Hsat.
   - exists (@nil sh_val); split; eauto.
