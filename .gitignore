@@ -6,3 +6,5 @@
 *.cmi
 *.cmt
 *.annot
+*.merlin
+Makefile
