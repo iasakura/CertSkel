@@ -1,6 +1,6 @@
 -R ../tlc/src TLC
--I ../VeriSkel
+-I ../CertSkel
 -I ../GPUCSL
--I ../HoareTactics
+-I ../GPUVeLib
 -I ../Skeletons
 -R ../repo/src Cpdt
