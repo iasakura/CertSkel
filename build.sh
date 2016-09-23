@@ -4,5 +4,8 @@ dirs=(GPUCSL GPUVeLib Skeletons CompilerProof)
 
 for d in $dirs;
 do
-    pushd $d; make; popd
+    pushd $d;
+    coq_makefile -f _CoqProject -f Make -o Makefile
+    make; 
+    popd
 done
