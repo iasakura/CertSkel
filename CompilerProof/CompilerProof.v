@@ -177,7 +177,7 @@ Section CorrectnessProof.
   (*     + forwards*: (>>H2 (@HNext _ _ x _ m)). *)
   (* Qed. *)
   
-  Ltac unfoldM' := unfold get, set, ret in *; simpl in *; unfold bind_opt in *.
+  (* Ltac unfoldM' := unfold get, set, ret in *; simpl in *; unfold bind_opt in *. *)
 
   Lemma ctyps_of_typ__len_of_ty t : 
     length (ctyps_of_typ t) = len_of_ty t.
@@ -187,69 +187,8 @@ Section CorrectnessProof.
   Qed.
   Hint Resolve ctyps_of_typ__len_of_ty app_length.
 
-  Lemma compiler_preserve GA GS typ (se : Skel.SExp GA GS typ)
-        (avar_env : AVarEnv GA)
-        (svar_env : SVarEnv GS) (n0 n1 : nat)
-        c es :
-    (forall ty (m : member ty GS), length (hget svar_env m) = len_of_ty ty) ->
-    (forall ty (m : member ty GA), length (snd (hget avar_env m)) = len_of_ty ty) ->
-    compile_sexp se avar_env svar_env n0 = (inl (c, es), n1) ->
-    length es = len_of_ty typ.
-  Proof.
-    revert svar_env n0 n1 c es.
-    induction se; simpls*; introv Hsctx Hactx Hsucc.
-    - inverts Hsucc; simplify; eauto.
-    - inverts* Hsucc.
-    - unfoldM'.
-      destruct (compile_sexp se1 _ _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
-      destruct (compile_sexp se2 _ _ _) as [[(cs2 & es2) | ?] n'''] eqn:Hceq2; [|inversion Hsucc].
-      destruct b, es1 as [|? [| ? ?]], es2 as [|? [| ? ?]];
-        inverts Hsucc; simpl in *; try congruence; eauto; simpl in *; try case_if; inverts* Hop.
-    - unfoldM'.
-      destruct (compile_sexp se _ _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
-      destruct (hget avar_env m) as [? aname] eqn:Heq'.
-      destruct (freshes _ _) as [[fvs1 | ?] n''] eqn:Hfeq1; [|inversion Hsucc].
-      destruct es1 as [|i [|? ?]]; inverts Hsucc.
-      simplify.
-      rewrites* (>>freshes_len Hfeq1).
-    - destruct (hget avar_env m) eqn:Heq; simpl in *.
-      inverts* Hsucc.
-    - unfoldM'.
-      destruct (compile_sexp se1 _ _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
-      destruct (compile_sexp se2 _ _ _) as [[(cs2 & es2) | ?] n''] eqn:Hceq2; [|inversion Hsucc].
-      destruct (compile_sexp se3 _ _ _) as [[(cs3 & es3) | ?] n'''] eqn:Hceq3; [|inversion Hsucc].
-      destruct (freshes _ _) as [[fvs1 | ?] n''''] eqn:Hfeq1; [|inversion Hsucc].
-      destruct es1 as [|? [|? ?]]; simpl in *; inverts Hsucc.
-      forwards*: freshes_len; simplify.
-      rewrites* H.
-    - unfoldM'.
-      destruct (compile_sexp se1 _ _ _) as [[(ce1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
-      destruct (compile_sexp se2 _ _ _) as [[(ce2 & es2) | ?] n''] eqn:Hceq2; [|inversion Hsucc].
-      inversion Hsucc; rewrites* app_length.
-    - unfoldM'.
-      destruct (compile_sexp se _ _ _) as [[(ce1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
-      inverts* Hsucc; eauto.
-      rewrites* firstn_length; rewrites* min_l.
-      forwards*: IHse; omega.
-    - unfoldM'.
-      destruct (compile_sexp se _ _ _) as [[(ce1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
-      inverts* Hsucc; eauto.
-      rewrites* firstn_length; rewrites* skipn_length; rewrites* min_l.
-      forwards*: IHse; omega.
-    - unfoldM'.
-      destruct (compile_sexp se1 _ _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hsucc].
-      destruct (freshes _ _) as [[fvs1 | ?] n''] eqn:Hfeq1; [|inversion Hsucc].
-      destruct (compile_sexp se2 _ _ _) as [[(cs2 & es2) | ?] n'''] eqn:Hceq2; [|inversion Hsucc].
-      forwards*: IHse1; forwards*: IHse2.
-      { intros ty m; dependent destruction m; simpl; eauto.
-        forwards*: freshes_len.
-        forwards*: (ctyps_of_typ__len_of_ty t1); congruence. }
-      inverts* Hsucc.
-  Qed.
-
-
   Lemma read_tup_writes' (vs : list var) (ts : list CTyp) (es : list exp) :
-    forall x,  In x (writes_var (read_tup vs ts es)) -> In x vs.
+    forall x,  In x (writes_var (reads vs ts es)) -> In x vs.
   Proof.
     revert ts es; induction vs; simpl in *; introv; eauto.
     destruct es, ts; simpl; first [now destruct 1| destruct 1; jauto].
