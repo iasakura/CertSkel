@@ -1,6 +1,6 @@
 Require Import Monad DepList GPUCSL TypedTerm Compiler.
 Require Import Program.Equality LibTactics.
-Require Import CodeGen CSLLemma CSLTactics.
+Require Import CUDALib CodeGen CSLLemma CSLTactics.
 
 Section CorrectnessProof.
   Import Skel_lemma.
@@ -13,76 +13,115 @@ Section CorrectnessProof.
   (* (* the variable mapping environment between source and dest. *) *)
   (* Variable avar_env : hlist (fun _ => var * list var)%type GA. *)
 
-  Notation SVarEnv GS := (hlist (fun _ : Skel.Typ => list var) GS).
+  Notation SVarEnv GS := (hlist (fun typ : Skel.Typ => vars typ) GS).
   Notation SEvalEnv GS := (hlist Skel.typDenote GS).
-  Notation AVarEnv GA := (hlist (fun _ : Skel.Typ => (var * list var)%type) GA).
+  Notation AVarEnv GA := (hlist (fun typ : Skel.Typ => (var * vars typ)%type) GA).
+  Notation APtrEnv GA := (hlist (fun typ => vals typ) GA).
   Notation AEvalEnv GA := (hlist Skel.aTypDenote GA).
 
+  Fixpoint fold_hlist {A B C} (ls : list A) (g : B -> C -> C) (d : C) :=
+    match ls return (forall x, member x ls -> B) -> C with
+    | nil => fun _ => d
+    | x :: ls => fun f => g (f x HFirst) (fold_hlist ls g d (fun x m => f x (HNext m)))
+    end.
+
+  (* Bad naming: convert TypedIR level value to CUDA level value
+   *)
+  Fixpoint sc2CUDA {ty} :=
+    match ty return Skel.typDenote ty -> vals ty with
+    | Skel.TBool => fun b => if b then 1 else 0
+    | Skel.TZ => fun n => n
+    | Skel.TTup t1 t2 => fun p => (sc2CUDA (fst p), sc2CUDA (snd p))
+    end%Z.
+
+  Fixpoint arr2CUDA {ty} : Skel.aTypDenote ty -> list (vals ty) := map sc2CUDA.
+
+  Definition val2sh {ty} := @maptys ty _ _ SLoc.
+  Definition val2gl {ty} := @maptys ty _ _ GLoc.
+
+  Definition arrInvRes {GA} (aPtrEnv : APtrEnv GA) (aEvalEnv : AEvalEnv GA) : res :=
+    fold_hlist GA Star Emp
+      (fun x m => arrays (val2gl (hget aPtrEnv m)) (arr2CUDA (hget aEvalEnv m)) 1).
+
+  Definition arrInvVar {GA} (aVarEnv : AVarEnv GA) (aPtrEnv : APtrEnv GA) (aEvalEnv : AEvalEnv GA) : list entry :=
+    fold_hlist GA (@app entry) nil
+      (fun x m => let (xlen, xarr) := hget aVarEnv m in
+                  xlen |-> Zn (length (hget aEvalEnv m)) :: xarr |=> hget aPtrEnv m).
+
+  Definition scInv {GS} (sVarEnv : SVarEnv GS) (sEvalEnv : SEvalEnv GS) :=
+    fold_hlist GS (@app entry) nil
+      (fun x m => (hget sVarEnv m) |=> sc2CUDA (hget sEvalEnv m)). 
+
+  Definition kernelInv {GS GA}
+             (sVarEnv : SVarEnv GS) (sEvalEnv : SEvalEnv GS)
+             (aVarEnv : AVarEnv GA) (aPtrEnv : APtrEnv GA) (aEvalEnv : AEvalEnv GA) :=
+    Assn (arrInvRes aPtrEnv aEvalEnv) True (scInv sVarEnv sEvalEnv ++ arrInvVar aVarEnv aPtrEnv aEvalEnv).
+
   (* source lang. values -> dest. lang. values *)
-  Fixpoint vs_of_sval {ty : Skel.Typ} :=
-    match ty return Skel.typDenote ty -> list Z with
-    | Skel.TBool => fun b => (if b then 1%Z else 0%Z) :: nil
-    | Skel.TZ => fun z => z :: nil
-    | Skel.TTup t1 t2 => fun xy => vs_of_sval (fst xy) ++ vs_of_sval (snd xy)
-    end%list.
+  (* Fixpoint vs_of_sval {ty : Skel.Typ} := *)
+  (*   match ty return Skel.typDenote ty -> list Z with *)
+  (*   | Skel.TBool => fun b => (if b then 1%Z else 0%Z) :: nil *)
+  (*   | Skel.TZ => fun z => z :: nil *)
+  (*   | Skel.TTup t1 t2 => fun xy => vs_of_sval (fst xy) ++ vs_of_sval (snd xy) *)
+  (*   end%list. *)
 
   Variable sorry : forall A, A.
   Arguments sorry {A}.
 
-  Fixpoint hzip {A B C} {ls : list A}
-    (hl1 : hlist B ls) :=
-    match hl1 in hlist _ ls' return hlist C ls' -> hlist (fun x => (B x * C x))%type ls' with
-    | HNil => fun hl2 => 
-      match hl2 in hlist _ ls'' return match ls'' with | nil => _ | _ :: _ => unit end with
-      | HNil => HNil
-      | HCons _ _ _ _ => tt
-      end
-    | HCons _ _ x xs => fun hl2 => 
-      (match hl2 in hlist _ ls'' return match ls'' with | nil => unit | x :: ls''' => B x -> hlist B ls''' -> _ end with
-      | HNil => tt
-      | HCons _ _ y ys => fun x xs => (x, y) ::: hzip xs ys
-       end) x xs
-    end.
+  (* Fixpoint hzip {A B C} {ls : list A} *)
+  (*   (hl1 : hlist B ls) := *)
+  (*   match hl1 in hlist _ ls' return hlist C ls' -> hlist (fun x => (B x * C x))%type ls' with *)
+  (*   | HNil => fun hl2 =>  *)
+  (*     match hl2 in hlist _ ls'' return match ls'' with | nil => _ | _ :: _ => unit end with *)
+  (*     | HNil => HNil *)
+  (*     | HCons _ _ _ _ => tt *)
+  (*     end *)
+  (*   | HCons _ _ x xs => fun hl2 =>  *)
+  (*     (match hl2 in hlist _ ls'' return match ls'' with | nil => unit | x :: ls''' => B x -> hlist B ls''' -> _ end with *)
+  (*     | HNil => tt *)
+  (*     | HCons _ _ y ys => fun x xs => (x, y) ::: hzip xs ys *)
+  (*      end) x xs *)
+  (*   end. *)
 
-  Section TestHzip.
-    Variable A : Type.
-    Variable B C : A -> Type.
-    Variable x y : A.
-    Variable xs ys : list A.
+  (* Section TestHzip. *)
+  (*   Variable A : Type. *)
+  (*   Variable B C : A -> Type. *)
+  (*   Variable x y : A. *)
+  (*   Variable xs ys : list A. *)
 
-    Variable bx : B x.
-    Variable cx : C x. 
+  (*   Variable bx : B x. *)
+  (*   Variable cx : C x.  *)
 
-    Variable bxs : hlist B xs.
-    Variable cxs : hlist C xs.
+  (*   Variable bxs : hlist B xs. *)
+  (*   Variable cxs : hlist C xs. *)
     
-    Eval simpl in hzip (bx ::: bxs) (cx ::: cxs). 
-  End TestHzip.
+  (*   Eval simpl in hzip (bx ::: bxs) (cx ::: cxs).  *)
+  (* End TestHzip. *)
 
-  Fixpoint undep_list {A B} {xs : list A} (ls : hlist (fun _ => B) xs) : list B :=
-    match ls with
-    | HNil => nil
-    | HCons _ _ x xs => x :: (undep_list xs)
-    end.
+  (* Fixpoint undep_list {A B} {xs : list A} (ls : hlist (fun _ => B) xs) : list B := *)
+  (*   match ls with *)
+  (*   | HNil => nil *)
+  (*   | HCons _ _ x xs => x :: (undep_list xs) *)
+  (*   end. *)
 
-  Fixpoint nth_arr {ty : Skel.Typ} (i : nat) : Skel.aTypDenote ty -> Skel.typDenote ty :=
-    match ty with
-    | Skel.TZ => fun xs => nth i xs 0%Z
-    | Skel.TBool => fun xs => nth i xs false
-    | Skel.TTup t1 t2 => fun xs =>
-                           (@nth_arr t1 i (List.map fst xs), 
-                            @nth_arr t2 i (List.map snd xs))
-    end.
+  (* Fixpoint nth_arr {ty : Skel.Typ} (i : nat) : Skel.aTypDenote ty -> Skel.typDenote ty := *)
+  (*   match ty with *)
+  (*   | Skel.TZ => fun xs => nth i xs 0%Z *)
+  (*   | Skel.TBool => fun xs => nth i xs false *)
+  (*   | Skel.TTup t1 t2 => fun xs => *)
+  (*                          (@nth_arr t1 i (List.map fst xs),  *)
+  (*                           @nth_arr t2 i (List.map snd xs)) *)
+  (*   end. *)
 
-  Notation APtrEnv GA := (hlist ptrType GA).
+  (* Notation APtrEnv GA := (hlist ptrType GA). *)
 
   (* precondition of free variable arrays *)
-  Definition res_of_avs {GA : list Skel.Typ}
-    (aeval_env : AEvalEnv GA) (aptr_env : APtrEnv GA) : res :=
-    let f (_ : Skel.Typ) x :=
-        let '(ptr, ls) := x in
-        arrays (GLs ptr) ls 1 in
-    istar (undep_list (hmap f (hzip aptr_env aeval_env))).
+  (* Definition res_of_avs {GA : list Skel.Typ} *)
+  (*   (aeval_env : AEvalEnv GA) (aptr_env : APtrEnv GA) : res := *)
+  (*   let f (_ : Skel.Typ) x := *)
+  (*       let '(ptr, ls) := x in *)
+  (*       arrays (GLs ptr) ls 1 in *)
+  (*   istar (undep_list (hmap f (hzip aptr_env aeval_env))). *)
   
   (* (* the set of free variables of scalar exp *) *)
   (* Variable free_svs : list varE. *)
@@ -94,25 +133,25 @@ Section CorrectnessProof.
   (* Variable svar_env : Env varE (list var) _ . *)
 
   (* preconditions of scalar variables *)
-  Definition assn_of_svs {GS : list Skel.Typ}
-             (seval_env : hlist Skel.typDenote GS)
-             (svar_env : hlist (fun _ => list var) GS) : assn :=
-    let f (_ : Skel.Typ) x :=
-        let '(xs, vs) := x in
-        !(vars2es xs ==t vs_of_sval vs) in
-    conj_xs (undep_list (hmap f (hzip svar_env seval_env))).
+  (* Definition assn_of_svs {GS : list Skel.Typ} *)
+  (*            (seval_env : hlist Skel.typDenote GS) *)
+  (*            (svar_env : hlist (fun _ => list var) GS) : assn := *)
+  (*   let f (_ : Skel.Typ) x := *)
+  (*       let '(xs, vs) := x in *)
+  (*       !(vars2es xs ==t vs_of_sval vs) in *)
+  (*   conj_xs (undep_list (hmap f (hzip svar_env seval_env))). *)
   
-  Import scan_lib.
+  (* Import scan_lib. *)
 
   (* Arguments uniq {A} {eqt} x. *)
 
   (* Definition free_sv e := uniq (free_sv' e). *)
   (* Definition free_av e := uniq (free_av' e). *)
 
-  Ltac unfoldM := unfold freshes, get, set, ret in *; simpl in *; unfold bind_opt in *.
+  (* Ltac unfoldM := unfold freshes, get, set, ret in *; simpl in *; unfold bind_opt in *. *)
   
-  Lemma freshes_incr d m n xs :
-    freshes d n = (inl xs, m) ->
+  Lemma freshes_incr ty m n xs :
+    freshes d n = (, m) ->
     m = n + 1.
   Proof.
     revert n m xs; induction d; simpl; intros n m xs.
