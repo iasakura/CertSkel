@@ -121,7 +121,7 @@ Proof.
 Qed.
 
 Fixpoint EEq_tup {ty : Skel.Typ}  :=
-  match ty return vars ty -> vals ty -> _ with
+  match ty return exps ty -> vals ty -> _ with
   | Skel.TBool | Skel.TZ => fun x v => Ent x v :: nil
   | Skel.TTup _ _ => fun xs vs =>
     EEq_tup (fst xs) (fst vs) ++ EEq_tup (snd xs) (snd vs)
@@ -235,13 +235,38 @@ Ltac simplify_env := simpl in *;
                  no_side_cond ltac:(rewrite env_assns_removes_cons in *)
                 ]; unfold "//\\" in *) .
 
-Lemma env_assns_remove_app ty (xs : vars ty) vs e x :
-  disjoint x (flatTup xs) ->
-  remove_vars (EEq_tup xs vs ++ e) x = EEq_tup xs vs ++ remove_vars e x.
+Lemma disjoint_list_proj1 T (xs ys : list T) :
+  disjoint_list (xs ++ ys) -> disjoint_list xs.
 Proof.
-  revert e; induction ty; simpl; intros; try now applys* env_assns_removes_cons.
-  rewrite <-!app_assoc, IHty1, IHty2; eauto using disjoint_app_r1, disjoint_app_r2.
+  induction xs; simpl; eauto.
+  rewrite !in_app_iff; tauto.
 Qed.
+
+Lemma disjoint_list_proj2 T (xs ys : list T) :
+  disjoint_list (xs ++ ys) -> disjoint_list ys.
+Proof.
+  induction xs; simpl; eauto.
+  rewrite !in_app_iff; tauto.
+Qed.
+
+Lemma disjoint_list_app_disjoint T (xs ys : list T) :
+  disjoint_list (xs ++ ys) -> disjoint xs ys.
+Proof.
+  induction xs; simpl; eauto.
+  rewrite !in_app_iff; tauto.
+Qed.
+
+Ltac tac := eauto using disjoint_app_r1, disjoint_comm, disjoint_app_r2,
+            disjoint_list_proj1, disjoint_list_proj2, disjoint_list_app_disjoint.
+
+Lemma env_assns_remove_app ty (xs : exps ty) vs e x :
+  disjoint x (fv_Es xs)
+  -> remove_vars (EEq_tup xs vs ++ e) x = EEq_tup xs vs ++ remove_vars e x.
+Proof.
+  revert e; induction ty; simpl in *; intros; try now applys* env_assns_removes_cons; tac.
+  rewrite <-!app_assoc, IHty1, IHty2; eauto; intros; tac.
+Qed.
+
 Lemma remove_vars_nest (xs ys : list var) e :
   remove_vars e (xs ++ ys) =
   remove_vars (remove_vars e xs) ys.
@@ -256,6 +281,7 @@ Lemma evalExps_app_inv2 ty Env1 Env2 (e : exps ty) v:
 Proof.
   induction Env1; simpl; eauto using evalExps_cons_inv.
 Qed.
+
 Lemma evalExps_removes ty Env xs (es : exps ty) vs :
   disjoint xs (fv_Es es) ->
   evalExps Env es vs ->
@@ -264,23 +290,17 @@ Proof.
   induction xs; simpl; [|intros [? ?]]; eauto using evalExps_remove.
 Qed.
 
-Lemma disjoint_list_proj1 T (xs ys : list T) :
-  disjoint_list (xs ++ ys) -> disjoint_list xs.
+Lemma flatTup_map ty T1 T2 (f : T1 -> T2) (xs : typ2Coq T1 ty) :
+  flatTup (maptys f xs) = map f (flatTup xs).
 Proof.
-  induction xs; simpl; eauto.
-  rewrite !in_app_iff; tauto.
+  induction ty; simpl; eauto.
+  rewrite map_app; congruence.
 Qed.
-Lemma disjoint_list_proj2 T (xs ys : list T) :
-  disjoint_list (xs ++ ys) -> disjoint_list ys.
+
+Lemma in_v2e ty (xs : vars ty) e :
+  In e (flatTup (v2e xs)) -> exists x, e = Evar x /\ In x (flatTup xs).
 Proof.
-  induction xs; simpl; eauto.
-  rewrite !in_app_iff; tauto.
-Qed.
-Lemma disjoint_list_app_disjoint T (xs ys : list T) :
-  disjoint_list (xs ++ ys) -> disjoint xs ys.
-Proof.
-  induction xs; simpl; eauto.
-  rewrite !in_app_iff; tauto.
+  unfold v2e; intros H; rewrite flatTup_map, in_map_iff in H; destruct H as [? [? ?]]; eexists; split; eauto.
 Qed.
 
 Lemma rule_assigns
@@ -294,21 +314,25 @@ Lemma rule_assigns
   CSL BS tid
       (Assn Res P Env)
       (assigns xs tys es)
-      (Assn Res P (EEq_tup xs vs ++ (remove_vars Env (flatTup xs)))).
+      (Assn Res P (EEq_tup (v2e xs) vs ++ (remove_vars Env (flatTup xs)))).
 Proof.
-  Ltac tac := eauto using disjoint_app_r1, disjoint_comm, disjoint_app_r2,
-              disjoint_list_proj1, disjoint_list_proj2, disjoint_list_app_disjoint.
   revert Env; induction ty; simpl in *; try now (intros ? [Hnin _] Heval; eauto using rule_assign).
   intros Env Hdisj Hdisjxs [Heval1 Heval2]; eapply rule_seq; [apply IHty1 | eapply forward; [|apply IHty2] ]; jauto; tac.
   apply Assn_imply; eauto.
   intros x; repeat rewrite in_app_iff in *; intros [[? | ?] | ?]; tac.
-  
 
   rewrite env_assns_remove_app, in_app_iff; tac.
+  Lemma fv_Es_v2e ty (xs : vars ty) : fv_Es (v2e xs) = flatTup xs.
+  Proof.
+    unfold v2e in *; revert xs; induction ty; simpl in *; eauto.
+    congruence.
+  Qed.
+  rewrite fv_Es_v2e; tac.
+  
   rewrite env_assns_remove_app; tac.
   rewrite in_app_iff, <-remove_vars_nest; eauto.
+  rewrite fv_Es_v2e; tac.
   apply evalExps_app_inv2.
-
   apply evalExps_removes; tac.
 Qed.
 
@@ -387,7 +411,7 @@ Lemma rule_reads
   CSL BS tid
       (Assn Res P Env)
       (reads xs ctys es)
-      (Assn Res P (EEq_tup xs vs ++ (remove_vars Env (flatTup xs)))).
+      (Assn Res P (EEq_tup (v2e xs) vs ++ (remove_vars Env (flatTup xs)))).
 Proof.
   revert Env Res'; induction ty; simpl in *; try now (intros ? ? [Hnin _] Heval; eauto using rule_read).
   intros Env Res' Hdisj Hdisjxs [Heval1 Heval2] Hres; eapply rule_seq; [eapply IHty1 |]; tac.
@@ -398,9 +422,10 @@ Proof.
   intros x; repeat rewrite in_app_iff in *; intros [[? | ?] | ?]; tac.
 
   rewrite env_assns_remove_app, in_app_iff; tac.
+  { rewrite fv_Es_v2e; tac. }
   rewrite env_assns_remove_app; tac.
   rewrite in_app_iff, <-remove_vars_nest; eauto.
-
+  { rewrite fv_Es_v2e; tac. }
   apply evalLExps_app_inv2.
   apply evalLExps_removes; tac.
 
@@ -735,7 +760,7 @@ Lemma rule_reads_arrays (ty : Skel.Typ) (ntrd : nat) (BS : nat -> Vector.t assn 
   CSL BS tid
       (Assn Res P Env)
       (reads xs ctys (es +os ix))
-      (Assn Res P (EEq_tup xs (gets arr i_n) ++ (remove_vars Env (flatTup xs)))).
+      (Assn Res P (EEq_tup (v2e xs) (gets arr i_n) ++ (remove_vars Env (flatTup xs)))).
 Proof.
   intros.
   applys* rule_reads.
@@ -764,7 +789,7 @@ Lemma rule_reads_arrays' (ty : Skel.Typ) (ntrd : nat) (BS : nat -> Vector.t assn
   CSL BS tid
       (Assn Res P Env)
       (reads xs ctys (es +os ix))
-      (Assn Res P (EEq_tup xs (gets arr i_n) ++ (remove_vars Env (flatTup xs)))).
+      (Assn Res P (EEq_tup (v2e xs) (gets arr i_n) ++ (remove_vars Env (flatTup xs)))).
 Proof.
   intros.
   applys* rule_reads.
