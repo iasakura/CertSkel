@@ -122,12 +122,17 @@ Section compiler.
   Qed.
 
   Definition compile_op {t1 t2 t3 : Skel.Typ} (op : Skel.BinOp t1 t2 t3)  :=
-    match op in Skel.BinOp t1 t2 t3 return exps t1 -> exps t2 -> (cmd * exps t3) with
-    | Skel.Eplus => fun e1 e2 => (Cskip, Lang.Eplus e1 e2)
-    | Skel.Emult => fun e1 e2 => (Cskip, Lang.Emult e1 e2)
-    | Skel.Emin => fun e1 e2 => (Cskip, Lang.Emin e1 e2)
-    | Skel.BEq => fun e1 e2 => (Cskip, Lang.Eeq e1 e2)
-    | Skel.Blt => fun e1 e2 => (Cskip, Lang.Elt e1 e2)
+    match op in Skel.BinOp t1 t2 t3 return vars t1 -> vars t2 -> M (cmd * vars t3) with
+    | Skel.Eplus =>
+      fun e1 e2 => do! x := freshes Skel.TZ in ret (assigns x (ty2ctys _) (e1 +C e2), x)
+    | Skel.Emult =>
+      fun e1 e2 => do! x := freshes Skel.TZ in ret (assigns x (ty2ctys _) (e1 *C e2), x)
+    | Skel.Emin =>
+      fun e1 e2 => do! x := freshes Skel.TZ in ret (assigns x (ty2ctys _) (Emin e1 e2), x)
+    | Skel.BEq =>
+      fun e1 e2 => do! x := freshes Skel.TBool in ret (assigns x (ty2ctys _) (Eeq e1 e2), x)
+    | Skel.Blt => 
+      fun e1 e2 => do! x := freshes Skel.TBool in ret (assigns x (ty2ctys _) (Elt e1 e2), x)
     end.
 
   Fixpoint ctyps_of_typ (ty : Skel.Typ) :=
@@ -155,9 +160,10 @@ Section compiler.
   Fixpoint compile_sexp {GA GS : list Skel.Typ} {typ : Skel.Typ}
            (se : Skel.SExp GA GS typ) : 
     hlist (fun ty => var * vars ty)%type GA ->
-    hlist (fun ty => vars ty) GS -> M (cmd * exps typ) := match se with
-    | Skel.EVar _ _ _ v => fun avenv env => ret (Cskip, v2e (hget env v))
-    | Skel.ENum _ _ z => fun avenv env => ret (Cskip, Enum z)
+    hlist (fun ty => vars ty) GS -> M (cmd * vars typ) :=
+    match se with
+    | Skel.EVar _ _ _ v => fun avenv env => ret (Cskip, (hget env v))
+    | Skel.ENum _ _ z => fun avenv env => do! x := freshes Skel.TZ in ret (assigns x (ty2ctys _) (Enum z), x)
     | Skel.ELet _ _ t1 t2 e1 e2 => fun avenv env =>
       compile_sexp e1 avenv env >>= fun ces1 => 
       let (c1, es1) := ces1 in
@@ -165,25 +171,24 @@ Section compiler.
       freshes t1 >>= fun xs =>
       compile_sexp e2 avenv  (HCons xs env) >>= fun ces2 => 
       let (c2, es2) := ces2 in
-      ret (c1 ;; assigns xs (ty2ctys t1) es1 ;; c2, es2)
+      ret (c1 ;; assigns xs (ty2ctys t1) (v2e es1) ;; c2, es2)
     | Skel.EBin _ _ _ _ _ op e1 e2 => fun avenv env =>
       compile_sexp e1 avenv env >>= fun ces1 =>
       let (c1, e1) := ces1 in
       compile_sexp e2 avenv env >>= fun ces2 =>
       let (c2, e2) := ces2 in
-      let (c, es) := compile_op op e1 e2 in
+      do! ces := compile_op op e1 e2 in
+      let (c, es) := ces in
       ret (c1;; c2;; c, es)
     | Skel.EA _ _ typ va e => fun avenv env =>
       compile_sexp e avenv env >>= fun ces =>
       let (c, i) := ces in
       let (_, aname) := hget avenv va in
       freshes typ >>= fun xs =>
-      ret (c ;; reads xs (ty2ctys typ) (v2gl aname +os i), v2e xs)
+      ret (c ;; reads xs (ty2ctys typ) (v2gl aname +os i), xs)
     | Skel.ELen _ _ _ xa => fun avenv env =>
-      let (l, _) := hget avenv xa in ret (Cskip, (Evar l))
+      let (l, _) := hget avenv xa in ret (Cskip, l)
     | Skel.EPrj1 _ _ t1 t2 e => fun avenv env =>
-      let off := 0 in
-      let l := len_of_ty t1 in
       compile_sexp e avenv env >>= fun ces =>
       let (c, es) := ces in
       ret (c, fst es)
@@ -208,7 +213,7 @@ Section compiler.
       compile_sexp e3 avenv env >>= fun ces3 =>
       let (c3, e3) := ces3 in
       freshes ty >>= fun xs =>
-      ret (c1;; Cif (Bnot (Beq e1 0%Z)) (c2 ;; assigns xs (ty2ctys ty) e2) (c3 ;; assigns xs (ty2ctys ty) e3), v2e xs)
+      ret (c1;; Cif (Bnot (Beq e1 0%Z)) (c2 ;; assigns xs (ty2ctys ty) (v2e e2)) (c3 ;; assigns xs (ty2ctys ty) (v2e e3)), xs)
     end%list.
 End compiler.
 
@@ -412,8 +417,8 @@ Section Compiler.
 
   Definition type_of_ftyp (fty : Skel.FTyp) :=
     match fty with
-    | Skel.Fun1 dom cod => vars dom -> (cmd * exps cod)
-    | Skel.Fun2 dom1 dom2 cod => vars dom1 -> vars dom2 -> (cmd * exps cod)
+    | Skel.Fun1 dom cod => vars dom -> (cmd * vars cod)
+    | Skel.Fun2 dom1 dom2 cod => vars dom1 -> vars dom2 -> (cmd * vars cod)
     end.
 
   Fixpoint compile_func {GA fty} (body : Skel.Func GA fty) :
@@ -436,7 +441,7 @@ Section Compiler.
 
   Definition compile_AE {GA ty} (ae : Skel.AE GA ty) :
     hlist (fun ty => (var * vars ty))%type GA ->
-    ((var -> (cmd * exps ty))) :=
+    ((var -> (cmd * vars ty))) :=
     match ae with
     | Skel.DArr _ _ f len => fun avar_env =>
       let f' := compile_func f avar_env in
@@ -591,13 +596,13 @@ Section Compiler.
     forall dom cod,
       nat
       -> nat
-      -> (var -> cmd * exps dom)
-      -> (vars dom -> cmd * exps cod)
+      -> (var -> cmd * vars dom)
+      -> (vars dom -> cmd * vars cod)
       -> cmd.
 
   Definition mkMap GA dom cod ntrd nblk
-             (g : var -> cmd * exps dom)
-             (f : vars dom -> cmd * exps cod)
+             (g : var -> cmd * vars dom)
+             (f : vars dom -> cmd * vars cod)
              : kernel :=
     let arr_vars := gen_params GA in
     let params_in := flatten_avars arr_vars in
@@ -653,8 +658,8 @@ Section Compiler.
       nat
       -> nat
       -> nat (* # of unrolling *)
-      -> (var -> (cmd * exps typ))
-      -> (vars typ -> vars typ -> cmd * exps typ)
+      -> (var -> (cmd * vars typ))
+      -> (vars typ -> vars typ -> cmd * vars typ)
       -> cmd.
 
   Fixpoint addTyp {ty} :=
@@ -793,4 +798,5 @@ Section Compiler.
     let '(res, (_, (instrs, kers))) := compile_AS ntrd nblk host_var_env' p (n, (nil, nil)) in
     let pars := concat (map (fun x => (Int, fst x) :: toPtr (snd x)) host_var_env) in
     Build_Prog pars instrs res kers.
-End Compiler.
+End Compiler
+.
