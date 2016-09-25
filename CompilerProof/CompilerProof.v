@@ -187,25 +187,25 @@ Section CorrectnessProof.
   Qed.
   Hint Resolve ctyps_of_typ__len_of_ty app_length.
 
-  Lemma read_tup_writes' (vs : list var) (ts : list CTyp) (es : list exp) :
-    forall x,  In x (writes_var (reads vs ts es)) -> In x vs.
+  Lemma assigns_writes ty (vs : vars ty) (ts : ctys ty) (es : exps ty) :
+    forall x, In x (writes_var (assigns vs ts es)) -> In x (flatTup vs).
   Proof.
-    revert ts es; induction vs; simpl in *; introv; eauto.
-    destruct es, ts; simpl; first [now destruct 1| destruct 1; jauto].
+    induction ty; simpl; eauto.
+    introv; rewrite !in_app_iff; firstorder.
   Qed.
 
-  Lemma gen_read_writes' loc (vs : list var) (ts : list CTyp) (es : list exp) e:
-    forall x,  In x (writes_var (S.gen_read loc vs ts es e)) -> In x vs.
+  Lemma reads_writes ty (xs : vars ty) (ts : ctys ty) (es : lexps ty):
+    forall x,  In x (writes_var (reads xs ts es)) -> In x (flatTup xs).
   Proof.
-    revert ts es; induction vs; simpl in *; introv; eauto.
-    destruct es, ts; simpl; first [now destruct 1| destruct 1; jauto].
+    induction ty; simpl; eauto.
+    introv; rewrite !in_app_iff; firstorder.
   Qed.
   
   Lemma compile_wr_vars GA GS typ (se : Skel.SExp GA GS typ)
         (svar_env : SVarEnv GS) (avar_env : AVarEnv GA) (n0 n1 : nat) c es :
-    compile_sexp se avar_env svar_env n0 =  (inl (c, es), n1) ->
+    compile_sexp se avar_env svar_env n0 = ((c, es), n1) ->
     (forall x, In x (writes_var c) ->
-               exists k l, (Var (str_of_pnat k l)) = x /\ n0 <= k < n1).
+               exists k l, (Var (lpref k ++ nat2str l)) = x /\ n0 <= k < n1).
   Proof.
     Lemma id_mark A (x : A) :
       x = id x. eauto. Qed.
@@ -213,10 +213,10 @@ Section CorrectnessProof.
     Ltac fwd H := first [forwards* (? & ? & ? & ?): H | forwards* (? & ? & ?): H ].
     revert n0 n1 svar_env c es; induction se; simpl;
       intros n0 n1 svar_env c es' Hsuc; eauto; try inverts Hsuc as Hsuc;
-    eauto; unfoldM'; unfold compile_op in *;
+    eauto; try (unfoldM_in Hsuc); unfold compile_op in *;
           (repeat lazymatch type of Hsuc with
-             | context [compile_sexp ?X ?Y ?Z ?n] => destruct (compile_sexp X Y Z n) as [[(? & ?) | ?] ?] eqn:?
-             | context [freshes ?X ?Y] => destruct (freshes X Y) as ([? | ?] & ?) eqn:?
+             | context [compile_sexp ?X ?Y ?Z ?n] => destruct (compile_sexp X Y Z n) as [(? & ?)?] eqn:?
+             | context [freshes ?X ?Y] => destruct (freshes X Y) as ([?] & ?) eqn:?
              end);
     (repeat lazymatch goal with [H : context [match ?E with | _ => _ end]|- _] => destruct E eqn:? end);
     (repeat lazymatch goal with [H : (_, _) = (_, _) |- _] => inverts* H end);
@@ -224,11 +224,11 @@ Section CorrectnessProof.
     repeat lazymatch goal with
       | [H : False |- _] => destruct H
       | [H : _ \/ _ |- _] => destruct H
-      end;
-    try (forwards (? & ? & ? & ?): IHse; [now auto_star..|idtac]);
-    try (forwards (? & ? & ? & ?): IHse1; [now auto_star..|idtac]);
-    try (forwards (? & ? & ? & ?): IHse2; [now auto_star..|idtac]);
-    try (forwards (? & ? & ? & ?): IHse3; [now auto_star..|idtac]);
+      end; simpl in *; try tauto;
+    try (forwards (? & ? & ? & ?): IHse; [now auto_star..|idtac]; substs);
+    try (forwards (? & ? & ? & ?): IHse1; [now auto_star..|idtac]; substs);
+    try (forwards (? & ? & ? & ?): IHse2; [now auto_star..|idtac]; substs);
+    try (forwards (? & ? & ? & ?): IHse3; [now auto_star..|idtac]; substs);
     repeat lazymatch goal with
       | [H : compile_sexp ?A ?B ?C ?D = ?E |- _] =>
           forwards*: (>>compile_don't_decrease H);
@@ -236,19 +236,12 @@ Section CorrectnessProof.
       | [H : freshes ?A ?B = ?C |- _] =>
         forwards*: (>>freshes_incr H);
             rewrite (id_mark _ (freshes A B = C)) in H
-      end; unfold id in *; 
-    try (repeat eexists; eauto; omega);
-    try (forwards ?: gen_read_writes'; [now auto_star..|idtac]);
-    try (forwards ?: read_tup_writes'; [now auto_star..|idtac]);
+      end;
+    unfold id in *; substs; unfold lpref; (try now (do 2 eexists; split; simpl; eauto; omega));
+    try (forwards ?: reads_writes; [now auto_star..|idtac]);
+    try (forwards ?: assigns_writes; [now auto_star..|idtac]);
     try (forwards (? & ? & ?): freshes_vars; [now auto_star..|idtac]);
-    try (repeat eexists; eauto; omega).
-    Grab Existential Variables.
-    (* TODO: Fix me!*)
-    apply (Var "").
-    apply (Var "").
-    apply (Var "").
-    apply (Var "").
-    apply (Var "").
+    try (substs; repeat eexists; eauto; omega).
   Qed.
 
   Lemma freshes_disjoint d n m xs :
