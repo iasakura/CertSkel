@@ -111,3 +111,61 @@ Fixpoint flatTup {ty : Skel.Typ} {T : Type} :=
   | Skel.TBool | Skel.TZ => fun x => x :: nil
   | Skel.TTup _ _ => fun xs => flatTup (fst xs) ++ flatTup (snd xs)
   end.
+
+Fixpoint locals pref ty i : vars ty :=
+  match ty return vars ty with
+  | Skel.TBool | Skel.TZ => Var (pref ++ nat2str i)
+  | Skel.TTup t1 t2 =>
+    (locals pref t1 i, locals pref t2 (nleaf t1 + i))
+  end.
+
+Definition str_of_var v : string :=
+  match v with
+    | Var v => v
+  end.
+
+Lemma prefix_cat s1 s2 : prefix s1 (s1 ++ s2) = true.
+Proof.
+  induction s1; destruct s2; simpl; auto;
+  rewrite IHs1; destruct Ascii.ascii_dec; congruence.
+Qed.  
+
+Lemma locals_pref grp typ i x :
+  List.In x (flatTup (locals grp typ i))
+  -> exists j, x = Var (grp ++ nat2str j) /\ i <= j < nleaf typ + i.
+Proof.
+  revert i; induction typ; simpl; introv H;
+  try now (destruct H as [H | []]; substs; simpl; eexists; split; eauto; omega).
+  rewrite in_app_iff in H; destruct H as [H|H];
+  [apply IHtyp1 in H as [j [? ?]] | apply IHtyp2 in H as [j [? ?]]]; auto;
+  substs; eexists; split; eauto; omega.
+Qed.
+
+Lemma locals_not_in grp typ n m:
+  n + (nleaf typ) <= m ->
+  ~In (Var (grp ++ nat2str m)) (flatTup (locals grp typ n)).
+Proof.
+  revert n m; induction typ; simpl; introv Hle Hc;
+  try (destruct Hc as [Hc|[]]; inverts Hc as Hc; apply string_inj2 in Hc; eauto;
+       apply nat_to_string_inj in Hc; omega).
+  rewrite in_app_iff in Hc; destruct Hc as [Hc | Hc]; [apply IHtyp1 in Hc| apply IHtyp2 in Hc];
+  eauto; omega.
+Qed.
+  
+Lemma disjoint_list_app T (ls1 : list T) ls2 :
+  disjoint_list ls1 -> disjoint_list ls2
+  -> (forall x, In x ls1 -> ~ In x ls2)
+  -> disjoint_list (ls1 ++ ls2).
+Proof.
+  induction ls1; simpl; eauto.
+  intros [? ?] ? Hdisj12; rewrite in_app_iff; split; eauto.
+  intros [? | ?]; firstorder.
+Qed.
+
+Lemma locals_disjoint_ls grp typ n : disjoint_list (flatTup (locals grp typ n)).
+Proof.
+  revert n; induction typ; simpl; introv; try tauto.
+  apply disjoint_list_app; eauto.
+  introv H Hc; apply locals_pref in H as [j [? ?]]; apply locals_pref in Hc as [j' [? ?]]; substs.
+  inverts H1 as H; apply string_inj2, nat_to_string_inj in H; auto; omega.
+Qed.

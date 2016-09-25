@@ -2,6 +2,7 @@ Require Import GPUCSL.
 Require Import scan_lib.
 Require Import LibTactics.
 Require Import Psatz.
+Require Import CUDALib.
 
 Notation perm_n n := (1 / injZ (Zn n))%Qc.
 
@@ -196,12 +197,14 @@ Qed.
 
 Definition dim := nat.
 
-Eval compute in nat_to_string 10.
-
 (* In real accelerate compiler, names_of_array generates length variables for
    multi-dimention arrays. Currently, I only supports one-dimention arrays for
    simplicity.
  *)
+(* Definition names_of_array grp d := ls_init 0 d (fun i => "arr" ++ grp ++ nat_to_string i)%string. *)
+(* Definition name_of_len grp := ("sh" ++ grp)%string. *)
+(* Definition names_of_arg grp d := (name_of_len grp, names_of_array grp d). *)
+
 Open Scope list_scope.
 Require Import List.
 
@@ -418,12 +421,6 @@ Definition writeArray grp d pl : (list exp * exp * (exp -> list exp -> list cmd)
   let (l, grp) := names_of_arg grp d in
   (ss2es grp, Evar (Var l), gen_write pl (map (fun x => Evar (Var x)) grp)).
 
-Fixpoint locals base n :=
-  match n with
-  | S n => (Var (base ++ nat_to_string n)) :: locals base n
-  | 0 => nil
-  end%list.
-
 Definition sublEs x e es := List.map (fun e' => sublE x e e') es.
 Definition subEs x e es := List.map (fun e' => subE x e e') es.
 
@@ -510,11 +507,6 @@ Create HintDb subE_simpl.
 Hint Rewrite sublEs_es2gls sublEs_es2shs subEs_vs2es : subE_simpl.
 
 Tactic Notation "subE_simpl" "in" "*" := repeat (autorewrite with subE_simpl in *).
-
-Definition str_of_var v : string :=
-  match v with
-    | Var v => v
-  end.
 
 Notation string_eq s1 s2 := (if string_dec s1 s2 then true else false).
 
@@ -938,7 +930,7 @@ Proof.
   forwards: (>>H a ___); try congruence; eauto.
 Qed.  
 
-
+Definition grpOfInt n := ("In" ++ nat2str n)%string.
 
 Fixpoint input_spec env env_den p :=
   match env, env_den with
@@ -1105,19 +1097,6 @@ Proof.
   intros; auto.
 Qed.
 
-Lemma prefix_cat s1 s2 : prefix s1 (s1 ++ s2) = true.
-Proof.
-  induction s1; destruct s2; simpl; auto;
-  rewrite IHs1; destruct Ascii.ascii_dec; congruence.
-Qed.  
-
-Lemma locals_pref grp d x : List.In x (locals grp d) -> prefix grp (str_of_var x) = true.
-Proof.
-  induction d; simpl; [destruct 1|].
-  intros [H|H]; subst; simpl; eauto.
-  rewrite prefix_cat; auto.
-Qed.
-
 Lemma mps_eq1_tup' (Es : list loc_exp) (E1 E1' : exp) (E2 : list exp) (p : Qc) (s : stack) :
   (E1 === E1') s (emp_ph loc) ->
   s ||= is_tuple_p (tarr_idx Es E1) E2 p <=>
@@ -1157,28 +1136,6 @@ Proof.
       inversion H; congruence.
 Qed.
 End String_lemma.
-
-Lemma locals_not_in grp n m:
-  n <= m ->
-  ~In (Var (grp ++ nat_to_string m)) (locals grp n).
-Proof.
-  remember nat_to_string as to_s.
-  revert m; induction n; simpl; intros [|m]; eauto; try omega.
-  intros Hnm [Hc | Hc].
-  + inverts Hc as Hc'.
-    apply string_inj2 in Hc'; auto.
-    subst; apply nat_to_string_inj in Hc'; omega.
-  + apply IHn in Hc; eauto; omega.
-Qed.        
-  
-Lemma locals_disjoint_ls grp n : disjoint_list (locals grp n).
-Proof.
-  induction n; simpl; auto; split; eauto; intros Hc.
-  apply locals_not_in in Hc; eauto.
-Qed.
-
-Lemma locals_length grp n : length (locals grp n) = n.
-Proof. induction n; simpl; auto; rewrite IHn; auto. Qed.
 
 Lemma inde_is_tup_arr Es l f s p vs :
   (forall e v, In e Es -> In v vs -> indelE e v) ->
