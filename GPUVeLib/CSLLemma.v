@@ -37,7 +37,7 @@ Definition loc2lexp (v : loc) :=
 
 Coercion loc2lexp : loc >-> loc_exp.
 
-Inductive entry := Ent {ent_e : exp; ent_v : val}.
+Inductive entry := Ent {ent_e : var; ent_v : val}.
 Definition ent_assn_denote va :=
   match va with
   | Ent x v => x === v
@@ -221,14 +221,14 @@ Proof.
 Qed.
 
 Definition remove_var (Env : list entry) (x : var) :=
-  filter (fun e => if In_dec var_eq_dec x (fv_E (ent_e e)) then false else true) Env.
+  filter (fun e => if var_eq_dec x (ent_e e) then false else true) Env.
 
 Lemma remove_var_imp (Env : list entry) x :
   env_assns_denote Env ===> env_assns_denote (remove_var Env x).
 Proof.
   induction Env; simpl; eauto.
   intros s h [? ?].
-  destruct in_dec; simpl;  eauto.
+  destruct var_eq_dec; simpl;  eauto.
   split; eauto.
 Qed.
 
@@ -236,12 +236,11 @@ Lemma remove_var_inde (Env : list entry) x :
   inde (env_assns_denote (remove_var Env x)) (x :: nil).
 Proof.
   induction Env; simpl; prove_inde.
-  destruct in_dec; simpl; prove_inde.
+  destruct var_eq_dec; simpl; prove_inde.
   destruct a; simpl in *.
   apply inde_eeq; rewrite Forall_forall; intros;
-  apply indeE_fv; eauto.
-  simpl in *; destruct H; try tauto; subst.
-  eauto.
+  apply indeE_fv; simpl; eauto.
+  simpl in *; destruct H as [? | []]; intros [? | []]; congruence.
 Qed.
 
 Definition fv_env (Env : list entry) := 
@@ -270,11 +269,12 @@ Proof.
   induction Env; intros Hdis; simpl; prove_inde.
   - destruct a; simpl in *.
     prove_inde; rewrite Forall_forall; eauto; intros.
-    apply indeE_fv; intros Hc.
-    apply disjoint_app_r1 in Hdis.
-    forwards*: (>>disjoint_not_in_r Hdis).
+    apply indeE_fv; intros Hc; simpl in *.
+    destruct Hc as [|[]]; substs.
+    apply disjoint_comm in Hdis; simpl in *; tauto.
   - simpl in Hdis.
-    apply disjoint_app_r2 in Hdis; eauto.
+    apply disjoint_comm in Hdis; simpl in *.
+    apply IHEnv, disjoint_comm; tauto.
 Qed.
 
 Lemma res_inde (Res : res) s s' h:

@@ -569,14 +569,14 @@ Ltac choose_var_vals :=
   let H := fresh in
   let e := fresh in
   unfold incl; simpl; intros e H;
-  des_disj H; substs; eauto 10;
+  repeat rewrite in_app_iff in *; des_disj H; substs; eauto 10;
   let rec tac :=
       match goal with
       | [|- ?x |-> ?v = ?x |-> ?v' \/ ?H] =>
         left; cutrewrite (v = v'); eauto;
         solve_zn
       | [|- _ \/ ?H] => right; tac
-      end in tac.
+      end in try tac.
 
 Ltac prove_imp :=
   let s := fresh "s" in
@@ -856,8 +856,8 @@ Proof.
   unfold Assn; split; intros Hsat; sep_split_in Hsat; sep_split; eauto;
   induction Env as [|[? ?] ?]; simpl in *; eauto; destruct HP0; split;
   unfold_conn_all; simpl in *; eauto;
-  [rewrites (>>fv_edenot s1); [|eauto];
-   intros; rewrites* H..].
+  try rewrite <-H; eauto.
+  rewrite H; eauto.
 Qed.
 
 Lemma low_assn_ex {T : Type} G (P : T -> assn) :
@@ -938,7 +938,7 @@ Proof.
   intros; eapply rule_conseq; eauto.
 Qed.
 
-Lemma assn_var_in Res P Env x (v : val) :
+Lemma assn_var_in Res P Env (x : var) (v : val) :
   (Assn Res P Env ** !(x === v)) == (Assn Res P (x |-> v :: Env)).
 Proof.
   unfold Assn; split; simpl; intros H; sep_split_in H; sep_split; eauto.
@@ -1472,7 +1472,7 @@ Proof. eauto using rule_grid. Qed.
 
 Lemma inde_assn_vars:
   forall (R : res) (P : Prop) (Env : list entry) (E : list var),
-    (forall (e : exp) (x : var) (v : val),
+    (forall (e : var) (x : var) (v : val),
         In (e |-> v) Env -> In x (Skel_lemma.fv_E e) -> ~In x E) ->
     inde (Assn R P Env) E.
 Proof.
@@ -1480,10 +1480,10 @@ Proof.
   unfold inde; simpl.
   unfold Assn; split; intros Hsat; sep_split_in Hsat; sep_split; eauto;
   induction Env as [|[? ?] ?]; simpl in *; eauto; destruct HP0; split;
-  unfold_conn_all; simpl in *; eauto;
-  [erewrite fv_edenot; eauto;
-   unfold var_upd; intros; destruct var_eq_dec; substs; eauto;
-   forwards*: H..].
+  unfold_conn_all; simpl in *; eauto.
+  unfold var_upd; intros; destruct var_eq_dec; substs; eauto.
+  forwards*: H.
+  rewrite <-H1; unfold var_upd; destruct var_eq_dec; substs; forwards*: H.
 Qed.
 
 Lemma has_no_vars_assn R P : 
