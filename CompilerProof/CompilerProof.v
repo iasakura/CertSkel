@@ -59,41 +59,24 @@ Section CorrectnessProof.
 
   Variable sorry : forall A, A.
   Arguments sorry {A}.
+
+  Ltac unfoldM := repeat (unfold bind_opt, ret; simpl).
   
   Lemma freshes_incr ty m n xs :
-    freshes d n = (, m) ->
+    freshes ty n = (xs, m) ->
     m = n + 1.
   Proof.
-    revert n m xs; induction d; simpl; intros n m xs.
-    - unfoldM; simpl; intros H; inverts H; eauto.
-    - unfoldM.
-      lazymatch goal with [|- context [(Var _ :: ?E) ]] => remember E eqn:Heq end.
-      intros H; inverts H.
-      forwards*: (>>IHd n).
+    unfold freshes; unfoldM; inversion 1; auto.
   Qed.
   
   (* some lemma for generetated variables *)
-  Lemma freshes_vars d n m xs:
-    freshes d n = (inl xs, m) ->
-    (forall x, In x xs -> exists l, x = Var (str_of_pnat n l) /\ l < d).
+  Lemma freshes_vars ty n m xs:
+    freshes ty n = (xs, m) ->
+    (forall x, In x (flatTup xs) -> exists l, x = Var (lpref n ++ nat2str l) /\ l < (nleaf ty)).
   Proof.
-    revert n m xs; induction d; simpl; intros n m xs; unfoldM.
-    - intros H; inverts H.
-      destruct 1.
-    - unfoldM.
-      lazymatch goal with [|- context [(Var _ :: ?E) ]] => remember E eqn:Heq end.
-      intros H; inverts H.
-      intros ? H'; apply in_inv in H' as [? | ?]; eauto.
-      forwards* (? & ?): IHd.
-      substs; eauto.
-  Qed.
-  
-  Lemma freshes_len d n m xs:
-    freshes d n = (inl xs, m) -> length xs = d.
-  Proof.
-    revert n m xs; induction d; unfoldM;
-      simpl; inversion 1; simpl in *; try omega.
-    forwards * : IHd.
+    unfold freshes; unfoldM; inversion 1.
+    intros; forwards* [j [? ?]]: locals_pref; eexists; split; substs; unfold lpref; simpl; eauto.
+    omega.
   Qed.
 
   Lemma var_pnat_inj n m n' m' : Var (str_of_pnat n m) = Var (str_of_pnat n' m') -> n = n' /\ m = m'.
@@ -106,32 +89,31 @@ Section CorrectnessProof.
   Variable ntrd : nat.
   Variable tid : Fin.t ntrd.
   Variable BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd.
-  Arguments assn_of_svs _ _ _ _ _ : simpl never.
-  Arguments assn_of_avs : simpl never.
+  (* Arguments assn_of_svs _ _ _ _ _ : simpl never. *)
+  (* Arguments assn_of_avs : simpl never. *)
   (* Tactic Notation "simpl_avs" "in" hyp(HP) := unfold assn_of_svs, SE.assn_of_vs, SE.fold in HP; simpl in HP. *)
   (* Tactic Notation "simpl_avs" := unfold assn_of_svs, SE.assn_of_vs, SE.fold; simpl. *)
   (* Tactic Notation "simpl_avs" "in" "*" := unfold assn_of_svs, SE.assn_of_vs, SE.fold in *; simpl in *. *)
   (* Arguments flip / _ _ _ _ _ _. *)
   Require Import SetoidClass.
-  Instance ban_proper stk : Proper (equiv_sep stk ==> equiv_sep stk) ban.
-  Proof.
-    intros P1 P2 Heq h; lets:(Heq h).
-    unfold ban, Aconj; rewrite H; split; eauto.
-  Qed.
-
+  (* Instance ban_proper stk : Proper (equiv_sep stk ==> equiv_sep stk) ban. *)
+  (* Proof. *)
+  (*   intros P1 P2 Heq h; lets:(Heq h). *)
+  (*   unfold ban, Aconj; rewrite H; split; eauto. *)
+  (* Qed. *)
+  Ltac unfoldM_in H := repeat (unfold bind_opt, ret in H; simpl in H).
   Lemma compile_don't_decrease GA GS typ
     (se : Skel.SExp GA GS typ) c es
     (avar_env : AVarEnv GA) (svar_env : SVarEnv GS) n0 n1 :
-    compile_sexp se avar_env svar_env n0 = (inl (c, es), n1) ->
+    compile_sexp se avar_env svar_env n0 = ((c, es), n1) ->
     n0 <= n1.
   Proof.
     revert n0 n1 svar_env c es; induction se; simpl;
-      intros n0 n1 svar_env c es' Hsuc; eauto; try inverts Hsuc as Hsuc;
-    eauto; unfoldM;
-          (repeat lazymatch type of Hsuc with
-             | context [compile_sexp ?X ?Y ?Z ?n] => destruct (compile_sexp X Y Z n) as [[(? & ?) | ?] ?] eqn:?
-             | context [freshes ?X ?Y] => destruct (freshes X Y) as ([? | ?] & ?) eqn:?
-             end);
+      intros n0 n1 svar_env c es' Hsuc; eauto; inverts Hsuc as Hsuc; eauto; try (unfoldM_in Hsuc);
+    (repeat lazymatch type of Hsuc with
+       | context [compile_sexp ?X ?Y ?Z ?n] => destruct (compile_sexp X Y Z n) as ((?, ?), ?) eqn:?
+       | context [freshes ?X ?Y] => destruct (freshes X Y) as ([? | ?] & ?) eqn:?
+       end);
     (repeat lazymatch goal with [H : context [match ?E with | _ => _ end]|- _] => destruct E eqn:? end);
           try now (inverts Hsuc; first
             [now auto|
@@ -143,17 +125,6 @@ Section CorrectnessProof.
              forwards*: IHse; forwards*: freshes_incr; omega |
              forwards*: IHse; omega]).
   Qed.
-
-  (* Lemma fold_assn_svs se sv : *)
-  (*   SE.assn_of_vs SVal se (fun (x_e : VarE_eq.t) (v : SVal) => !(vars2es (sv x_e) ==t vs_of_sval v)) = *)
-  (*   assn_of_svs se sv. auto. Qed. *)
-  (* Lemma fold_assn_avs : *)
-  (*   SA.assn_of_vs array aeval_env *)
-  (*     (fun (x_a : VarA_eq.t) (a : array) => *)
-  (*        !(fst (avar_env x_a) === Z.of_nat (length a)) ** *)
-  (*        S.is_tuple_array_p (S.es2gls (S.vars2es (snd (avar_env x_a)))) *)
-  (*                           (length a) (fun i : nat => vs_of_sval (nth i a (VZ 0))) 0 1) = *)
-  (*   assn_of_avs. auto. Qed. *)
 
   Lemma inde_equiv P P' xs :
     (forall stk, stk ||= P <=> P') ->
@@ -173,38 +144,38 @@ Section CorrectnessProof.
     | y ::: ys => x = y \/ hIn x ys
     end.
 
-  Lemma inde_assn_of_svs GS (seval_env : SEvalEnv GS)
-        (svar_env : SVarEnv GS) (xs : list var) :
-    (forall x ty (m : member ty GS), In x xs -> ~In x (hget svar_env m)) ->
-    inde (assn_of_svs seval_env svar_env) xs.
-  Proof.
-    unfold assn_of_svs.
-    dependent induction seval_env; dependent destruction svar_env; intros H; simpl; repeat prove_inde.
-    (* rewrites (>>inde_equiv). *)
-    (* { intros; rewrite SE.fold_left_assns; reflexivity. } *)
-    { apply inde_eq_tup.
-      rewrite Forall_forall; intros.
-      forwards*: (>>H (@HFirst _ x ls)); simpl in *.
-      simplify; eauto. }
-    { apply IHseval_env; intros.
-      forwards*: (>>H (@HNext _ _ x _ m)). }
-  Qed.
+  (* Lemma inde_assn_of_svs GS (seval_env : SEvalEnv GS) *)
+  (*       (svar_env : SVarEnv GS) (xs : list var) : *)
+  (*   (forall x ty (m : member ty GS), In x xs -> ~In x (hget svar_env m)) -> *)
+  (*   inde (assn_of_svs seval_env svar_env) xs. *)
+  (* Proof. *)
+  (*   unfold assn_of_svs. *)
+  (*   dependent induction seval_env; dependent destruction svar_env; intros H; simpl; repeat prove_inde. *)
+  (*   (* rewrites (>>inde_equiv). *) *)
+  (*   (* { intros; rewrite SE.fold_left_assns; reflexivity. } *) *)
+  (*   { apply inde_eq_tup. *)
+  (*     rewrite Forall_forall; intros. *)
+  (*     forwards*: (>>H (@HFirst _ x ls)); simpl in *. *)
+  (*     simplify; eauto. } *)
+  (*   { apply IHseval_env; intros. *)
+  (*     forwards*: (>>H (@HNext _ _ x _ m)). } *)
+  (* Qed. *)
   
-  Lemma inde_assn_of_avs GA (aeval_env : AEvalEnv GA) (avar_env : AVarEnv GA) (xs : list var) :
-    (forall x ty (m : member ty GA), In x xs -> ~In x (snd (hget avar_env m))) ->
-    (forall ty (m : member ty GA), ~In (fst (hget avar_env m)) xs) ->
-    inde (assn_of_avs aeval_env avar_env) xs.
-  Proof.
-    unfold assn_of_avs.
-    dependent induction aeval_env; dependent destruction avar_env; intros H1 H2; simpl; repeat prove_inde.
-    - destruct p as [len arrs] eqn:Heq; repeat prove_inde;
-      try now (rewrite Forall_forall; simplify; eauto).
-      + forwards*: (>>H2 (@HFirst _ x ls)); simplify; eauto.
-      + unfold S.es2gls in *; apply inde_is_tup_arr; intros; forwards*: (>>H1 (@HFirst _ x ls)); simplify; eauto.
-    - apply IHaeval_env; intros.
-      + forwards*: (>>H1 (@HNext _ _ x _ m)).
-      + forwards*: (>>H2 (@HNext _ _ x _ m)).
-  Qed.
+  (* Lemma inde_assn_of_avs GA (aeval_env : AEvalEnv GA) (avar_env : AVarEnv GA) (xs : list var) : *)
+  (*   (forall x ty (m : member ty GA), In x xs -> ~In x (snd (hget avar_env m))) -> *)
+  (*   (forall ty (m : member ty GA), ~In (fst (hget avar_env m)) xs) -> *)
+  (*   inde (assn_of_avs aeval_env avar_env) xs. *)
+  (* Proof. *)
+  (*   unfold assn_of_avs. *)
+  (*   dependent induction aeval_env; dependent destruction avar_env; intros H1 H2; simpl; repeat prove_inde. *)
+  (*   - destruct p as [len arrs] eqn:Heq; repeat prove_inde; *)
+  (*     try now (rewrite Forall_forall; simplify; eauto). *)
+  (*     + forwards*: (>>H2 (@HFirst _ x ls)); simplify; eauto. *)
+  (*     + unfold S.es2gls in *; apply inde_is_tup_arr; intros; forwards*: (>>H1 (@HFirst _ x ls)); simplify; eauto. *)
+  (*   - apply IHaeval_env; intros. *)
+  (*     + forwards*: (>>H1 (@HNext _ _ x _ m)). *)
+  (*     + forwards*: (>>H2 (@HNext _ _ x _ m)). *)
+  (* Qed. *)
   
   Ltac unfoldM' := unfold get, set, ret in *; simpl in *; unfold bind_opt in *.
 
