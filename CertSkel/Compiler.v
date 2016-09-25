@@ -10,32 +10,27 @@ Require Import Monad.
 Require Import MyEnv.
 Require Import TypedTerm.
 Require Import MyMSets.
+Require Import CUDALib.
 
 Open Scope string_scope.
 Definition name := string. 
 
 Require GPUCSL.
 Module G := GPUCSL.
-Require Skel_lemma.
-Module S := Skel_lemma.
+(* Require Skel_lemma. *)
+(* Module S := Skel_lemma. *)
 
 Section codegen.
-  Definition M a := nat -> ((a + string) * nat).
+  Definition M a := nat -> (a * nat).
 
   Definition bind_opt A B (e : M A) (f : A -> M B) : M B:=
-    fun n => 
-      match e n with
-      | (inr msg, n) => (inr msg, n)
-      | (inl v, n) => f v n
-      end.
+    fun n => let (v, n') := e n in f v n'.
 
-  Definition fail {A} (msg : string): M A  := fun n => (inr msg, n).
-  
-  Definition get : M nat := fun n => (inl n, n).
-  Definition set n : M unit := fun _ => (inl tt, n).
+  Definition get : M nat := fun n => (n, n).
+  Definition set n : M unit := fun _ => (tt, n).
 End codegen.
 
-Instance M_monad : Monad M := {ret := fun _ x n => (inl x, n);
+Instance M_monad : Monad M := {ret := fun _ x n => (x, n);
                                bind := bind_opt}.
 
 Module Sx := Syntax.
@@ -67,18 +62,18 @@ Section compiler.
   Open Scope string_scope.
 
   Definition str_of_pnat n m :=
-    ("l" ++ S.nat_to_string n ++ "_" ++ S.nat_to_string m).
+    ("l" ++ nat2str n ++ "_" ++ nat2str m).
 
-  Definition freshes dim : M (list var) :=
-    let fix f dim n :=
-        match dim with
-        | O => nil
-        | S dim =>
-          Var (str_of_pnat n dim) :: f dim n
+  Definition freshes ty : M (vars ty) :=
+    let fix f n ty i :=
+        match ty return vars ty with
+        | Skel.TBool | Skel.TZ => Var (str_of_pnat n i)
+        | Skel.TTup t1 t2 =>
+          (f n t1 i, f n t2 (nleaf t1 + i))
         end in
     get >>= fun n =>
     set (n + 1) >>= fun _ =>
-    ret (f dim n).
+    ret (f n ty 0).
 
   Definition char a := String a EmptyString.
   Definition str_in s c := exists s1 s2, s = s1 ++ char c ++ s2.
@@ -107,7 +102,7 @@ Section compiler.
                                  end.
   
   Lemma nat_to_str_underbar n :
-    ~str_in (S.nat_to_string n) (char_of_string "_").
+    ~str_in (nat2str n) (char_of_string "_").
   Proof.
     induction n; simpl; intros (s1 & s2 & Heq).
     - destruct s1; simpl in *; try congruence.
@@ -124,19 +119,19 @@ Section compiler.
   Proof.
     intros H; unfold str_of_pnat in H.
     inverts H as Heq.
-    forwards*: (sep_var_inj (S.nat_to_string n) (S.nat_to_string n')); simpl; eauto using nat_to_str_underbar.
-    split; apply S.nat_to_string_inj; auto.
-    cut (String "_" (S.nat_to_string m) = String "_" (S.nat_to_string m')); [intros H'; inversion H'; auto|].
-    eapply S.string_inj2; eauto.
+    forwards*: (sep_var_inj (nat2str n) (nat2str n')); simpl; eauto using nat_to_str_underbar.
+    split; apply nat_to_string_inj; auto.
+    cut (String "_" (nat2str m) = String "_" (nat2str m')); [intros H'; inversion H'; auto|].
+    eapply string_inj2; eauto.
   Qed.
 
-  Definition compile_op {t1 t2 t3 : Skel.Typ} (op : Skel.BinOp t1 t2 t3) e1 e2 : (cmd * list exp) :=
-    match op with
-    | Skel.Eplus => (Cskip, Lang.Eplus e1 e2 :: nil)
-    | Skel.Emult => (Cskip, Lang.Emult e1 e2 :: nil)
-    | Skel.Emin => (Cskip, Lang.Emin e1 e2 :: nil)
-    | Skel.BEq => (Cskip, Lang.Eeq e1 e2 :: nil)
-    | Skel.Blt => (Cskip, Lang.Elt e1 e2 :: nil)
+  Definition compile_op {t1 t2 t3 : Skel.Typ} (op : Skel.BinOp t1 t2 t3)  :=
+    match op in Skel.BinOp t1 t2 t3 return exps t1 -> exps t2 -> (cmd * exps t3) with
+    | Skel.Eplus => fun e1 e2 => (Cskip, Lang.Eplus e1 e2)
+    | Skel.Emult => fun e1 e2 => (Cskip, Lang.Emult e1 e2)
+    | Skel.Emin => fun e1 e2 => (Cskip, Lang.Emin e1 e2)
+    | Skel.BEq => fun e1 e2 => (Cskip, Lang.Eeq e1 e2)
+    | Skel.Blt => fun e1 e2 => (Cskip, Lang.Elt e1 e2)
     end.
 
   Fixpoint ctyps_of_typ (ty : Skel.Typ) :=
@@ -163,75 +158,61 @@ Section compiler.
   (* compiler of scalar expressions *)
   Fixpoint compile_sexp {GA GS : list Skel.Typ} {typ : Skel.Typ}
            (se : Skel.SExp GA GS typ) : 
-    hlist (fun _ => var * list var)%type GA ->
-    hlist (fun _ => list var) GS -> M (cmd * list exp) := match se with
-    | Skel.EVar _ _ _ v => fun avenv env => ret (Cskip, S.vars2es (hget env v))
-    | Skel.ENum _ _ z => fun avenv env => ret (Cskip, Enum z :: nil)
+    hlist (fun ty => var * vars ty)%type GA ->
+    hlist (fun ty => vars ty) GS -> M (cmd * exps typ) := match se with
+    | Skel.EVar _ _ _ v => fun avenv env => ret (Cskip, v2e (hget env v))
+    | Skel.ENum _ _ z => fun avenv env => ret (Cskip, Enum z)
     | Skel.ELet _ _ t1 t2 e1 e2 => fun avenv env =>
       compile_sexp e1 avenv env >>= fun ces1 => 
       let (c1, es1) := ces1 in
       (* let dim := length es1 in *)
-      let dim := ctyps_of_typ t1 in
-      freshes (length dim) >>= fun xs =>
+      freshes t1 >>= fun xs =>
       compile_sexp e2 avenv  (HCons xs env) >>= fun ces2 => 
       let (c2, es2) := ces2 in
-      ret (c1 ;; S.read_tup xs dim es1 ;; c2, es2)
+      ret (c1 ;; assigns xs (ty2ctys t1) es1 ;; c2, es2)
     | Skel.EBin _ _ _ _ _ op e1 e2 => fun avenv env =>
       compile_sexp e1 avenv env >>= fun ces1 =>
-      let (c1, es1) := ces1 in
+      let (c1, e1) := ces1 in
       compile_sexp e2 avenv env >>= fun ces2 =>
-      let (c2, es2) := ces2 in
-      match es1, es2 with
-      | e1 :: nil, e2 :: nil =>
-        let (c, es) := compile_op op e1 e2 in
-        ret (c1;; c2;; c, es)
-      | _, _ => fail ""
-      end
+      let (c2, e2) := ces2 in
+      let (c, es) := compile_op op e1 e2 in
+      ret (c1;; c2;; c, es)
     | Skel.EA _ _ typ va e => fun avenv env =>
-      let dim := ctyps_of_typ typ in
       compile_sexp e avenv env >>= fun ces =>
-      let (c, es) := ces in
+      let (c, i) := ces in
       let (_, aname) := hget avenv va in
-      freshes (length dim) >>= fun xs =>
-      match es with
-      | i :: nil => ret (c ;; S.gen_read Gl xs dim (S.vars2es aname) i, S.vars2es xs)
-      | _ => fail ""
-      end
+      freshes typ >>= fun xs =>
+      ret (c ;; reads xs (ty2ctys typ) (v2gl aname +os i), v2e xs)
     | Skel.ELen _ _ _ xa => fun avenv env =>
-      let (l, _) := hget avenv xa in ret (Cskip, (Evar l) :: nil)
+      let (l, _) := hget avenv xa in ret (Cskip, (Evar l))
     | Skel.EPrj1 _ _ t1 t2 e => fun avenv env =>
       let off := 0 in
       let l := len_of_ty t1 in
       compile_sexp e avenv env >>= fun ces =>
       let (c, es) := ces in
-      ret (c, firstn l (skipn off es))
+      ret (c, fst es)
     | Skel.EPrj2 _ _ t1 t2 e => fun avenv env =>
       let off := len_of_ty t1 in
       let l := len_of_ty t2 in
       (* ugly copy and paste !*)
       compile_sexp e avenv env >>= fun ces =>
       let (c, es) := ces in
-      ret (c, firstn l (skipn off es))
+      ret (c, snd es)
     | Skel.ECons _ _ t1 t2 e1 e2 => fun avenv env =>
       compile_sexp e1 avenv env >>= fun ces =>
       let (c1, ge1) := ces in
       compile_sexp e2 avenv env >>= fun ces =>
       let (c2, ge2) := ces in
-      ret (c1 ;; c2, ge1 ++ ge2)
+      ret (c1 ;; c2, (ge1, ge2))
     | Skel.EIf _ _ ty e1 e2 e3 => fun avenv env =>
-      let dim := ctyps_of_typ ty in
       compile_sexp e1 avenv env >>= fun ces1 => 
       let (c1, e1) := ces1 in
       compile_sexp e2 avenv env >>= fun ces2 =>
       let (c2, e2) := ces2 in
       compile_sexp e3 avenv env >>= fun ces3 =>
       let (c3, e3) := ces3 in
-      freshes (length dim) >>= fun xs =>
-      match e1 with
-      | e :: nil =>
-        ret (c1;; Cif (Bnot (Beq e 0%Z)) (c2 ;; S.read_tup xs dim e2) (c3 ;; S.read_tup xs dim e3), S.vars2es xs)
-      | _ => fail ""
-      end
+      freshes ty >>= fun xs =>
+      ret (c1;; Cif (Bnot (Beq e1 0%Z)) (c2 ;; assigns xs (ty2ctys ty) e2) (c3 ;; assigns xs (ty2ctys ty) e3), v2e xs)
     end%list.
 End compiler.
 
@@ -262,7 +243,7 @@ End TestCompiler.
 
 Require Import pmap_skel.
 Require Import Reduce_opt_skel.
-Import Skel_lemma scan_lib.
+Import scan_lib.
 
 (* Module VarE_eq : DecType with Definition t := varE with Definition eq_dec := eq_dec. *)
 (*   Definition t := varE. *)
@@ -390,15 +371,19 @@ Section Compiler.
   (*              let (n, aenv) := n_aenv in *)
   (*              (n + 1, upd aenv xa n)) xas (0, emp_def 0)). *)
 
-  Definition arr_name n (d : list CTyp) :=
-    List.combine
-      (map Var (names_of_array (grpOfInt n) (length d)))
-      (map Ptr d).
+  Fixpoint arr_params pref ty i := 
+    match ty return vartys ty with
+    | Skel.TBool => (Var (pref ++ nat2str i), Ptr Bool)
+    | Skel.TZ => (Var (pref ++ nat2str i), Ptr Int)
+    | Skel.TTup t1 t2 => (arr_params pref t1 i, arr_params pref t2 (nleaf t1 + i))
+    end.
+
+  Definition arr_name n (ty : Skel.Typ) :=
+    arr_params ("arrIn" ++ nat2str n) ty 0.
+
   Definition len_name n := Var (name_of_len (grpOfInt n)).
-  Definition out_name (d : list CTyp) :=
-    List.combine
-      (map Var (names_of_array "Out" (length d)))
-      (map Ptr d).
+  Definition out_name (ty : Skel.Typ) :=
+    arr_params "arrOut" ty 0.
   Definition out_len_name := Var (name_of_len "Out").
 
   (* Definition env_of_sa (aty_env : Env varA (option Sx.Typ) _)  (xas : SA.t) : *)
@@ -417,10 +402,9 @@ Section Compiler.
     | S n => list var -> type_of_func n
     end.
 
-  Definition evalM {a : Type} (m : M a) (n : nat) d : a :=
+  Definition evalM {a : Type} (m : M a) (n : nat) : a :=
     match m n with
-    | (inl x, _) => x
-    | _ => d
+    | (x, _) => x
     end.
 
   Fixpoint dumy_fun_n n x :=
@@ -431,16 +415,16 @@ Section Compiler.
 
   Definition type_of_ftyp (fty : Skel.FTyp) :=
     match fty with
-    | Skel.Fun1 dom cod => list var -> (cmd * list exp)
-    | Skel.Fun2 dom1 dom2 cod  => list var -> list var -> (cmd * list exp)
+    | Skel.Fun1 dom cod => vars dom -> (cmd * exps cod)
+    | Skel.Fun2 dom1 dom2 cod => vars dom1 -> vars dom2 -> (cmd * exps cod)
     end.
 
   Fixpoint compile_func {GA fty} (body : Skel.Func GA fty) :
-    hlist (fun _ => (var * list var))%type GA ->
+    hlist (fun ty => (var * vars ty))%type GA ->
     type_of_ftyp fty :=
     match body in Skel.Func _ fty' return _ -> type_of_ftyp fty' with
-    | Skel.F1 _ _ _ body => fun av xs => evalM (compile_sexp body av (HCons xs HNil)) 0 (Cskip, nil)
-    | Skel.F2 _ _ _ _ body => fun av xs ys => evalM (compile_sexp body av (HCons xs (HCons ys HNil))) 0 (Cskip, nil)
+    | Skel.F1 _ _ _ body => fun av xs => evalM (compile_sexp body av (HCons xs HNil)) 0
+    | Skel.F2 _ _ _ _ body => fun av xs ys => evalM (compile_sexp body av (HCons ys (HCons xs HNil))) 0
     end.
 
   Fixpoint compile_lexp {GA ty} (aenv : list (hostVar * list hostVar)) (le : Skel.LExp GA ty) : expr :=
@@ -450,19 +434,18 @@ Section Compiler.
     | Skel.LMin _ e1 e2 => Min (compile_lexp aenv e1) (compile_lexp aenv e2) 
     end.
 
-  Definition accessor_of_array {GA tyxa} aenv (arr : member tyxa GA) :=
-    let f := compile_func (Skel.F1 _ Skel.TZ _ (Skel.EA _ _ _ arr (Skel.EVar _ _ _ HFirst))) aenv in
-    fun x => f (x :: nil).
+  Definition accessor_of_array {GA tyxa} aenv (arr : member tyxa GA) x :=
+    compile_func (Skel.F1 _ Skel.TZ _ (Skel.EA _ _ _ arr (Skel.EVar _ _ _ HFirst))) aenv x.
 
   Definition compile_AE {GA ty}
              (var_ptr_env : list (hostVar * list hostVar)) (ae : Skel.AE GA ty) :
-    hlist (fun _ => (var * list var))%type GA ->
-    ((var -> (cmd * list exp)) * expr) :=
+    hlist (fun ty => (var * vars ty))%type GA ->
+    ((var -> (cmd * exps ty)) * expr) :=
     match ae with
     | Skel.DArr _ _ f len => fun avar_env =>
       let f' := compile_func f avar_env in
       let len' := compile_lexp var_ptr_env len in
-      (fun x => f' (x :: nil), len')
+      (fun x => f' x, len')
     | Skel.VArr _ _ xa => fun avar_env =>
       let get := accessor_of_array avar_env xa in
       (get, VarE (fst (get_env var_ptr_env xa (0, nil))))
@@ -565,16 +548,15 @@ Section Compiler.
     | x :: ls' => f s x ::: hmake_idx (S s) f ls'
     end.
 
-  Definition gen_params (GA : list Skel.Typ) : hlist (fun _ => var * CTyp * list (var * CTyp))%type GA :=
+  Definition gen_params (GA : list Skel.Typ) : hlist (fun ty => var * CTyp * vartys ty)%type GA :=
     let f (i : nat) (ty : Skel.Typ) :=
-        let ctyp := ctyps_of_typ ty in
-        (len_name i, Int, arr_name i ctyp) in
+        (len_name i, Int, arr_name i ty) in
     hmake_idx 0 f GA.
 
   Definition remove_typeinfo : forall {GA : list Skel.Typ},
-    hlist (fun _ => var * CTyp * list (var * CTyp))%type GA ->
-    hlist (fun _ => var * list var)%type GA :=
-    hmap (fun (_ : Skel.Typ) (x : var * CTyp * list (var * CTyp)) => let (l, a) := x in (fst l, List.map fst a)).
+    hlist (fun ty => var * CTyp * vartys ty)%type GA ->
+    hlist (fun ty => var * vars ty)%type GA :=
+    hmap (fun ty (x : var * CTyp * vartys ty) => let (len, arr) := x in (fst len, maptys fst arr)).
 
   Definition invokeKernel kerID ntrd nblk (args : list Host.expr) :=
     setI (invoke kerID ntrd nblk args).
@@ -595,13 +577,15 @@ Section Compiler.
   Definition flatten_params {A : Type} (xs : list (A * list A)) := concat (List.map flatten_param xs).
 
   Fixpoint flatten_avars {GA : list Skel.Typ}
-             (xs : hlist (fun _ : Skel.Typ => (var * CTyp * list (var * CTyp))%type) GA) :=
+             (xs : hlist (fun ty => (var * CTyp * vartys ty)%type) GA) :=
     match xs with
     | HNil => nil
     | HCons _ _ x xs => 
       let '(x, ty, ls) := x in
-      ((x, ty) :: ls) ++ flatten_avars xs
+      ((x, ty) :: flatTup ls) ++ flatten_avars xs
     end.
+
+  Parameter mkMap : nat -> nat -> forall dom cod, (var -> cmd * exps dom) -> (vars dom -> cmd * exps cod) -> cmd.
 
   Definition compile_map {GA dom cod}
              (host_var_env : list (hostVar * list hostVar))
@@ -618,10 +602,10 @@ Section Compiler.
     let f := compile_func f (remove_typeinfo arr_vars) in
     
     let params_in := flatten_avars arr_vars in
-    let params_out := (out_len_name, Int) :: out_name outDim in
+    let params_out := (out_len_name, Int) :: flatTup (out_name cod) in
     
     do! kerID := gen_kernel {| params_of := params_out ++ params_in;
-                               body_of := Pr nil (mkMap ntrd nblk inDim outDim g f) |} in
+                               body_of := Pr nil (mkMap ntrd nblk _ _ g f) |} in
     do! outlenVar := fLet outlen in
     do! outArr := fAllocs outDim outlen in
     let args_in := concat (List.map (fun x => (fst x :: snd x)) (filter_idx host_var_env fvs)) in
@@ -651,6 +635,13 @@ Section Compiler.
     | Skel.F2 _ _ _ _ body => Skel.F2 _ _ _ _ (shift_sexp_GA newTy body)
     end.
 
+  Parameter mkFoldAll : nat
+                        -> nat 
+                        -> forall typ, (vars typ -> vars typ -> cmd * exps typ)
+                        -> nat
+                        -> (var -> (cmd * exps typ))
+                        -> cmd.
+
   Definition compile_reduce {GA typ}
              (host_var_env : list (hostVar * list hostVar))
              (f : Skel.Func GA (Skel.Fun2 typ typ typ))
@@ -665,11 +656,11 @@ Section Compiler.
     let func := compile_func f (remove_typeinfo arr_vars) in
     
     let params_in := flatten_avars arr_vars in
-    let params_out := (out_len_name, Int) :: out_name dim in
+    let params_out := (out_len_name, Int) :: flatTup (out_name typ) in
     
     do! kerID1 := gen_kernel {| params_of := params_out ++ params_in;
                                 body_of := Pr (sh_decl ntrd dim)
-                                              (mkFoldAll ntrd nblk dim func (S (log2 ntrd)) get) |} in
+                                              (mkFoldAll ntrd nblk _ func (S (log2 ntrd)) get) |} in
     do! lenVar := fLet outlen in
     do! tempArr := fAllocs dim (Const (Z.of_nat nblk)) in
     let args_in := concat (List.map (fun x => (fst x :: snd x)) host_var_env) in
@@ -684,10 +675,10 @@ Section Compiler.
     let get := @accessor_of_array GA typ (remove_typeinfo arr_vars) HFirst in
     let func := compile_func (shift_func_GA typ f) (remove_typeinfo arr_vars) in
     let params_in := flatten_avars arr_vars in
-    let params_out := (out_len_name, Int) :: out_name dim in
+    let params_out := (out_len_name, Int) :: flatTup (out_name typ) in
     do! kerID2 := gen_kernel {| params_of := params_out ++ params_in;
                                 body_of := Pr (sh_decl nblk dim)
-                                              (mkFoldAll nblk 1 dim func (S (log2 nblk)) get) |} in
+                                              (mkFoldAll nblk 1 _ func (S (log2 nblk)) get) |} in
     (* (Nat.min ((l + ntrd - 1) / ntrd) nblk ) *)
     do! lenVar := fLet (Min (Div (Add outlen (Const (Z.of_nat ntrd - 1)%Z)) (Const (Z.of_nat ntrd)))
                             (Const (Z.of_nat nblk))) in

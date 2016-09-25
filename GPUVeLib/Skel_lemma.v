@@ -196,22 +196,12 @@ Qed.
 
 Definition dim := nat.
 
-Fixpoint nat_to_string (n : nat) : string :=
-  match n with
-  | O => "O"
-  | S n => "S" ++ nat_to_string n
-  end%string.
-
 Eval compute in nat_to_string 10.
 
 (* In real accelerate compiler, names_of_array generates length variables for
    multi-dimention arrays. Currently, I only supports one-dimention arrays for
    simplicity.
  *)
-Definition names_of_array grp d := ls_init 0 d (fun i => "arr" ++ grp ++ nat_to_string i)%string.
-Definition name_of_len grp := ("sh" ++ grp)%string.
-Definition names_of_arg grp d := (name_of_len grp, names_of_array grp d).
-
 Open Scope list_scope.
 Require Import List.
 
@@ -948,7 +938,7 @@ Proof.
   forwards: (>>H a ___); try congruence; eauto.
 Qed.  
 
-Definition grpOfInt n := ("In" ++ nat_to_string n)%string.
+
 
 Fixpoint input_spec env env_den p :=
   match env, env_den with
@@ -1144,12 +1134,6 @@ Lemma string_inj2 s1 s2 s1' s2' : s1 = s1' -> s1 ++ s2 = s1' ++ s2' -> s2 = s2'.
 Proof.
   revert s1'; induction s1; intros [|? s1']; simpl in *; try congruence; intros.
   inverts H; inverts H0; subst; eauto.
-Qed.
-
-Lemma nat_to_string_inj n m : nat_to_string n = nat_to_string m -> n = m.
-Proof.
-  revert m; induction n; simpl in *; intros [|m]; simpl; try congruence.
-  inversion 1. eauto.
 Qed.
 
 Lemma prefix_ex s1 s2 : prefix s1 s2 = true <-> exists s, s2 = s1 ++ s.

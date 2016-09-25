@@ -233,12 +233,6 @@ Ltac simplify_env := simpl in *;
                  no_side_cond ltac:(rewrite env_assns_removes_cons in *)
                 ]; unfold "//\\" in *) .
 
-Fixpoint flatTup {ty : Skel.Typ} {T : Type} :=
-  match ty return typ2Coq T ty -> list T with
-  | Skel.TBool | Skel.TZ => fun x => x :: nil
-  | Skel.TTup _ _ => fun xs => flatTup (fst xs) ++ flatTup (snd xs)
-  end.
-
 Lemma env_assns_remove_app ty (xs : vars ty) vs e x :
   disjoint x (flatTup xs) ->
   remove_vars (EEq_tup xs vs ++ e) x = EEq_tup xs vs ++ remove_vars e x.
@@ -670,14 +664,6 @@ Proof.
     end.
     intros; apply H; simpl; omega.
 Qed.
-
-Fixpoint locs_offset {ty} :=
-  match ty return lexps ty -> exp -> lexps ty with
-  | Skel.TBool | Skel.TZ => loc_offset
-  | Skel.TTup t1 t2 => fun l off => (locs_offset (fst l) off, locs_offset (snd l) off)
-  end.
-
-Infix "+os" := (locs_offset) (at level 50, left associativity).
 
 Definition equiv_list_set (T : Type) (ls1 ls2 : list T) := (forall x, In x ls1 <-> In x ls2).
 Instance equiv_list_set_equiv T : Equivalence (equiv_list_set T).
