@@ -1,4 +1,4 @@
-Require Import GPUCSL scan_lib LibTactics Psatz SetoidClass Skel_lemma scan_lib CodeGen Grid CSLLemma.
+Require Import GPUCSL scan_lib LibTactics Psatz SetoidClass Skel_lemma scan_lib CodeGen CUDALib Grid CSLLemma.
 Notation val := Z.
 Arguments Z.add _ _ : simpl never.
 

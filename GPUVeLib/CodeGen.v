@@ -1,49 +1,5 @@
 Require Import GPUCSL scan_lib LibTactics Psatz CSLLemma Skel_lemma SetoidClass.
-Require Import CSLLemma TypedTerm.
-
-Fixpoint typ2Coq T ty :=
-  match ty with
-  | Skel.TBool | Skel.TZ => T
-  | Skel.TTup t1 t2 => (typ2Coq T t1 * typ2Coq T t2)
-  end%type.
-
-Definition ptrs ty := typ2Coq Z ty.
-Definition vars ty := typ2Coq var ty.
-Definition vals ty := typ2Coq val ty.
-Definition locs ty := typ2Coq loc ty.
-Definition ctys ty := typ2Coq (option CTyp) ty.
-Definition exps ty := typ2Coq exp ty.
-Definition lexps ty := typ2Coq loc_exp ty.
-
-Fixpoint foldTup {ty : Skel.Typ} {coqTy A : Type} (sing : coqTy -> A) (f : A -> A -> A) :=
-  match ty return typ2Coq coqTy ty -> A with
-  | Skel.TBool | Skel.TZ => fun x => sing x
-  | Skel.TTup _ _ => fun xs => f (foldTup sing f (fst xs)) (foldTup sing f (snd xs))
-  end.
-
-Fixpoint assigns {ty : Skel.Typ} := 
-  match ty return vars ty -> ctys ty -> exps ty -> cmd with
-  | Skel.TBool | Skel.TZ => fun x ty e => x ::T ty ::= e
-  | Skel.TTup t1 t2 => fun xs ctys es => 
-    assigns (fst xs) (fst ctys) (fst es) ;;
-    assigns (snd xs) (snd ctys) (snd es)
-  end.
-
-(* A generating function xs := pl arr + ix. pl denotes array is on shared / global memory *)
-Fixpoint reads {ty : Skel.Typ} :=
-  match ty return vars ty -> ctys ty -> lexps ty -> cmd with
-  | Skel.TBool | Skel.TZ => fun x ty e => x ::T ty ::= [e]
-  | Skel.TTup t1 t2 => fun xs ctys es => 
-    reads (fst xs) (fst ctys) (fst es) ;; reads (snd xs) (snd ctys) (snd es)
-  end.
-
-(* A generating function pl arr + ix := es. pl denotes array is on shared / global memory *)
-Fixpoint writes {ty : Skel.Typ} :=
-  match ty return lexps ty -> exps ty -> cmd with
-  | Skel.TBool | Skel.TZ => fun le e  => [le] ::= e
-  | Skel.TTup t1 t2 => fun les es => 
-    writes (fst les) (fst es) ;; writes (snd les) (snd es)
-  end.
+Require Import CSLLemma TypedTerm CUDALib.
 
 Fixpoint evalExps {ty : Skel.Typ} (Env : list entry) :=
   match ty return exps ty -> vals ty -> Prop with

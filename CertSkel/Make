@@ -7,5 +7,5 @@ Host.v
 Monad.v
 MyEnv.v
 MyMSets.v
-SimplSkel.v
 TypedTerm.v
+CUDALib.v
