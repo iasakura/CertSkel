@@ -127,6 +127,8 @@ Fixpoint EEq_tup {ty : Skel.Typ}  :=
     EEq_tup (fst xs) (fst vs) ++ EEq_tup (snd xs) (snd vs)
   end.
 
+Notation "x |=> v" := (EEq_tup x v) (at level 58).
+
 Fixpoint fv_Es {ty : Skel.Typ} := 
   match ty return exps ty -> list var with
   | Skel.TBool | Skel.TZ => fun e => fv_E e
