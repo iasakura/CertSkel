@@ -721,7 +721,7 @@ Qed.
 
 Lemma rule_reads_arrays (ty : Skel.Typ) (ntrd : nat) (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd)
   (tid : Fin.t ntrd) (es : lexps ty) (xs : vars ty) (ctys : ctys ty) 
-  (ls : locs ty) (vs : vals ty) Env (Res Res' : res) p (P : Prop) arr ix iz i_n :
+  (ls : locs ty) Env (Res Res' : res) p (P : Prop) arr ix iz i_n :
   disjoint (flatTup xs) (fv_lEs es) ->
   disjoint (flatTup xs) (fv_E ix) ->
   disjoint_list (flatTup xs) ->
@@ -750,7 +750,7 @@ Qed.
 
 Lemma rule_reads_arrays' (ty : Skel.Typ) (ntrd : nat) (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd)
   (tid : Fin.t ntrd) (es : lexps ty) (xs : vars ty) (ctys : ctys ty) 
-  (ls : locs ty) (vs : vals ty) Env (Res Res' : res) p (P : Prop) arr ix iz i_n dist j st:
+  (ls : locs ty) Env (Res Res' : res) p (P : Prop) arr ix iz i_n dist j st:
   disjoint (flatTup xs) (fv_lEs es) ->
   disjoint (flatTup xs) (fv_E ix) ->
   disjoint_list (flatTup xs) ->

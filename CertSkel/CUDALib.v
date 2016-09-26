@@ -89,7 +89,7 @@ Definition v2e {ty} := @maptys ty _ _ Evar.
 Definition e2sh {ty} := @maptys ty _ _ Sh.
 Definition e2gl {ty} := @maptys ty _ _ Gl.
 Definition v2sh {ty} (xs : vars ty) := (e2sh (v2e xs)).
-Definition v2gl {ty} (xs : vars ty) := (e2sh (v2e xs)).
+Definition v2gl {ty} (xs : vars ty) := (e2gl (v2e xs)).
 
 Fixpoint ty2ctys ty :=
   match ty return ctys ty with
