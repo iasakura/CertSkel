@@ -54,8 +54,10 @@ Section CorrectnessProof.
 
   Definition kernelInv {GS GA}
              (sVarEnv : SVarEnv GS) (sEvalEnv : SEvalEnv GS)
-             (aVarEnv : AVarEnv GA) (aPtrEnv : APtrEnv GA) (aEvalEnv : AEvalEnv GA) :=
-    Assn (arrInvRes aPtrEnv aEvalEnv) True (scInv sVarEnv sEvalEnv ++ arrInvVar aVarEnv aPtrEnv aEvalEnv).
+             (aVarEnv : AVarEnv GA) (aPtrEnv : APtrEnv GA) (aEvalEnv : AEvalEnv GA) resEnv :=
+    Assn (arrInvRes aPtrEnv aEvalEnv)
+         True
+         (resEnv ++ scInv sVarEnv sEvalEnv ++ arrInvVar aVarEnv aPtrEnv aEvalEnv).
 
   Variable sorry : forall A, A.
   Arguments sorry {A}.
@@ -550,17 +552,23 @@ Section CorrectnessProof.
     dependent destruction m; dependent destruction svar_env; dependent destruction seval_env;
     simpl in *; rewrite in_app_iff; eauto.
   Qed.
+  
+  Definition aenv_ok {GA} (avar_env : AVarEnv GA) :=
+    (forall ty (m : member ty GA), prefix "l" (str_of_var (fst (hget avar_env m))) = false)
+    /\ (forall (ty : Skel.Typ) (m : member ty GA) (y : var),
+           In y (flatTup (snd (hget avar_env m)))
+           -> prefix "l" (str_of_var y) = false).
+  
+  Definition senv_ok {GS} (svar_env : SVarEnv GS) n :=
+    (forall (ty : Skel.Typ) (m : member ty GS) (k : nat) l,
+        In (Var (lpref k ++ l)) (flatTup (hget svar_env m)) -> k < n).
 
   Lemma remove_gen_vars GS GA
         (svar_env : SVarEnv GS) (seval_env : SEvalEnv GS)
         (avar_env : AVarEnv GA) (aptr_env : APtrEnv GA) (aeval_env : AEvalEnv GA) ty (xs : vars ty) n m :
     freshes ty n = (xs, m) 
-    -> (forall ty (m : member ty GA), prefix "l" (str_of_var (fst (hget avar_env m))) = false)
-    -> (forall (ty : Skel.Typ) (m : member ty GA) (y : var),
-           In y (flatTup (snd (hget avar_env m)))
-           -> prefix "l" (str_of_var y) = false)
-    -> (forall (ty : Skel.Typ) (m : member ty GS) (k l : nat),
-        In (Var (lpref k ++ nat2str l)) (flatTup (hget svar_env m)) -> k < n)
+    -> aenv_ok avar_env 
+    -> senv_ok svar_env n
     -> remove_vars (scInv svar_env seval_env ++ arrInvVar avar_env aptr_env aeval_env) (flatTup xs) =
        (scInv svar_env seval_env ++ arrInvVar avar_env aptr_env aeval_env).
   Proof.
@@ -604,10 +612,9 @@ Section CorrectnessProof.
       rewrite Heq, remove_var_disjoint; eauto.
     Qed.
 
-    Lemma remove_gen_vars_from_scInv GS ty n xs m (svar_env : SVarEnv GS) (seval_env : SEvalEnv GS):
-      freshes ty n = (xs, m) 
-      -> (forall (ty : Skel.Typ) (m : member ty GS) (k l : nat),
-             In (Var (lpref k ++ nat2str l)) (flatTup (hget svar_env m)) -> k < n)
+    Lemma remove_gen_vars_senv GS ty n xs m (svar_env : SVarEnv GS) (seval_env : SEvalEnv GS):
+      freshes ty n = (xs, m)
+      -> senv_ok svar_env n
       -> remove_vars (scInv svar_env seval_env) (flatTup xs) =
          (scInv svar_env seval_env).
     Proof.
@@ -630,16 +637,14 @@ Section CorrectnessProof.
         intros ty' m' k l ?; forwards*: (>> H0 (@HNext _ ty' a _ m')); simpl.
     Qed.
     
-    Lemma remove_gen_vars_from_arrInv GA
+    Lemma remove_gen_vars_aenv GA
           (avar_env : AVarEnv GA) (aptr_env : APtrEnv GA) (aeval_env : AEvalEnv GA) ty (xs : vars ty) n m :
       freshes ty n = (xs, m)
-      -> (forall ty (m : member ty GA), prefix "l" (str_of_var (fst (hget avar_env m))) = false)
-      -> (forall (ty : Skel.Typ) (m : member ty GA) (y : var),
-           In y (flatTup (snd (hget avar_env m)))
-           -> prefix "l" (str_of_var y) = false)
+      -> aenv_ok avar_env
       -> remove_vars (arrInvVar avar_env aptr_env aeval_env) (flatTup xs) =
       arrInvVar avar_env aptr_env aeval_env.
     Proof.
+      unfold aenv_ok in *.
       induction GA; simpl;
       dependent destruction avar_env; dependent destruction aptr_env; dependent destruction aeval_env; 
       intros; unfold arrInvVar in *; simpl.
@@ -648,6 +653,7 @@ Section CorrectnessProof.
         f_equal.
         rewrite* remove_vars_disjoint; simpl.
         rewrite ents_map.
+        destruct H0.
         split.
         + intros Hc; forwards*H': (>>H0 (@HFirst _ a GA)); simpl in H'.
           forwards* (l & (? & ?)): (>>freshes_vars H); substs.
@@ -656,43 +662,200 @@ Section CorrectnessProof.
           forwards*: (>>H1 (@HFirst _ a GA)).
           forwards* (l & (? & ?)): (>>freshes_vars H); substs.
           unfold lpref, append in H2; simpl in H2; rewrite prefix_nil in H2; congruence.
-        + intros ty' m'; forwards*: (>> H0 (@HNext _ ty' a _ m')).
-        + intros ty' m' ? ?; forwards*: (>> H1 (@HNext _ ty' a _ m')).
+        + destruct H0; split.
+          * intros ty' m'; forwards*: (>> H0 (@HNext _ ty' a _ m')).
+          * intros ty' m' ? ?; forwards*: (>> H1 (@HNext _ ty' a _ m')).
     Qed.
-    rewrites* (>>remove_gen_vars_from_scInv H).
-    rewrites* (>>remove_gen_vars_from_arrInv H).
+    unfold aenv_ok, senv_ok in *.
+    rewrites* (>>remove_gen_vars_senv H).
+    rewrites* (>>remove_gen_vars_aenv H).
+  Qed.
+
+  Lemma remove_gen_vars_senvZ GS
+        (svar_env : SVarEnv GS) (seval_env : SEvalEnv GS)
+        (xs : var) n m :
+    freshes Skel.TZ n = (xs, m) 
+    -> senv_ok svar_env n
+    -> remove_var (scInv svar_env seval_env) xs =
+       (scInv svar_env seval_env).
+  Proof.
+    intros; forwards*: (>>remove_gen_vars_senv Skel.TZ); simpl in *; eauto.
+  Qed.
+
+  Lemma remove_gen_vars_senvB GS
+        (svar_env : SVarEnv GS) (seval_env : SEvalEnv GS)
+        (xs : var) n m :
+    freshes Skel.TBool n = (xs, m) 
+    -> senv_ok svar_env n
+    -> remove_var (scInv svar_env seval_env) xs =
+       (scInv svar_env seval_env).
+  Proof.
+    intros; forwards*: (>>remove_gen_vars_senv Skel.TBool); simpl in *; eauto.
   Qed.
 
   Lemma remove_gen_varsZ GS GA
         (svar_env : SVarEnv GS) (seval_env : SEvalEnv GS)
         (avar_env : AVarEnv GA) (aptr_env : APtrEnv GA) (aeval_env : AEvalEnv GA) (xs : var) n m :
     freshes Skel.TZ n = (xs, m) 
-    -> (forall ty (m : member ty GA), prefix "l" (str_of_var (fst (hget avar_env m))) = false)
-    -> (forall (ty : Skel.Typ) (m : member ty GA) (y : var),
-           In y (flatTup (snd (hget avar_env m)))
-           -> prefix "l" (str_of_var y) = false)
-    -> (forall (ty : Skel.Typ) (m : member ty GS) (k l : nat),
-           In (Var (lpref k ++ nat2str l)) (flatTup (hget svar_env m)) -> k < n)
+    -> aenv_ok avar_env 
+    -> senv_ok svar_env n
     -> remove_var (scInv svar_env seval_env ++ arrInvVar avar_env aptr_env aeval_env) xs =
        (scInv svar_env seval_env ++ arrInvVar avar_env aptr_env aeval_env).
   Proof.
     intros; forwards*: (>>remove_gen_vars Skel.TZ); simpl in *; eauto.
   Qed.
 
+  Lemma remove_gen_vars_aenvZ GA
+        (avar_env : AVarEnv GA) (aptr_env : APtrEnv GA) (aeval_env : AEvalEnv GA) (xs : var) n m :
+    freshes Skel.TZ n = (xs, m) 
+    -> aenv_ok avar_env
+    -> remove_var (arrInvVar avar_env aptr_env aeval_env) xs =
+       (arrInvVar avar_env aptr_env aeval_env).
+  Proof.
+    intros; forwards*: (>>remove_gen_vars_aenv Skel.TZ); simpl in *; eauto.
+  Qed.
+
+  Lemma remove_gen_vars_aenvB GA
+        (avar_env : AVarEnv GA) (aptr_env : APtrEnv GA) (aeval_env : AEvalEnv GA) (xs : var) n m :
+    freshes Skel.TZ n = (xs, m) 
+    -> aenv_ok avar_env 
+    -> remove_var (arrInvVar avar_env aptr_env aeval_env) xs =
+       (arrInvVar avar_env aptr_env aeval_env).
+  Proof.
+    intros; forwards*: (>>remove_gen_vars_aenv Skel.TZ); simpl in *; eauto.
+  Qed.
+
   Lemma remove_gen_varsB GS GA
         (svar_env : SVarEnv GS) (seval_env : SEvalEnv GS)
         (avar_env : AVarEnv GA) (aptr_env : APtrEnv GA) (aeval_env : AEvalEnv GA) (xs : var) n m :
-    freshes Skel.TBool n = (xs, m) 
-    -> (forall ty (m : member ty GA), prefix "l" (str_of_var (fst (hget avar_env m))) = false)
-    -> (forall (ty : Skel.Typ) (m : member ty GA) (y : var),
-           In y (flatTup (snd (hget avar_env m)))
-           -> prefix "l" (str_of_var y) = false)
-    -> (forall (ty : Skel.Typ) (m : member ty GS) (k l : nat),
-           In (Var (lpref k ++ nat2str l)) (flatTup (hget svar_env m)) -> k < n)
+    freshes Skel.TBool n = (xs, m)
+    -> aenv_ok avar_env
+    -> senv_ok svar_env n
     -> remove_var (scInv svar_env seval_env ++ arrInvVar avar_env aptr_env aeval_env) xs =
        (scInv svar_env seval_env ++ arrInvVar avar_env aptr_env aeval_env).
   Proof.
     intros; forwards*: (>>remove_gen_vars Skel.TBool); simpl in *; eauto.
+  Qed.
+
+  Lemma senv_ok_ge GS (svar_env : SVarEnv GS) n m :
+    n <= m
+    -> senv_ok svar_env n
+    -> senv_ok svar_env m.
+  Proof.
+    unfold senv_ok; intros; forwards*: H0; omega.
+  Qed.    
+
+  Lemma compile_op_ok ty1 ty2 ty3 (op : Skel.BinOp ty1 ty2 ty3)
+        (x : vars ty1) (y : vars ty2) (res : vars ty3) v1 v2 n m Res c env:
+    compile_op op x y n = (c, res, m) ->
+    CSL BS tid
+        (Assn Res True
+              (y |=> sc2CUDA v2 ++ x |=> sc2CUDA v1 ++ env))
+        c
+        (Assn Res True
+              (res |=> sc2CUDA (Skel.opDenote _ _ _ op v1 v2) ++ remove_vars env (flatTup res))).
+  Proof.
+    destruct op; simpl; unfoldM; destruct freshes as (? & ?); simpl; inversion 1; substs;
+    hoare_forward; repeat rewrite in_app_iff; simpl; eauto;
+    prove_imp; repeat rewrite remove_var_app, in_app_iff in *; simpl in *;
+    repeat destruct var_eq_dec; simpl in *; substs; try tauto;
+    (try now (destruct (eq_dec _ _), (Z.eqb_spec v1 v2); eauto; tauto));
+    (try now (destruct (Z_lt_dec _ _), (Z.ltb_spec v1 v2); substs; try tauto; omega)).
+  Qed.
+
+  Definition resEnv_ok resEnv n := 
+    forall v (k : nat) l,
+      In ((lpref k ++ l)%string |-> v) resEnv -> k < n.
+  
+  Lemma remove_gen_vars_res resEnv ty n m xs :
+    freshes ty n = (xs, m) ->
+    resEnv_ok resEnv n ->
+    remove_vars resEnv (flatTup xs) = resEnv.
+  Proof.
+    induction resEnv; simpl; try rewrite remove_vars_nil; eauto.
+    intros; rewrite env_assns_removes_cons.
+    rewrite IHresEnv; eauto.
+    unfold resEnv_ok in *; intros; simpl in *; eauto.
+    unfold resEnv_ok in *.
+    intros Hc; forwards*(? & ? & ?): freshes_vars.
+    destruct a as [y v].
+    forwards*: H0; simpl in *; subst; eauto.
+    omega.
+  Qed.
+
+  Lemma remove_gen_vars_resZ resEnv n m xs :
+    freshes Skel.TZ n = (xs, m) ->
+    resEnv_ok resEnv n ->
+    remove_var resEnv xs = resEnv.
+  Proof.
+    intros; forwards*: remove_gen_vars_res; eauto.
+  Qed.
+
+  Lemma remove_gen_vars_resB resEnv n m xs :
+    freshes Skel.TBool n = (xs, m) ->
+    resEnv_ok resEnv n ->
+    remove_var resEnv xs = resEnv.
+  Proof.
+    intros; forwards*: remove_gen_vars_res; eauto.
+  Qed.
+
+  Lemma resEnv_ok_ge resEnv n m :
+    n <= m
+    -> resEnv_ok resEnv n
+    -> resEnv_ok resEnv m.
+  Proof.
+    unfold resEnv_ok; intros; forwards*: H0; omega.
+  Qed.    
+
+  Lemma resEnv_ok_cons resEnv n e :
+    resEnv_ok (e :: nil) n
+    -> resEnv_ok resEnv n
+    -> resEnv_ok (e :: resEnv) n.
+  Proof.
+    unfold resEnv_ok; simpl in *.
+    intros He Hres; intros.
+    destruct H; [forwards*: He| forwards*: Hres].
+  Qed.
+
+  Lemma resEnv_ok_app res1 res2 n :
+    resEnv_ok res1 n
+    -> resEnv_ok res2 n
+    -> resEnv_ok (res1 ++ res2) n.
+  Proof.
+    unfold resEnv_ok; simpl in *.
+    intros He Hres; intros.
+    rewrite in_app_iff in *.
+    destruct H; [forwards*: He| forwards*: Hres].
+  Qed.    
+
+      
+  Lemma compile_gen_resEnv_ok GA GS (avar_env : AVarEnv GA) (svar_env : SVarEnv GS)
+        ty (se : Skel.SExp GA GS ty) c (xs : vars ty) v n m k :
+    aenv_ok avar_env
+    -> senv_ok svar_env n
+    -> compile_sexp se avar_env svar_env n = (c, xs, m)
+    -> m <= k
+    -> resEnv_ok (xs |=> v) k.
+  Proof.
+    unfold aenv_ok, senv_ok, resEnv_ok; intros Haenv Hsenv; intros.
+    intros; forwards*: (compile_gens).
+    Lemma eeq_tup_in ty x v (xs : vars ty) vs:
+      In (x |-> v) (xs |=> vs) -> In x (flatTup xs).
+    Proof.
+      induction ty; simpl; [intros [H|[]]; inverts H; eauto..|].
+      rewrite !in_app_iff; intros; firstorder.
+    Qed.
+    apply eeq_tup_in in H1; eauto.
+    simpl; eauto.
+    omega.
+  Qed.
+
+  Lemma compile_op_vars ty1 ty2 ty3 (op : Skel.BinOp ty1 ty2 ty3)
+        (xs : vars ty1) (ys : vars ty2) (res : vars ty3) n m c:
+    compile_op op xs ys n = (c, res, m) ->
+    freshes ty3 n = (res, m).
+  Proof.
+    destruct op; simpl; unfoldM; destruct (freshes _ _) eqn:Heq; inversion 1; substs; eauto.
   Qed.
 
   Lemma compile_ok GA GS typ (se : Skel.SExp GA GS typ)
@@ -702,45 +865,57 @@ Section CorrectnessProof.
         (aptr_env : APtrEnv GA)
         (aeval_env : AEvalEnv GA)
         (n m : nat) 
-        (v : Skel.typDenote typ) c es :
+        (v : Skel.typDenote typ) c es resEnv :
     Skel.sexpDenote GA GS typ se aeval_env seval_env = Some v ->
     compile_sexp se avar_env svar_env n = (c, es, m) ->
     (* (forall ty (m : member ty GS), length (hget svar_env m) = len_of_ty ty) -> *)
     (* (forall ty (m : member ty GA), length (snd (hget avar_env m)) = len_of_ty ty) -> *)
-    (forall ty (m : member ty GS),
-       forall k l, In (Var (lpref k ++ nat2str l)) (flatTup (hget svar_env m)) -> k < n) -> (* fvs are not in the future generated vars *)
-    (forall ty (m : member ty GA) y,
-        In y (flatTup (snd (hget avar_env m))) -> prefix "l" (str_of_var y) = false) ->
-    (forall ty (m : member ty GA),
-        prefix "l" (str_of_var (fst (hget avar_env m))) = false) ->
+    senv_ok svar_env n  -> (* fvs are not in the future generated vars *)
+    aenv_ok avar_env ->
+    resEnv_ok resEnv n ->
     (* (iii) return exps. don't have future generated vars*)
     CSL BS tid  (* correctness of gen. code *)
-        (kernelInv svar_env seval_env avar_env aptr_env aeval_env)
+        (kernelInv svar_env seval_env avar_env aptr_env aeval_env resEnv)
         c
-        (kernelInv svar_env seval_env avar_env aptr_env aeval_env ** Assn Emp True (es |=> sc2CUDA v)).
+        (kernelInv svar_env seval_env avar_env aptr_env aeval_env (es |=> sc2CUDA v ++ resEnv)).
   Proof.
-    revert typ se seval_env svar_env n m v c es.
+    revert typ se seval_env svar_env n m v c es resEnv.
     induction se;
-    introv Heval Hcompile Hsvar Havar1 Havar2; unfold bind_opt in Hcompile; unfold kernelInv; unfoldM_in Hcompile.
+    introv Heval Hcompile Hsok Haok Hresok;
+    unfold bind_opt in Hcompile; unfold kernelInv in *; unfoldM_in Hcompile.
     - (* case of var *)
       inverts Hcompile.
       inverts Heval.
-      eapply forward; try apply rule_skip; prove_imp; eauto using scInv_incl.
-    - destruct (freshes _ _) as (? & ?) eqn:Heq.
+      eapply forward; try apply rule_skip; prove_imp. eauto using scInv_incl.
+    - (* case const *)
+      destruct (freshes _ _) as (? & ?) eqn:Heq.
       inverts Hcompile; inverts Heval; substs.
       hoare_forward.
-      rewrites (>>remove_gen_varsZ Heq); eauto.
-      prove_imp.
-      simpl in *; tauto.
+      repeat rewrite remove_var_app.
+      rewrites* (>>remove_gen_vars_senvZ Heq).
+      rewrites* (>>remove_gen_vars_aenvZ Heq).
+      rewrites* (>>remove_gen_vars_resZ Heq).
     - (* the case of binop *) 
-      (* getting compilation/evaluation/typing results of sub-expressions *)
-      destruct (compile_sexp se1 _ _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inversion Hcompile].
-      destruct (compile_sexp se2 _ _ _) as [[(cs2 & es2) | ?] n'''] eqn:Hceq2; [|inversion Hcompile].
-      destruct es1 as [|e1 [|]]; try now inverts Hcompile.
-      destruct es2 as [|e2 [|]]; try now inverts Hcompile.
-
-      destruct (compile_op _ _ _) as [c0 es0]; inverts Hcompile.
-      admit.
+      destruct (compile_sexp se1 _ _ _) as [[? ?] ?] eqn:Hceq1.
+      destruct (compile_sexp se2 _ _ _) as [[? ?] ?] eqn:Hceq2.
+      destruct (compile_op _ _ _ _) as [[? ?] ?] eqn:Hcop; inverts Hcompile.
+      simpl in Heval; unfold Monad.bind_opt in *.
+      destruct (Skel.sexpDenote _ _ _ se1 _ _) eqn:Heval1; [|inverts Heval].
+      destruct (Skel.sexpDenote _ _ _ se2 _ _) eqn:Heval2; inverts Heval.
+      forwards*: (>>compile_don't_decrease Hceq1).
+      forwards*: (>>compile_don't_decrease Hceq2).
+      
+      eapply rule_seq; [forwards*: IHse1|].
+      eapply rule_seq; [forwards*: IHse2|]; eauto using senv_ok_ge, resEnv_ok_ge.
+      apply resEnv_ok_app; [|eauto using resEnv_ok_ge].
+      forwards*: compile_gen_resEnv_ok.
+      repeat rewrite <-app_assoc.
+      eapply forward; [|forwards*: (>>compile_op_ok Hcop); eauto using resEnv_ok_ge].
+      repeat rewrite remove_vars_app.
+      forwards*Heq: compile_op_vars.
+      rewrites* (>>remove_gen_vars_senv Heq); eauto using senv_ok_ge.
+      rewrites* (>>remove_gen_vars_aenv Heq).
+      rewrites* (>>remove_gen_vars_res Heq); eauto using resEnv_ok_ge.
     - destruct (compile_sexp se _ _ _) as [[(cs1 & es1) | ?] n'] eqn:Hceq1; [|inverts Hcompile].
       destruct (hget avar_env m) as [arr anames] eqn:Haname.
       destruct (freshes _ _) as [[fvs1 | ?] n''] eqn:Hfeq1; [|inverts Hcompile].

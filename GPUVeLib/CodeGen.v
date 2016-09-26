@@ -193,21 +193,18 @@ Proof.
 Qed.
 
 Lemma env_assns_remove_cons a env x :
-  ~In x (fv_E (ent_e a)) ->
+  x <> (ent_e a) ->
   remove_var (a :: env) x = a :: remove_var env x.
 Proof.
   induction env; simpl; auto; destruct var_eq_dec; intros; try tauto.
-  false; apply H; substs; eauto.
-  substs; tauto.
 Qed.
 
 Lemma env_assns_removes_cons a env xs :
-  disjoint xs (fv_E (ent_e a)) ->
+  ~In (ent_e a) xs ->
   remove_vars (a :: env) xs = a :: remove_vars env xs.
 Proof.
   revert a env; induction xs; intros a' env; simpl; try tauto.
-  destruct 1.
-  rewrites* IHxs; rewrites* env_assns_remove_cons.
+  intros; rewrite IHxs, env_assns_remove_cons; eauto.
 Qed.
 
 Lemma remove_comm env x y :
@@ -241,9 +238,11 @@ Lemma env_assns_remove_app ty (xs : vars ty) vs e x :
   disjoint x (flatTup xs) ->
   remove_vars (EEq_tup xs vs ++ e) x = EEq_tup xs vs ++ remove_vars e x.
 Proof.
-  revert e; induction ty; simpl; intros; try now applys* env_assns_removes_cons.
+  revert e; induction ty; simpl in *; intros;
+  try now (apply disjoint_comm in H; simpl in H; try now applys* env_assns_removes_cons).
   rewrite <-!app_assoc, IHty1, IHty2; eauto using disjoint_app_r1, disjoint_app_r2.
 Qed.
+
 Lemma remove_vars_nest (xs ys : list var) e :
   remove_vars e (xs ++ ys) =
   remove_vars (remove_vars e xs) ys.
