@@ -1158,7 +1158,26 @@ Section CorrectnessProof.
       omega.
 
       forwards*: freshes_disjoint.
-    - admit.
+    - destruct (hget avar_env m) as [l ?] eqn:Heq; inverts Hcompile.
+      simpl in Heval; inverts Heval. 
+      eapply forward; try apply rule_skip.
+      prove_imp.
+
+      Lemma alen_in GA ty (avar_env : AVarEnv GA) (aptr_env : APtrEnv GA) (aeval_env : AEvalEnv GA) 
+        (m : member ty GA) len (arr : vars ty) :
+        hget avar_env m = (len, arr) 
+        -> In (len |-> Zn (length (hget aeval_env m))) (arrInvVar avar_env aptr_env aeval_env).
+      Proof.
+        unfold arrInvVar; induction GA; 
+        dependent destruction m;
+        dependent destruction avar_env;
+        dependent destruction aptr_env;
+        dependent destruction aeval_env; simpl; intros; substs; eauto;
+        repeat rewrite <-app_assoc; simpl; eauto.
+        destruct p; simpl.
+        rewrite in_app_iff; eauto.
+      Qed.
+      forwards*: alen_in.
     - admit.
     - admit.
     - admit.
