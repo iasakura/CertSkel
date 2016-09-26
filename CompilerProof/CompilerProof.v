@@ -54,9 +54,9 @@ Section CorrectnessProof.
 
   Definition kernelInv {GS GA}
              (sVarEnv : SVarEnv GS) (sEvalEnv : SEvalEnv GS)
-             (aVarEnv : AVarEnv GA) (aPtrEnv : APtrEnv GA) (aEvalEnv : AEvalEnv GA) resEnv :=
+             (aVarEnv : AVarEnv GA) (aPtrEnv : APtrEnv GA) (aEvalEnv : AEvalEnv GA) P resEnv :=
     Assn (arrInvRes aPtrEnv aEvalEnv)
-         True
+         P
          (resEnv ++ scInv sVarEnv sEvalEnv ++ arrInvVar aVarEnv aPtrEnv aEvalEnv).
 
   Variable sorry : forall A, A.
@@ -745,13 +745,13 @@ Section CorrectnessProof.
   Qed.    
 
   Lemma compile_op_ok ty1 ty2 ty3 (op : Skel.BinOp ty1 ty2 ty3)
-        (x : vars ty1) (y : vars ty2) (res : vars ty3) v1 v2 n m Res c env:
+        (x : vars ty1) (y : vars ty2) (res : vars ty3) v1 v2 n m Res c env P:
     compile_op op x y n = (c, res, m) ->
     CSL BS tid
-        (Assn Res True
+        (Assn Res P
               (y |=> sc2CUDA v2 ++ x |=> sc2CUDA v1 ++ env))
         c
-        (Assn Res True
+        (Assn Res P
               (res |=> sc2CUDA (Skel.opDenote _ _ _ op v1 v2) ++ remove_vars env (flatTup res))).
   Proof.
     destruct op; simpl; unfoldM; destruct freshes as (? & ?); simpl; inversion 1; substs;
@@ -911,7 +911,7 @@ Section CorrectnessProof.
                  ((ix |=> sc2CUDA i ++ resEnv) ++
                   scInv svar_env seval_env ++ arrInvVar avar_env aptr_env aeval_env))
            (reads xs (ty2ctys ty) (v2gl aname +os ix))
-           (Assn (arrInvRes aptr_env aeval_env) True
+           (Assn (arrInvRes aptr_env aeval_env) P
                  ((xs |=> sc2CUDA v ++ remove_vars resEnv (flatTup xs)) ++
                   remove_vars (scInv svar_env seval_env ++ arrInvVar avar_env aptr_env aeval_env) (flatTup xs))).
   Proof.
@@ -1080,7 +1080,7 @@ Section CorrectnessProof.
         (aptr_env : APtrEnv GA)
         (aeval_env : AEvalEnv GA)
         (n m : nat) 
-        (v : Skel.typDenote typ) c es resEnv :
+        (v : Skel.typDenote typ) c es resEnv P :
     Skel.sexpDenote GA GS typ se aeval_env seval_env = Some v ->
     compile_sexp se avar_env svar_env n = (c, es, m) ->
     (* (forall ty (m : member ty GS), length (hget svar_env m) = len_of_ty ty) -> *)
@@ -1090,11 +1090,11 @@ Section CorrectnessProof.
     resEnv_ok resEnv n ->
     (* (iii) return exps. don't have future generated vars*)
     CSL BS tid  (* correctness of gen. code *)
-        (kernelInv svar_env seval_env avar_env aptr_env aeval_env resEnv)
+        (kernelInv svar_env seval_env avar_env aptr_env aeval_env P resEnv)
         c
-        (kernelInv svar_env seval_env avar_env aptr_env aeval_env (es |=> sc2CUDA v ++ resEnv)).
+        (kernelInv svar_env seval_env avar_env aptr_env aeval_env P (es |=> sc2CUDA v ++ resEnv)).
   Proof.
-    revert typ se seval_env svar_env n m v c es resEnv.
+    revert typ se seval_env svar_env n m v c es P resEnv.
     induction se;
     introv Heval Hcompile Hsok Haok Hresok;
     unfold bind_opt in Hcompile; unfold kernelInv in *; unfoldM_in Hcompile.
@@ -1178,7 +1178,63 @@ Section CorrectnessProof.
         rewrite in_app_iff; eauto.
       Qed.
       forwards*: alen_in.
-    - admit.
+    - destruct (compile_sexp se1 _ _ _) as [[? ?] ?] eqn:Hceq1.
+      destruct (compile_sexp se2 _ _ _) as [[? ?] ?] eqn:Hceq2.
+      destruct (compile_sexp se3 _ _ _) as [[? ?] ?] eqn:Hceq3.
+      destruct (freshes _ _) as [? ?] eqn:Hfreq; inverts Hcompile.
+      simpl in Heval; unfold Monad.bind_opt in Heval.
+      destruct (Skel.sexpDenote  _ _ _ se1 _ _)  as [?|] eqn:Heval1; [|inverts Heval].
+      destruct (Skel.sexpDenote  _ _ _ se2 _ _)  as [?|] eqn:Heval2; [|inverts Heval].
+      destruct (Skel.sexpDenote  _ _ _ se3 _ _)  as [?|] eqn:Heval3; [|inverts Heval];
+      inverts Heval.
+      forwards*: (>>compile_don't_decrease Hceq1).
+      forwards*: (>>compile_don't_decrease Hceq2).
+      forwards*: (>>compile_don't_decrease Hceq3).
+      eapply rule_seq; [forwards*: IHse1|].
+      Opaque EEq_tup.
+      hoare_forward.
+      Transparent EEq_tup.
+      simpl; eauto.
+      + eapply rule_seq.
+        applys* IHse2; eauto using senv_ok_ge, resEnv_ok_ge.
+        apply resEnv_ok_app; eauto using resEnv_ok_ge.
+        applys* compile_gen_resEnv_ok.
+        eapply rule_assigns.
+
+        Lemma fvEs_v2e ty (xs : vars ty) : fv_Es (v2e xs) = flatTup xs.
+        Proof.
+          unfold v2e; induction ty; simpl; eauto; congruence.
+        Qed.
+        
+        rewrite fvEs_v2e.
+        apply not_in_disjoint; intros; intros Hc; simpl in *.
+        forwards* (? & ? & ?): (>>freshes_vars Hfreq).
+        forwards*: (>>compile_gens Hceq2); simpl; substs; eauto using senv_ok_ge.
+        omega.
+        applys* freshes_disjoint. 
+        apply evalExps_vars; rewrite <-app_assoc; apply incl_app_iff; eauto.
+      + eapply rule_seq.
+        applys* IHse3; eauto using senv_ok_ge, resEnv_ok_ge.
+        apply resEnv_ok_app; eauto using resEnv_ok_ge.
+        applys* compile_gen_resEnv_ok.
+        eapply rule_assigns.
+
+        rewrite fvEs_v2e.
+        apply not_in_disjoint; intros; intros Hc; simpl in *.
+        forwards* (? & ? & ?): (>>freshes_vars Hfreq).
+        forwards*: (>>compile_gens Hceq3); simpl; substs; eauto using senv_ok_ge.
+        omega.
+        applys* freshes_disjoint. 
+        apply evalExps_vars; rewrite <-app_assoc; apply incl_app_iff; eauto.
+      + repeat rewrite remove_vars_app.
+        repeat (rewrites* (>>remove_gen_vars_senv Hfreq); eauto using senv_ok_ge).
+        repeat (rewrites* (>>remove_gen_vars_aenv Hfreq)).
+        repeat (rewrites* (>>remove_gen_vars_res Hfreq);
+                 try now applys* (>>resEnv_ok_ge Hresok); omega).
+        applys* (>>compile_gen_resEnv_ok Hceq2); eauto using senv_ok_ge.
+        applys* (>>compile_gen_resEnv_ok Hceq1); eauto using senv_ok_ge; omega.
+        applys* (>>compile_gen_resEnv_ok Hceq3); eauto using senv_ok_ge; omega.
+        prove_imp; simpl; destruct H3; destruct t0; try omega; eauto.
     - admit.
     - admit.
     - admit.
