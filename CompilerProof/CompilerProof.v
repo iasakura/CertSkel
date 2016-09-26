@@ -1073,6 +1073,26 @@ Section CorrectnessProof.
     congruence.
   Qed.
 
+  Lemma alen_in GA ty (avar_env : AVarEnv GA) (aptr_env : APtrEnv GA) (aeval_env : AEvalEnv GA) 
+    (m : member ty GA) len (arr : vars ty) :
+    hget avar_env m = (len, arr) 
+    -> In (len |-> Zn (length (hget aeval_env m))) (arrInvVar avar_env aptr_env aeval_env).
+  Proof.
+    unfold arrInvVar; induction GA; 
+    dependent destruction m;
+    dependent destruction avar_env;
+    dependent destruction aptr_env;
+    dependent destruction aeval_env; simpl; intros; substs; eauto;
+    repeat rewrite <-app_assoc; simpl; eauto.
+    destruct p; simpl.
+    rewrite in_app_iff; eauto.
+  Qed.
+
+  Lemma fvEs_v2e ty (xs : vars ty) : fv_Es (v2e xs) = flatTup xs.
+  Proof.
+    unfold v2e; induction ty; simpl; eauto; congruence.
+  Qed.
+
   Lemma compile_ok GA GS typ (se : Skel.SExp GA GS typ)
         (svar_env : SVarEnv GS)
         (seval_env : SEvalEnv GS)
@@ -1162,21 +1182,6 @@ Section CorrectnessProof.
       simpl in Heval; inverts Heval. 
       eapply forward; try apply rule_skip.
       prove_imp.
-
-      Lemma alen_in GA ty (avar_env : AVarEnv GA) (aptr_env : APtrEnv GA) (aeval_env : AEvalEnv GA) 
-        (m : member ty GA) len (arr : vars ty) :
-        hget avar_env m = (len, arr) 
-        -> In (len |-> Zn (length (hget aeval_env m))) (arrInvVar avar_env aptr_env aeval_env).
-      Proof.
-        unfold arrInvVar; induction GA; 
-        dependent destruction m;
-        dependent destruction avar_env;
-        dependent destruction aptr_env;
-        dependent destruction aeval_env; simpl; intros; substs; eauto;
-        repeat rewrite <-app_assoc; simpl; eauto.
-        destruct p; simpl.
-        rewrite in_app_iff; eauto.
-      Qed.
       forwards*: alen_in.
     - destruct (compile_sexp se1 _ _ _) as [[? ?] ?] eqn:Hceq1.
       destruct (compile_sexp se2 _ _ _) as [[? ?] ?] eqn:Hceq2.
@@ -1201,11 +1206,6 @@ Section CorrectnessProof.
         applys* compile_gen_resEnv_ok.
         eapply rule_assigns.
 
-        Lemma fvEs_v2e ty (xs : vars ty) : fv_Es (v2e xs) = flatTup xs.
-        Proof.
-          unfold v2e; induction ty; simpl; eauto; congruence.
-        Qed.
-        
         rewrite fvEs_v2e.
         apply not_in_disjoint; intros; intros Hc; simpl in *.
         forwards* (? & ? & ?): (>>freshes_vars Hfreq).
@@ -1235,9 +1235,31 @@ Section CorrectnessProof.
         applys* (>>compile_gen_resEnv_ok Hceq1); eauto using senv_ok_ge; omega.
         applys* (>>compile_gen_resEnv_ok Hceq3); eauto using senv_ok_ge; omega.
         prove_imp; simpl; destruct H3; destruct t0; try omega; eauto.
-    - admit.
-    - admit.
-    - admit.
+    - destruct (compile_sexp se1 _ _ _) as [[? ?] ?] eqn:Hceq1.
+      destruct (compile_sexp se2 _ _ _) as [[? ?] ?] eqn:Hceq2; inverts Hcompile.
+      simpl in Heval; unfold Monad.bind_opt in *.
+      destruct (Skel.sexpDenote _ _ _ se1 _ _) eqn:Heval1; [|inverts Heval].
+      destruct (Skel.sexpDenote _ _ _ se2 _ _) eqn:Heval2; inverts Heval.
+      forwards*: (>>compile_don't_decrease Hceq1).
+      eapply rule_seq.
+      forwards*: IHse1.
+      eapply forwardR.
+      forwards*: IHse2; eauto using senv_ok_ge.
+      apply resEnv_ok_app; eauto using resEnv_ok_ge.
+      applys* (>>compile_gen_resEnv_ok Hceq1).
+      prove_imp.
+    - destruct (compile_sexp se _ _ _) as [[? ?] ?] eqn:Hceq1; inverts Hcompile.
+      simpl in Heval; unfold Monad.bind_opt in *.
+      destruct (Skel.sexpDenote _ _ _ se _ _) eqn:Heval1; inverts Heval.
+      eapply forwardR.
+      forwards*: IHse.
+      prove_imp.
+    - destruct (compile_sexp se _ _ _) as [[? ?] ?] eqn:Hceq1; inverts Hcompile.
+      simpl in Heval; unfold Monad.bind_opt in *.
+      destruct (Skel.sexpDenote _ _ _ se _ _) eqn:Heval1; inverts Heval.
+      eapply forwardR.
+      forwards*: IHse.
+      prove_imp.
     - (* the case of let *) 
       unfold bind_opt in Hcompile.
       (* getting compilation/evaluation/typing results of sub-expressions *)
