@@ -599,7 +599,7 @@ Ltac prove_imp :=
     repeat autorewrite with sep_eq in *;
     [ applys (>>Assn_imply s h H);
       [ (* proof impl. on environment *)
-        choose_var_vals |
+        intros ?; choose_var_vals |
         (* proof impl. on resource assertion *)
         intros Hp; des_conj Hp; sep_auto' |
         (* proof impl. on pure assertion *)

@@ -1217,7 +1217,7 @@ Proof.
 Qed.
 
 Lemma Assn_imply (Res1 Res2 : res) (P1 P2 : Prop) Env1 Env2 :
-  incl Env2 Env1 ->
+  (P1 -> incl Env2 Env1) ->
   (P1 -> (Res1 |=R Res2)) ->
   (P1 -> P2) ->
   Assn Res1 P1 Env1 |= Assn Res2 P2 Env2.

@@ -302,7 +302,7 @@ Proof.
   revert Env; induction ty; simpl in *; try now (intros ? [Hnin _] Heval; eauto using rule_assign).
   intros Env Hdisj Hdisjxs [Heval1 Heval2]; eapply rule_seq; [apply IHty1 | eapply forward; [|apply IHty2] ]; jauto; tac.
   apply Assn_imply; eauto.
-  intros x; repeat rewrite in_app_iff in *; intros [[? | ?] | ?]; tac.
+  intros ? x; repeat rewrite in_app_iff in *; intros [[? | ?] | ?]; tac.
   
 
   rewrite env_assns_remove_app, in_app_iff; tac.
@@ -396,7 +396,7 @@ Proof.
   eapply forward; [|eapply IHty2]; tac.
 
   apply Assn_imply; eauto.
-  intros x; repeat rewrite in_app_iff in *; intros [[? | ?] | ?]; tac.
+  intros ? x; repeat rewrite in_app_iff in *; intros [[? | ?] | ?]; tac.
 
   rewrite env_assns_remove_app, in_app_iff; tac.
   rewrite env_assns_remove_app; tac.
