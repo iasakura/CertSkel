@@ -1399,7 +1399,7 @@ Proof.
   try no_side_cond ltac:(forwards*: assigns_writes);
   try no_side_cond ltac:(forwards*: reads_writes);
   (try now forwards*: compile_op_wr_vars');
-  try forwards*: freshes_prefix.
+  try forwards*: freshes_prefix;
   substs; simpl; eauto.
 Qed.
 
@@ -1415,5 +1415,5 @@ Proof.
   let H := fresh in introv H;
   repeat rewrite in_app_iff in H; des_disj H;
   try now forwards*: freshes_prefix.
-
+  
 End 
