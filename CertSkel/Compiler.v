@@ -162,7 +162,9 @@ Section compiler.
     hlist (fun ty => var * vars ty)%type GA ->
     hlist (fun ty => vars ty) GS -> M (cmd * vars typ) :=
     match se with
-    | Skel.EVar _ _ _ v => fun avenv env => ret (Cskip, (hget env v))
+    | Skel.EVar _ _ ty v => fun avenv env => 
+      do! x := freshes ty in 
+      ret (assigns x (ty2ctys _) (v2e (hget env v)), x)
     | Skel.ENum _ _ z => fun avenv env => do! x := freshes Skel.TZ in ret (assigns x (ty2ctys _) (Enum z), x)
     | Skel.ELet _ _ t1 t2 e1 e2 => fun avenv env =>
       compile_sexp e1 avenv env >>= fun ces1 => 
@@ -187,7 +189,9 @@ Section compiler.
       freshes typ >>= fun xs =>
       ret (c ;; reads xs (ty2ctys typ) (v2gl aname +os i), xs)
     | Skel.ELen _ _ _ xa => fun avenv env =>
-      let (l, _) := hget avenv xa in ret (Cskip, l)
+      do! x := freshes Skel.TZ in
+      let (l, _) := hget avenv xa in 
+      ret (assigns x (ty2ctys _) l, l)
     | Skel.EPrj1 _ _ t1 t2 e => fun avenv env =>
       compile_sexp e avenv env >>= fun ces =>
       let (c, es) := ces in
@@ -798,5 +802,4 @@ Section Compiler.
     let '(res, (_, (instrs, kers))) := compile_AS ntrd nblk host_var_env' p (n, (nil, nil)) in
     let pars := concat (map (fun x => (Int, fst x) :: toPtr (snd x)) host_var_env) in
     Build_Prog pars instrs res kers.
-End Compiler
-.
+End Compiler.
