@@ -113,7 +113,7 @@ Proof.
      end);
   (repeat lazymatch goal with [H : context [match ?E with | _ => _ end]|- _] => destruct E eqn:? end); try omega;
         try now (inverts Hsuc; first
-          [now auto|
+          [now auto| omega|
            forwards*: IHse1; forwards*: IHse2; omega |
            forwards*: IHse1; forwards*: IHse2; forwards*: IHse3; omega |
            forwards*: IHse; omega |
@@ -272,6 +272,7 @@ Proof.
   - exists x0 x1; split; eauto; forwards*: compile_op_don't_decrease; omega.
   - exists x0 x1; split; eauto; forwards*: compile_op_don't_decrease; omega.
   - forwards*: compile_op_wr_vars; forwards*: compile_op_don't_decrease; substs; exists n2 0; split; eauto; omega.
+  - exists n0 0; split; eauto; omega.
 Qed.
 
 Lemma freshes_disjoint d n m xs :
@@ -518,13 +519,7 @@ Proof.
         try (forwards* ?: (@freshes_incr Skel.TBool); [now (simpl; eauto)..|]);
         apply evar_inj, lpref_inj in H';
         omega).
-  - destruct H0.
-    lets* H': (H0 t m).
-    rewrite Heqp in H'.
-    Arguments append : simpl nomatch.
-    simpl in H'.
-    rewrite prefix_nil in H'; congruence.
-    Arguments append : simpl never.
+  - destruct H3; forwards*Hpr: (>>H3 m); rewrite Heqp in Hpr; simpl in *; rewrite prefix_nil in *; congruence.
   - forwards*: IHse2.
     intros.
     dependent destruction m; simpl in *.
@@ -1108,7 +1103,22 @@ Proof.
   - (* case of var *)
     inverts Hcompile.
     inverts Heval.
-    eapply forward; try apply rule_skip; prove_imp. eauto using scInv_incl.
+    destruct (freshes _ _) as (? & ?) eqn:Heq.
+    eapply forwardR.
+    apply rule_assigns; eauto using freshes_disjoint.
+    { rewrite fvEs_v2e.
+      apply not_in_disjoint; intros; intros Hc; simpl in *.
+      forwards* (? & ? & ?): (>>freshes_vars Heq).
+      substs; unfold senv_ok in *; forwards*: (>>Hsok).
+      omega. }
+    { apply evalExps_vars.
+      apply incl_app_iff; right; apply incl_app_iff; left; eauto using scInv_incl.
+      unfold incl; intros; eapply scInv_incl; eauto. }
+    repeat rewrite remove_vars_app.
+    rewrites* (>>remove_gen_vars_senv Heq).
+    rewrites* (>>remove_gen_vars_aenv Heq).
+    rewrites* (>>remove_gen_vars_res Heq).
+    prove_imp.
   - (* case const *)
     destruct (freshes _ _) as (? & ?) eqn:Heq.
     inverts Hcompile; inverts Heval; substs.
@@ -1165,9 +1175,15 @@ Proof.
     omega.
 
     forwards*: freshes_disjoint.
-  - destruct (hget avar_env m) as [l ?] eqn:Heq; inverts Hcompile.
+  - destruct (hget avar_env m) as [l ?] eqn:Heq.
+    destruct (freshes _ _) as [? ?] eqn:Hceq; inverts Hcompile.
     simpl in Heval; inverts Heval. 
-    eapply forward; try apply rule_skip.
+    hoare_forward.
+    repeat rewrite in_app_iff; forwards*: alen_in.
+    repeat rewrite remove_var_app.
+    rewrites* (>>remove_gen_vars_senvZ Hceq).
+    rewrites* (>>remove_gen_vars_aenvZ Hceq).
+    rewrites* (>>remove_gen_vars_resZ Hceq).
     prove_imp.
     forwards*: alen_in.
   - destruct (compile_sexp se1 _ _ _) as [[? ?] ?] eqn:Hceq1.
