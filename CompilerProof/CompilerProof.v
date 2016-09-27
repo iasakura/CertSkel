@@ -1427,5 +1427,45 @@ Proof.
   destruct v; forwards*: IHse; simpl in *; rewrites* in_app_iff.
 Qed.
 
+Lemma assigns_no_barrs ty (xs : vars ty) tys es : barriers (assigns xs tys es) = nil.
+Proof.
+  induction ty; simpl; eauto; rewrite IHty1, IHty2; auto.
+Qed.
 
+Lemma reads_no_barrs ty (xs : vars ty) tys es : barriers (reads xs tys es) = nil.
+Proof.
+  induction ty; simpl; eauto; rewrite IHty1, IHty2; auto.
+Qed.
+
+Lemma writes_no_barrs ty (les : lexps ty) es : barriers (writes les es) = nil.
+Proof.
+  induction ty; simpl; eauto; rewrite IHty1, IHty2; auto.
+Qed.
+
+Lemma compile_op_no_barrs t1 t2 t3 (op : Skel.BinOp t1 t2 t3) xs ys n c res m :
+  compile_op op xs ys n = (c, res, m)
+  -> barriers c = nil.
+Proof.
+  destruct op; simpl; unfoldM; intros Hceq; compile_sexp_des Hceq; simpl; auto.
+Qed.
+
+Lemma compile_sexp_no_barrs GA GS (avar_env : AVarEnv GA) (svar_env : SVarEnv GS) typ (se : Skel.SExp GA GS typ) n m c res :
+  compile_sexp se avar_env svar_env n = (c, res, m)
+  -> barriers c = nil.
+Proof.
+  revert c res n m; induction se; simpl; unfoldM; intros c res n m' Hceq;
+  compile_sexp_des Hceq; simpl;
+  try rewrites (IHse);
+  try rewrites IHse1;
+  try rewrites IHse2;
+  try rewrites IHse3;
+  try repeat rewrites assigns_no_barrs;
+  try rewrites reads_no_barrs;
+  try rewrites writes_no_barrs; eauto.
+  rewrites (>>IHse1 Heqp); rewrites (>>IHse2 Heqp0); rewrites (>>compile_op_no_barrs Heqp1); auto.
+  rewrites (>>IHse Heqp); auto.
+  rewrites (>>IHse1 Heqp); rewrites (>>IHse2 Heqp0); rewrites (>>IHse3 Heqp1); auto.
+  rewrites (>>IHse1 Heqp); rewrites (>>IHse2 Heqp0); auto.
+  rewrites (>>IHse1 Heqp); rewrites (>>IHse2 Heqp1); auto.
+Qed.
 End 
