@@ -519,7 +519,6 @@ Proof.
         try (forwards* ?: (@freshes_incr Skel.TBool); [now (simpl; eauto)..|]);
         apply evar_inj, lpref_inj in H';
         omega).
-  - destruct H3; forwards*Hpr: (>>H3 m); rewrite Heqp in Hpr; simpl in *; rewrite prefix_nil in *; congruence.
   - forwards*: IHse2.
     intros.
     dependent destruction m; simpl in *.
@@ -1184,8 +1183,6 @@ Proof.
     rewrites* (>>remove_gen_vars_senvZ Hceq).
     rewrites* (>>remove_gen_vars_aenvZ Hceq).
     rewrites* (>>remove_gen_vars_resZ Hceq).
-    prove_imp.
-    forwards*: alen_in.
   - destruct (compile_sexp se1 _ _ _) as [[? ?] ?] eqn:Hceq1.
     destruct (compile_sexp se2 _ _ _) as [[? ?] ?] eqn:Hceq2.
     destruct (compile_sexp se3 _ _ _) as [[? ?] ?] eqn:Hceq3.
@@ -1403,17 +1400,32 @@ Proof.
   substs; simpl; eauto.
 Qed.
 
+Lemma compile_op_res_vars t1 t2 t3 (op : Skel.BinOp t1 t2 t3) xs ys n c res m :
+  compile_op op xs ys n = (c, res, m)
+  -> forall l, In l (flatTup res) -> is_local l.
+Proof.
+  destruct op; simpl; unfoldM; intros Hceq;
+  compile_sexp_des Hceq; intros l H; des_disj H;
+  forwards*: freshes_prefix; substs; simpl; eauto.
+Qed.
+
 Lemma compile_sexp_res_vars GA GS (avar_env : AVarEnv GA) (svar_env : SVarEnv GS) typ (se : Skel.SExp GA GS typ) n m c res :
   compile_sexp se avar_env svar_env n = (c, res, m)
-  -> forall l, In l (flatTup res)
-               -> is_local l \/ (exists (ty : Skel.Typ) (mem : member ty GS), In l (flatTup (hget svar_env mem))).
+  -> forall l, In l (flatTup res) -> is_local l.
 Proof.
   revert svar_env n m c res; induction se; simpl;
-  introv; unfoldM; intros Hceq;
+  intros svar_env n m' c res; unfoldM; intros Hceq;
   compile_sexp_des Hceq;
   repeat rewrite in_app_iff;
   let H := fresh in introv H;
   repeat rewrite in_app_iff in H; des_disj H;
-  try now forwards*: freshes_prefix.
-  
+  (try first [now forwards*: freshes_prefix |
+              now forwards*: freshes_prefix; subst; simpl; eauto |
+              now forwards*: IHse | now forwards*: IHse1 | now forwards*: IHse2 | now forwards*: IHse3 ]).
+  forwards*: compile_op_res_vars.
+  destruct v; forwards*: IHse; simpl in *; rewrites* in_app_iff.
+  destruct v; forwards*: IHse; simpl in *; rewrites* in_app_iff.
+Qed.
+
+
 End 
