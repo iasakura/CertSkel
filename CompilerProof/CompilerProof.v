@@ -1304,4 +1304,55 @@ Section CorrectnessProof.
       prove_imp.
       unfold scInv in *; simpl in *; rewrite in_app_iff in *; tauto.
 Qed.
-End CorrectnessProof.
+
+Definition is_local (x : var) : Prop := prefix "l" (str_of_var x) = true.
+Definition are_local {ty} (xs : vars ty) : Prop :=
+  forall x, In x (flatTup xs) -> is_local x.
+
+Definition func_ok1 {GA dom cod} (avar_env : AVarEnv GA) 
+           (f : Skel.Func GA (Skel.Fun1 dom cod)) (func : type_of_ftyp (Skel.Fun1 dom cod)) :=
+  aenv_ok avar_env 
+  -> (* func only writes to local variables *)
+     (forall x l, In l (writes_var (fst (func x))) -> is_local l) /\
+     (* func only returs to local variables or parameter *)
+     (forall x l, In l (flatTup (snd (func x))) -> is_local l \/ In l (flatTup x)) /\
+     (* functional correctenss *)
+     (forall ntrd (tid : Fin.t ntrd) BS xs vs res avar_env aptr_env aeval_env P resEnv,
+         ~ (are_local xs)
+         -> resEnv_ok resEnv 0
+         -> (Skel.funcDenote _ _ f aeval_env vs = Some res)
+         -> CSL BS tid
+                (kernelInv (xs ::: HNil) (vs ::: HNil) avar_env aptr_env aeval_env P resEnv)
+                (fst (func xs))
+                (kernelInv (xs ::: HNil) (vs ::: HNil) avar_env aptr_env aeval_env P
+                           (snd (func xs) |=> sc2CUDA res ++ resEnv))) /\
+     (forall x, barriers (fst (func x)) = nil).
+
+Definition func_ok2 {GA dom1 dom2 cod} (avar_env : AVarEnv GA) 
+           (f : Skel.Func GA (Skel.Fun2 dom1 dom2 cod)) (func : type_of_ftyp (Skel.Fun2 dom1 dom2 cod)) :=
+  aenv_ok avar_env 
+  -> (* func only writes to local variables *)
+     (forall x y l, In l (writes_var (fst (func x y))) -> is_local l) /\
+     (* func only returs to local variables or parameter *)
+     (forall x y l, In l (flatTup (snd (func x y))) -> is_local l \/ In l (flatTup x) \/ In l (flatTup y)) /\
+     (* functional correctenss *)
+     (forall ntrd (tid : Fin.t ntrd) BS xs ys vs1 vs2 res avar_env aptr_env aeval_env P resEnv,
+         ~ (are_local xs)
+         -> resEnv_ok resEnv 0
+         -> (Skel.funcDenote _ _ f aeval_env vs1 vs2 = Some res)
+         -> CSL BS tid
+                (kernelInv (ys ::: xs ::: HNil) (vs2 ::: vs1 ::: HNil) avar_env aptr_env aeval_env P resEnv)
+                (fst (func xs ys))
+                (kernelInv (ys ::: xs ::: HNil) (vs2 ::: vs1 ::: HNil) avar_env aptr_env aeval_env P
+                           (snd (func xs ys) |=> sc2CUDA res ++ resEnv))) /\
+     (forall xs ys, barriers (fst (func xs ys)) = nil).
+
+Definition func_ok GA (avar_env : AVarEnv GA) fty :=
+  match fty return Skel.Func GA fty -> type_of_ftyp fty -> Prop with
+  | Skel.Fun1 dom cod => fun f func => func_ok1 avar_env f func
+  | Skel.Fun2 dom1 dom2 cod => fun f func => func_ok2 avar_env f func 
+  end.
+
+
+
+End 
