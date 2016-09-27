@@ -191,7 +191,7 @@ Section compiler.
     | Skel.ELen _ _ _ xa => fun avenv env =>
       do! x := freshes Skel.TZ in
       let (l, _) := hget avenv xa in 
-      ret (assigns x (ty2ctys _) l, l)
+      ret (assigns x (ty2ctys _) l, x)
     | Skel.EPrj1 _ _ t1 t2 e => fun avenv env =>
       compile_sexp e avenv env >>= fun ces =>
       let (c, es) := ces in
