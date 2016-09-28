@@ -617,8 +617,6 @@ Section Compiler.
              (f : Skel.Func GA (Skel.Fun1 dom cod))
              (arr : Skel.AE GA dom)
     : CUDAM (hostVar * list hostVar) :=
-    let fvs := NatSet.union (free_av_func f) (free_av_AE arr) in
-    
     let arr_vars := gen_params GA in
 
     let g := compile_AE arr (remove_typeinfo arr_vars) in
@@ -629,7 +627,7 @@ Section Compiler.
     do! outlenVar := fLet outlen in
     let outDim := ctyps_of_typ cod in
     do! outArr := fAllocs outDim outlen in
-    let args_in := concat (List.map (fun x => (fst x :: snd x)) (filter_idx host_var_env fvs)) in
+    let args_in := concat (List.map (fun x => (fst x :: snd x)) host_var_env) in
     let args_out := outlenVar :: outArr in
     do! t := invokeKernel kerID ntrd nblk (List.map VarE (args_out ++ args_in)) in
     ret (outlenVar, outArr).
@@ -688,8 +686,6 @@ Section Compiler.
              (host_var_env : list (hostVar * list hostVar))
              (f : Skel.Func GA (Skel.Fun2 typ typ typ))
              (arr : Skel.AE GA typ) : CUDAM (hostVar * list hostVar) :=
-    let fvs_f := free_av_func f in
-    let fvs := NatSet.union fvs_f (free_av_AE arr) in
     let dim := ctyps_of_typ typ in
     
     let arr_vars := gen_params GA in
