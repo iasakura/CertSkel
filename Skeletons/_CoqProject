@@ -1,6 +1,0 @@
--I .
--R ../tlc/src TLC
--I ../GPUCSL
--I ../GPUVeLib
--I ../CertSkel
--R ../repo/src Cpdt

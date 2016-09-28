@@ -1,7 +1,6 @@
 Require Import Monad DepList GPUCSL TypedTerm Compiler.
 Require Import Program.Equality LibTactics.
-Require Import CUDALib CodeGen CSLLemma CSLTactics.
-Import Skel_lemma.
+Require Import CUDALib CSLLemma CodeGen CSLTactics.
 
 Notation SVarEnv GS := (hlist (fun typ : Skel.Typ => vars typ) GS).
 Notation SEvalEnv GS := (hlist Skel.typDenote GS).

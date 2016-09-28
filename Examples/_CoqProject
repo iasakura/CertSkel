@@ -1,6 +1,5 @@
 -R ../tlc/src TLC
 -I ../CertSkel
 -I ../GPUCSL
--I ../GPUVeLib
--I ../Skeletons
+-I ../Compiler
 -R ../repo/src Cpdt

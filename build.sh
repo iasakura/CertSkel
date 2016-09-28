@@ -1,6 +1,6 @@
 #!/usr/bin/zsh
 
-dirs=(GPUCSL GPUVeLib Skeletons CompilerProof)
+dirs=(GPUCSL TypedIR Compiler CertSkel Examples)
 
 for d in $dirs;
 do

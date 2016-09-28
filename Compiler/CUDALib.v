@@ -15,11 +15,53 @@ Definition exps ty := typ2Coq exp ty.
 Definition lexps ty := typ2Coq loc_exp ty.
 Definition vartys ty := typ2Coq (var * CTyp) ty.
 
+Fixpoint nat2str (n : nat) : string :=
+  match n with
+  | O => "O"
+  | S n => "S" ++ nat2str n
+  end%string.
+
+Lemma nat_to_string_inj n m : nat2str n = nat2str m -> n = m.
+Proof.
+  revert m; induction n; simpl in *; intros [|m]; simpl; try congruence.
+  inversion 1. eauto.
+Qed.
+
+Open Scope string.
+Lemma string_inj2 s1 s2 s1' s2' : s1 = s1' -> s1 ++ s2 = s1' ++ s2' -> s2 = s2'.
+Proof.
+  revert s1'; induction s1; intros [|? s1']; simpl in *; try congruence; intros.
+  inverts H; inverts H0; subst; eauto.
+Qed.
+
 Fixpoint nleaf ty :=
   match ty with
   | Skel.TBool | Skel.TZ => 1
   | Skel.TTup t1 t2 => nleaf t1 + nleaf t2
   end.
+
+Fixpoint arr_params pref ty i := 
+  match ty return vartys ty with
+  | Skel.TBool => (Var (pref ++ nat2str i), Ptr Bool)
+  | Skel.TZ => (Var (pref ++ nat2str i), Ptr Int)
+  | Skel.TTup t1 t2 => (arr_params pref t1 i, arr_params pref t2 (nleaf t1 + i))
+  end.
+
+Definition arr_name n (ty : Skel.Typ) :=
+  arr_params ("arrIn" ++ nat2str n) ty 0.
+
+Definition names_of_array grp d := ls_init 0 d (fun i => "arr" ++ grp ++ nat2str i)%string.
+Definition name_of_len grp := ("sh" ++ grp)%string.
+Definition names_of_arg grp d := (name_of_len grp, names_of_array grp d).
+
+Definition grpOfInt n := ("In" ++ nat2str n)%string.
+
+Close Scope string.
+
+Definition len_name n := Var (name_of_len (grpOfInt n)).
+Definition out_name (ty : Skel.Typ) :=
+  arr_params "arrOut" ty 0.
+Definition out_len_name := Var (name_of_len "Out").
 
 Fixpoint foldTup {ty : Skel.Typ} {coqTy A : Type} (sing : coqTy -> A) (f : A -> A -> A) :=
   match ty return typ2Coq coqTy ty -> A with
@@ -51,25 +93,6 @@ Fixpoint writes {ty : Skel.Typ} :=
     writes (fst les) (fst es) ;; writes (snd les) (snd es)
   end.
 
-Fixpoint nat2str (n : nat) : string :=
-  match n with
-  | O => "O"
-  | S n => "S" ++ nat2str n
-  end%string.
-
-Lemma nat_to_string_inj n m : nat2str n = nat2str m -> n = m.
-Proof.
-  revert m; induction n; simpl in *; intros [|m]; simpl; try congruence.
-  inversion 1. eauto.
-Qed.
-
-Open Scope string.
-Lemma string_inj2 s1 s2 s1' s2' : s1 = s1' -> s1 ++ s2 = s1' ++ s2' -> s2 = s2'.
-Proof.
-  revert s1'; induction s1; intros [|? s1']; simpl in *; try congruence; intros.
-  inverts H; inverts H0; subst; eauto.
-Qed.
-
 Fixpoint locs_offset {ty} :=
   match ty return lexps ty -> exp -> lexps ty with
   | Skel.TBool | Skel.TZ => loc_offset
@@ -97,14 +120,6 @@ Fixpoint ty2ctys ty :=
   | Skel.TZ => Some Int
   | Skel.TTup t1 t2 => (ty2ctys t1, ty2ctys t2)
   end.
-
-Definition names_of_array grp d := ls_init 0 d (fun i => "arr" ++ grp ++ nat2str i)%string.
-Definition name_of_len grp := ("sh" ++ grp)%string.
-Definition names_of_arg grp d := (name_of_len grp, names_of_array grp d).
-
-Definition grpOfInt n := ("In" ++ nat2str n)%string.
-
-Close Scope string.
 
 Fixpoint flatTup {ty : Skel.Typ} {T : Type} :=
   match ty return typ2Coq T ty -> list T with

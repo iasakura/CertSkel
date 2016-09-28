@@ -377,21 +377,6 @@ Section Compiler.
   (*              let (n, aenv) := n_aenv in *)
   (*              (n + 1, upd aenv xa n)) xas (0, emp_def 0)). *)
 
-  Fixpoint arr_params pref ty i := 
-    match ty return vartys ty with
-    | Skel.TBool => (Var (pref ++ nat2str i), Ptr Bool)
-    | Skel.TZ => (Var (pref ++ nat2str i), Ptr Int)
-    | Skel.TTup t1 t2 => (arr_params pref t1 i, arr_params pref t2 (nleaf t1 + i))
-    end.
-
-  Definition arr_name n (ty : Skel.Typ) :=
-    arr_params ("arrIn" ++ nat2str n) ty 0.
-
-  Definition len_name n := Var (name_of_len (grpOfInt n)).
-  Definition out_name (ty : Skel.Typ) :=
-    arr_params "arrOut" ty 0.
-  Definition out_len_name := Var (name_of_len "Out").
-
   (* Definition env_of_sa (aty_env : Env varA (option Sx.Typ) _)  (xas : SA.t) : *)
   (*   (Env varA (var * list (var * CTyp)) _) := *)
   (*   let idxEnv := idxEnv_of_sa xas in *)

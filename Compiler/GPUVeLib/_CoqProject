@@ -1,0 +1,6 @@
+-I .
+-I ..
+-R ../../repo/src Cpdt
+-R ../../tlc/src TLC
+-I ../../GPUCSL
+-I ../../TypedIR

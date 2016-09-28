@@ -1,5 +1,4 @@
 -R ../tlc/src TLC
 -I ../GPUCSL
--I ../Skeletons
--I ../GPUVeLib
+-I ../Compiler
 -R ../repo/src Cpdt

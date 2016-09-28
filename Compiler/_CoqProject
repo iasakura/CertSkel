@@ -1,0 +1,8 @@
+-I .
+-R ../tlc/src TLC
+-R ../repo/src Cpdt
+-I ../CertSkel
+-I ../GPUCSL
+-I ../TypedIR
+-I Skeletons
+-I GPUVeLib
