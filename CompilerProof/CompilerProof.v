@@ -1388,3 +1388,127 @@ Proof.
          try no_side_cond ltac:(forwards* Hin': Hy);
          unfold lpref in Hin'; simpl in *; rewrite prefix_nil in Hin'; congruence].
 Qed.
+
+Fixpoint defval' {ty} :=
+  match ty return Skel.typDenote ty with
+  | Skel.TBool => true
+  | Skel.TZ => 0%Z
+  | Skel.TTup t1 t2 => (@defval' t1, @defval' t2)
+  end.
+
+Lemma eta A B (f : A -> B) : (fun x => f x) = f. auto. Qed.
+
+Lemma nth_error_some T (ls : list T) i d :
+  i < length ls
+  -> List.nth_error ls i = Some (nth i ls d).
+Proof.
+  revert ls; induction i; simpl; destruct ls; simpl in *; intros; try omega.
+  reflexivity.
+  intuition.
+Qed.
+
+Lemma nth_error_some' T (ls : list T) (i : Z) d :
+  (0 <= i < Zn (length ls))%Z
+  -> nth_error ls i = Some (nth (Z.to_nat i) ls d).
+Proof.
+  unfold nth_error; simpl; unfoldM; unfold Monad.bind_opt.
+  intros.
+  unfold Z_to_nat_error; destruct Z_le_dec; try lia; simpl.
+  apply nth_error_some.
+  zify; rewrite Z2Nat.id; lia.
+Qed.
+
+Ltac eta_in H := 
+  lazymatch type of H with
+    | ((fun x => ?f x) = _) =>
+      rewrite (eta _ _ f) in H
+  end.
+
+Lemma mapM_some A B (xs : list A) (ys : list B) i d1 d2 f :
+    mapM f xs = Some ys ->
+    Some (nth i ys d2) = if lt_dec i (length xs) then f (nth i xs d1) else Some d2.
+Proof.
+  unfold mapM; revert i ys; induction xs; simpl; introv Heq;
+  destruct i, ys; try inverts Heq; simpl; eauto.
+  - unfold Monad.bind_opt in *.
+    destruct (f a) eqn:Heq1; inverts H0.
+    destruct (sequence _); inverts H1.
+  - unfold Monad.bind_opt in *.
+    destruct (f a) eqn:Heq1; inverts H0.
+    destruct (sequence _) eqn:Heq2; inverts H1; eauto.
+  - unfold Monad.bind_opt in *.
+    destruct (f a) eqn:Heq1; inverts H0.
+    destruct (sequence _) eqn:Heq2; inverts H1; eauto.
+  - unfold Monad.bind_opt in *.
+    destruct (f a) eqn:Heq1; inverts H0.
+    destruct (sequence _) eqn:Heq2; inverts H1; eauto.
+    erewrite IHxs; destruct (lt_dec i (length xs)), (lt_dec (S i) (S (length xs))); try lia;
+    eauto.
+Qed.
+
+    
+Lemma mapM_length A B (xs : list A) (ys : list B) f :
+  mapM f xs = Some ys -> length ys = length xs.
+Proof.
+  revert ys; unfold mapM; induction xs; introv.
+  - inversion 1; eauto.
+  - simpl.
+    unfold Monad.bind_opt; destruct (f a), (@sequence _ _ _); simpl;
+    destruct ys; inversion 1; substs; simpl; rewrite IHxs; eauto.
+Qed.
+
+Lemma seq'_length n m : length (seq' n m) = m.
+Proof.
+  revert n; induction m; simpl; congruence.
+Qed.
+
+Lemma seq'_nth n m i d : nth i (seq' n m) d = if lt_dec i m then (n + Zn i)%Z else d.
+Proof.
+  revert n i; induction m; simpl; intros n [|i]; eauto.
+  destruct lt_dec; eauto; try lia.
+  rewrites IHm.
+  repeat destruct lt_dec; try lia.
+Qed.
+
+Lemma seq_length n m : length (seq n m) = Z.to_nat m.
+Proof.
+  unfold seq; rewrite seq'_length; eauto.
+Qed.
+
+Lemma seq_nth n m i d : nth i (seq n m) d = if lt_dec i (Z.to_nat m) then (n + Zn i)%Z else d.
+Proof.
+  unfold seq; apply seq'_nth.
+Qed.
+
+
+Lemma compile_AE_ok GA ty (ae : Skel.AE GA ty) (arr : var -> cmd * vars ty) (avar_env : AVarEnv GA) :
+  compile_AE ae avar_env = arr -> ae_ok avar_env ae arr.
+Proof.
+  unfold ae_ok; destruct ae; simpl; intros Hceq Haok.
+  - unfold accessor_of_array in Hceq.
+    forwards*Hok: (>>compile_func_ok (Skel.Fun1 Skel.TZ t) arr Hceq Haok).
+    simpl in *; unfold func_ok1 in *; repeat split; jauto.
+    destruct Hok as (? & ? & Hok & ?).
+    intros; forwards*: Hok.
+    introv [? | []]; substs; eauto.
+    intros. 
+    inverts H4.
+    erewrite nth_error_some'.
+    rewrite Nat2Z.id.
+    reflexivity.
+    lia.
+  - forwards*: (>>compile_func_ok (Skel.Fun1 Skel.TZ cod) Hceq Haok).
+    unfold func_ok, func_ok1 in *; simpl in *.
+    destruct H as (H1 & H2 & H3 & H4).
+    repeat split; [apply H1| apply H2| idtac | apply H4].
+    intros; forwards*: H3.
+    intros ? [? | []]; substs; eauto.
+    
+    rewrites* (>>mapM_some i (@defval' cod) H5).
+    forwards*: mapM_length.
+    
+    repeat rewrite seq_length in *.
+    destruct lt_dec; try lia.
+    repeat rewrite seq_nth.
+    destruct lt_dec; eauto.
+Qed.
