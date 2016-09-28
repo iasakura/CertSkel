@@ -121,6 +121,13 @@ Definition func_ok {GA fty} (avar_env : AVarEnv GA) :=
   | Skel.Fun2 dom1 dom2 cod => fun f func => func_ok2 avar_env f func 
   end.
 
+Fixpoint defval' {ty} :=
+  match ty return Skel.typDenote ty with
+  | Skel.TBool => true
+  | Skel.TZ => 0%Z
+  | Skel.TTup t1 t2 => (@defval' t1, @defval' t2)
+  end.
+
 Notation gets' arr i := (nth i arr defval').
 Eval simpl in type_of_ftyp (Skel.Fun1 Skel.TZ _).
 

@@ -1389,15 +1389,6 @@ Proof.
          unfold lpref in Hin'; simpl in *; rewrite prefix_nil in Hin'; congruence].
 Qed.
 
-Fixpoint defval' {ty} :=
-  match ty return Skel.typDenote ty with
-  | Skel.TBool => true
-  | Skel.TZ => 0%Z
-  | Skel.TTup t1 t2 => (@defval' t1, @defval' t2)
-  end.
-
-Lemma eta A B (f : A -> B) : (fun x => f x) = f. auto. Qed.
-
 Lemma nth_error_some T (ls : list T) i d :
   i < length ls
   -> List.nth_error ls i = Some (nth i ls d).
@@ -1417,12 +1408,6 @@ Proof.
   apply nth_error_some.
   zify; rewrite Z2Nat.id; lia.
 Qed.
-
-Ltac eta_in H := 
-  lazymatch type of H with
-    | ((fun x => ?f x) = _) =>
-      rewrite (eta _ _ f) in H
-  end.
 
 Lemma mapM_some A B (xs : list A) (ys : list B) i d1 d2 f :
     mapM f xs = Some ys ->
