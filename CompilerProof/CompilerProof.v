@@ -1470,6 +1470,11 @@ Proof.
   rewrites (>>IHse1 Heqp); rewrites (>>IHse2 Heqp1); auto.
 Qed.
 
+Ltac des_mem := 
+  let t := lazymatch goal with
+      | [m : member _ _ |- _] => m
+      end in dependent destruction m.
+                       
 Lemma compile_func_ok GA fty (f : Skel.Func GA fty) (func : type_of_ftyp fty) (avar_env : AVarEnv GA) : 
   compile_func f avar_env = func -> func_ok avar_env f func.
 Proof.
@@ -1477,18 +1482,11 @@ Proof.
   repeat split; introv; unfold evalM;
   destruct (compile_sexp _ _ _ _) as [[? ?] ?] eqn:Heq; simpl in *;
   eauto using compile_sexp_no_barrs, compile_sexp_wr_vars, compile_sexp_res_vars, compile_sexp_ok;
-  unfold are_local; intros;
+  unfold are_local; [intros Hx ? ?| intros Hx Hy ? ?];
   forwards*: compile_sexp_ok;
-  unfold senv_ok, is_local in *; intros; false.
-  - dependent destruction m.
-    forwards*: H0; unfold lpref in H4; simpl in *; rewrite prefix_nil in H4; congruence.
-    dependent destruction m.
-  - dependent destruction m; simpl in *.
-    forwards*: H1.
-    unfold lpref in H4; simpl in *; rewrite prefix_nil in H5; congruence.
-    dependent destruction m; simpl in *.
-    forwards*: H0.
-    unfold lpref in H4; simpl in *; rewrite prefix_nil in H5; congruence.
-    dependent destruction m.
+  unfold senv_ok, is_local in *; introv Hin; false;
+  repeat des_mem; simpl in *;
+  try no_side_cond ltac:(forwards* Hin': Hx);
+  try no_side_cond ltac:(forwards* Hin': Hy);
+  unfold lpref in Hin'; simpl in *; rewrite prefix_nil in Hin'; congruence.
 Qed.
-End 
