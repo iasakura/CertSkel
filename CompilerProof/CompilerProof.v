@@ -1364,7 +1364,14 @@ Ltac des_mem :=
   let t := lazymatch goal with
       | [m : member _ _ |- _] => m
       end in dependent destruction m.
-                       
+
+Lemma resEnv_ok0_is_local resEnv : 
+  (forall l v, In (l |-> v) resEnv -> ~is_local l) -> resEnv_ok resEnv 0.
+Proof.
+  unfold resEnv_ok; intros H; intros; forwards*: H;
+  unfold is_local, lpref in *; simpl in *; rewrite prefix_nil in *; try congruence.
+Qed.
+                         
 Lemma compile_func_ok GA fty (f : Skel.Func GA fty) (func : type_of_ftyp fty) (avar_env : AVarEnv GA) : 
   compile_func f avar_env = func -> func_ok avar_env f func.
 Proof.
@@ -1373,7 +1380,7 @@ Proof.
   destruct (compile_sexp _ _ _ _) as [[? ?] ?] eqn:Heq; simpl in *;
   eauto using compile_sexp_no_barrs, compile_sexp_wr_vars, compile_sexp_res_vars, compile_sexp_ok;
   unfold are_local; [intros Hx ? ?| intros Hx Hy ? ?];
-  forwards*Htri: compile_sexp_ok; unfold kernelInv, sexpInv, scInv in *; simpl in *;
+  forwards*Htri: compile_sexp_ok; eauto using resEnv_ok0_is_local; unfold kernelInv, sexpInv, scInv in *; simpl in *;
   first [eapply rule_conseq; try apply Htri; prove_imp; simpl in *; try tauto | (* discharging triples *)
          unfold senv_ok, is_local in *; introv Hin; false;
          repeat des_mem; simpl in *;

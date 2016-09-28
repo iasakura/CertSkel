@@ -82,7 +82,7 @@ Definition func_ok1 {GA dom cod} (avar_env : AVarEnv GA)
      (* functional correctenss *)
      (forall ntrd (tid : Fin.t ntrd) BS xs vs res aptr_env aeval_env P resEnv,
          (forall l, In l (flatTup xs) -> ~is_local l)
-         -> resEnv_ok resEnv 0
+         -> (forall l v, In (l |-> v) resEnv -> ~is_local l)
          -> (Skel.funcDenote _ _ f aeval_env vs = Some res)
          -> CSL BS tid
                 (kernelInv avar_env aptr_env aeval_env P 
@@ -104,7 +104,7 @@ Definition func_ok2 {GA dom1 dom2 cod} (avar_env : AVarEnv GA)
      (forall ntrd (tid : Fin.t ntrd) BS xs ys vs1 vs2 res aptr_env aeval_env P resEnv,
          (forall l, In l (flatTup xs) -> ~is_local l)
          -> (forall l, In l (flatTup ys) -> ~is_local l)
-         -> resEnv_ok resEnv 0
+         -> (forall l v, In (l |-> v) resEnv -> ~is_local l)
          -> (Skel.funcDenote _ _ f aeval_env vs1 vs2 = Some res)
          -> CSL BS tid
                 (kernelInv avar_env aptr_env aeval_env P 
