@@ -120,3 +120,26 @@ Definition func_ok {GA fty} (avar_env : AVarEnv GA) :=
   | Skel.Fun1 dom cod => fun f func => func_ok1 avar_env f func
   | Skel.Fun2 dom1 dom2 cod => fun f func => func_ok2 avar_env f func 
   end.
+
+Notation gets' arr i := (nth i arr defval').
+Eval simpl in type_of_ftyp (Skel.Fun1 Skel.TZ _).
+
+Definition ae_ok {GA ty} (avar_env : AVarEnv GA) (ae : Skel.AE GA ty) (arr : var -> cmd * vars ty) :=
+  aenv_ok avar_env
+  -> (* func only writes to local variables *)
+     (forall x l, In l (writes_var (fst (arr x))) -> is_local l) /\
+     (* func only returs to local variables or parameter *)
+     (forall x l, In l (flatTup (snd (arr x))) -> is_local l) /\
+     (* functional correctenss *)
+     (forall ntrd (tid : Fin.t ntrd) BS ix i res aptr_env aeval_env P resEnv,
+         ~is_local ix
+         -> (forall l v, In (l |-> v) resEnv -> ~is_local l)
+         -> (Skel.aeDenote _ _ ae aeval_env = Some res)
+         -> i < length res
+         -> CSL BS tid
+                (kernelInv avar_env aptr_env aeval_env P 
+                           (ix |-> Zn i :: resEnv))
+                (fst (arr ix))
+                (kernelInv avar_env aptr_env aeval_env P
+                           ((snd (arr ix)) |=> sc2CUDA (gets' res i) ++ ix |-> Zn i :: resEnv))) /\
+     (forall x, barriers (fst (arr x)) = nil).

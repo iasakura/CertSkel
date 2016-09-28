@@ -440,16 +440,14 @@ Section Compiler.
     | Skel.LMin _ e1 e2 => Min (compile_lexp aenv e1) (compile_lexp aenv e2) 
     end.
 
-  Definition accessor_of_array {GA tyxa} aenv (arr : member tyxa GA) x :=
-    compile_func (Skel.F1 _ Skel.TZ _ (Skel.EA _ _ _ arr (Skel.EVar _ _ _ HFirst))) aenv x.
+  Definition accessor_of_array {GA tyxa} aenv (arr : member tyxa GA) :=
+    compile_func (Skel.F1 _ Skel.TZ _ (Skel.EA _ _ _ arr (Skel.EVar _ _ _ HFirst))) aenv.
 
   Definition compile_AE {GA ty} (ae : Skel.AE GA ty) :
     hlist (fun ty => (var * vars ty))%type GA ->
     ((var -> (cmd * vars ty))) :=
     match ae with
-    | Skel.DArr _ _ f len => fun avar_env =>
-      let f' := compile_func f avar_env in
-      fun x => f' x
+    | Skel.DArr _ _ f len => compile_func f
     | Skel.VArr _ _ xa => fun avar_env =>
       let get := accessor_of_array avar_env xa in
       get
