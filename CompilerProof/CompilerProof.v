@@ -1315,10 +1315,10 @@ Definition func_ok1 {GA dom cod} (avar_env : AVarEnv GA)
   -> (* func only writes to local variables *)
      (forall x l, In l (writes_var (fst (func x))) -> is_local l) /\
      (* func only returs to local variables or parameter *)
-     (forall x l, In l (flatTup (snd (func x))) -> is_local l \/ In l (flatTup x)) /\
+     (forall x l, In l (flatTup (snd (func x))) -> is_local l) /\
      (* functional correctenss *)
-     (forall ntrd (tid : Fin.t ntrd) BS xs vs res avar_env aptr_env aeval_env P resEnv,
-         ~ (are_local xs)
+     (forall ntrd (tid : Fin.t ntrd) BS xs vs res aptr_env aeval_env P resEnv,
+         (forall l, In l (flatTup xs) -> ~is_local l)
          -> resEnv_ok resEnv 0
          -> (Skel.funcDenote _ _ f aeval_env vs = Some res)
          -> CSL BS tid
@@ -1334,10 +1334,11 @@ Definition func_ok2 {GA dom1 dom2 cod} (avar_env : AVarEnv GA)
   -> (* func only writes to local variables *)
      (forall x y l, In l (writes_var (fst (func x y))) -> is_local l) /\
      (* func only returs to local variables or parameter *)
-     (forall x y l, In l (flatTup (snd (func x y))) -> is_local l \/ In l (flatTup x) \/ In l (flatTup y)) /\
+     (forall x y l, In l (flatTup (snd (func x y))) -> is_local l) /\
      (* functional correctenss *)
-     (forall ntrd (tid : Fin.t ntrd) BS xs ys vs1 vs2 res avar_env aptr_env aeval_env P resEnv,
-         ~ (are_local xs)
+     (forall ntrd (tid : Fin.t ntrd) BS xs ys vs1 vs2 res aptr_env aeval_env P resEnv,
+         (forall l, In l (flatTup xs) -> ~is_local l)
+         -> (forall l, In l (flatTup ys) -> ~is_local l)
          -> resEnv_ok resEnv 0
          -> (Skel.funcDenote _ _ f aeval_env vs1 vs2 = Some res)
          -> CSL BS tid
@@ -1347,7 +1348,7 @@ Definition func_ok2 {GA dom1 dom2 cod} (avar_env : AVarEnv GA)
                            (snd (func xs ys) |=> sc2CUDA res ++ resEnv))) /\
      (forall xs ys, barriers (fst (func xs ys)) = nil).
 
-Definition func_ok GA (avar_env : AVarEnv GA) fty :=
+Definition func_ok {GA fty} (avar_env : AVarEnv GA) :=
   match fty return Skel.Func GA fty -> type_of_ftyp fty -> Prop with
   | Skel.Fun1 dom cod => fun f func => func_ok1 avar_env f func
   | Skel.Fun2 dom1 dom2 cod => fun f func => func_ok2 avar_env f func 
@@ -1467,5 +1468,27 @@ Proof.
   rewrites (>>IHse1 Heqp); rewrites (>>IHse2 Heqp0); rewrites (>>IHse3 Heqp1); auto.
   rewrites (>>IHse1 Heqp); rewrites (>>IHse2 Heqp0); auto.
   rewrites (>>IHse1 Heqp); rewrites (>>IHse2 Heqp1); auto.
+Qed.
+
+Lemma compile_func_ok GA fty (f : Skel.Func GA fty) (func : type_of_ftyp fty) (avar_env : AVarEnv GA) : 
+  compile_func f avar_env = func -> func_ok avar_env f func.
+Proof.
+  destruct fty; intros Hcp; simpl in *; substs; dependent destruction f; simpl;
+  repeat split; introv; unfold evalM;
+  destruct (compile_sexp _ _ _ _) as [[? ?] ?] eqn:Heq; simpl in *;
+  eauto using compile_sexp_no_barrs, compile_sexp_wr_vars, compile_sexp_res_vars, compile_sexp_ok;
+  unfold are_local; intros;
+  forwards*: compile_sexp_ok;
+  unfold senv_ok, is_local in *; intros; false.
+  - dependent destruction m.
+    forwards*: H0; unfold lpref in H4; simpl in *; rewrite prefix_nil in H4; congruence.
+    dependent destruction m.
+  - dependent destruction m; simpl in *.
+    forwards*: H1.
+    unfold lpref in H4; simpl in *; rewrite prefix_nil in H5; congruence.
+    dependent destruction m; simpl in *.
+    forwards*: H0.
+    unfold lpref in H4; simpl in *; rewrite prefix_nil in H5; congruence.
+    dependent destruction m.
 Qed.
 End 
