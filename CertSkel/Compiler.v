@@ -425,7 +425,7 @@ Section Compiler.
     | Skel.Fun2 dom1 dom2 cod => vars dom1 -> vars dom2 -> (cmd * vars cod)
     end.
 
-  Fixpoint compile_func {GA fty} (body : Skel.Func GA fty) :
+  Definition compile_func {GA fty} (body : Skel.Func GA fty) :
     hlist (fun ty => (var * vars ty))%type GA ->
     type_of_ftyp fty :=
     match body in Skel.Func _ fty' return _ -> type_of_ftyp fty' with
