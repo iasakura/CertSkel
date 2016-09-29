@@ -792,10 +792,10 @@ Proof.
 Qed.
 
 Lemma arrInvRes_unfold GA (aptr_env : APtrEnv GA) (aeval_env : AEvalEnv GA)
-      ty (m : member ty GA) :
+      ty (m : member ty GA) p :
   exists R,
-        (arrInvRes aptr_env aeval_env ==
-         (arrays (val2gl (hget aptr_env m)) (arr2CUDA (hget aeval_env m)) 1 *** R))%type.
+        (arrInvRes aptr_env aeval_env p ==
+        (arrays (val2gl (hget aptr_env m)) (arr2CUDA (hget aeval_env m)) p *** R))%type.
 Proof.
   unfold arrInvRes; induction GA; 
   dependent destruction m;
@@ -817,7 +817,7 @@ Lemma rule_reads_ainv ntrd BS (tid : Fin.t ntrd) GA GS
       (aeval_env : AEvalEnv GA)
       (n m : nat)
       ty (xs : vars ty) resEnv len (aname : vars ty) (ix : vars Skel.TZ) (i : Skel.typDenote Skel.TZ)
-      v P R (m' : member ty GA) :
+      v P R (m' : member ty GA) p :
   senv_ok svar_env n (* fvs are not in the future generated vars *)
   -> aenv_ok avar_env
   -> resEnv_ok resEnv n
@@ -827,11 +827,11 @@ Lemma rule_reads_ainv ntrd BS (tid : Fin.t ntrd) GA GS
   -> disjoint (flatTup xs) (fv_E ix)
   -> disjoint_list (flatTup xs)
   -> CSL BS tid  (* correctness of gen. code *)
-         (Assn (arrInvRes aptr_env aeval_env *** R) P
+         (Assn (arrInvRes aptr_env aeval_env p *** R) P
                ((ix |=> sc2CUDA i ++ resEnv) ++
                 scInv svar_env seval_env ++ arrInvVar avar_env aptr_env aeval_env))
          (reads xs (ty2ctys ty) (v2gl aname +os ix))
-         (Assn (arrInvRes aptr_env aeval_env *** R) P
+         (Assn (arrInvRes aptr_env aeval_env p *** R) P
                ((xs |=> sc2CUDA v ++ remove_vars resEnv (flatTup xs)) ++
                 remove_vars (scInv svar_env seval_env ++ arrInvVar avar_env aptr_env aeval_env) (flatTup xs))).
 Proof.
@@ -1021,7 +1021,7 @@ Lemma compile_sexp_ok ntrd BS (tid : Fin.t ntrd) GA GS typ (se : Skel.SExp GA GS
       (aptr_env : APtrEnv GA)
       (aeval_env : AEvalEnv GA)
       (n m : nat) 
-      (v : Skel.typDenote typ) c es resEnv R P :
+      (v : Skel.typDenote typ) c es resEnv R P p:
   Skel.sexpDenote GA GS typ se aeval_env seval_env = Some v ->
   compile_sexp se avar_env svar_env n = (c, es, m) ->
   (* (forall ty (m : member ty GS), length (hget svar_env m) = len_of_ty ty) -> *)
@@ -1031,9 +1031,9 @@ Lemma compile_sexp_ok ntrd BS (tid : Fin.t ntrd) GA GS typ (se : Skel.SExp GA GS
   resEnv_ok resEnv n ->
   (* (iii) return exps. don't have future generated vars*)
   CSL BS tid  (* correctness of gen. code *)
-      (sexpInv svar_env seval_env avar_env aptr_env aeval_env R P resEnv)
+      (sexpInv svar_env seval_env avar_env aptr_env aeval_env R P resEnv p)
       c
-      (sexpInv svar_env seval_env avar_env aptr_env aeval_env R P (es |=> sc2CUDA v ++ resEnv)).
+      (sexpInv svar_env seval_env avar_env aptr_env aeval_env R P (es |=> sc2CUDA v ++ resEnv) p).
 Proof.
   revert typ se seval_env svar_env n m v c es R P resEnv.
   induction se;

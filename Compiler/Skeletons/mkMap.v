@@ -40,8 +40,8 @@ Variable aeval_env : AEvalEnv GA.
 
 Lemma mkMap_cmd_ok BS (tid : Fin.t ntrd) : 
   CSL BS tid
-      (kernelInv avar_env aptr_env aeval_env Emp True nil)
+      (kernelInv avar_env aptr_env aeval_env Emp True nil 1)
       (mkMap_cmd FalseP)
-      (kernelInv avar_env aptr_env aeval_env Emp True nil).
+      (kernelInv avar_env aptr_env aeval_env Emp True nil 1).
 Abort.
 End mkMap.
