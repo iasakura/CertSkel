@@ -11,6 +11,8 @@ Require Import MyEnv.
 Require Import TypedTerm.
 Require Import MyMSets.
 Require Import CUDALib.
+Require Import Correctness.
+Require Import mkMap.
 
 Open Scope string_scope.
 Definition name := string. 
@@ -63,8 +65,6 @@ Section compiler.
 
   Definition str_of_pnat n m :=
     ("l" ++ nat2str n ++ "_" ++ nat2str m).
-
-  Definition lpref n := "l" ++ nat2str n ++ "_". 
 
   Definition freshes ty : M (vars ty) :=
     get >>= fun n =>
@@ -404,12 +404,6 @@ Section Compiler.
     | S n => fun y => dumy_fun_n n x
     end.
 
-  Definition type_of_ftyp (fty : Skel.FTyp) :=
-    match fty with
-    | Skel.Fun1 dom cod => vars dom -> (cmd * vars cod)
-    | Skel.Fun2 dom1 dom2 cod => vars dom1 -> vars dom2 -> (cmd * vars cod)
-    end.
-
   Definition compile_func {GA fty} (body : Skel.Func GA fty) :
     hlist (fun ty => (var * vars ty))%type GA ->
     type_of_ftyp fty :=
@@ -455,12 +449,6 @@ Section Compiler.
   (*   end. *)
   
   Open Scope string_scope.
-
-  Fixpoint concat {A : Type} (l : list (list A)) :=
-    match l with
-    | nil => nil
-    | xs :: xss => (xs ++ concat xss)%list
-    end.
 
   (* Definition shiftn n (var_host_env : list (hostVar * list hostVar)) := *)
   (*   map (fun xs => (n + (fst xs), List.map (fun x => n + x) (snd xs))) var_host_env. *)
@@ -536,22 +524,6 @@ Section Compiler.
 
   Definition with_idx A B ls := @with_idx' A B ls 0.
 
-  Fixpoint hmake_idx {A : Type} {B : A -> Type} (s : nat) (f : nat -> forall x : A, B x) (ls : list A) : hlist B ls :=
-    match ls with
-    | Datatypes.nil => HNil
-    | x :: ls' => f s x ::: hmake_idx (S s) f ls'
-    end.
-
-  Definition gen_params (GA : list Skel.Typ) : hlist (fun ty => var * CTyp * vartys ty)%type GA :=
-    let f (i : nat) (ty : Skel.Typ) :=
-        (len_name i, Int, arr_name i ty) in
-    hmake_idx 0 f GA.
-
-  Definition remove_typeinfo : forall {GA : list Skel.Typ},
-    hlist (fun ty => var * CTyp * vartys ty)%type GA ->
-    hlist (fun ty => var * vars ty)%type GA :=
-    hmap (fun ty (x : var * CTyp * vartys ty) => let (len, arr) := x in (fst len, maptys fst arr)).
-
   Definition invokeKernel kerID ntrd nblk (args : list Host.expr) :=
     setI (invoke kerID ntrd nblk args).
 
@@ -567,36 +539,6 @@ Section Compiler.
         NatSet.mem i s in
     map snd (filter f (combine (seq 0 (length xs)) xs)).
 
-  Definition flatten_param {A : Type} (x : (A * list A)) := fst x :: snd x.
-  Definition flatten_params {A : Type} (xs : list (A * list A)) := concat (List.map flatten_param xs).
-
-  Fixpoint flatten_avars {GA : list Skel.Typ}
-             (xs : hlist (fun ty => (var * CTyp * vartys ty)%type) GA) :=
-    match xs with
-    | HNil => nil
-    | HCons _ _ x xs => 
-      let '(x, ty, ls) := x in
-      ((x, ty) :: flatTup ls) ++ flatten_avars xs
-    end.
-
-  Parameter mkMap' :
-    forall dom cod,
-      nat
-      -> nat
-      -> (var -> cmd * vars dom)
-      -> (vars dom -> cmd * vars cod)
-      -> cmd.
-
-  Definition mkMap GA dom cod ntrd nblk
-             (g : var -> cmd * vars dom)
-             (f : vars dom -> cmd * vars cod)
-             : kernel :=
-    let arr_vars := gen_params GA in
-    let params_in := flatten_avars arr_vars in
-    let params_out := (out_len_name, Int) :: flatTup (out_name cod) in
-    {| params_of := params_out ++ params_in;
-       body_of := Pr nil (mkMap' _ _ ntrd nblk g f) |} .
-
   Definition compile_map {GA dom cod} ntrd nblk
              (host_var_env : list (hostVar * list hostVar))
              (f : Skel.Func GA (Skel.Fun1 dom cod))
@@ -608,7 +550,7 @@ Section Compiler.
     let outlen := compile_AE_len host_var_env arr in
     let f := compile_func f (remove_typeinfo arr_vars) in
     
-    do! kerID := gen_kernel (mkMap GA dom cod ntrd nblk g f)  in
+    do! kerID := gen_kernel (mkMap ntrd nblk GA dom cod g f)  in
     do! outlenVar := fLet outlen in
     let outDim := ctyps_of_typ cod in
     do! outArr := fAllocs outDim outlen in

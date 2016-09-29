@@ -817,7 +817,7 @@ Lemma rule_reads_ainv ntrd BS (tid : Fin.t ntrd) GA GS
       (aeval_env : AEvalEnv GA)
       (n m : nat)
       ty (xs : vars ty) resEnv len (aname : vars ty) (ix : vars Skel.TZ) (i : Skel.typDenote Skel.TZ)
-      v P (m' : member ty GA) :
+      v P R (m' : member ty GA) :
   senv_ok svar_env n (* fvs are not in the future generated vars *)
   -> aenv_ok avar_env
   -> resEnv_ok resEnv n
@@ -827,11 +827,11 @@ Lemma rule_reads_ainv ntrd BS (tid : Fin.t ntrd) GA GS
   -> disjoint (flatTup xs) (fv_E ix)
   -> disjoint_list (flatTup xs)
   -> CSL BS tid  (* correctness of gen. code *)
-         (Assn (arrInvRes aptr_env aeval_env) P
+         (Assn (arrInvRes aptr_env aeval_env *** R) P
                ((ix |=> sc2CUDA i ++ resEnv) ++
                 scInv svar_env seval_env ++ arrInvVar avar_env aptr_env aeval_env))
          (reads xs (ty2ctys ty) (v2gl aname +os ix))
-         (Assn (arrInvRes aptr_env aeval_env) P
+         (Assn (arrInvRes aptr_env aeval_env *** R) P
                ((xs |=> sc2CUDA v ++ remove_vars resEnv (flatTup xs)) ++
                 remove_vars (scInv svar_env seval_env ++ arrInvVar avar_env aptr_env aeval_env) (flatTup xs))).
 Proof.
@@ -843,7 +843,7 @@ Proof.
   Qed.
   
   intros Hsok Haok Hresok Hget Hnth Hdisj1 Hdisj2 Hdisj3.
-  forwards* (R & Heq): (>>arrInvRes_unfold aptr_env aeval_env m').
+  forwards* (R' & Heq): (>>arrInvRes_unfold aptr_env aeval_env m').
   eapply forward; [|applys* (>>rule_reads_arrays xs (arr2CUDA (hget aeval_env m')) (Z.to_nat i))].
   prove_imp; simpl;
   rewrite remove_vars_cons, !remove_vars_app in *;
@@ -966,6 +966,7 @@ Proof.
     forwards*: nth_error_lt.
     rewrite Z2Nat.id; try omega; eauto.
   - intros ? s h Hsat; rewrite Heq in Hsat.
+    repeat rewrite <-res_assoc in Hsat.
     apply Hsat.
   - unfold arr2CUDA.
     rewrite map_length.
@@ -1020,7 +1021,7 @@ Lemma compile_sexp_ok ntrd BS (tid : Fin.t ntrd) GA GS typ (se : Skel.SExp GA GS
       (aptr_env : APtrEnv GA)
       (aeval_env : AEvalEnv GA)
       (n m : nat) 
-      (v : Skel.typDenote typ) c es resEnv P :
+      (v : Skel.typDenote typ) c es resEnv R P :
   Skel.sexpDenote GA GS typ se aeval_env seval_env = Some v ->
   compile_sexp se avar_env svar_env n = (c, es, m) ->
   (* (forall ty (m : member ty GS), length (hget svar_env m) = len_of_ty ty) -> *)
@@ -1030,11 +1031,11 @@ Lemma compile_sexp_ok ntrd BS (tid : Fin.t ntrd) GA GS typ (se : Skel.SExp GA GS
   resEnv_ok resEnv n ->
   (* (iii) return exps. don't have future generated vars*)
   CSL BS tid  (* correctness of gen. code *)
-      (sexpInv svar_env seval_env avar_env aptr_env aeval_env P resEnv)
+      (sexpInv svar_env seval_env avar_env aptr_env aeval_env R P resEnv)
       c
-      (sexpInv svar_env seval_env avar_env aptr_env aeval_env P (es |=> sc2CUDA v ++ resEnv)).
+      (sexpInv svar_env seval_env avar_env aptr_env aeval_env R P (es |=> sc2CUDA v ++ resEnv)).
 Proof.
-  revert typ se seval_env svar_env n m v c es P resEnv.
+  revert typ se seval_env svar_env n m v c es R P resEnv.
   induction se;
   introv Heval Hcompile Hsok Haok Hresok;
   unfold bind_opt in Hcompile; unfold sexpInv in *; unfoldM_in Hcompile.
@@ -1238,9 +1239,9 @@ Proof.
         apply evar_inj, lpref_inj in H2; omega.
       - forwards*: (>>Hsok m0); omega. }
     { applys* (>>resEnv_ok_ge Hresok); omega. }
-    prove_imp.
+    prove_imp; eauto.
     { unfold scInv in *; simpl in *; rewrite in_app_iff in *; tauto. }
-    prove_imp.
+    prove_imp; eauto.
     unfold scInv in *; simpl in *; rewrite in_app_iff in *; tauto.
 Qed.
 
@@ -1381,7 +1382,7 @@ Proof.
   eauto using compile_sexp_no_barrs, compile_sexp_wr_vars, compile_sexp_res_vars, compile_sexp_ok;
   unfold are_local; [intros Hx ? ?| intros Hx Hy ? ?];
   forwards*Htri: compile_sexp_ok; eauto using resEnv_ok0_is_local; unfold kernelInv, sexpInv, scInv in *; simpl in *;
-  first [eapply rule_conseq; try apply Htri; prove_imp; simpl in *; try tauto | (* discharging triples *)
+  first [eapply rule_conseq; try apply Htri; prove_imp; eauto; simpl in *; try tauto | (* discharging triples *)
          unfold senv_ok, is_local in *; introv Hin; false;
          repeat des_mem; simpl in *;
          try no_side_cond ltac:(forwards* Hin': Hx);

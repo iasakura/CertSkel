@@ -1,4 +1,4 @@
-Require Import GPUCSL LibTactics scan_lib TypedTerm.
+Require Import DepList GPUCSL LibTactics scan_lib TypedTerm.
 
 Fixpoint typ2Coq T ty :=
   match ty with
@@ -184,3 +184,42 @@ Proof.
   introv H Hc; apply locals_pref in H as [j [? ?]]; apply locals_pref in Hc as [j' [? ?]]; substs.
   inverts H1 as H; apply string_inj2, nat_to_string_inj in H; auto; omega.
 Qed.
+
+Fixpoint hmake_idx {A : Type} {B : A -> Type} (s : nat) (f : nat -> forall x : A, B x) (ls : list A) : hlist B ls :=
+  match ls with
+  | Datatypes.nil => HNil
+  | x :: ls' => f s x ::: hmake_idx (S s) f ls'
+  end.
+
+Definition gen_params (GA : list Skel.Typ) : hlist (fun ty => var * CTyp * vartys ty)%type GA :=
+  let f (i : nat) (ty : Skel.Typ) :=
+      (len_name i, Int, arr_name i ty) in
+  hmake_idx 0 f GA.
+
+Definition remove_typeinfo : forall {GA : list Skel.Typ},
+  hlist (fun ty => var * CTyp * vartys ty)%type GA ->
+  hlist (fun ty => var * vars ty)%type GA :=
+  hmap (fun ty (x : var * CTyp * vartys ty) => let (len, arr) := x in (fst len, maptys fst arr)).
+
+Open Scope string.
+
+Definition lpref n := "l" ++ nat2str n ++ "_". 
+Close Scope string.
+
+Fixpoint concat {A : Type} (l : list (list A)) :=
+  match l with
+  | nil => nil
+  | xs :: xss => (xs ++ concat xss)%list
+  end.
+
+Definition flatten_param {A : Type} (x : (A * list A)) := fst x :: snd x.
+Definition flatten_params {A : Type} (xs : list (A * list A)) := concat (List.map flatten_param xs).
+
+Fixpoint flatten_avars {GA : list Skel.Typ}
+         (xs : hlist (fun ty => (var * CTyp * vartys ty)%type) GA) :=
+  match xs with
+  | HNil => nil
+  | HCons _ _ x xs => 
+    let '(x, ty, ls) := x in
+    ((x, ty) :: flatTup ls) ++ flatten_avars xs
+  end.
