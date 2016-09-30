@@ -2,6 +2,8 @@ Require Import Monad DepList GPUCSL TypedTerm Compiler.
 Require Import Program.Equality LibTactics.
 Require Import CUDALib CodeGen CSLLemma CSLTactics Correctness.
 Import Skel_lemma.
+Require Import SkelLib Psatz.
+
 
 Variable sorry : forall A, A.
 Arguments sorry {A}.
@@ -335,7 +337,6 @@ Ltac sep_rewrites_r lem :=
 (* Hint Rewrite len_of_val : core. *)
 (* Hint Unfold S.es2gls S.vars2es. *)
 
-Require Import SkelLib Psatz.
 Lemma nth_error_lt' A (arr : list A) i v : 
   List.nth_error arr i = Some v -> i < length arr.
 Proof.
@@ -679,7 +680,7 @@ Lemma compile_op_ok ntrd BS (tid : Fin.t ntrd) ty1 ty2 ty3 (op : Skel.BinOp ty1 
       (Assn Res P
             (res |=> sc2CUDA (Skel.opDenote _ _ _ op v1 v2) ++ remove_vars env (flatTup res))).
 Proof.
-  destruct op; simpl; unfoldM; destruct freshes as (? & ?); simpl; inversion 1; substs;
+  destruct op; simpl; unfoldM; destruct (freshes _ _) as (? & ?); simpl; inversion 1; substs;
   hoare_forward; repeat rewrite in_app_iff; simpl; eauto;
   prove_imp; repeat rewrite remove_var_app, in_app_iff in *; simpl in *;
   repeat destruct var_eq_dec; simpl in *; substs; try tauto;
@@ -1389,83 +1390,6 @@ Proof.
          try no_side_cond ltac:(forwards* Hin': Hy);
          unfold lpref in Hin'; simpl in *; rewrite prefix_nil in Hin'; congruence].
 Qed.
-
-Lemma nth_error_some T (ls : list T) i d :
-  i < length ls
-  -> List.nth_error ls i = Some (nth i ls d).
-Proof.
-  revert ls; induction i; simpl; destruct ls; simpl in *; intros; try omega.
-  reflexivity.
-  intuition.
-Qed.
-
-Lemma nth_error_some' T (ls : list T) (i : Z) d :
-  (0 <= i < Zn (length ls))%Z
-  -> nth_error ls i = Some (nth (Z.to_nat i) ls d).
-Proof.
-  unfold nth_error; simpl; unfoldM; unfold Monad.bind_opt.
-  intros.
-  unfold Z_to_nat_error; destruct Z_le_dec; try lia; simpl.
-  apply nth_error_some.
-  zify; rewrite Z2Nat.id; lia.
-Qed.
-
-Lemma mapM_some A B (xs : list A) (ys : list B) i d1 d2 f :
-    mapM f xs = Some ys ->
-    Some (nth i ys d2) = if lt_dec i (length xs) then f (nth i xs d1) else Some d2.
-Proof.
-  unfold mapM; revert i ys; induction xs; simpl; introv Heq;
-  destruct i, ys; try inverts Heq; simpl; eauto.
-  - unfold Monad.bind_opt in *.
-    destruct (f a) eqn:Heq1; inverts H0.
-    destruct (sequence _); inverts H1.
-  - unfold Monad.bind_opt in *.
-    destruct (f a) eqn:Heq1; inverts H0.
-    destruct (sequence _) eqn:Heq2; inverts H1; eauto.
-  - unfold Monad.bind_opt in *.
-    destruct (f a) eqn:Heq1; inverts H0.
-    destruct (sequence _) eqn:Heq2; inverts H1; eauto.
-  - unfold Monad.bind_opt in *.
-    destruct (f a) eqn:Heq1; inverts H0.
-    destruct (sequence _) eqn:Heq2; inverts H1; eauto.
-    erewrite IHxs; destruct (lt_dec i (length xs)), (lt_dec (S i) (S (length xs))); try lia;
-    eauto.
-Qed.
-
-    
-Lemma mapM_length A B (xs : list A) (ys : list B) f :
-  mapM f xs = Some ys -> length ys = length xs.
-Proof.
-  revert ys; unfold mapM; induction xs; introv.
-  - inversion 1; eauto.
-  - simpl.
-    unfold Monad.bind_opt; destruct (f a), (@sequence _ _ _); simpl;
-    destruct ys; inversion 1; substs; simpl; rewrite IHxs; eauto.
-Qed.
-
-Lemma seq'_length n m : length (seq' n m) = m.
-Proof.
-  revert n; induction m; simpl; congruence.
-Qed.
-
-Lemma seq'_nth n m i d : nth i (seq' n m) d = if lt_dec i m then (n + Zn i)%Z else d.
-Proof.
-  revert n i; induction m; simpl; intros n [|i]; eauto.
-  destruct lt_dec; eauto; try lia.
-  rewrites IHm.
-  repeat destruct lt_dec; try lia.
-Qed.
-
-Lemma seq_length n m : length (seq n m) = Z.to_nat m.
-Proof.
-  unfold seq; rewrite seq'_length; eauto.
-Qed.
-
-Lemma seq_nth n m i d : nth i (seq n m) d = if lt_dec i (Z.to_nat m) then (n + Zn i)%Z else d.
-Proof.
-  unfold seq; apply seq'_nth.
-Qed.
-
 
 Lemma compile_AE_ok GA ty (ae : Skel.AE GA ty) (arr : var -> cmd * vars ty) (avar_env : AVarEnv GA) :
   compile_AE ae avar_env = arr -> ae_ok avar_env ae arr.
