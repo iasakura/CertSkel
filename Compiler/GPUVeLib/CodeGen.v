@@ -1,5 +1,5 @@
 Require Import GPUCSL scan_lib LibTactics Psatz CSLLemma Skel_lemma SetoidClass.
-Require Import CSLLemma TypedTerm CUDALib.
+Require Import CUDALib CSLLemma TypedTerm CUDALib.
 
 Fixpoint evalExps {ty : Skel.Typ} (Env : list entry) :=
   match ty return exps ty -> vals ty -> Prop with
@@ -75,6 +75,46 @@ Qed.
 
 Definition remove_vars Env (xs : list var) :=
   List.fold_right (fun x e => remove_var e x) Env xs.
+
+Lemma remove_var_app e1 e2 x :
+  remove_var (e1 ++ e2) x = remove_var e1 x ++ remove_var e2 x.
+Proof.
+  induction e1; simpl; eauto; rewrite IHe1.
+  destruct var_eq_dec; eauto.
+Qed.
+
+Lemma remove_vars_app e1 e2 xs :
+  remove_vars (e1 ++ e2) xs = remove_vars e1 xs ++ remove_vars e2 xs.
+Proof.
+  induction xs; simpl; eauto.
+  rewrite IHxs, remove_var_app; eauto.
+Qed.
+
+
+Lemma remove_vars_nil xs : remove_vars nil xs = nil.
+Proof.
+  induction xs; simpl; eauto.
+  rewrite IHxs; eauto.
+Qed.          
+
+Lemma remove_var_disjoint es x :
+  ~In x (map ent_e es)  ->
+  remove_var es x = es.
+Proof.
+  induction es; simpl; eauto.
+  destruct var_eq_dec; simpl; intros; rewrite IHes; eauto.
+  substs; false; eauto.
+Qed.
+  
+Lemma remove_vars_disjoint es xs :
+  disjoint (map ent_e es) xs ->
+  remove_vars es xs = es.
+Proof.
+  induction xs; simpl; eauto.
+  intros H; apply disjoint_comm in H as [? H]; simpl in *.
+  forwards*Heq: IHxs; eauto using disjoint_comm.
+  rewrite Heq, remove_var_disjoint; eauto.
+Qed.
 
 Lemma remove_vars_imp (Env : list entry) xs :
   env_assns_denote Env ===> env_assns_denote (remove_vars Env xs).
@@ -876,4 +916,90 @@ Proof.
   rewrite <-!res_assoc, res_CA in Hsat; substs; eauto.
   rewrite ith_vals_set_nth, firstn_set_nth_ignore, skipn_set_nth_ignore.
   eauto.
+Qed.
+
+Definition val2sh {ty} := @maptys ty _ _ SLoc.
+Definition val2gl {ty} := @maptys ty _ _ GLoc.
+
+Lemma evalLExps_gl ty env (e : exps ty) v :
+  evalExps env e v
+  -> evalLExps env (e2gl e) (val2gl v).
+Proof.
+  induction ty; simpl; eauto; try now constructor; eauto.
+  destruct 1; split; firstorder.
+Qed.
+
+Lemma evalLExps_sh ty env (e : exps ty) v :
+  evalExps env e v
+  -> evalLExps env (e2sh e) (val2sh v).
+Proof.
+  induction ty; simpl; eauto; try now constructor; eauto.
+  destruct 1; split; firstorder.
+Qed.
+
+Lemma evalExps_vars ty env (xs : vars ty) vs :
+  incl (xs |=> vs) env
+  -> evalExps env (v2e xs) vs.
+Proof.
+  unfold v2e, incl; induction ty; simpl; eauto; intros; [constructor; firstorder..|].
+  split; firstorder.
+Qed.
+
+Lemma incl_cons_ig T (a : T) xs ys :
+  incl xs ys -> incl xs (a :: ys).
+Proof.
+  unfold incl; firstorder.
+Qed.
+
+Lemma incl_app_iff T (xs ys zs : list T) :
+  (incl xs ys \/ incl xs zs) -> incl xs (ys ++ zs).
+Proof.
+  destruct 1; intros a; specialize (H a); firstorder.
+Qed.
+
+Hint Resolve incl_refl.
+
+Lemma evalExp_cons_ig e env exp v :
+  evalExp env exp v
+  -> evalExp (e :: env) exp v.
+Proof.
+  induction 1; constructor; simpl; eauto.
+Qed.
+
+Lemma evalExp_app_ig env1 env2 exp v :
+  evalExp env2 exp v
+  -> evalExp (env1 ++ env2) exp v.
+Proof.
+  induction 1; constructor; simpl; eauto.
+  rewrite in_app_iff; eauto.
+Qed.
+
+Lemma evalLExp_cons_ig e env le lv :
+  evalLExp env le lv
+  -> evalLExp (e :: env) le lv.
+Proof.
+  induction 1; constructor; eauto using evalExp_cons_ig.
+Qed.          
+
+Lemma evalLExp_app_ig env1 env2 le lv :
+  evalLExp env2 le lv
+  -> evalLExp (env1 ++ env2) le lv.
+Proof.
+  induction 1; constructor; eauto using evalExp_app_ig.
+Qed.          
+
+Lemma evalLExps_cons_ig ty e env (le : lexps ty) lv :
+  evalLExps env le lv
+  -> evalLExps (e :: env) le lv.
+Proof.
+  induction ty; simpl; eauto using evalLExp_cons_ig.
+  firstorder.
+Qed.
+
+Lemma evalLExps_app_ig ty env1 env2 (le : lexps ty) lv :
+  evalLExps env2 le lv
+  -> evalLExps (env1 ++ env2) le lv.
+Proof.
+  induction ty; simpl; eauto using evalLExp_app_ig.
+  firstorder.
 Qed.

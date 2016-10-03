@@ -992,7 +992,7 @@ Qed.
 
 Lemma subA_input_spec var e E Ed p :
   prefix "arr" (str_of_var var) = false ->
-  prefix "sh" (str_of_var var) = false ->
+  prefix "_sh" (str_of_var var) = false ->
   subA var e (input_spec E Ed p) |=
   input_spec E Ed p.
 Proof.
@@ -1150,7 +1150,7 @@ Qed.
 
 Lemma inde_input_spec E Ed p vs :
   (forall v, In v vs -> prefix "arr" (str_of_var v) = false) ->
-  (forall v, In v vs -> prefix "sh" (str_of_var v) = false) ->
+  (forall v, In v vs -> prefix "_sh" (str_of_var v) = false) ->
   inde (input_spec E Ed p) vs.
 Proof.
   revert Ed; induction E as [|[? ?] ?]; intros Ed; simpl.
@@ -1266,7 +1266,7 @@ Qed.
 
 Lemma low_assn_input_spec E Es Ed p  :
   (forall v, prefix "arr" (str_of_var v) = true -> E v = Lo) ->
-  (forall v, prefix "sh" (str_of_var v) = true -> E v = Lo) ->
+  (forall v, prefix "_sh" (str_of_var v) = true -> E v = Lo) ->
    low_assn E (input_spec Es Ed p).
 Proof.
   unfold low_assn.

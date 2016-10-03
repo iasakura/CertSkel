@@ -1,6 +1,11 @@
 Require Import GPUCSL scan_lib LibTactics Skel_lemma Psatz Classical GCSL.
 
 Notation val := Z.
+Arguments Z.add _ _ : simpl never.
+
+Coercion Var : string >-> var.
+Open Scope string_scope.
+Open Scope list_scope.
 
 (* Definition of equivalence between two assertion for rewrite *)
 Require Import SetoidClass.

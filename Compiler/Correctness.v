@@ -1,6 +1,6 @@
 Require Import Monad DepList GPUCSL TypedTerm.
 Require Import Program.Equality LibTactics.
-Require Import CUDALib CSLLemma CodeGen CSLTactics.
+Require Import CUDALib CSLLemma CodeGen.
 
 Notation SVarEnv GS := (hlist (fun typ : Skel.Typ => vars typ) GS).
 Notation SEvalEnv GS := (hlist Skel.typDenote GS).
@@ -24,9 +24,6 @@ Fixpoint sc2CUDA {ty} :=
   end%Z.
 
 Definition arr2CUDA {ty} : Skel.aTypDenote ty -> list (vals ty) := map sc2CUDA.
-
-Definition val2sh {ty} := @maptys ty _ _ SLoc.
-Definition val2gl {ty} := @maptys ty _ _ GLoc.
 
 Definition arrInvRes {GA} (aPtrEnv : APtrEnv GA) (aEvalEnv : AEvalEnv GA) p : res :=
   fold_hlist GA Star Emp
@@ -53,10 +50,10 @@ Definition kernelInv {GA}
   Assn (arrInvRes aPtrEnv aEvalEnv p *** R) P (resEnv ++ arrInvVar aVarEnv aPtrEnv aEvalEnv).
 
 Definition aenv_ok {GA} (avar_env : AVarEnv GA) :=
-  (forall ty (m : member ty GA), prefix "l" (str_of_var (fst (hget avar_env m))) = false)
+  (forall ty (m : member ty GA), prefix "_" (str_of_var (fst (hget avar_env m))) = true)
   /\ (forall (ty : Skel.Typ) (m : member ty GA) (y : var),
          In y (flatTup (snd (hget avar_env m)))
-         -> prefix "l" (str_of_var y) = false).
+         -> prefix "_" (str_of_var y) = true).
 
 Definition senv_ok {GS} (svar_env : SVarEnv GS) n :=
   (forall (ty : Skel.Typ) (m : member ty GS) (k : nat) l,
@@ -88,14 +85,13 @@ Definition func_ok1 {GA dom cod} (avar_env : AVarEnv GA)
      (forall ntrd (tid : Fin.t ntrd) BS xs vs res aptr_env aeval_env R P resEnv p,
          (forall l, In l (flatTup xs) -> ~is_local l)
          -> (forall l v, In (l |-> v) resEnv -> ~is_local l)
+         -> evalExps resEnv (v2e xs) (sc2CUDA vs)
          -> (Skel.funcDenote _ _ f aeval_env vs = Some res)
          -> CSL BS tid
-                (kernelInv avar_env aptr_env aeval_env R P
-                           (xs |=> sc2CUDA vs ++ resEnv) p)
+                (kernelInv avar_env aptr_env aeval_env R P resEnv p)
                 (fst (func xs))
                 (kernelInv avar_env aptr_env aeval_env R P
-                           (snd (func xs) |=> sc2CUDA res ++
-                            xs |=> sc2CUDA vs ++ resEnv) p)) /\
+                           (snd (func xs) |=> sc2CUDA res ++ resEnv) p)) /\
      (forall x, barriers (fst (func x)) = nil).
 
 Definition func_ok2 {GA dom1 dom2 cod} (avar_env : AVarEnv GA) 
@@ -110,14 +106,14 @@ Definition func_ok2 {GA dom1 dom2 cod} (avar_env : AVarEnv GA)
          (forall l, In l (flatTup xs) -> ~is_local l)
          -> (forall l, In l (flatTup ys) -> ~is_local l)
          -> (forall l v, In (l |-> v) resEnv -> ~is_local l)
+         -> evalExps resEnv (v2e xs) (sc2CUDA vs1)
+         -> evalExps resEnv (v2e ys) (sc2CUDA vs2)
          -> (Skel.funcDenote _ _ f aeval_env vs1 vs2 = Some res)
          -> CSL BS tid
-                (kernelInv avar_env aptr_env aeval_env R P
-                           (xs |=> sc2CUDA vs1 ++ ys |=> sc2CUDA vs2 ++ resEnv) p)
+                (kernelInv avar_env aptr_env aeval_env R P resEnv p)
                 (fst (func xs ys))
                 (kernelInv avar_env aptr_env aeval_env R P
-                           (snd (func xs ys) |=> sc2CUDA res ++ 
-                            xs |=> sc2CUDA vs1 ++ ys |=> sc2CUDA vs2 ++ resEnv) p)) /\
+                           (snd (func xs ys) |=> sc2CUDA res ++  resEnv) p)) /\
      (forall xs ys, barriers (fst (func xs ys)) = nil).
 
 Definition func_ok {GA fty} (avar_env : AVarEnv GA) :=
@@ -146,12 +142,12 @@ Definition ae_ok {GA ty} (avar_env : AVarEnv GA) (ae : Skel.AE GA ty) (arr : var
      (forall ntrd (tid : Fin.t ntrd) BS ix i res aptr_env aeval_env R P resEnv p,
          ~is_local ix
          -> (forall l v, In (l |-> v) resEnv -> ~is_local l)
+         -> evalExp resEnv ix (Zn i)
          -> (Skel.aeDenote _ _ ae aeval_env = Some res)
          -> i < length res
          -> CSL BS tid
-                (kernelInv avar_env aptr_env aeval_env R P 
-                           (ix |-> Zn i :: resEnv) p)
+                (kernelInv avar_env aptr_env aeval_env R P resEnv p)
                 (fst (arr ix))
                 (kernelInv avar_env aptr_env aeval_env R P
-                           ((snd (arr ix)) |=> sc2CUDA (gets' res i) ++ ix |-> Zn i :: resEnv) p)) /\
+                           ((snd (arr ix)) |=> sc2CUDA (gets' res i) ++ resEnv) p)) /\
      (forall x, barriers (fst (arr x)) = nil).

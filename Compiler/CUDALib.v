@@ -48,10 +48,10 @@ Fixpoint arr_params pref ty i :=
   end.
 
 Definition arr_name n (ty : Skel.Typ) :=
-  arr_params ("arrIn" ++ nat2str n) ty 0.
+  arr_params ("_arrIn" ++ nat2str n) ty 0.
 
 Definition names_of_array grp d := ls_init 0 d (fun i => "arr" ++ grp ++ nat2str i)%string.
-Definition name_of_len grp := ("sh" ++ grp)%string.
+Definition name_of_len grp := ("_sh" ++ grp)%string.
 Definition names_of_arg grp d := (name_of_len grp, names_of_array grp d).
 
 Definition grpOfInt n := ("In" ++ nat2str n)%string.
@@ -60,7 +60,7 @@ Close Scope string.
 
 Definition len_name n := Var (name_of_len (grpOfInt n)).
 Definition out_name (ty : Skel.Typ) :=
-  arr_params "arrOut" ty 0.
+  arr_params "_arrOut" ty 0.
 Definition out_len_name := Var (name_of_len "Out").
 
 Fixpoint foldTup {ty : Skel.Typ} {coqTy A : Type} (sing : coqTy -> A) (f : A -> A -> A) :=

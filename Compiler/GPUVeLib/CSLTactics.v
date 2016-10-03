@@ -1,10 +1,5 @@
-Require Import GPUCSL scan_lib LibTactics Psatz SetoidClass Skel_lemma scan_lib CodeGen CUDALib Grid CSLLemma.
-Notation val := Z.
-Arguments Z.add _ _ : simpl never.
-
-Coercion Var : string >-> var.
-Open Scope string_scope.
-Open Scope list_scope.
+Require Import TypedTerm SkelLib GPUCSL scan_lib LibTactics Psatz SetoidClass Skel_lemma scan_lib CodeGen Correctness CUDALib Grid CSLLemma Host.
+Import Program DepList.
 
 Lemma ex_lift_r T P Q :
   ((Ex x : T, P x) ** Q) == (Ex x : T, P x ** Q).
@@ -769,6 +764,119 @@ Ltac merge_pre H :=
     rewrite Assn_combine in H; simpl in H
   end.
 
+Lemma kernelInv_assn GA (avar_env : AVarEnv GA) aptr_env aeval_env R P Env p :
+  kernelInv avar_env aptr_env aeval_env R P Env p ==
+  (Assn R P Env ** kernelInv avar_env aptr_env aeval_env Emp True nil p).
+Proof.
+  unfold kernelInv; rewrite Assn_combine; simpl.
+  intros s h; split; revert s h; prove_imp.
+Qed.
+
+Lemma inde_assn_vars:
+  forall (R : res) (P : Prop) (Env : list entry) (E : list var),
+    (forall (e : var) (x : var) (v : val),
+        In (e |-> v) Env -> In x (Skel_lemma.fv_E e) -> ~In x E) ->
+    inde (Assn R P Env) E.
+Proof.
+  intros HEnv.
+  unfold inde; simpl.
+  unfold Assn; split; intros Hsat; sep_split_in Hsat; sep_split; eauto;
+  induction Env as [|[? ?] ?]; simpl in *; eauto; destruct HP0; split;
+  unfold_conn_all; simpl in *; eauto.
+  unfold var_upd; intros; destruct var_eq_dec; substs; eauto.
+  forwards*: H.
+  rewrite <-H1; unfold var_upd; destruct var_eq_dec; substs; forwards*: H.
+Qed.
+
+Definition is_param v := prefix "_" (str_of_var v) = true.
+
+Lemma mpss_in ty x v (xs : vars ty) vs :
+  In (x |-> v) (xs |=> vs) -> In x (flatTup xs).
+Proof.
+  induction ty; simpl; eauto; try tauto.
+  intros [H | []]; inverts H; substs; eauto.
+  intros [H | []]; inverts H; substs; eauto.
+  rewrite !in_app_iff; intros [H | H]; eauto.
+Qed.
+
+Lemma arrInvVar_in GA (avar_env : AVarEnv GA) aptr_env aeval_env x v :
+  In (x |-> v) (arrInvVar avar_env aptr_env aeval_env) ->
+  exists ty, exists (m : member ty GA), x = fst (hget avar_env m) \/
+                                        In x (flatTup (snd (hget avar_env m))).
+Proof.
+  induction GA;
+  dependent destruction avar_env;
+  dependent destruction aptr_env;
+  dependent destruction aeval_env;
+  simpl in *; try tauto.
+  unfold arrInvVar in *; simpl.
+  destruct p eqn:Heq; simpl.
+  intros [Hin | Hin].
+  - inverts Hin.
+    exists a (@HFirst _ a GA); simpl; eauto.
+  - rewrite in_app_iff in Hin; destruct Hin as [Hin | Hin].
+    + exists a (@HFirst _ a GA); simpl; eauto.
+      forwards*: mpss_in.
+    + forwards*(ty & m & IH): IHGA.
+      exists* ty (@HNext _ ty a GA m).
+Qed.
+
+Lemma kernelInv_inner n BS (tid : Fin.t n) GA (avar_env : AVarEnv GA)
+      aptr_env aeval_env R P Env R' P' Env' C p:
+  aenv_ok avar_env 
+  -> (forall x, In x (writes_var C) -> ~is_param x)
+  -> CSL BS tid
+         (Assn R P Env)
+         C
+         (Assn R' P' Env')
+  -> CSL BS tid
+         (kernelInv avar_env aptr_env aeval_env R P Env p)
+         C
+         (kernelInv avar_env aptr_env aeval_env R' P' Env' p).
+Proof.
+  intros Hok Hwr Htri.
+  eapply backward; [intros s h Hsat; rewrite kernelInv_assn in Hsat; eauto|].
+  eapply forward; [intros s h Hsat; rewrite kernelInv_assn; eauto|].
+  eapply rule_frame; eauto.
+  apply inde_assn_vars; simpl.
+  introv Hin [? | []] Hc; substs.
+  unfold aenv_ok in *.
+  destruct Hok as [Hok1 Hok2].
+  assert (prefix "_" (str_of_var x) = false).
+  { forwards*: Hwr; unfold is_param in *.
+    destruct prefix; congruence. }
+  forwards* (ty & m & [? | ?]): arrInvVar_in.
+  forwards*: (>>Hok1 m); congruence.
+  forwards*: (>>Hok2 m); congruence.
+Qed.
+  
+Lemma cond_prop_kerInv ntrd BS (tid : Fin.t ntrd)
+      GA (avenv : AVarEnv GA) apenv aeenv p
+      Res P P' Env C Q cond :
+  evalBExp Env cond  P'
+  -> CSL BS tid (kernelInv avenv apenv aeenv Res (P /\ P') Env p) C Q
+  -> CSL BS tid (kernelInv avenv apenv aeenv Res P Env p ** !(cond)) C Q.
+Proof.
+  intros.
+  eapply cond_prop.
+  Lemma evalExp_app1 E1 E2 e v:
+    evalExp E1 e v
+    -> evalExp (E1 ++ E2) e v.
+  Proof.
+    induction 1; simpl; constructor; eauto.
+    rewrites* in_app_iff.
+  Qed.
+
+  Lemma evalBExp_app1 E1 E2 be v :
+    evalBExp E1 be v
+    -> evalBExp (E1 ++ E2) be v.
+  Proof.
+    induction 1; constructor; eauto; apply evalExp_app1; eauto.
+  Qed.
+  apply evalBExp_app1; eauto.
+  eauto.
+Qed.
+
 Ltac hoare_forward :=
   lazymatch goal with
   | [|- CSL _ _ (Assn _ _ _ ** Assn _ _ _) _ _] =>
@@ -780,7 +888,10 @@ Ltac hoare_forward :=
   | [|- CSL _ _ (AssnDisj _ _ _ _ _ _) _ _] =>
     idtac "hoare_forward: match disj case";
     apply rule_disj
-  | [|- CSL _ _ (_ ** !(_)) _ _] =>
+  | [|- CSL _ _ (kernelInv _ _ _ _ _ _ _ ** !(_)) _ _] =>
+    idtac "hoare_forward: match conditional case";
+    eapply cond_prop_kerInv; [evalBExp|]; hoare_forward
+  | [|- CSL _ _ (Assn _ _ _ ** !(_)) _ _] =>
     idtac "hoare_forward: match conditional case";
     eapply cond_prop; [evalBExp|]; hoare_forward
   | [|- CSL _ _ ?P (_ ;; _) ?Q ] =>
@@ -793,6 +904,154 @@ Ltac hoare_forward :=
            eapply forwardR; [hoare_forward_prim|]];
     simpl_env
 end.
+
+Section mkMap.
+
+Variable ntrd nblk : nat.
+
+Variable GA : list Skel.Typ.
+Variable avar_env : AVarEnv GA.
+Variable aptr_env : APtrEnv GA.
+Variable aeval_env : AEvalEnv GA.
+Hypothesis Haok : aenv_ok avar_env.
+
+Variable dom cod : Skel.Typ.
+Variable arr : Skel.AE GA dom.
+Variable arr_c : var -> (cmd * vars dom).
+Hypothesis arr_ok : ae_ok avar_env arr arr_c.
+
+Variable f : Skel.Func GA (Skel.Fun1 dom cod).
+Variable f_c : vars dom -> (cmd * vars cod).
+Hypothesis f_ok : func_ok avar_env f f_c.
+
+Variable result : Skel.aTypDenote cod.
+Hypothesis eval_map_ok :
+  Skel.skelDenote _ _ (Skel.Map _ _ _ f arr) aeval_env = Some result.
+
+Lemma eval_arr_ok :
+  { arr_res | Skel.aeDenote _ _ arr aeval_env = Some arr_res}.
+Proof.
+  simpl in *; unfold Monad.bind_opt in *.
+  destruct Skel.aeDenote; simpl in *; inverts eval_map_ok; eexists; eauto.
+Qed.
+
+Definition arr_res : Skel.aTypDenote dom := let (a, _) := eval_arr_ok in a.
+
+Definition eval_arr_ok' : Skel.aeDenote _ _ arr aeval_env = Some arr_res.
+Proof.
+  unfold arr_res; destruct eval_arr_ok; eauto.
+Qed.
+
+Lemma eval_f_ok : 
+  { f_res | forall i, i < length arr_res ->
+                      Skel.funcDenote _ _ f aeval_env (gets' arr_res i) = Some (f_res i)}.
+Proof.
+  simpl in *; unfold Monad.bind_opt in *.
+  lets H: eval_arr_ok'; generalize arr_res H; intros arr_res H'; clear H.
+  rewrite H' in eval_map_ok.
+  exists (fun i : nat => nth i result (defval')).
+  intros i Hi.
+  forwards*: (>>mapM_some i (@defval' dom) (@defval' cod)).
+  destruct lt_dec; eauto; lia.
+Qed.
+
+Definition f_res := let (f, _) := eval_f_ok in f.
+Lemma eval_f_ok' : forall i, i < length arr_res -> Skel.funcDenote _ _ f aeval_env (gets' arr_res i) = Some (f_res i).
+Proof.
+  unfold f_res; destruct eval_f_ok; simpl; eauto.
+Qed.
+
+Definition outArr ty := locals "_arrOut" ty 0.
+
+Notation out := (outArr cod).
+Notation len := out_len_name.
+Definition t := locals "t" dom 0.
+
+Definition mkMap_cmd inv :=
+  "i" :T Int ::= "tid" +C "bid" *C Zn ntrd ;;
+  WhileI inv ("i" <C len) (
+    fst (arr_c "i") ;;
+    assigns t (ty2ctys dom) (v2e (snd (arr_c "i"))) ;;
+    fst (f_c t) ;;
+    writes (v2gl out +os "i") (v2e (snd (f_c t))) ;;
+    "i" ::= Zn ntrd *C Zn nblk +C "i"
+  )%exp.
+
+Definition mkMap : kernel :=
+  let arr_vars := gen_params GA in
+  let params_in := flatten_avars arr_vars in
+  let params_out := (out_len_name, Int) :: flatTup (out_name cod) in
+  {| params_of := params_out ++ params_in;
+     body_of := GCSL.Pr nil (mkMap_cmd FalseP) |}.
+
+Notation RP n := (1 / injZ (Zn n))%Qc.
+Notation p := (RP (nblk * ntrd)).
+
+Variable outp : vals cod.
+Variable outs : list (vals cod).
+Hypothesis outs_length : length outs = length result.
+Definition outRes (ls : list (vals cod)) := arrays (val2gl outp) ls 1.
+Definition outEnv := out |=> outp.
+
+Section thread_ok.
+Variable tid : Fin.t ntrd.
+Variable bid : Fin.t nblk.
+
+Notation arri a := (skip a (ntrd * nblk) (nf tid + nf bid * ntrd)).
+Notation result' := (arr2CUDA result).
+
+Definition inv'  :=
+  Ex j i,
+  (kernelInv avar_env aptr_env aeval_env 
+             (arrays' (val2gl outp) (arri (firstn i result' ++ skipn i outs)) 1) 
+             (i = j * (ntrd * nblk) + (nf tid + nf bid * nblk) /\
+              i < length arr_res)
+             (len |-> Zn (length arr_res) ::
+              "i" |-> Zn i ::
+              out |=> outp) p).
+
+Ltac prove_not_local :=
+  let x := fresh "x" in
+  let H := fresh "H" in
+  simpl; intros x H;
+  des_disj H; substs;
+  unfold is_param; simpl; try congruence.
+
+Lemma remove_var_out ty ps x :
+  prefix "_" x = false
+  -> remove_var (outArr ty |=> ps) x = outArr ty |=> ps.
+Proof.
+  intros Hpref.
+  apply remove_var_disjoint; simpl.
+  unfold outArr; intros Hc.
+  apply in_map_iff in Hc as (? & ? & ?); substs.
+  destruct x0; simpl in *.
+  apply mpss_in in H0.
+  forwards* (j & Heq & ?): locals_pref; substs.
+  inverts Heq; simpl in *; congruence.
+Qed.
+
+Lemma mkMap_cmd_ok BS : 
+  CSL BS tid
+      (kernelInv avar_env aptr_env aeval_env (arrays' (val2gl outp) (arri outs) 1)
+                 True
+                 ("tid" |-> Zn (nf tid)
+                  :: "bid" |-> Zn (nf bid)
+                  :: len |-> Zn (length arr_res)
+                  :: out |=> outp) p)
+      (mkMap_cmd inv')
+      (kernelInv avar_env aptr_env aeval_env (arrays' (val2gl outp) (arri (arr2CUDA result)) 1) True nil p).
+Proof.
+  eapply rule_seq.
+  applys* kernelInv_inner.
+  prove_not_local. 
+  hoare_forward.
+  rewrite remove_var_out; eauto.
+  unfold inv'; hoare_forward.
+  hoare_forward.
+Abort.
+End thread_ok.
+End mkMap.
 
 Lemma div_spec x y :
   y <> 0 ->
@@ -1469,22 +1728,6 @@ Lemma rule_grid :
       disjoint_list (map SD_var sh_decl) ->
       CSLg ntrd nblk P {| get_sh_decl := sh_decl; get_cmd := C |} Q.
 Proof. eauto using rule_grid. Qed.
-
-Lemma inde_assn_vars:
-  forall (R : res) (P : Prop) (Env : list entry) (E : list var),
-    (forall (e : var) (x : var) (v : val),
-        In (e |-> v) Env -> In x (Skel_lemma.fv_E e) -> ~In x E) ->
-    inde (Assn R P Env) E.
-Proof.
-  intros HEnv.
-  unfold inde; simpl.
-  unfold Assn; split; intros Hsat; sep_split_in Hsat; sep_split; eauto;
-  induction Env as [|[? ?] ?]; simpl in *; eauto; destruct HP0; split;
-  unfold_conn_all; simpl in *; eauto.
-  unfold var_upd; intros; destruct var_eq_dec; substs; eauto.
-  forwards*: H.
-  rewrite <-H1; unfold var_upd; destruct var_eq_dec; substs; forwards*: H.
-Qed.
 
 Lemma has_no_vars_assn R P : 
   has_no_vars (Assn R P nil).
