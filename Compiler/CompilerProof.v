@@ -139,20 +139,6 @@ Proof.
 Qed.
 Hint Resolve ctyps_of_typ__len_of_ty app_length.
 
-Lemma assigns_writes ty (vs : vars ty) (ts : ctys ty) (es : exps ty) :
-  forall x, In x (writes_var (assigns vs ts es)) -> In x (flatTup vs).
-Proof.
-  induction ty; simpl; eauto.
-  introv; rewrite !in_app_iff; firstorder.
-Qed.
-
-Lemma reads_writes ty (xs : vars ty) (ts : ctys ty) (es : lexps ty):
-  forall x,  In x (writes_var (reads xs ts es)) -> In x (flatTup xs).
-Proof.
-  induction ty; simpl; eauto.
-  introv; rewrite !in_app_iff; firstorder.
-Qed.
-
 Lemma compile_op_wr_vars t1 t2 t3 (op : Skel.BinOp t1 t2 t3)
       (n0 n1 : nat) x1 x2 c es :
   compile_op op x1 x2 n0 = ((c, es), n1) ->
@@ -796,13 +782,6 @@ Lemma rule_reads_ainv ntrd BS (tid : Fin.t ntrd) GA GS
                ((xs |=> sc2CUDA v ++ remove_vars resEnv (flatTup xs)) ++
                 remove_vars (scInv svar_env seval_env ++ arrInvVar avar_env aptr_env aeval_env) (flatTup xs))).
 Proof.
-  Lemma remove_vars_cons e env xs :
-    remove_vars (e :: env) xs = remove_vars (e :: nil) xs ++ remove_vars env xs.
-  Proof.
-    cutrewrite (e :: env = (e :: nil) ++ env); [|eauto].
-    rewrite* remove_vars_app.
-  Qed.
-  
   intros Hsok Haok Hresok Hget Hnth Hdisj1 Hdisj2 Hdisj3.
   forwards* (R' & Heq): (>>arrInvRes_unfold aptr_env aeval_env m').
   eapply forward; [|applys* (>>rule_reads_arrays xs (arr2CUDA (hget aeval_env m')) (Z.to_nat i))].
@@ -884,11 +863,6 @@ Proof.
   repeat rewrite <-app_assoc; simpl; eauto.
   destruct p; simpl.
   rewrite in_app_iff; eauto.
-Qed.
-
-Lemma fvEs_v2e ty (xs : vars ty) : fv_Es (v2e xs) = flatTup xs.
-Proof.
-  unfold v2e; induction ty; simpl; eauto; congruence.
 Qed.
 
 Lemma compile_sexp_ok ntrd BS (tid : Fin.t ntrd) GA GS typ (se : Skel.SExp GA GS typ)
@@ -1249,19 +1223,6 @@ Proof.
   unfold resEnv_ok; intros H; intros; forwards*: H;
   unfold is_local, lpref in *; simpl in *; rewrite prefix_nil in *; try congruence.
 Qed.
-
-Lemma evalExps_env ty R P Env1 Env2 (xs : vars ty) vs s h:
-  evalExps Env1 (v2e xs) vs
-  -> sat s h (Assn R P (Env1 ++ Env2))
-  -> sat s h (Assn R P (Env1 ++ (xs |=> vs ++ Env2))).
-Proof.
-  unfold sat, Assn; intros ? Hsat; sep_split_in Hsat; sep_split; eauto.
-  rewrite !env_assns_app in *; repeat split; try tauto.
-  clear HP Hsat; induction ty; simpl; eauto;
-  inverts H; simpl in *;
-  try (split; eauto using emp_emp_ph; forwards*: env_denote_in).
-  rewrite env_assns_app; split; eauto.
-Qed.
                          
 Lemma compile_func_ok GA fty (f : Skel.Func GA fty) (func : type_of_ftyp fty) (avar_env : AVarEnv GA) : 
   compile_func f avar_env = func -> func_ok avar_env f func.
@@ -1270,20 +1231,14 @@ Proof.
   repeat split; introv; unfold evalM;
   destruct (compile_sexp _ _ _ _) as [[? ?] ?] eqn:Heq; simpl in *;
   eauto using compile_sexp_no_barrs, compile_sexp_wr_vars, compile_sexp_res_vars, compile_sexp_ok;
-  unfold are_local; [intros Hx ? ? ?| intros Hx Hy ? ? ? ?];
+  unfold are_local; [intros Hx ? ?| intros Hx Hy ? ?];
   forwards*Htri: compile_sexp_ok; eauto using resEnv_ok0_is_local; unfold kernelInv, sexpInv, scInv in *; simpl in *;
-  (* try first [eapply rule_conseq; try apply Htri; prove_imp; eauto; simpl in *; try tauto | (* discharging triples *) *)
-  try (unfold senv_ok, is_local in *; introv Hin; false;
-       repeat des_mem; simpl in *;
-       try no_side_cond ltac:(forwards* Hin': Hx);
-       try no_side_cond ltac:(forwards* Hin': Hy);
-       unfold lpref in Hin'; simpl in *; rewrite prefix_nil in Hin'; congruence).
-  eapply rule_conseq; try apply Htri; try now (prove_imp; eauto; simpl in *; try tauto).
-  intros s' h H'; forwards*Hsat: evalExps_env; clear H'; revert s' h Hsat; prove_imp; simpl in *; try tauto.
-  eapply rule_conseq; try apply Htri; try now (prove_imp; eauto; simpl in *; try tauto).
-  intros s' h H'; forwards* Hsat: (>>evalExps_env H1).
-  forwards* Hsat': (>>evalExps_env H2 Hsat).
-  clear H' Hsat; revert s' h Hsat'; prove_imp; simpl in *; tauto.
+  first [eapply rule_conseq; try apply Htri; prove_imp; eauto; simpl in *; try tauto | (* discharging triples *)
+         unfold senv_ok, is_local in *; introv Hin; false;
+         repeat des_mem; simpl in *;
+         try no_side_cond ltac:(forwards* Hin': Hx);
+         try no_side_cond ltac:(forwards* Hin': Hy);
+         unfold lpref in Hin'; simpl in *; rewrite prefix_nil in Hin'; congruence].
 Qed.
 
 Lemma nth_error_some T (ls : list T) i d :
@@ -1362,14 +1317,6 @@ Proof.
   unfold seq; apply seq'_nth.
 Qed.
 
-Lemma CSL_pure n BS (tid : Fin.t n) C R R' (P P' : Prop) Env Env' : 
-  (P -> CSL BS tid (Assn R P Env) C (Assn R' P' Env'))
-  -> CSL BS tid (Assn R P Env) C (Assn R' P' Env').
-Proof.
-  intros Htri s h Hsat; simpl in *.
-  applys* Htri.
-  unfold Assn in *; sep_split_in Hsat; eauto.
-Qed.
 
 Lemma compile_AE_ok GA ty (ae : Skel.AE GA ty) (arr : var -> cmd * vars ty) (avar_env : AVarEnv GA) :
   compile_AE ae avar_env = arr -> ae_ok avar_env ae arr.
@@ -1379,31 +1326,26 @@ Proof.
     forwards*Hok: (>>compile_func_ok (Skel.Fun1 Skel.TZ t) arr Hceq Haok).
     simpl in *; unfold func_ok1 in *; repeat split; jauto.
     destruct Hok as (? & ? & Hok & ?).
-    intros.
-    apply CSL_pure; intros Hp.
-    forwards*: Hok.
+    intros; forwards*: Hok.
     introv [? | []]; substs; eauto.
     intros. 
-    inverts H5.
+    inverts H4.
     erewrite nth_error_some'.
     rewrite Nat2Z.id.
     reflexivity.
-    forwards*: H6; lia.
+    lia.
   - forwards*: (>>compile_func_ok (Skel.Fun1 Skel.TZ cod) Hceq Haok).
     unfold func_ok, func_ok1 in *; simpl in *.
     destruct H as (H1 & H2 & H3 & H4).
     repeat split; [apply H1| apply H2| idtac | apply H4].
-    intros.
-    apply CSL_pure; intros Hp.
-    forwards*: H3.
+    intros; forwards*: H3.
     intros ? [? | []]; substs; eauto.
     
-    rewrites* (>>mapM_some i (@defval' cod) H6).
+    rewrites* (>>mapM_some i (@defval' cod) H5).
     forwards*: mapM_length.
     
     repeat rewrite seq_length in *.
     destruct lt_dec; try lia.
     repeat rewrite seq_nth.
     destruct lt_dec; eauto.
-    forwards*: H7; lia.
 Qed.

@@ -90,6 +90,12 @@ Proof.
   rewrite IHxs, remove_var_app; eauto.
 Qed.
 
+Lemma remove_vars_cons e env xs :
+  remove_vars (e :: env) xs = remove_vars (e :: nil) xs ++ remove_vars env xs.
+Proof.
+  cutrewrite (e :: env = (e :: nil) ++ env); [|eauto].
+  rewrite* remove_vars_app.
+Qed.
 
 Lemma remove_vars_nil xs : remove_vars nil xs = nil.
 Proof.
@@ -875,7 +881,7 @@ Proof.
   rewrite skipn_set_nth_ignore, firstn_set_nth_ignore; eauto.
 Qed.
 
-Lemma rule_writes_array' (ty : Skel.Typ) ntrd BS
+Lemma rule_writes_arrays' (ty : Skel.Typ) ntrd BS
       (tid : Fin.t ntrd) (les : lexps ty) (ls : locs ty) 
       (Env : list entry) (P : Prop) (Res Res' : res) (arr : list (vals ty)) dist ix i iz j es vs st:
   evalLExps Env les ls ->
@@ -1002,4 +1008,23 @@ Lemma evalLExps_app_ig ty env1 env2 (le : lexps ty) lv :
 Proof.
   induction ty; simpl; eauto using evalLExp_app_ig.
   firstorder.
+Qed.
+
+Lemma assigns_writes ty (vs : vars ty) (ts : ctys ty) (es : exps ty) :
+  writes_var (assigns vs ts es) = (flatTup vs).
+Proof.
+  induction ty; simpl; congruence.
+Qed.
+
+Lemma reads_writes ty (xs : vars ty) (ts : ctys ty) (es : lexps ty):
+  (writes_var (reads xs ts es)) = (flatTup xs).
+Proof.
+  induction ty; simpl;  congruence.
+Qed.
+
+Lemma writes_writes ty (les : lexps ty) (es : exps ty) :
+  (writes_var (writes les es)) = nil.
+Proof.
+  induction ty; simpl; eauto.
+  rewrite IHty1, IHty2; simpl; congruence.
 Qed.

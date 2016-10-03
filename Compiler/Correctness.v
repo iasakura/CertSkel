@@ -82,11 +82,11 @@ Definition func_ok1 {GA dom cod} (avar_env : AVarEnv GA)
      (* func only returs to local variables or parameter *)
      (forall x l, In l (flatTup (snd (func x))) -> is_local l) /\
      (* functional correctenss *)
-     (forall ntrd (tid : Fin.t ntrd) BS xs vs res aptr_env aeval_env R P resEnv p,
+     (forall ntrd (tid : Fin.t ntrd) BS xs vs res aptr_env aeval_env R (P : Prop) resEnv p,
          (forall l, In l (flatTup xs) -> ~is_local l)
          -> (forall l v, In (l |-> v) resEnv -> ~is_local l)
          -> evalExps resEnv (v2e xs) (sc2CUDA vs)
-         -> (Skel.funcDenote _ _ f aeval_env vs = Some res)
+         -> (P -> Skel.funcDenote _ _ f aeval_env vs = Some res)
          -> CSL BS tid
                 (kernelInv avar_env aptr_env aeval_env R P resEnv p)
                 (fst (func xs))
@@ -102,13 +102,13 @@ Definition func_ok2 {GA dom1 dom2 cod} (avar_env : AVarEnv GA)
      (* func only returs to local variables or parameter *)
      (forall x y l, In l (flatTup (snd (func x y))) -> is_local l) /\
      (* functional correctenss *)
-     (forall ntrd (tid : Fin.t ntrd) BS xs ys vs1 vs2 res aptr_env aeval_env R P resEnv p,
+     (forall ntrd (tid : Fin.t ntrd) BS xs ys vs1 vs2 res aptr_env aeval_env R (P : Prop) resEnv p,
          (forall l, In l (flatTup xs) -> ~is_local l)
          -> (forall l, In l (flatTup ys) -> ~is_local l)
          -> (forall l v, In (l |-> v) resEnv -> ~is_local l)
          -> evalExps resEnv (v2e xs) (sc2CUDA vs1)
          -> evalExps resEnv (v2e ys) (sc2CUDA vs2)
-         -> (Skel.funcDenote _ _ f aeval_env vs1 vs2 = Some res)
+         -> (P -> Skel.funcDenote _ _ f aeval_env vs1 vs2 = Some res)
          -> CSL BS tid
                 (kernelInv avar_env aptr_env aeval_env R P resEnv p)
                 (fst (func xs ys))
