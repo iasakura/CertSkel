@@ -139,12 +139,12 @@ Definition ae_ok {GA ty} (avar_env : AVarEnv GA) (ae : Skel.AE GA ty) (arr : var
      (* func only returs to local variables or parameter *)
      (forall x l, In l (flatTup (snd (arr x))) -> is_local l) /\
      (* functional correctenss *)
-     (forall ntrd (tid : Fin.t ntrd) BS ix i res aptr_env aeval_env R P resEnv p,
+     (forall ntrd (tid : Fin.t ntrd) BS ix i res aptr_env aeval_env R (P : Prop) resEnv p,
          ~is_local ix
          -> (forall l v, In (l |-> v) resEnv -> ~is_local l)
          -> evalExp resEnv ix (Zn i)
          -> (Skel.aeDenote _ _ ae aeval_env = Some res)
-         -> i < length res
+         -> (P -> i < length res)
          -> CSL BS tid
                 (kernelInv avar_env aptr_env aeval_env R P resEnv p)
                 (fst (arr ix))

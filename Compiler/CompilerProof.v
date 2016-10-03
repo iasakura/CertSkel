@@ -1362,6 +1362,14 @@ Proof.
   unfold seq; apply seq'_nth.
 Qed.
 
+Lemma CSL_pure n BS (tid : Fin.t n) C R R' (P P' : Prop) Env Env' : 
+  (P -> CSL BS tid (Assn R P Env) C (Assn R' P' Env'))
+  -> CSL BS tid (Assn R P Env) C (Assn R' P' Env').
+Proof.
+  intros Htri s h Hsat; simpl in *.
+  applys* Htri.
+  unfold Assn in *; sep_split_in Hsat; eauto.
+Qed.
 
 Lemma compile_AE_ok GA ty (ae : Skel.AE GA ty) (arr : var -> cmd * vars ty) (avar_env : AVarEnv GA) :
   compile_AE ae avar_env = arr -> ae_ok avar_env ae arr.
@@ -1371,19 +1379,23 @@ Proof.
     forwards*Hok: (>>compile_func_ok (Skel.Fun1 Skel.TZ t) arr Hceq Haok).
     simpl in *; unfold func_ok1 in *; repeat split; jauto.
     destruct Hok as (? & ? & Hok & ?).
-    intros; forwards*: Hok.
+    intros.
+    apply CSL_pure; intros Hp.
+    forwards*: Hok.
     introv [? | []]; substs; eauto.
     intros. 
     inverts H5.
     erewrite nth_error_some'.
     rewrite Nat2Z.id.
     reflexivity.
-    lia.
+    forwards*: H6; lia.
   - forwards*: (>>compile_func_ok (Skel.Fun1 Skel.TZ cod) Hceq Haok).
     unfold func_ok, func_ok1 in *; simpl in *.
     destruct H as (H1 & H2 & H3 & H4).
     repeat split; [apply H1| apply H2| idtac | apply H4].
-    intros; forwards*: H3.
+    intros.
+    apply CSL_pure; intros Hp.
+    forwards*: H3.
     intros ? [? | []]; substs; eauto.
     
     rewrites* (>>mapM_some i (@defval' cod) H6).
@@ -1393,4 +1405,5 @@ Proof.
     destruct lt_dec; try lia.
     repeat rewrite seq_nth.
     destruct lt_dec; eauto.
+    forwards*: H7; lia.
 Qed.
