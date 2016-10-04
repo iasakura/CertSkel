@@ -392,12 +392,26 @@ Proof.
   intros; substs; eauto.
 Qed.
 
+Lemma arrays_eq ty (ls : list (vals ty)) ls' ptr p: 
+  ls = ls' -> arrays ptr ls p |=R arrays ptr ls' p.
+Proof.
+  intros ->; eauto.
+Qed.
+
+Lemma arrays'_eq ty (ls : list (option (vals ty))) ls' ptr p: 
+  ls = ls' -> arrays' ptr ls p |=R arrays' ptr ls' p.
+Proof.
+  intros ->; eauto.
+Qed.
+
 Ltac matches P Q :=
   match constr:(P, Q) with
   | (?P, ?P) => constr:(Some true)
   | ((?l |->p (_, _)), (?l |->p (_, _))) => constr:(Some mps_eq)
   | ((array ?l _ _), (array ?l _ _)) => constr:(Some array_eq)
   | ((array' ?l _ _), (array' ?l _ _)) => constr:(Some array'_eq)
+  | ((arrays ?l _ _), (arrays ?l _ _)) => constr:(Some arrays_eq)
+  | ((arrays' ?l _ _), (arrays' ?l _ _)) => constr:(Some arrays'_eq)
   | _ => constr:false
   end.
 
@@ -562,7 +576,7 @@ Ltac choose_var_vals :=
   let H := fresh in
   let e := fresh in
   unfold incl; simpl; intros e H;
-  repeat rewrite in_app_iff in *; des_disj H; substs; eauto 10;
+  repeat rewrite in_app_iff in *; des_disj H; substs; simpl; eauto 20;
   let rec tac :=
       match goal with
       | [|- ?x |-> ?v = ?x |-> ?v' \/ ?H] =>
@@ -739,52 +753,21 @@ Ltac hoare_forward_prim :=
   | _ => idtac
   end.
 
-Lemma merge_var_val R1 R2 P1 P2 E1 E2 x v v' s h:
-  sat s h (Assn R1 P1 (x |-> v :: E1) ** Assn R2 P2 E2) ->
-  evalExp E2 x v' ->
-  sat s h (Assn R1 (v = v' /\ P1) E1 ** Assn R2 P2 E2).
-Proof.
-  unfold Assn, sat; intros Hsat Heval;
-  sep_normal_in Hsat; sep_normal; sep_split_in Hsat; sep_split; eauto;
-  simpl in *; repeat sep_cancel.
-  destruct HP0.
-  eapply evalExp_ok in Heval; eauto.
-  unfold_conn_all; simpl in *; split; try tauto.
-  congruence.
-  destruct HP0; eauto.
-Qed.
+Definition assigns_get {ty} (xs : vars ty) (arr : var -> cmd * vars ty) (i : var) :=
+  (fst (arr i)) ;;
+  assigns xs (ty2ctys ty) (v2e (snd (arr i))).
 
-Ltac merge_pre H :=
-  lazymatch type of H with
-  | sat _ _ (Assn _ _ (_ :: _) ** Assn _ _ _) =>
-    eapply merge_var_val in H; [|evalExp]; merge_pre H
-  | sat _ _ (Assn _ _ nil ** Assn _ _ _) =>
-    rewrite Assn_combine in H; simpl in H
-  end.
+Definition writes_get {ty} (les : lexps ty) (arr : var -> cmd * vars ty) (i : var) :=
+  (fst (arr i)) ;;
+  writes les (v2e (snd (arr i))).
 
-Lemma kernelInv_assn GA (avar_env : AVarEnv GA) aptr_env aeval_env R P Env p :
-  kernelInv avar_env aptr_env aeval_env R P Env p ==
-  (Assn R P Env ** kernelInv avar_env aptr_env aeval_env Emp True nil p).
-Proof.
-  unfold kernelInv; rewrite Assn_combine; simpl.
-  intros s h; split; revert s h; prove_imp.
-Qed.
+Definition assigns_call1 {cod dom} (xs : vars cod) (func : vars dom -> cmd * vars cod) (args : vars dom) :=
+  (fst (func args)) ;;
+  assigns xs (ty2ctys cod) (v2e (snd (func args))).
 
-Lemma inde_assn_vars:
-  forall (R : res) (P : Prop) (Env : list entry) (E : list var),
-    (forall (e : var) (x : var) (v : val),
-        In (e |-> v) Env -> In x (Skel_lemma.fv_E e) -> ~In x E) ->
-    inde (Assn R P Env) E.
-Proof.
-  intros HEnv.
-  unfold inde; simpl.
-  unfold Assn; split; intros Hsat; sep_split_in Hsat; sep_split; eauto;
-  induction Env as [|[? ?] ?]; simpl in *; eauto; destruct HP0; split;
-  unfold_conn_all; simpl in *; eauto.
-  unfold var_upd; intros; destruct var_eq_dec; substs; eauto.
-  forwards*: H.
-  rewrite <-H1; unfold var_upd; destruct var_eq_dec; substs; forwards*: H.
-Qed.
+Definition writes_call1 {cod dom} (les : lexps cod) (func : vars dom -> cmd * vars cod) (args : vars dom) :=
+  (fst (func args)) ;;
+  writes les (v2e (snd (func args))).
 
 Definition is_param v := prefix "_" (str_of_var v) = true.
 
@@ -817,6 +800,30 @@ Proof.
       forwards*: mpss_in.
     + forwards*(ty & m & IH): IHGA.
       exists* ty (@HNext _ ty a GA m).
+Qed.
+
+Lemma kernelInv_assn GA (avar_env : AVarEnv GA) aptr_env aeval_env R P Env p :
+  kernelInv avar_env aptr_env aeval_env R P Env p ==
+  (Assn R P Env ** kernelInv avar_env aptr_env aeval_env Emp True nil p).
+Proof.
+  unfold kernelInv; rewrite Assn_combine; simpl.
+  intros s h; split; revert s h; prove_imp.
+Qed.
+
+Lemma inde_assn_vars:
+  forall (R : res) (P : Prop) (Env : list entry) (E : list var),
+    (forall (e : var) (x : var) (v : val),
+        In (e |-> v) Env -> In x (Skel_lemma.fv_E e) -> ~In x E) ->
+    inde (Assn R P Env) E.
+Proof.
+  intros HEnv.
+  unfold inde; simpl.
+  unfold Assn; split; intros Hsat; sep_split_in Hsat; sep_split; eauto;
+  induction Env as [|[? ?] ?]; simpl in *; eauto; destruct HP0; split;
+  unfold_conn_all; simpl in *; eauto.
+  unfold var_upd; intros; destruct var_eq_dec; substs; eauto.
+  forwards*: H.
+  rewrite <-H1; unfold var_upd; destruct var_eq_dec; substs; forwards*: H.
 Qed.
 
 Lemma kernelInv_inner n BS (tid : Fin.t n) GA (avar_env : AVarEnv GA)
@@ -875,53 +882,9 @@ Proof.
   eauto.
 Qed.
 
-Ltac hoare_forward :=
-  lazymatch goal with
-  | [|- CSL _ _ (Assn _ _ _ ** Assn _ _ _) _ _] =>
-    let H := fresh "H" in
-    eapply backward; [intros ? ? H; merge_pre H; apply H|]
-  | [|- CSL _ _ ((Ex _, _) ** _) _ _] =>
-    idtac "hoare_forward: match ex case";
-    lift_ex; hoare_forward
-  | [|- CSL _ _ (AssnDisj _ _ _ _ _ _) _ _] =>
-    idtac "hoare_forward: match disj case";
-    apply rule_disj
-  | [|- CSL _ _ (kernelInv _ _ _ _ _ _ _ ** !(_)) _ _] =>
-    idtac "hoare_forward: match conditional case";
-    eapply cond_prop_kerInv; [evalBExp|]; hoare_forward
-  | [|- CSL _ _ (Assn _ _ _ ** !(_)) _ _] =>
-    idtac "hoare_forward: match conditional case";
-    eapply cond_prop; [evalBExp|]; hoare_forward
-  | [|- CSL _ _ ?P (_ ;; _) ?Q ] =>
-    idtac "hoare_forward: match seq case";
-    eapply rule_seq; [hoare_forward |]; simpl_env
-  | [|- CSL _ _ _ _ ?Q] =>
-    idtac "hoare_forward: match prim case";
-    first [is_evar Q; hoare_forward_prim; idtac "ok" |
-           idtac "hoare_forward: match back case";
-           eapply forwardR; [hoare_forward_prim|]];
-    simpl_env
-end.
-
-Definition assigns_get {ty} (xs : vars ty) (arr : var -> cmd * vars ty) (i : var) :=
-  (fst (arr i)) ;;
-  assigns xs (ty2ctys ty) (v2e (snd (arr i))).
-
-Definition writes_get {ty} (les : lexps ty) (arr : var -> cmd * vars ty) (i : var) :=
-  (fst (arr i)) ;;
-  writes les (v2e (snd (arr i))).
-
-Definition assigns_call1 {cod dom} (xs : vars cod) (func : vars dom -> cmd * vars cod) (args : vars dom) :=
-  (fst (func args)) ;;
-  assigns xs (ty2ctys cod) (v2e (snd (func args))).
-
-Definition writes_call1 {cod dom} (les : lexps cod) (func : vars dom -> cmd * vars cod) (args : vars dom) :=
-  (fst (func args)) ;;
-  writes les (v2e (snd (func args))).
-
 Ltac prove_not_local :=
   introv;
-  try match goal with
+  lazymatch goal with
   | [|- In (_ |-> _) _ -> _] =>
     let H := fresh "H" in
     intros H; simpl in H; repeat (rewrite in_app_iff in H; simpl in H); des_disj H;
@@ -941,6 +904,8 @@ Ltac prove_not_local :=
       | In _ _ => apply locals_pref in H as (? & ? & H); substs
       | _ = _ => substs
       end
+  | [|- is_param _ -> False] => idtac
+  | [|- is_local _ -> False] => idtac
   end;
   unfold is_param, is_local; simpl; try congruence.
 
@@ -985,41 +950,72 @@ Lemma ae_assigns GA ty (avenv : AVarEnv GA) apenv aeenv (ae : Skel.AE GA ty) arr
       (ntrd : nat) (tid : Fin.t ntrd)
           (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd) 
           (i : nat) 
-          (R : res) (P : Prop) (resEnv : list entry) (p : Qc) xs c x :
-  xs = locals (String c x) ty 0
-  -> c <> char_ -> c <> charl
-  -> ~ is_local ix 
-  -> aenv_ok avenv
+          (R : res) (P : Prop) (resEnv : list entry) (p : Qc) n (x : string) :
+  aenv_ok avenv
   -> Skel.aeDenote GA ty ae aeenv = Some res0
   -> ae_ok avenv ae arr_c
+  -> ~ is_local x -> ~ is_param x
+  -> ~ is_local ix 
   -> (forall (l : var) (v : val), In (l |-> v) resEnv -> ~ is_local l)
   -> evalExp resEnv ix (Zn i)
   -> (P -> i < Datatypes.length res0)
   -> CSL BS tid (kernelInv avenv apenv aeenv R P resEnv p)
-         (assigns_get xs arr_c ix)
+         (assigns_get (locals x ty n) arr_c ix)
          (kernelInv avenv apenv aeenv R P
-                    (xs |=> sc2CUDA (gets' res0 i) ++ remove_vars resEnv (flatTup xs)) p).
+                    ((locals x ty n) |=> sc2CUDA (gets' res0 i) ++ remove_vars resEnv (flatTup (locals x ty n))) p).
 Proof.
-  intros ? ? ? ? ? ? (? & ? & Htri & ?); intros; substs; eauto.
+  intros ? ? (? & ? & Htri & ?) ? ? ?; intros; substs; eauto.
   eapply rule_seq.
   forwards*: Htri.
   eapply kernelInv_inner; eauto.
   rewrite assigns_writes.
-  intros ? Hin; forwards*: (>>locals_prefix_neq "_" Hin); try (simpl; omega).
-  Opaque Ascii.ascii_dec.
-  simpl.
-  destruct Ascii.ascii_dec; simpl; congruence.
-  intros Hc; unfold is_param in *; congruence.
+  Lemma not_is_local_locals x ty n y:
+    prefix "l" x = false
+    -> In y (flatTup (locals x ty n))
+    -> ~is_local y.
+  Proof.
+    intros; unfold is_local.
+    forwards* (? & ? & ?): locals_pref; substs.
+    destruct x.
+    - destruct x0; simpl; eauto.
+    - Opaque Ascii.ascii_dec.
+      simpl.
+      destruct Ascii.ascii_dec; eauto.
+      rewrites* prefix_nil; substs; simpl in *.
+      destruct Ascii.ascii_dec; try congruence.
+      rewrite prefix_nil in H; congruence.
+      Transparent Ascii.ascii_dec.
+  Qed.
+
+  Lemma not_is_param_locals x ty n y:
+    prefix "_" x = false
+    -> In y (flatTup (locals x ty n))
+    -> ~is_param y.
+  Proof.
+    intros; unfold is_param.
+    forwards* (? & ? & ?): locals_pref; substs.
+    destruct x.
+    - destruct x0; simpl; eauto.
+    - Opaque Ascii.ascii_dec.
+      simpl.
+      destruct Ascii.ascii_dec; eauto.
+      rewrites* prefix_nil; substs; simpl in *.
+      destruct Ascii.ascii_dec; try congruence.
+      rewrite prefix_nil in H; congruence.
+  Qed.
+  
+  intros; forwards*: not_is_param_locals.
+  unfold is_param in *; simpl in *.
+  destruct (prefix "_" x); congruence.
 
   unfold is_param in *; eauto.
   eapply forward; try apply rule_assigns; eauto using locals_disjoint_ls.
   repeat rewrite remove_vars_app; prove_imp.
   apply not_in_disjoint; intros.
-  forwards*(? & ? & ?):  locals_pref; substs.
-  intros Hc; rewrite fvEs_v2e in Hc.
-  forwards*: H6.
+  rewrite fvEs_v2e.
+  forwards*: not_is_local_locals.
   unfold is_local in *; simpl in *.
-  destruct Ascii.ascii_dec; simpl in *; congruence.
+  destruct (prefix "l" x); congruence.
   apply evalExps_vars.
   apply incl_appl.
   eauto.
@@ -1066,11 +1062,11 @@ Proof.
   intros ? (? & ? & ? & ?); eauto.
 Qed.      
 
-Lemma disjoint_user_local_vars GA ty (avenv : AVarEnv GA) (arr : Skel.AE GA ty) arr_c t n:
+Lemma disjoint_user_local_vars_ae GA ty (avenv : AVarEnv GA) (arr : Skel.AE GA ty) arr_c t n i:
   aenv_ok avenv 
   -> prefix "l" t = false
   -> ae_ok avenv arr arr_c
-  -> disjoint (flatTup (locals t ty n)) (flatTup (snd (arr_c "i"))).
+  -> disjoint (flatTup (locals t ty n)) (flatTup (snd (arr_c i))).
 Proof.
   intros.
   apply not_in_disjoint; introv Hin Hc.
@@ -1084,14 +1080,442 @@ Proof.
   congruence.
 Qed.
 
-Lemma disjoint_user_local GA ty (avenv : AVarEnv GA) (arr : Skel.AE GA ty) arr_c t n:
+Lemma disjoint_user_local_ae GA ty (avenv : AVarEnv GA) (arr : Skel.AE GA ty) arr_c t n i :
   aenv_ok avenv 
   -> prefix "l" t = false
   -> ae_ok avenv arr arr_c
-  -> disjoint (flatTup (locals t ty n)) (fv_Es (v2e (snd (arr_c "i")))).
+  -> disjoint (flatTup (locals t ty n)) (fv_Es (v2e (snd (arr_c i)))).
 Proof.
-  rewrite fvEs_v2e; apply disjoint_user_local_vars.
+  rewrite fvEs_v2e; apply disjoint_user_local_vars_ae.
 Qed.
+
+Lemma disjoint_user_local_vars_func1 GA dom cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun1 dom cod)) func_c t n i:
+  aenv_ok avenv 
+  -> prefix "l" t = false
+  -> func_ok avenv f func_c
+  -> disjoint (flatTup (locals t cod n)) (flatTup (snd (func_c i))).
+Proof.
+  intros.
+  apply not_in_disjoint; introv Hin Hc.
+  destruct H1 as (? & ? & ? & ?); eauto.
+  forwards*: H2; unfold is_local in *.
+  forwards* (? & ? & ?): locals_pref; substs; simpl in *.
+  destruct t; simpl in *.
+  destruct x0; simpl in *; destruct Ascii.ascii_dec; try congruence.
+  destruct Ascii.ascii_dec; simpl in *.
+  rewrite prefix_nil in *; congruence.
+  congruence.
+Qed.
+
+Lemma disjoint_user_local_func1 GA dom cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun1 dom cod)) func_c t n i:
+  aenv_ok avenv 
+  -> prefix "l" t = false
+  -> func_ok avenv f func_c
+  -> disjoint (flatTup (locals t cod n)) (fv_Es (v2e (snd (func_c i)))).
+Proof.
+  rewrite fvEs_v2e; apply disjoint_user_local_vars_func1.
+Qed.
+
+Lemma disjoint_user_local_vars_func2 GA dom1 dom2 cod (avenv : AVarEnv GA)
+      (f : Skel.Func GA (Skel.Fun2 dom1 dom2 cod)) func_c t n x y:
+  aenv_ok avenv 
+  -> prefix "l" t = false
+  -> func_ok avenv f func_c
+  -> disjoint (flatTup (locals t cod n)) (flatTup (snd (func_c x y))).
+Proof.
+  intros.
+  apply not_in_disjoint; introv Hin Hc.
+  destruct H1 as (? & ? & ? & ?); eauto.
+  forwards*: H2; unfold is_local in *.
+  forwards* (? & ? & ?): locals_pref; substs; simpl in *.
+  destruct t; simpl in *.
+  destruct x1; simpl in *; destruct Ascii.ascii_dec; try congruence.
+  destruct Ascii.ascii_dec; simpl in *.
+  rewrite prefix_nil in *; congruence.
+  congruence.
+Qed.
+
+Lemma disjoint_user_local_func2 GA dom1 dom2 cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun2 dom1 dom2 cod)) func_c t n x y:
+  aenv_ok avenv 
+  -> prefix "l" t = false
+  -> func_ok avenv f func_c
+  -> disjoint (flatTup (locals t cod n)) (fv_Es (v2e (snd (func_c x y)))).
+Proof.
+  rewrite fvEs_v2e; apply disjoint_user_local_vars_func2.
+Qed.
+
+Lemma not_in_user_local_vars_ae GA ty (avenv : AVarEnv GA) (arr : Skel.AE GA ty) arr_c (t : var) i:
+  aenv_ok avenv 
+  -> prefix "l" (str_of_var t) = false
+  -> ae_ok avenv arr arr_c
+  -> ~ In t (flatTup (snd (arr_c i))).
+Proof.
+  intros.
+  destruct H1 as (? & ? & ? & ?); eauto.
+  intros Hc; forwards*: H2; unfold is_local in *; congruence.
+Qed.
+
+Lemma not_in_user_local_ae GA ty (avenv : AVarEnv GA) (arr : Skel.AE GA ty) arr_c (t : var) i :
+  aenv_ok avenv 
+  -> prefix "l" (str_of_var t) = false
+  -> ae_ok avenv arr arr_c
+  -> ~ In t (fv_Es (v2e (snd (arr_c i)))).
+Proof.
+  rewrite fvEs_v2e; apply not_in_user_local_vars_ae.
+Qed.
+
+Lemma not_in_user_local_vars_func1 GA dom cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun1 dom cod)) func_c t i:
+  aenv_ok avenv 
+  -> prefix "l" (str_of_var t) = false
+  -> func_ok avenv f func_c
+  -> ~In t (flatTup (snd (func_c i))).
+Proof.
+  intros.
+  destruct H1 as (? & ? & ? & ?); eauto.
+  intros Hc; forwards*: H2; unfold is_local in *; congruence.
+Qed.
+
+Lemma not_in_user_local_func1 GA dom cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun1 dom cod)) func_c t i:
+  aenv_ok avenv 
+  -> prefix "l" (str_of_var t) = false
+  -> func_ok avenv f func_c
+  -> ~ In t (fv_Es (v2e (snd (func_c i)))).
+Proof.
+  rewrite fvEs_v2e; apply not_in_user_local_vars_func1.
+Qed.
+
+Lemma not_in_user_local_vars_func2 GA dom1 dom2 cod (avenv : AVarEnv GA)
+      (f : Skel.Func GA (Skel.Fun2 dom1 dom2 cod)) func_c t x y:
+  aenv_ok avenv 
+  -> prefix "l" (str_of_var t) = false
+  -> func_ok avenv f func_c
+  -> ~ In t (flatTup (snd (func_c x y))).
+Proof.
+  intros.
+  destruct H1 as (? & ? & ? & ?); eauto.
+  intros Hc; forwards*: H2; unfold is_local in *; congruence.
+Qed.
+
+Lemma not_in_user_local_func2 GA dom1 dom2 cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun2 dom1 dom2 cod)) func_c t x y:
+  aenv_ok avenv 
+  -> prefix "l" (str_of_var t) = false
+  -> func_ok avenv f func_c
+  -> ~In t (fv_Es (v2e (snd (func_c x y)))).
+Proof.
+  rewrite fvEs_v2e; apply not_in_user_local_vars_func2.
+Qed.
+
+
+Lemma locals_disj x y :
+  prefix x y = false ->
+  prefix y x = false ->
+  forall (z w : string), (x ++ z <> y ++ w)%string.
+Proof.
+  revert y; induction x; simpl in *; intros y Hxy Hyx z w Hc.
+  rewrite prefix_nil in *; congruence.
+  destruct y; simpl in *; try congruence.
+  inverts Hc.
+  destruct Ascii.ascii_dec; try congruence.
+  forwards*: IHx.
+Qed.
+
+Lemma locals_disjoint ty1 ty2 x y n m :
+  prefix x y = false ->
+  prefix y x = false ->
+  disjoint (flatTup (locals x ty1 n)) (flatTup (locals y ty2 m)).
+Proof.
+  intros; apply not_in_disjoint; intros ? Hin1 Hin2.
+  forwards* (? & ? & ?): (>>locals_pref Hin1); substs.
+  forwards* (? & ? & ?): (>>locals_pref Hin2).
+  inverts H1.
+  applys* (>>locals_disj H H0).
+Qed.
+
+Lemma str_app_nil_r s :
+  (s ++ "" = s)%string.
+Proof.
+  induction s; simpl; congruence.
+Qed.
+
+Lemma locals_not_in ty1 x n (y : string) :
+  prefix x y = false 
+  -> prefix y x = false
+  -> ~In (Var y) (flatTup (locals x ty1 n)).
+Proof.
+  intros Hxy Hyx Hin.
+  forwards* (? & ? & ?): (>>locals_pref Hin); substs.
+  forwards*: (>>locals_disj Hxy Hyx (nat2str x0) ""); substs.
+  rewrite str_app_nil_r in *; congruence.
+Qed.
+
+Lemma mpss_remove_vars ty (xs : vars ty) vs ys :
+  disjoint (flatTup xs) ys
+  -> remove_vars (xs |=> vs) ys = xs |=> vs.
+Proof.
+  cutrewrite (xs |=> vs = xs |=> vs ++ nil); [|rewrites* app_nil_r].
+  intros; rewrite env_assns_remove_app; eauto using disjoint_comm.
+  rewrite remove_vars_nil; eauto.
+Qed.
+
+(* Lemma remove_var_out ty ps x : *)
+(*   prefix "_" x = false *)
+(*   -> remove_var (outArr ty |=> ps) x = outArr ty |=> ps. *)
+(* Proof. *)
+(*   intros Hpref. *)
+(*   apply remove_var_disjoint; simpl. *)
+(*   unfold outArr; intros Hc. *)
+(*   apply in_map_iff in Hc as (? & ? & ?); substs. *)
+(*   destruct x0; simpl in *. *)
+(*   apply mpss_in in H0. *)
+(*   forwards* (j & Heq & ?): locals_pref; substs. *)
+
+(*   inverts Heq; simpl in *; congruence. *)
+(* Qed. *)
+
+Lemma remove_var_cons x e Env :
+  remove_var (e :: Env) x = (if var_eq_dec x (ent_e e) then remove_var Env x else e :: remove_var Env x).
+Proof.
+  simpl; destruct var_eq_dec; eauto.
+Qed.
+
+Lemma remove_vars_comm (xs ys : list var) Env :
+  remove_vars Env (xs ++ ys) = remove_vars Env (ys ++ xs).
+Proof.
+  revert ys; induction xs; introv; simpl; eauto.
+  rewrite app_nil_r; eauto.
+  rewrite IHxs.
+  rewrite !remove_vars_nest.
+  rewrite <-remove_removes; simpl.
+  rewrite remove_removes; eauto.
+Qed.  
+
+Lemma remove_vars_same ty (xs : vars ty) vs Env :
+  remove_vars (xs |=> vs ++ Env) (flatTup xs) = remove_vars Env (flatTup xs).
+Proof.
+  revert Env; induction ty; simpl; eauto;
+  try (destruct var_eq_dec; try congruence).
+  introv; rewrite remove_vars_nest.
+  rewrite <-app_assoc, IHty1.
+  rewrite <-remove_vars_nest.
+  rewrite remove_vars_comm.
+  rewrite remove_vars_nest.
+  rewrite IHty2.
+  rewrite <-remove_vars_nest.
+  rewrite remove_vars_comm.
+  eauto.
+Qed.
+
+Lemma remove_vars_same' ty (xs : vars ty) vs  :
+  remove_vars (xs |=> vs) (flatTup xs) = nil.
+Proof.
+  forwards*: (>>remove_vars_same (@nil entry)); simpl in *; eauto.
+  rewrite app_nil_r in *.
+  rewrite remove_vars_nil in *.
+  eauto.
+Qed.
+
+Lemma remove_remove_vars Env x :
+  remove_var Env x = remove_vars Env (x :: nil).
+Proof. eauto. Qed.
+
+Lemma remove_var_app_r ty Env (xs : vars ty) vs x :
+  ~ In x (flatTup xs) ->
+  remove_var (xs |=> vs ++ Env) x = xs |=> vs ++ remove_var Env x.
+Proof.
+  rewrite remove_remove_vars.
+  intros.
+  apply env_assns_remove_app; simpl; eauto.
+Qed.
+
+Lemma remove_var_ignore ty (xs : vars ty) vs x :
+  ~ In x (flatTup xs) ->
+  remove_var (xs |=> vs) x = xs |=> vs.
+Proof.
+  rewrite remove_remove_vars.
+  intros.
+  apply mpss_remove_vars; simpl; eauto.
+Qed.
+
+Ltac simplify_remove_var :=
+  let tac := now first [applys* disjoint_user_local_vars_ae |
+                        applys* disjoint_user_local_vars_func1 |
+                        applys* disjoint_user_local_vars_func2 |
+                        applys* not_in_user_local_vars_ae |
+                        applys* not_in_user_local_vars_func1 |
+                        applys* not_in_user_local_vars_func2 |
+                        simpl; applys* locals_not_in |
+                        applys* locals_disjoint] in
+  repeat (first [
+           rewrite remove_vars_same |
+           rewrite remove_vars_same' |
+           rewrite remove_var_app_r; [|tac] |
+           rewrite remove_var_ignore; [|tac] |
+           rewrite env_assns_remove_app; [|tac] |
+           rewrite env_assns_removes_cons; [|tac] |
+           rewrite mpss_remove_vars; [|tac] ]; simpl).
+
+Ltac prove_incl :=
+  lazymatch goal with
+  | |- incl (?X |=> _) (?X |=> _) => apply incl_refl
+  | |- incl (?X |=> _) (?X |=> _ ++ _) => apply incl_appl, incl_refl
+  | |- incl (?X |=> _) (_ |=> _ ++ _) => apply incl_appr; prove_incl
+  | |- incl (_ |=> _) (_ :: _) => apply incl_tl; prove_incl
+  end.
+
+Ltac evalExps :=
+  match goal with
+  | [|- evalExps _ (v2e _) _] => apply evalExps_vars; repeat rewrite <-app_assoc; simpl; prove_incl
+  end.
+
+Ltac is_IO_cmd c :=
+  lazymatch c with
+  | (_ ::T _ ::= _) => constr:true
+  | (_ ::T _ ::= [_]) => constr:true
+  | ([_] ::= _) => constr:true
+  | assigns _ _ _ => constr:true
+  | reads _ _ _ => constr:true
+  | writes _ _ => constr:true
+  | _ => constr:false
+  end.
+
+Ltac evalLExps := 
+  lazymatch goal with
+  | [|- evalLExps _ (e2gl _) _] => 
+    apply evalLExps_gl; evalExps
+  | [|- evalLExps _ (e2sh _) _] =>
+    apply evalLExps_sh; evalExps
+  | [|- evalLExps _ (v2gl _) _] => 
+    apply evalLExps_gl; evalExps
+  | [|- evalLExps _ (v2sh _) _] =>
+    apply evalLExps_sh; evalExps
+  end.
+
+Ltac apply_write_rule' Hle Hix He Hn P Res le i :=
+  let checkR Res' R :=
+    idtac "checkR: Res', R, le = " Res' "," R ", " le;
+    let Hres := fresh "Hres" in
+    let Hbnd := fresh "Hbnd" in
+    lazymatch R with
+    | arrays le ?arr _ =>
+      idtac "apply read rule: match array case.";
+      assert (Hres : Res |=R R *** Res'); [sep_auto'|
+      assert (Hbnd : P -> i < length arr); [prove_pure|
+      applys (>> rule_writes_arrays Hle Hix Hn Hbnd He Hres); eauto with pure_lemma]]
+    | arrays' le (ith_vals ?dist ?arr ?j ?s) _ =>
+      idtac "apply read rule: match sarray case.";
+      assert (Hres : Res |=R R *** Res'); [sep_auto'|
+      assert (Hbnd : P -> i < length arr /\ dist (s + i) = j); [prove_pure|
+      applys (>> rule_writes_arrays' Hle Hix He Hn); eauto with pure_lemma]]
+    end in
+  let rec iter acc Res :=
+    lazymatch Res with
+    | ?R *** ?Res =>
+      first [let Res' := append_assn acc Res in 
+             idtac "append_assn: P, Q = " acc Res;
+               checkR Res' R |
+             iter (R *** acc) Res]
+    | ?R => let Res' := remove_last_emp acc in checkR Res' R
+    end in
+  iter Emp Res.
+
+Ltac hoare_forward_prim' :=
+  lazymatch goal with
+  | [|- CSL _ _ ?P ?c ?Q] =>
+    lazymatch is_IO_cmd c with
+    | true => applys* kernelInv_inner; [prove_not_local|
+      lazymatch goal with
+      | |- CSL _ _ _ (assigns _ _ _) _ => 
+        eapply rule_assigns; [(* applys*disjoint_user_local *)| eauto using locals_disjoint_ls|evalExps ]
+      | [|- CSL _ _ (Assn ?Res ?P ?Env) (writes (?le +os ?ix) ?e) ?Q] =>
+        idtac "hoare_forward_prim: match write array case";
+          let ty := match type of le with 
+                    | lexps ?ty => ty
+                    end in
+          let Hle := fresh "Hle" in let l := fresh "l" in
+          evar (l : locs ty); assert (Hle : evalLExps Env le l) by (unfold l; evalLExps); unfold l in *;
+          
+          let Hix := fresh "Hix" in let i := fresh "i" in
+          evar (i : val); assert (Hix : evalExp Env ix i) by (unfold i; evalExp); unfold i in *;
+
+          let He := fresh "He" in let v := fresh "v" in
+          evar (v : vals ty); assert (He : evalExps Env e v) by (unfold v; evalExps); unfold v in *;
+
+          let Hn := fresh "Hn" in let n := fresh "n" in
+          evar (n : nat); assert (Hn : i = Zn n) by (unfold i, n; solve_zn); unfold n in *;
+  
+          let l' := eval unfold l in l in
+          let n' := eval unfold n in n in
+          unfold l, i, v, n in *; clear l i v n;
+          apply_write_rule' Hle Hix He Hn P Res l' n'
+      | _ => hoare_forward_prim
+      end]
+    | false => 
+      match goal with _ => idtac end;
+      lazymatch goal with
+      | [Haok : aenv_ok ?avar_env, Hok : ae_ok _ ?arr ?arr_c |- CSL _ _ ?P (fst (?arr_c _)) ?Q] =>
+        applys (>>ae_ok_tri Haok Hok);
+          [prove_not_local| eauto with pure|prove_not_local | evalExp| prove_pure|..]
+      | [Haok : aenv_ok ?avar_env, Hok : ae_ok _ ?arr ?arr_c |- CSL _ _ ?P (assigns_get ?xs ?arr_c _) ?Q] =>
+        applys (>>ae_assigns Haok Hok); try (now (prove_not_local)); 
+        [eauto with pure | evalExp | prove_pure|..]
+      | [Haok : aenv_ok ?avar_env, Hfok : func_ok _ ?f ?f_c |- CSL _ _ ?P (fst (?f_c _)) ?Q] =>
+        idtac "ok";
+        applys (>>func_ok_tri Haok Hfok); [prove_not_local | prove_not_local | evalExps | eauto with pure..]
+      | _ => hoare_forward_prim
+      end
+    end
+  end.
+
+Lemma merge_var_val R1 R2 P1 P2 E1 E2 x v v' s h:
+  sat s h (Assn R1 P1 (x |-> v :: E1) ** Assn R2 P2 E2) ->
+  evalExp E2 x v' ->
+  sat s h (Assn R1 (v = v' /\ P1) E1 ** Assn R2 P2 E2).
+Proof.
+  unfold Assn, sat; intros Hsat Heval;
+  sep_normal_in Hsat; sep_normal; sep_split_in Hsat; sep_split; eauto;
+  simpl in *; repeat sep_cancel.
+  destruct HP0.
+  eapply evalExp_ok in Heval; eauto.
+  unfold_conn_all; simpl in *; split; try tauto.
+  congruence.
+  destruct HP0; eauto.
+Qed.
+
+Ltac merge_pre H :=
+  lazymatch type of H with
+  | sat _ _ (Assn _ _ (_ :: _) ** Assn _ _ _) =>
+    eapply merge_var_val in H; [|evalExp]; merge_pre H
+  | sat _ _ (Assn _ _ nil ** Assn _ _ _) =>
+    rewrite Assn_combine in H; simpl in H
+  end.
+
+Ltac hoare_forward :=
+  lazymatch goal with
+  | [|- CSL _ _ (Assn _ _ _ ** Assn _ _ _) _ _] =>
+    let H := fresh "H" in
+    eapply backward; [intros ? ? H; merge_pre H; apply H|]
+  | [|- CSL _ _ ((Ex _, _) ** _) _ _] =>
+    idtac "hoare_forward: match ex case";
+    lift_ex; hoare_forward
+  | [|- CSL _ _ (AssnDisj _ _ _ _ _ _) _ _] =>
+    idtac "hoare_forward: match disj case";
+    apply rule_disj
+  | [|- CSL _ _ (kernelInv _ _ _ _ _ _ _ ** !(_)) _ _] =>
+    idtac "hoare_forward: match conditional case";
+    eapply cond_prop_kerInv; [evalBExp|]; hoare_forward
+  | [|- CSL _ _ (Assn _ _ _ ** !(_)) _ _] =>
+    idtac "hoare_forward: match conditional case";
+    eapply cond_prop; [evalBExp|]; hoare_forward
+  | [|- CSL _ _ ?P (_ ;; _) ?Q ] =>
+    idtac "hoare_forward: match seq case";
+    eapply rule_seq; [hoare_forward |]; simpl_env
+  | [|- CSL _ _ _ _ ?Q] =>
+    idtac "hoare_forward: match prim case";
+    first [is_evar Q; hoare_forward_prim'; idtac "ok" |
+           idtac "hoare_forward: match back case";
+           eapply forwardR; [hoare_forward_prim'|]];
+    simpl_env
+end.
 
 Transparent Ascii.ascii_dec.
 Section mkMap.
@@ -1119,7 +1543,6 @@ Hypothesis f_ok : func_ok avar_env f f_c.
 Variable result : Skel.aTypDenote cod.
 Hypothesis eval_map_ok :
   Skel.skelDenote _ _ (Skel.Map _ _ _ f arr) aeval_env = Some result.
-
 Lemma eval_arr_ok :
   { arr_res | Skel.aeDenote _ _ arr aeval_env = Some arr_res}.
 Proof.
@@ -1159,13 +1582,12 @@ Definition outArr ty := locals "_arrOut" ty 0.
 
 Notation out := (outArr cod).
 Notation len := out_len_name.
-Definition t := locals "t" dom 0.
+Notation t := (locals "t" dom 0).
 
 Definition mkMap_cmd inv :=
   "i" :T Int ::= "tid" +C "bid" *C Zn ntrd ;;
   WhileI inv ("i" <C len) (
-    fst (arr_c "i") ;;
-    assigns t (ty2ctys dom) (v2e (snd (arr_c "i"))) ;;
+    assigns_get t arr_c "i" ;;
     fst (f_c t) ;;
     writes (v2gl out +os "i") (v2e (snd (f_c t))) ;;
     "i" ::= Zn ntrd *C Zn nblk +C "i"
@@ -1191,33 +1613,7 @@ Section thread_ok.
 Variable tid : Fin.t ntrd.
 Variable bid : Fin.t nblk.
 
-Notation arri a := (skip a (ntrd * nblk) (nf tid + nf bid * ntrd)).
-Notation result' := (arr2CUDA result).
 
-Definition inv'  :=
-  Ex j i,
-  (kernelInv avar_env aptr_env aeval_env 
-             (arrays' (val2gl outp) (arri (firstn i result' ++ skipn i outs)) 1) 
-             (i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) /\
-              i < length arr_res)
-             (len |-> Zn (length arr_res) ::
-              "i" |-> Zn i ::
-              out |=> outp) p).
-
-Lemma remove_var_out ty ps x :
-  prefix "_" x = false
-  -> remove_var (outArr ty |=> ps) x = outArr ty |=> ps.
-Proof.
-  intros Hpref.
-  apply remove_var_disjoint; simpl.
-  unfold outArr; intros Hc.
-  apply in_map_iff in Hc as (? & ? & ?); substs.
-  destruct x0; simpl in *.
-  apply mpss_in in H0.
-  forwards* (j & Heq & ?): locals_pref; substs.
-
-  inverts Heq; simpl in *; congruence.
-Qed.
 Lemma tid_bid : nf tid + nf bid * ntrd < ntrd * nblk.
 Proof.
   pose proof ntrd_neq_0; pose proof nblk_neq_0.
@@ -1227,6 +1623,18 @@ Proof.
   lia.
 Qed.
 
+Notation arri a := (skip a (ntrd * nblk) (nf tid + nf bid * ntrd)).
+Notation result' := (arr2CUDA result).
+
+Definition inv'  :=
+  Ex j i,
+  (kernelInv avar_env aptr_env aeval_env 
+             (arrays' (val2gl outp) (arri (firstn i result' ++ skipn i outs)) 1) 
+             (i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) /\
+              i < length arr_res + ntrd * nblk)
+             (len |-> Zn (length arr_res) ::
+              "i" |-> Zn i ::
+              out |=> outp) p).
 
 Lemma mkMap_cmd_ok BS : 
   CSL BS tid
@@ -1248,206 +1656,31 @@ Proof.
   { unfold arr2CUDA; rewrite map_length; eauto. }
   forwards*: (nf_lt tid).
   forwards*: (tid_bid).
-  Ltac is_IO_cmd c :=
-    lazymatch c with
-    | (_ ::T _ ::= _) => constr:true
-    | (_ ::T _ ::= [_]) => constr:true
-    | ([_] ::= _) => constr:true
-    | assigns _ _ _ => constr:true
-    | reads _ _ _ => constr:true
-    | writes _ _ _ => constr:true
-    | _ => constr:false
-    end.
-
-  Ltac hoare_forward_prim' :=
-    lazymatch goal with
-    | [|- CSL _ _ ?P ?c ?Q] =>
-      lazymatch is_IO_cmd c with
-      | true => applys* kernelInv_inner; [prove_not_local|
-        lazymatch goal with
-        | |- CSL _ _ _ (assigns _ _ _) _ => 
-          eapply rule_assigns; [| eauto using locals_disjoint_ls| ]
-        | |- CSL _ _ _ (writes _ _ _) _ => 
-          eapply rule_writes_arrays
-        | _ => hoare_forward_prim
-        end]
-      | false => 
-        lazymatch goal with
-        | [Haok : aenv_ok ?avar_env, Hok : ae_ok _ ?arr ?arr_c |- CSL _ _ ?P (fst (?arr_c _)) ?Q] =>
-          applys (>>ae_ok_tri Haok Hok);
-            [prove_not_local| eauto with pure|prove_not_local | evalExp| prove_pure|..]
-        | [Haok : aenv_ok ?avar_env, Hfok : func_ok _ ?f ?f_c |- CSL _ _ ?P (fst (?f_c _)) ?Q] =>
-          idtac "ok";
-          applys (>>func_ok_tri Haok Hfok)
-        | _ => hoare_forward
-        end
-      end
-    end.
   eapply rule_seq.
-  hoare_forward_prim'.
+  hoare_forward_prim'; simplify_remove_var.
   unfold inv'.
 
-  hoare_forward.
-  hoare_forward.
-  hoare_forward_prim'.
-  eapply rule_seq.
-  hoare_forward_prim'.
-
-  Ltac prove_incl :=
-    lazymatch goal with
-    | |- incl (?X |=> _) (?X |=> _) => apply incl_refl
-    | |- incl (?X |=> _) (?X |=> _ ++ _) => apply incl_appl, incl_refl
-    | |- incl (?X |=> _) (_ |=> _ ++ _) => apply incl_appr; prove_incl
-    | |- incl (_ |=> _) (_ :: _) => apply incl_tl; prove_incl
-    end.
-
-  Ltac evalExps :=
-    match goal with
-    | [|- evalExps _ (v2e _) _] => apply evalExps_vars; repeat rewrite <-app_assoc; simpl; prove_incl
-    end.
-  2: evalExps.
-  applys* disjoint_user_local.
-
-  Lemma locals_disj x y :
-    prefix x y = false ->
-    prefix y x = false ->
-    forall (z w : string), (x ++ z <> y ++ w)%string.
-  Proof.
-    revert y; induction x; simpl in *; intros y Hxy Hyx z w Hc.
-    rewrite prefix_nil in *; congruence.
-    destruct y; simpl in *; try congruence.
-    inverts Hc.
-    destruct Ascii.ascii_dec; try congruence.
-    forwards*: IHx.
-  Qed.
-  
-  Lemma locals_disjoint ty1 ty2 x y n m :
-    prefix x y = false ->
-    prefix y x = false ->
-    disjoint (flatTup (locals x ty1 n)) (flatTup (locals y ty2 m)).
-  Proof.
-    intros; apply not_in_disjoint; intros ? Hin1 Hin2.
-    forwards* (? & ? & ?): (>>locals_pref Hin1); substs.
-    forwards* (? & ? & ?): (>>locals_pref Hin2).
-    inverts H1.
-    applys* (>>locals_disj H H0).
-  Qed.
-
-  Lemma str_app_nil_r s :
-    (s ++ "" = s)%string.
-  Proof.
-    induction s; simpl; congruence.
-  Qed.
-
-  Lemma locals_not_in ty1 x n (y : string) :
-    prefix x y = false 
-    -> prefix y x = false
-    -> ~In (Var y) (flatTup (locals x ty1 n)).
-  Proof.
-    intros Hxy Hyx Hin.
-    forwards* (? & ? & ?): (>>locals_pref Hin); substs.
-    forwards*: (>>locals_disj Hxy Hyx (nat2str x0) ""); substs.
-    rewrite str_app_nil_r in *; congruence.
-  Qed.
-
-  Lemma mpss_remove_vars ty (xs : vars ty) vs ys :
-    disjoint (flatTup xs) ys
-    -> remove_vars (xs |=> vs) ys = xs |=> vs.
-  Proof.
-    cutrewrite (xs |=> vs = xs |=> vs ++ nil); [|rewrites* app_nil_r].
-    intros; rewrite env_assns_remove_app; eauto using disjoint_comm.
-    rewrite remove_vars_nil; eauto.
-  Qed.
-
-  let tac := first [applys* disjoint_user_local_vars | simpl; applys* locals_not_in | applys* locals_disjoint] in
-  repeat first [rewrite env_assns_remove_app; [|tac] |
-                rewrite env_assns_removes_cons; [|tac] |
-                rewrite mpss_remove_vars; [|tac] ].
-
-  eapply rule_seq.
-
-  hoare_forward_prim'.
-  prove_not_local.
-  prove_not_local.
-
-  2: evalExps.
-  2: intros; apply eval_f_ok'; lia.
-  
-  admit.
-
-  eapply rule_seq.
-  applys* kernelInv_inner; [prove_not_local|]. 
-  
-  Ltac evalLExps := 
-    lazymatch goal with
-    | [|- evalLExps _ (e2gl _) _] => 
-      apply evalLExps_gl; evalExps
-    | [|- evalLExps _ (e2sh _) _] =>
-      apply evalLExps_sh; evalExps
-    | [|- evalLExps _ (v2gl _) _] => 
-      apply evalLExps_gl; evalExps
-    | [|- evalLExps _ (v2sh _) _] =>
-      apply evalLExps_sh; evalExps
-    end.
-
-  
-  Ltac apply_write_rule' Hle Hix He Hn P Res le i :=
-    let checkR Res' R :=
-      idtac "checkR: Res', R, le = " Res' "," R ", " le;
-      let Hres := fresh "Hres" in
-      let Hbnd := fresh "Hbnd" in
-      lazymatch R with
-      | arrays le ?arr _ =>
-        idtac "apply read rule: match array case.";
-        assert (Hres : Res |=R R *** Res'); [sep_auto'|
-        assert (Hbnd : P -> i < length arr); [prove_pure|
-        applys (>> rule_writes_arrays Hle Hix Hn Hbnd He Hres); eauto with pure_lemma]]
-      | arrays' le (ith_vals ?dist ?arr ?j ?s) _ =>
-        idtac "apply read rule: match sarray case.";
-        assert (Hres : Res |=R R *** Res'); [sep_auto'|
-        assert (Hbnd : P -> i < length arr /\ dist (s + i) = j); [prove_pure|
-        applys (>> rule_writes_arrays' Hle Hix He Hn); eauto with pure_lemma]]
-      end in
-    let rec iter acc Res :=
-      lazymatch Res with
-      | ?R *** ?Res =>
-        first [let Res' := append_assn acc Res in 
-               idtac "append_assn: P, Q = " acc Res;
-                 checkR Res' R |
-               iter (R *** acc) Res]
-      | ?R => let Res' := remove_last_emp acc in checkR Res' R
-      end in
-    iter Emp Res.
-
+  hoare_forward; simplify_remove_var.
+  hoare_forward; simplify_remove_var.
+  hoare_forward; simplify_remove_var.
+  intros; apply eval_f_ok'; lia.
   assert (ntrd * nblk <> 0) by nia.
-  lazymatch goal with
-  | [|- CSL _ _ (Assn ?Res ?P ?Env) (writes (?le +os ?ix) ?e) ?Q] =>
-    idtac "hoare_forward_prim: match write array case";
-    let ty := match type of le with 
-              | lexps ?ty => ty
-              end in
-    let Hle := fresh "Hle" in let l := fresh "l" in
-    evar (l : locs ty); assert (Hle : evalLExps Env le l) by (unfold l; evalLExps); unfold l in *;
+  hoare_forward.
+  hoare_forward; simplify_remove_var.
 
-    let Hix := fresh "Hix" in let i := fresh "i" in
-    evar (i : val); assert (Hix : evalExp Env ix i) by (unfold i; evalExp); unfold i in *;
-
-    let He := fresh "He" in let v := fresh "v" in
-    evar (v : vals ty); assert (He : evalExps Env e v) by (unfold v; evalExps); unfold v in *;
-
-    let Hn := fresh "Hn" in let n := fresh "n" in
-    evar (n : nat); assert (Hn : i = Zn n) by (unfold i, n; solve_zn); unfold n in *;
-    
-    let l' := eval unfold l in l in
-    let n' := eval unfold n in n in
-    unfold l, i, v, n in *; clear l i v n;
-      
-    apply_write_rule' Hle Hix He Hn P Res l' n'
-  end.
-
-  eapply forwardR.
-  hoare_forward_prim'.
-Abort.
+  unfold kernelInv; prove_imp.
+  admit.
+  instantiate (1 := S j).
+  nia.
+  unfold kernelInv; simpl in *.
+  prove_imp.
+  admit.
+  instantiate (1 := 0).
+  nia.
+  unfold kernelInv; simpl in *.
+  prove_imp.
+  admit.
+Qed.
 End thread_ok.
 End mkMap.
 
