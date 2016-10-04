@@ -227,10 +227,10 @@ Proof.
   apply nth_skip.
 Qed.
 
-Lemma nth_skip_ls T i (arr : list (list T)) dist j s :
+Lemma nth_skip_ls ty i (arr : list (vals ty)) dist j s :
   nth i (ith_vals dist arr j s) None =
   (if Nat.eq_dec (dist (s + i)) j
-   then if lt_dec i (Datatypes.length arr) then Some (nth i arr nil) else None
+   then if lt_dec i (Datatypes.length arr) then Some (nth i arr defval) else None
    else None).
 Proof.
   apply nth_skip.
@@ -1454,13 +1454,13 @@ Ltac hoare_forward_prim' :=
       lazymatch goal with
       | [Haok : aenv_ok ?avar_env, Hok : ae_ok _ ?arr ?arr_c |- CSL _ _ ?P (fst (?arr_c _)) ?Q] =>
         applys (>>ae_ok_tri Haok Hok);
-          [prove_not_local| eauto with pure|prove_not_local | evalExp| prove_pure|..]
+          [prove_not_local| eauto with pure_lemma |prove_not_local | evalExp| prove_pure|..]
       | [Haok : aenv_ok ?avar_env, Hok : ae_ok _ ?arr ?arr_c |- CSL _ _ ?P (assigns_get ?xs ?arr_c _) ?Q] =>
         applys (>>ae_assigns Haok Hok); try (now (prove_not_local)); 
-        [eauto with pure | evalExp | prove_pure|..]
+        [eauto with pure_lemma | evalExp | prove_pure|..]
       | [Haok : aenv_ok ?avar_env, Hfok : func_ok _ ?f ?f_c |- CSL _ _ ?P (fst (?f_c _)) ?Q] =>
         idtac "ok";
-        applys (>>func_ok_tri Haok Hfok); [prove_not_local | prove_not_local | evalExps | eauto with pure..]
+        applys (>>func_ok_tri Haok Hfok); [prove_not_local | prove_not_local | evalExps | eauto with pure_lemma..]
       | _ => hoare_forward_prim
       end
     end
@@ -1557,7 +1557,7 @@ Proof.
   unfold arr_res; destruct eval_arr_ok; eauto.
 Qed.
 
-Hint Resolve eval_arr_ok' : pure.
+Hint Resolve eval_arr_ok' : pure_lemma.
 
 Lemma eval_f_ok : 
   { f_res | forall i, i < length arr_res ->
@@ -1636,6 +1636,89 @@ Definition inv'  :=
               "i" |-> Zn i ::
               out |=> outp) p).
 
+Ltac t :=
+  autorewrite with pure; simpl;
+  abstract (repeat match goal with
+                   | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; lia); try lia
+                   | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; lia); try lia
+                   end;
+             do 2 f_equal; lia). 
+
+
+Lemma ok1 n m j : n + (j * n + m) = (S j) * n + m. nia. Qed.
+Lemma ok2 n m : m = 0 * n + m. nia. Qed.
+Lemma ntrd_nblk_neq_0 : ntrd * nblk <> 0. pose ntrd_neq_0; pose nblk_neq_0; nia. Qed.
+
+Hint Resolve ok1 ok2 tid_bid ntrd_nblk_neq_0 : pure_lemma.
+
+Lemma loop_inv_ok i j vs (varr vout : list (vals cod)) v:
+  i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
+  vs = firstn i varr ++ skipn i vout ->
+  (Zn i < Zn (length varr))%Z ->
+  length varr = length vout ->
+  v = gets varr i ->
+  arri (set_nth i vs v) =
+  arri (firstn (ntrd * nblk + i) varr ++ skipn (ntrd * nblk + i) vout).
+Proof.
+  intros; substs.
+  applys (>>(@eq_from_nth) (@None (vals cod))).
+  { t. }
+  { intros i; repeat autorewrite with pure; simpl in *.
+    destruct lt_dec; [|false; lia]; intros H.
+    assert (i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
+            i mod (ntrd * nblk) = nf tid + nf bid * ntrd) by (intros; substs; prove_mod_eq).
+    assert (ntrd * nblk <> 0) by eauto with pure_lemma.
+    assert (j * (ntrd * nblk) + (nf tid + nf bid * ntrd) < i < S j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
+            i mod (ntrd * nblk) <> nf tid + nf bid * ntrd).
+    { intros; apply (mod_between j); eauto with pure_lemma. }
+    
+    Time t. }
+Qed.
+
+Lemma before_loop_ok (varr vout : list (vals cod)) :
+  nf tid < ntrd ->
+  nf tid + nf bid * ntrd < ntrd * nblk ->
+  length varr = length vout ->
+  arri vout =
+  arri (firstn (nf tid + nf bid * ntrd) varr ++ skipn (nf tid + nf bid * ntrd) vout).
+Proof.
+  intros; applys (>>(@eq_from_nth) (@None (vals cod))).
+  { t. }
+  { intros.
+    repeat autorewrite with pure; simpl in *.
+    assert (i < nf tid + nf bid * ntrd -> (i mod (ntrd * nblk)) <> nf tid + nf bid * ntrd).
+    { intros; rewrite Nat.mod_small; eauto; try lia. }
+  Time t. }
+Qed.
+
+Lemma after_loop_ok (varr vout : list (vals cod)) vs i :
+  ~(Zn i < Zn (length varr))%Z ->
+  length varr = length vout ->
+  vs = firstn i varr ++ skipn i vout ->
+  arri vs = arri varr.
+Proof.
+  intros; substs; eapply (@eq_from_nth _ None).
+  { t. }
+  intros i'; repeat autorewrite with pure; simpl; intros ?.
+  Time t.
+Qed.
+
+Hint Resolve loop_inv_ok before_loop_ok after_loop_ok : pure_lemma.
+
+Lemma result_nth i :
+  i < length result -> gets' result i = f_res i.
+Proof.
+  simpl in *; unfold Monad.bind_opt in *.
+  generalize arr_res eval_f_ok'  eval_arr_ok' eval_map_ok; intros arr_res' ? Heq.
+  rewrite Heq; intros.
+  forwards*: (>>mapM_some i (@defval' dom)).
+  forwards*: mapM_length; eauto.
+  destruct lt_dec; try lia.
+  rewrite H in H1; eauto.
+  inverts H1.
+  eauto.
+Qed.
+
 Lemma mkMap_cmd_ok BS : 
   CSL BS tid
       (kernelInv avar_env aptr_env aeval_env (arrays' (val2gl outp) (arri outs) 1)
@@ -1669,17 +1752,13 @@ Proof.
   hoare_forward; simplify_remove_var.
 
   unfold kernelInv; prove_imp.
-  admit.
-  instantiate (1 := S j).
-  nia.
+  eapply loop_inv_ok; eauto; prove_pure.
+  unfold arr2CUDA; rewrites (>>nth_map (@defval cod)); prove_pure.
+  rewrite result_nth; eauto; lia.
+  prove_imp; eauto with pure_lemma.
   unfold kernelInv; simpl in *.
-  prove_imp.
-  admit.
-  instantiate (1 := 0).
-  nia.
-  unfold kernelInv; simpl in *.
-  prove_imp.
-  admit.
+  prove_imp; eauto with pure_lemma.
+  eapply after_loop_ok; [..|eauto]; prove_pure.
 Qed.
 End thread_ok.
 End mkMap.
