@@ -769,6 +769,13 @@ Definition writes_call1 {cod dom} (les : lexps cod) (func : vars dom -> cmd * va
   (fst (func args)) ;;
   writes les (v2e (snd (func args))).
 
+Definition assigns_call2 {dom1 dom2 cod}
+           (xs : vars cod)
+           (func : vars dom1 -> vars dom2 -> cmd * vars cod)
+           (args1 : vars dom1) (args2 : vars dom2) :=
+  (fst (func args1 args2)) ;;
+  assigns xs (ty2ctys cod) (v2e (snd (func args1 args2))).
+
 Definition is_param v := prefix "_" (str_of_var v) = true.
 
 Lemma mpss_in ty x v (xs : vars ty) vs :
@@ -1418,15 +1425,86 @@ Ltac apply_write_rule' Hle Hix He Hn P Res le i :=
     end in
   iter Emp Res.
 
+Lemma fvlEs_v2sh ty (xs : vars ty) : fv_lEs (v2sh xs) = flatTup xs.
+Proof.
+  unfold v2sh, e2sh, v2e; induction ty; simpl; try congruence.
+Qed.
+Ltac prove_disj :=
+  repeat first [rewrite fvlEs_v2sh | rewrite fvEs_v2e ];
+  lazymatch goal with
+  | [|- disjoint (flatTup (locals _ _ _)) (flatTup (locals _ _ _)) ] =>
+    applys* locals_disjoint
+  | [|- disjoint (flatTup (locals _ _ _)) _] =>
+    apply disjoint_comm; simpl;
+    repeat (rewrite disjoint_app; simpl);
+    split; eauto;
+    lazymatch goal with
+    | [|- ~In _ _] => 
+      applys* locals_not_in
+    end
+  end.
+
+Ltac apply_read_rule' Hle Hv Hn P Res le i :=
+  let checkR Res' R :=
+    idtac "checkR: Res', R, le = " Res' "," R ", " le;
+    let Hres := fresh "Hres" in
+    let Hbnd := fresh "Hbnd" in
+    let Hp := fresh "Hp" in
+    match R with
+    | arrays le ?arr _ =>
+      idtac "apply read rule: match array case.";
+      assert (Hres : P -> Res |=R R *** Res'); [intros Hp; sep_auto'|
+      assert (Hbnd : P -> i < length arr); [prove_pure|
+      applys (>> rule_reads_arrays Hle Hv Hres Hn Hbnd);
+        (try (now prove_disj)); (try apply locals_disjoint_ls); eauto with pure_lemma]]
+    | arrays' le (ith_vals ?dist ?arr ?j ?s) _ =>
+      idtac "apply read rule: match sarray case.";
+      idtac dist i;
+      assert (Hres : P -> Res |=R R *** Res'); [intros Hp; sep_auto'|
+      assert (Hbnd : P -> i < length arr /\ dist (s + i) = j); [simpl; prove_pure|
+      applys (>> rule_reads_arrays' Hle Hv Hres Hn Hbnd); 
+        (try (now prove_disj)); (try apply locals_disjoint_ls); eauto with pure_lemma]]
+    end in
+  let rec iter acc Res :=
+    match Res with
+    | ?R *** ?Res =>
+      first [let Res' := append_assn acc Res in checkR Res' R |
+             iter (R *** acc) Res]
+    | ?R => checkR acc R
+    end in
+  iter Emp Res.
+
 Ltac hoare_forward_prim' :=
   lazymatch goal with
-  | [|- CSL _ _ (Assn _ _ _) ?c _] => hoare_forward_prim
   | [|- CSL _ _ ?P ?c ?Q] =>
     lazymatch is_IO_cmd c with
-    | true => applys* kernelInv_inner; [prove_not_local|
+    | true => 
+      try match goal with 
+      | [|- CSL _ _ (kernelInv _ _ _ _ _ _ _) _ _ ] => 
+        applys* kernelInv_inner; [prove_not_local|]
+      end;
       lazymatch goal with
       | |- CSL _ _ _ (assigns _ _ _) _ => 
         eapply rule_assigns; [(* applys*disjoint_user_local *)| eauto using locals_disjoint_ls|evalExps ]
+
+      | [|- CSL _ _ (Assn ?Res ?P ?Env) (reads ?xs _ (?le +os ?ix)) _] =>
+        let ty := match type of le with 
+                  | lexps ?ty => ty
+                  end in
+        let Hle := fresh "Hle" in let l := fresh "l" in
+        evar (l : locs ty); assert (Hle : evalLExps Env le l) by (unfold l; evalLExps); unfold l in *;
+
+        let Hv := fresh "Hv" in let v := fresh "v" in
+        evar (v : val); assert (Hv : evalExp Env ix v) by (unfold v; evalLExp); unfold v in *;
+
+        let Hn := fresh "Hn" in let n := fresh "n" in
+        evar (n : nat); assert (Hn : v = Zn n) by (unfold v, n; solve_zn); unfold n in *;
+
+        let le := eval unfold l in l in
+        let i := eval unfold n in n in
+        unfold l, v, n in *; clear l v n;
+        apply_read_rule' Hle Hv Hn P Res le i
+
       | [|- CSL _ _ (Assn ?Res ?P ?Env) (writes (?le +os ?ix) ?e) ?Q] =>
         idtac "hoare_forward_prim: match write array case";
           let ty := match type of le with 
@@ -1449,7 +1527,7 @@ Ltac hoare_forward_prim' :=
           unfold l, i, v, n in *; clear l i v n;
           apply_write_rule' Hle Hix He Hn P Res l' n'
       | _ => hoare_forward_prim
-      end]
+      end
     | false => 
       match goal with _ => idtac end;
       lazymatch goal with
