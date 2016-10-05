@@ -2,4 +2,7 @@
 -I ../CertSkel
 -I ../GPUCSL
 -I ../Compiler
+-I ../Compiler/Skeletons
+-I ../Compiler/GPUVeLib
+-I ../TypedIR
 -R ../repo/src Cpdt

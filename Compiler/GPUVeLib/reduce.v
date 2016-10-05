@@ -477,9 +477,6 @@ Definition ith_post (tid : Fin.t ntrd) :=
            (ls_init 0 nblk (fun i : nat => sum_of (reg_b' i)))
            (nf tid + nf bid * ntrd) 0) 1) True ("c" |-> Zn c :: "arr" |-> arr :: nil)).
 
-Definition fin_star n f :=
-  (istar (ls_init 0 n f)).
-
 Definition jth_pre :=
   (Assn
      (array (SLoc arr) sh_vals 1 ***

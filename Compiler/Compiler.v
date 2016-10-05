@@ -9,7 +9,6 @@ Require Import Psatz.
 Require Import Monad.
 Require Import MyEnv.
 Require Import TypedTerm.
-Require Import MyMSets.
 Require Import CUDALib.
 Require Import Correctness.
 Require Import mkMap.
@@ -298,16 +297,16 @@ Import scan_lib.
 
 Instance eq_type_nat : eq_type nat := {eq_dec := eq_nat_dec}.
 
-Module Nat_eq : DecType with Definition t := nat with Definition eq_dec := eq_dec.
-  Definition t := nat.
-  Definition eq (x y : t) := x = y.
-  Definition eq_equiv : Equivalence eq.
-  Proof.
-    split; cbv; intros; congruence.
-  Qed.
-  Definition eq_dec := @eq_dec t _.
-End Nat_eq.
-Module NatSet := MSets Nat_eq.
+(* Module Nat_eq : DecType with Definition t := nat with Definition eq_dec := eq_dec. *)
+(*   Definition t := nat. *)
+(*   Definition eq (x y : t) := x = y. *)
+(*   Definition eq_equiv : Equivalence eq. *)
+(*   Proof. *)
+(*     split; cbv; intros; congruence. *)
+(*   Qed. *)
+(*   Definition eq_dec := @eq_dec t _. *)
+(* End Nat_eq. *)
+(* Module NatSet := MSets Nat_eq. *)
 
 Require Import Host.
 (* Instance CUDA_monad : Monad CUDA := {| ret := @ret; bind := bind |}. *)
@@ -328,40 +327,40 @@ Section Compiler.
   (*   | Skel.EIf _ _ _  e e' e'' => NatSet.union (free_sv e) (NatSet.union (free_sv e') (free_sv e'')) *)
   (*   end. *)
 
-  Fixpoint free_av {GA GS ty} (e : Skel.SExp GA GS ty) : NatSet.t :=
-    match e with
-    | Skel.EVar _ _ _ _ => NatSet.empty
-    | Skel.ENum _ _ _ => NatSet.empty
-    | Skel.ELet _ _ _ _ e1 e2 =>
-      NatSet.union (free_av e1) (free_av e2)
-    | Skel.EBin _ _ _ _ _ _ e1 e2 => NatSet.union (free_av e1) (free_av e2)
-    | Skel.EA _ _ _ x e => NatSet.add (nat_of_member x) (free_av e)
-    | Skel.ELen _ _ _ x => NatSet.singleton (nat_of_member x)
-    | Skel.EPrj1 _ _ _ _ e => free_av e
-    | Skel.EPrj2 _ _ _ _ e => free_av e
-    | Skel.ECons _ _ _ _  e1 e2 => NatSet.union (free_av e1) (free_av e2)
-    | Skel.EIf _ _ _  e e' e'' => NatSet.union (free_av e) (NatSet.union (free_av e') (free_av e''))
-    end.
+  (* Fixpoint free_av {GA GS ty} (e : Skel.SExp GA GS ty) : NatSet.t := *)
+  (*   match e with *)
+  (*   | Skel.EVar _ _ _ _ => NatSet.empty *)
+  (*   | Skel.ENum _ _ _ => NatSet.empty *)
+  (*   | Skel.ELet _ _ _ _ e1 e2 => *)
+  (*     NatSet.union (free_av e1) (free_av e2) *)
+  (*   | Skel.EBin _ _ _ _ _ _ e1 e2 => NatSet.union (free_av e1) (free_av e2) *)
+  (*   | Skel.EA _ _ _ x e => NatSet.add (nat_of_member x) (free_av e) *)
+  (*   | Skel.ELen _ _ _ x => NatSet.singleton (nat_of_member x) *)
+  (*   | Skel.EPrj1 _ _ _ _ e => free_av e *)
+  (*   | Skel.EPrj2 _ _ _ _ e => free_av e *)
+  (*   | Skel.ECons _ _ _ _  e1 e2 => NatSet.union (free_av e1) (free_av e2) *)
+  (*   | Skel.EIf _ _ _  e e' e'' => NatSet.union (free_av e) (NatSet.union (free_av e') (free_av e'')) *)
+  (*   end. *)
 
-  Definition free_av_func {GA fty} (f : Skel.Func GA fty) :=
-    match f with
-    | Skel.F1 _ _ _ body => free_av body
-    | Skel.F2 _ _ _ _ body => free_av body
-    end.
+  (* Definition free_av_func {GA fty} (f : Skel.Func GA fty) := *)
+  (*   match f with *)
+  (*   | Skel.F1 _ _ _ body => free_av body *)
+  (*   | Skel.F2 _ _ _ _ body => free_av body *)
+  (*   end. *)
 
-  Fixpoint free_av_lexp {GA ty} (e : Skel.LExp GA ty) : NatSet.t :=
-    match e with
-    | Skel.LNum _ _ => NatSet.empty
-    | Skel.LLen _ _ x => NatSet.singleton (nat_of_member x)
-    | Skel.LMin _ le1 le2 => NatSet.union (free_av_lexp le1) (free_av_lexp le2) 
-    end.
+  (* Fixpoint free_av_lexp {GA ty} (e : Skel.LExp GA ty) : NatSet.t := *)
+  (*   match e with *)
+  (*   | Skel.LNum _ _ => NatSet.empty *)
+  (*   | Skel.LLen _ _ x => NatSet.singleton (nat_of_member x) *)
+  (*   | Skel.LMin _ le1 le2 => NatSet.union (free_av_lexp le1) (free_av_lexp le2)  *)
+  (*   end. *)
 
-  Definition free_av_AE {GA ty} (ae : Skel.AE GA ty) :=
-    match ae with
-    | Skel.DArr _ _ f len =>
-      NatSet.union (free_av_func f) (free_av_lexp len)
-    | Skel.VArr _ _ xa => NatSet.singleton (nat_of_member xa)
-    end.
+  (* Definition free_av_AE {GA ty} (ae : Skel.AE GA ty) := *)
+  (*   match ae with *)
+  (*   | Skel.DArr _ _ f len => *)
+  (*     NatSet.union (free_av_func f) (free_av_lexp len) *)
+  (*   | Skel.VArr _ _ xa => NatSet.singleton (nat_of_member xa) *)
+  (*   end. *)
 
   Fixpoint map_opt {A B : Type} (f : A -> option B) (xs : list A) : option (list B) :=
     sequence (map f xs).
@@ -533,11 +532,11 @@ Section Compiler.
   (*       (len :: arrs) in *)
   (*   concat (List.map f fv). *)
 
-  Definition filter_idx {T : Type} (xs : list T) s : list T :=
-    let f (x : nat * T) :=
-        let (i, x) := x in
-        NatSet.mem i s in
-    map snd (filter f (combine (seq 0 (length xs)) xs)).
+  (* Definition filter_idx {T : Type} (xs : list T) s : list T := *)
+  (*   let f (x : nat * T) := *)
+  (*       let (i, x) := x in *)
+  (*       NatSet.mem i s in *)
+  (*   map snd (filter f (combine (seq 0 (length xs)) xs)). *)
 
   Definition compile_map {GA dom cod} ntrd nblk
              (host_var_env : list (hostVar * list hostVar))
@@ -598,7 +597,7 @@ Section Compiler.
 
   Definition sh_decl len typ :=
     flatTup (
-        maptys (fun sv => SD (fst sv) (snd sv) len)
+        maptys (fun sv => Grid.SD (fst sv) (snd sv) len)
                (addTyp (locals "sdata" typ 0))).
 
   Definition mkFoldAll GA typ ntrd nblk g f : kernel :=
@@ -606,8 +605,8 @@ Section Compiler.
     let params_in := flatten_avars arr_vars in
     let params_out := (out_len_name, Int) :: flatTup (out_name typ) in
     {| params_of := params_out ++ params_in;
-       body_of := Pr (sh_decl ntrd typ)
-                     (mkFoldAll' typ ntrd nblk (S (log2 ntrd)) g f) |}.
+       body_of := Grid.Pr (sh_decl ntrd typ)
+                          (mkFoldAll' typ ntrd nblk (S (log2 ntrd)) g f) |}.
 
   Definition compile_reduce {GA typ} ntrd nblk
              (host_var_env : list (hostVar * list hostVar))

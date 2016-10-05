@@ -741,7 +741,7 @@ Ltac hoare_forward_prim :=
     eapply backwardR; [applys (>>rule_while inv)|]
 
   | [|- CSL _ _ _ (Cif _ _ _) _] =>
-    eapply rule_if_disj; evalBExp
+    eapply rule_if_disj; [evalBExp|..]
 
   | [|- CSL _ _ _ Cskip _] =>
     apply rule_skip
@@ -812,8 +812,8 @@ Qed.
 
 Lemma inde_assn_vars:
   forall (R : res) (P : Prop) (Env : list entry) (E : list var),
-    (forall (e : var) (x : var) (v : val),
-        In (e |-> v) Env -> In x (Skel_lemma.fv_E e) -> ~In x E) ->
+    (forall (x : var) (v : val),
+        In (x |-> v) Env -> ~In x E) ->
     inde (Assn R P Env) E.
 Proof.
   intros HEnv.
@@ -844,7 +844,7 @@ Proof.
   eapply forward; [intros s h Hsat; rewrite kernelInv_assn; eauto|].
   eapply rule_frame; eauto.
   apply inde_assn_vars; simpl.
-  introv Hin [? | []] Hc; substs.
+  introv Hin Hc; substs.
   unfold aenv_ok in *.
   destruct Hok as [Hok1 Hok2].
   assert (prefix "_" (str_of_var x) = false).
@@ -1420,6 +1420,7 @@ Ltac apply_write_rule' Hle Hix He Hn P Res le i :=
 
 Ltac hoare_forward_prim' :=
   lazymatch goal with
+  | [|- CSL _ _ (Assn _ _ _) ?c _] => hoare_forward_prim
   | [|- CSL _ _ ?P ?c ?Q] =>
     lazymatch is_IO_cmd c with
     | true => applys* kernelInv_inner; [prove_not_local|
@@ -1518,250 +1519,6 @@ Ltac hoare_forward :=
 end.
 
 Transparent Ascii.ascii_dec.
-Section mkMap.
-
-Variable ntrd nblk : nat.
-
-Hypothesis ntrd_neq_0: ntrd <> 0.
-Hypothesis nblk_neq_0: nblk <> 0.
-
-Variable GA : list Skel.Typ.
-Variable avar_env : AVarEnv GA.
-Variable aptr_env : APtrEnv GA.
-Variable aeval_env : AEvalEnv GA.
-Hypothesis Haok : aenv_ok avar_env.
-
-Variable dom cod : Skel.Typ.
-Variable arr : Skel.AE GA dom.
-Variable arr_c : var -> (cmd * vars dom).
-Hypothesis arr_ok : ae_ok avar_env arr arr_c.
-
-Variable f : Skel.Func GA (Skel.Fun1 dom cod).
-Variable f_c : vars dom -> (cmd * vars cod).
-Hypothesis f_ok : func_ok avar_env f f_c.
-
-Variable result : Skel.aTypDenote cod.
-Hypothesis eval_map_ok :
-  Skel.skelDenote _ _ (Skel.Map _ _ _ f arr) aeval_env = Some result.
-Lemma eval_arr_ok :
-  { arr_res | Skel.aeDenote _ _ arr aeval_env = Some arr_res}.
-Proof.
-  simpl in *; unfold Monad.bind_opt in *.
-  destruct Skel.aeDenote; simpl in *; inverts eval_map_ok; eexists; eauto.
-Qed.
-
-Definition arr_res : Skel.aTypDenote dom := let (a, _) := eval_arr_ok in a.
-
-Definition eval_arr_ok' : Skel.aeDenote _ _ arr aeval_env = Some arr_res.
-Proof.
-  unfold arr_res; destruct eval_arr_ok; eauto.
-Qed.
-
-Hint Resolve eval_arr_ok' : pure_lemma.
-
-Lemma eval_f_ok : 
-  { f_res | forall i, i < length arr_res ->
-                      Skel.funcDenote _ _ f aeval_env (gets' arr_res i) = Some (f_res i)}.
-Proof.
-  simpl in *; unfold Monad.bind_opt in *.
-  lets H: eval_arr_ok'; generalize arr_res H; intros arr_res H'; clear H.
-  rewrite H' in eval_map_ok.
-  exists (fun i : nat => nth i result (defval')).
-  intros i Hi.
-  forwards*: (>>mapM_some i (@defval' dom) (@defval' cod)).
-  destruct lt_dec; eauto; lia.
-Qed.
-
-Definition f_res := let (f, _) := eval_f_ok in f.
-Lemma eval_f_ok' : forall i, i < length arr_res -> Skel.funcDenote _ _ f aeval_env (gets' arr_res i) = Some (f_res i).
-Proof.
-  unfold f_res; destruct eval_f_ok; simpl; eauto.
-Qed.
-
-Definition outArr ty := locals "_arrOut" ty 0.
-
-Notation out := (outArr cod).
-Notation len := out_len_name.
-Notation t := (locals "t" dom 0).
-
-Definition mkMap_cmd inv :=
-  "i" :T Int ::= "tid" +C "bid" *C Zn ntrd ;;
-  WhileI inv ("i" <C len) (
-    assigns_get t arr_c "i" ;;
-    fst (f_c t) ;;
-    writes (v2gl out +os "i") (v2e (snd (f_c t))) ;;
-    "i" ::= Zn ntrd *C Zn nblk +C "i"
-  )%exp.
-
-Definition mkMap : kernel :=
-  let arr_vars := gen_params GA in
-  let params_in := flatten_avars arr_vars in
-  let params_out := (out_len_name, Int) :: flatTup (out_name cod) in
-  {| params_of := params_out ++ params_in;
-     body_of := GCSL.Pr nil (mkMap_cmd FalseP) |}.
-
-Notation RP n := (1 / injZ (Zn n))%Qc.
-Notation p := (RP (nblk * ntrd)).
-
-Variable outp : vals cod.
-Variable outs : list (vals cod).
-Hypothesis outs_length : length outs = length result.
-Definition outRes (ls : list (vals cod)) := arrays (val2gl outp) ls 1.
-Definition outEnv := out |=> outp.
-
-Section thread_ok.
-Variable tid : Fin.t ntrd.
-Variable bid : Fin.t nblk.
-
-
-Lemma tid_bid : nf tid + nf bid * ntrd < ntrd * nblk.
-Proof.
-  pose proof ntrd_neq_0; pose proof nblk_neq_0.
-  assert (nf tid < ntrd) by eauto.
-  assert (nf bid < nblk) by eauto.
-  forwards*: (id_lt_nt_gr H1 H2).
-  lia.
-Qed.
-
-Notation arri a := (skip a (ntrd * nblk) (nf tid + nf bid * ntrd)).
-Notation result' := (arr2CUDA result).
-
-Definition inv'  :=
-  Ex j i,
-  (kernelInv avar_env aptr_env aeval_env 
-             (arrays' (val2gl outp) (arri (firstn i result' ++ skipn i outs)) 1) 
-             (i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) /\
-              i < length arr_res + ntrd * nblk)
-             (len |-> Zn (length arr_res) ::
-              "i" |-> Zn i ::
-              out |=> outp) p).
-
-Ltac t :=
-  autorewrite with pure; simpl;
-  abstract (repeat match goal with
-                   | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; lia); try lia
-                   | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; lia); try lia
-                   end;
-             do 2 f_equal; lia). 
-
-
-Lemma ok1 n m j : n + (j * n + m) = (S j) * n + m. nia. Qed.
-Lemma ok2 n m : m = 0 * n + m. nia. Qed.
-Lemma ntrd_nblk_neq_0 : ntrd * nblk <> 0. pose ntrd_neq_0; pose nblk_neq_0; nia. Qed.
-
-Hint Resolve ok1 ok2 tid_bid ntrd_nblk_neq_0 : pure_lemma.
-
-Lemma loop_inv_ok i j vs (varr vout : list (vals cod)) v:
-  i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
-  vs = firstn i varr ++ skipn i vout ->
-  (Zn i < Zn (length varr))%Z ->
-  length varr = length vout ->
-  v = gets varr i ->
-  arri (set_nth i vs v) =
-  arri (firstn (ntrd * nblk + i) varr ++ skipn (ntrd * nblk + i) vout).
-Proof.
-  intros; substs.
-  applys (>>(@eq_from_nth) (@None (vals cod))).
-  { t. }
-  { intros i; repeat autorewrite with pure; simpl in *.
-    destruct lt_dec; [|false; lia]; intros H.
-    assert (i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
-            i mod (ntrd * nblk) = nf tid + nf bid * ntrd) by (intros; substs; prove_mod_eq).
-    assert (ntrd * nblk <> 0) by eauto with pure_lemma.
-    assert (j * (ntrd * nblk) + (nf tid + nf bid * ntrd) < i < S j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
-            i mod (ntrd * nblk) <> nf tid + nf bid * ntrd).
-    { intros; apply (mod_between j); eauto with pure_lemma. }
-    
-    Time t. }
-Qed.
-
-Lemma before_loop_ok (varr vout : list (vals cod)) :
-  nf tid < ntrd ->
-  nf tid + nf bid * ntrd < ntrd * nblk ->
-  length varr = length vout ->
-  arri vout =
-  arri (firstn (nf tid + nf bid * ntrd) varr ++ skipn (nf tid + nf bid * ntrd) vout).
-Proof.
-  intros; applys (>>(@eq_from_nth) (@None (vals cod))).
-  { t. }
-  { intros.
-    repeat autorewrite with pure; simpl in *.
-    assert (i < nf tid + nf bid * ntrd -> (i mod (ntrd * nblk)) <> nf tid + nf bid * ntrd).
-    { intros; rewrite Nat.mod_small; eauto; try lia. }
-  Time t. }
-Qed.
-
-Lemma after_loop_ok (varr vout : list (vals cod)) vs i :
-  ~(Zn i < Zn (length varr))%Z ->
-  length varr = length vout ->
-  vs = firstn i varr ++ skipn i vout ->
-  arri vs = arri varr.
-Proof.
-  intros; substs; eapply (@eq_from_nth _ None).
-  { t. }
-  intros i'; repeat autorewrite with pure; simpl; intros ?.
-  Time t.
-Qed.
-
-Hint Resolve loop_inv_ok before_loop_ok after_loop_ok : pure_lemma.
-
-Lemma result_nth i :
-  i < length result -> gets' result i = f_res i.
-Proof.
-  simpl in *; unfold Monad.bind_opt in *.
-  generalize arr_res eval_f_ok'  eval_arr_ok' eval_map_ok; intros arr_res' ? Heq.
-  rewrite Heq; intros.
-  forwards*: (>>mapM_some i (@defval' dom)).
-  forwards*: mapM_length; eauto.
-  destruct lt_dec; try lia.
-  rewrite H in H1; eauto.
-  inverts H1.
-  eauto.
-Qed.
-
-Lemma mkMap_cmd_ok BS : 
-  CSL BS tid
-      (kernelInv avar_env aptr_env aeval_env (arrays' (val2gl outp) (arri outs) 1)
-                 True
-                 ("tid" |-> Zn (nf tid)
-                  :: "bid" |-> Zn (nf bid)
-                  :: len |-> Zn (length arr_res)
-                  :: out |=> outp) p)
-      (mkMap_cmd inv')
-      (kernelInv avar_env aptr_env aeval_env (arrays' (val2gl outp) (arri (arr2CUDA result)) 1) True nil p).
-Proof.
-  assert (Hlen: length arr_res = length result').
-  { generalize arr_res eval_arr_ok' eval_map_ok; simpl in *; unfold Monad.bind_opt in *; intros a Heq.
-    rewrite Heq; intros H.
-    forwards*: mapM_length; eauto.
-    unfold arr2CUDA; rewrite map_length; eauto. }
-  assert (Hlen' : length outs = length result').
-  { unfold arr2CUDA; rewrite map_length; eauto. }
-  forwards*: (nf_lt tid).
-  forwards*: (tid_bid).
-  eapply rule_seq.
-  hoare_forward_prim'; simplify_remove_var.
-  unfold inv'.
-
-  hoare_forward; simplify_remove_var.
-  hoare_forward; simplify_remove_var.
-  hoare_forward; simplify_remove_var.
-  intros; apply eval_f_ok'; lia.
-  assert (ntrd * nblk <> 0) by nia.
-  hoare_forward.
-  hoare_forward; simplify_remove_var.
-
-  unfold kernelInv; prove_imp.
-  eapply loop_inv_ok; eauto; prove_pure.
-  unfold arr2CUDA; rewrites (>>nth_map (@defval cod)); prove_pure.
-  rewrite result_nth; eauto; lia.
-  prove_imp; eauto with pure_lemma.
-  unfold kernelInv; simpl in *.
-  prove_imp; eauto with pure_lemma.
-  eapply after_loop_ok; [..|eauto]; prove_pure.
-Qed.
-End thread_ok.
-End mkMap.
 
 Lemma div_spec x y :
   y <> 0 ->
@@ -1816,7 +1573,7 @@ Proof.
 Qed.
 
 Lemma low_assn_vars R P Env E :
-  (forall e x v, In (e |-> v) Env -> In x (fv_E e) -> E x = Lo) ->
+  (forall x v, In (x |-> v) Env -> E x = Lo) ->
   low_assn E (Assn R P Env).
 Proof.
   intros HEnv.
@@ -1860,10 +1617,34 @@ Ltac des H :=
   end.
 Ltac prove_low_expr :=
   let H1 := fresh "H" in
-  let H2 := fresh "H" in
   simpl in *; 
-  intros ? ? ? H1 H2;
-  des H1; simpl in *; des H2; simpl; eauto.
+  intros ? ? H1;
+  repeat rewrite in_app_iff in *;
+  des H1; simpl in *; simpl; eauto;
+  try now (forwards*: mpss_in; forwards* (? & ? & ?): locals_pref; substs; eauto).
+
+Lemma low_assn_kernelInv E GA (avar_env : AVarEnv GA) aptr_env aeval_env Res P Env p: 
+  aenv_ok avar_env
+  -> (forall x, prefix "_" (str_of_var x) = true -> E x = Lo)
+  -> (forall x v, In (x |-> v) Env -> E x = Lo) 
+  -> low_assn E (kernelInv avar_env aptr_env aeval_env Res P Env p).
+Proof.
+  intros.
+  apply low_assn_vars; introv.
+  rewrite in_app_iff; destruct 1 as [Hin | Hin]; eauto.
+  destruct H.
+  forwards* (? & ? & [? | ?]): arrInvVar_in; substs.
+  forwards*: H.
+  Grab Existential Variables.
+  eauto.
+Qed.
+
+Ltac prove_is_param :=
+  introv;
+  match goal with
+  | [|- prefix "_" ?X = true -> _ ] =>
+    destruct (prefix "_" X); congruence
+  end.
 
 Ltac prove_low_assn :=
   lazymatch goal with
@@ -1871,6 +1652,10 @@ Ltac prove_low_assn :=
     apply low_assn_ex; intros ?; prove_low_assn
   | [|- low_assn _ (Assn _ _ _)] =>
     apply low_assn_vars; prove_low_expr
+  | [|- low_assn _ (kernelInv _ _ _ _ _ _ _) ] =>
+    applys* low_assn_kernelInv; [try prove_is_param | prove_low_expr]
+  | [|- low_assn _ (kernelInv' _ _ _ _ _) ] =>
+    applys* low_assn_vars; simpl in *; tauto
   | [|- low_assn _ FalseP] =>
     apply low_assn_FalseP
   end.
@@ -1914,6 +1699,13 @@ Proof.
   split; eauto.
   destruct HP0; eauto.
   destruct HP0; eauto.
+Qed.
+
+Lemma kernelInv_var_in GA (avE : AVarEnv GA) apE aeE Res P Env (x : var) (v : val) p:
+  (kernelInv avE apE aeE Res P Env p ** !(x === v)) == (kernelInv avE apE aeE Res P (x |-> v :: Env) p).
+Proof.
+  unfold kernelInv.
+  apply assn_var_in.
 Qed.
 
 Lemma conj_xs_assn st n Res P Env :
@@ -2010,6 +1802,10 @@ Ltac dest_ex_in acc H :=
     sep_split_in H; unfold_pures; fold_sat_in H; dest_ex_in (t, acc) H
   | sat _ _ (conj_xs (ls_init 0 ?n (fun i => Assn (@?Res i) (@?P i) (@?Env i)))) =>
     find_const acc H
+  | sat _ _ (conj_xs (ls_init 0 ?n (fun i => kernelInv _ _ _ (@?Res i) (@?P i) (@?Env i) _))) =>
+    find_const acc H
+  | sat _ _ (conj_xs (ls_init 0 ?n (fun i => kernelInv' _ _ (@?Res i) (@?P i)  _))) =>
+    find_const acc H
   end.
 
 Ltac dest_ex :=
@@ -2022,6 +1818,96 @@ Ltac dest_ex :=
     [rewrite length_nseq; reflexivity|]; fold_sat;
     erewrite @ls_init_eq0; [|intros; rewrite nseq_nth_same; reflexivity]
   end).
+
+Lemma arrInvRes_star GA (apenv : APtrEnv GA) aeenv p st n :
+  (0 < p)%Qc ->
+  (injZ (Zn n) * p <= 1)%Qc ->
+  (p <= 1)%Qc ->
+  n <> 0 ->
+  istar (ls_init st n (fun _ => arrInvRes apenv aeenv p)) ==
+  arrInvRes apenv aeenv (p * injZ (Zn n)).
+Proof.
+  unfold arrInvRes; intros.
+  induction GA; dependent destruction apenv; dependent destruction aeenv; simpl.
+  rewrite init_emp_emp_res; reflexivity.
+  rewrite ls_star_res, IHGA.
+  rewrite <-arrays_p_n; eauto.
+  rewrite Qcmult_comm in *; reflexivity.
+Qed.
+
+Notation RP n := (1 / injZ (Zn n))%Qc.
+
+Lemma conj_xs_kernelInv st n GA (avenv : AVarEnv GA) apenv aeenv Res P Env m:
+  n <> 0 ->
+  m <> 0 ->
+  n <= m ->
+  conj_xs (ls_init st n (fun i => kernelInv avenv apenv aeenv (Res i) P Env (RP m))) ==
+  kernelInv avenv apenv aeenv (istar (ls_init st n Res)) P Env (RP m * injZ (Zn n)).
+Proof.
+  intros.
+  assert (0 < injZ (Zn m))%Qc. 
+  { injZ_simplify. Qc_to_Q.
+    destruct m; try lia.
+    forwards*: (>>inject_Z_Sn_gt0 m); simpl in *; lra. }
+  assert (0 < RP m)%Qc.
+  { Qc_to_Q.
+    Require Import QArith.
+    apply Qlt_shift_div_l; lra. }
+  assert (injZ (Zn n) * RP m <= 1)%Qc.
+  { assert (injZ (Zn n) <= injZ (Zn m))%Qc.
+    { unfold injZ; Qc_to_Q.
+      rewrite <-Zle_Qle; lia. }
+    Qc_to_Q.
+    rewrite Qmult_assoc.
+    apply Qle_shift_div_r. eauto.
+    lra. }
+  assert (RP m <= 1).
+  { unfold injZ in *; Qc_to_Q.
+    apply Qle_shift_div_r.
+    lra.
+    destruct m; try lia.
+    lets: (>>inject_Z_Sn_gt0 m).
+    lra. }
+  intros; unfold kernelInv; rewrites* conj_xs_assn.
+  split; revert s h; prove_imp; rewrite ls_star_res, arrInvRes_star in *; eauto.
+Qed.
+
+Close Scope Q_scope.
+
+Lemma conj_xs_kernelInv' st n GA (apenv : APtrEnv GA) aeenv Res P m:
+  n <> 0 ->
+  m <> 0 ->
+  n <= m ->
+  conj_xs (ls_init st n (fun i => kernelInv' apenv aeenv (Res i) P (RP m))) ==
+  kernelInv' apenv aeenv (istar (ls_init st n Res)) P (RP m * injZ (Zn n)).
+Proof.
+  intros.
+  assert (0 < injZ (Zn m))%Qc. 
+  { injZ_simplify. Qc_to_Q.
+    destruct m; try lia.
+    forwards*: (>>inject_Z_Sn_gt0 m); simpl in *; lra. }
+  assert (0 < RP m)%Qc.
+  { Qc_to_Q.
+    Require Import QArith.
+    apply Qlt_shift_div_l; lra. }
+  assert (injZ (Zn n) * RP m <= 1)%Qc.
+  { assert (injZ (Zn n) <= injZ (Zn m))%Qc.
+    { unfold injZ; Qc_to_Q.
+      rewrite <-Zle_Qle; lia. }
+    Qc_to_Q.
+    rewrite Qmult_assoc.
+    apply Qle_shift_div_r. eauto.
+    lra. }
+  assert (RP m <= 1)%Qc.
+  { unfold injZ in *; Qc_to_Q.
+    apply Qle_shift_div_r.
+    lra.
+    destruct m; try lia.
+    lets: (>>inject_Z_Sn_gt0 m).
+    lra. }
+  intros; unfold kernelInv'; rewrites* conj_xs_assn.
+  split; revert s h; prove_imp; rewrite ls_star_res, arrInvRes_star in *; eauto.
+Qed.
 
 Ltac prove_istar_imp :=
   let s := fresh "s" in
@@ -2045,17 +1931,21 @@ Ltac prove_istar_imp :=
     rewrite sc_v2l, (vec_to_list_init0 _ emp) in H;
     erewrite ls_init_eq0 in H; [|simplify];
     dest_ex_in tt H;
-    rewrite conj_xs_assn in H; auto
+    try rewrite conj_xs_assn in H;
+    try (rewrite conj_xs_kernelInv in H; intros; try nia);
+    try (rewrite conj_xs_kernelInv' in H; intros; try nia); auto
   end;
   try lazymatch goal with
   | [|- sat _ _ (Bdiv.Aistar_v (MyVector.init _)) ] =>
     rewrite sc_v2l, (vec_to_list_init0 _ emp);
     erewrite ls_init_eq0; [|simplify];
     dest_ex;
-    rewrite conj_xs_assn; auto
+    try rewrite conj_xs_assn;
+    try (rewrite conj_xs_kernelInv; intros; try nia);
+    try (rewrite conj_xs_kernelInv'; intros; try nia);
+    auto
   end;
-  revert s h H; prove_imp.
-
+  revert s h H; unfold kernelInv; try prove_imp.
 
 Ltac ls_rewrite_in Heq H :=
   erewrite ls_init_eq0 in H; [|intros; rewrite Heq; reflexivity].
@@ -2117,6 +2007,120 @@ Ltac prove_le_type :=
   | _ => idtac
   end.
 
+Lemma prefix_not_eq x y s :
+  prefix x s = true -> prefix x y = false -> prefix y x = false -> prefix y s = false.
+Proof.
+  revert y s; induction x; introv.
+  rewrite !prefix_nil; simpl; congruence.
+  destruct s; simpl; try congruence.
+  destruct Ascii.ascii_dec; try congruence.
+  destruct y; simpl; try congruence.
+  repeat lazymatch goal with |- context [if ?b then _ else _] => destruct b end; try congruence.
+  eauto.
+Qed.
+
+Lemma arr_ok_no_barrier ty GA (avar_env : AVarEnv GA) (arr : Skel.AE GA ty) arr_c :
+  aenv_ok avar_env
+  -> ae_ok avar_env arr arr_c
+  -> forall x, barriers (fst (arr_c x)) = nil.
+Proof.
+  unfold ae_ok; intros ? H; destruct H as (? & ? & ? & ?); eauto.
+Qed.
+
+Lemma func_ok_no_barrier1 dom cod GA (avar_env : AVarEnv GA) (func : Skel.Func GA (Skel.Fun1 dom cod)) func_c :
+  aenv_ok avar_env
+  -> func_ok avar_env func func_c
+  -> forall x, barriers (fst (func_c x)) = nil.
+Proof.
+  unfold func_ok; intros ? H; destruct H as (? & ? & ? & ?); eauto.
+Qed.
+
+Lemma func_ok_no_barrier2 dom1 dom2 cod GA (avar_env : AVarEnv GA) (func : Skel.Func GA (Skel.Fun2 dom1 dom2 cod)) func_c :
+  aenv_ok avar_env
+  -> func_ok avar_env func func_c
+  -> forall x y, barriers (fst (func_c x y)) = nil.
+Proof.
+  unfold func_ok; intros ? H; destruct H as (? & ? & ? & ?); eauto.
+Qed.
+
+Create HintDb typing.
+
+Hint Resolve arr_ok_no_barrier func_ok_no_barrier1 func_ok_no_barrier2 : typing.
+
+Lemma assigns_no_barriers ty (xs : vars ty) (ts : ctys ty) (es : exps ty) :
+  barriers (assigns xs ts es) = nil.
+Proof. induction ty; simpl; eauto; rewrite IHty1, IHty2; simpl; eauto. Qed.
+
+Lemma assigns_get_no_barriers GA ty (avar_env : AVarEnv GA) (arr : Skel.AE GA ty)
+      arr_c (xs : vars ty) :
+  aenv_ok avar_env
+  -> ae_ok avar_env arr arr_c
+  -> forall x, barriers (assigns_get xs arr_c x) = nil.
+Proof. 
+  unfold assigns_get; intros; simpl; erewrite assigns_no_barriers, arr_ok_no_barrier; eauto.
+Qed.
+
+Lemma reads_no_barriers ty (xs : vars ty) (ts : ctys ty) (es : lexps ty) :
+  barriers (reads xs ts es) = nil.
+Proof. induction ty; simpl; eauto; rewrite IHty1, IHty2; simpl; eauto. Qed.
+
+Lemma writes_no_barriers ty (les : lexps ty) (es : exps ty) :
+  barriers (writes les es) = nil.
+Proof. induction ty; simpl; eauto; rewrite IHty1, IHty2; simpl; eauto. Qed.
+
+Hint Resolve
+     assigns_no_barriers
+     assigns_get_no_barriers
+     reads_no_barriers
+     writes_no_barriers : typing.
+
+Lemma arr_ok_writes_var ty GA (avar_env : AVarEnv GA) (arr : Skel.AE GA ty) arr_c :
+  aenv_ok avar_env
+  -> ae_ok avar_env arr arr_c
+  -> forall x y, In y (writes_var (fst (arr_c x))) -> is_local y.
+Proof.
+  unfold ae_ok; intros ? H; destruct H as (? & ? & ? & ?); intros; eauto.
+Qed.
+
+Lemma func_ok_writes_var1 dom cod GA (avar_env : AVarEnv GA) (func : Skel.Func GA (Skel.Fun1 dom cod)) func_c :
+  aenv_ok avar_env
+  -> func_ok avar_env func func_c
+  -> forall x y, In y (writes_var (fst (func_c x))) -> is_local y.
+Proof.
+  unfold func_ok; intros ? H; destruct H as (? & ? & ? & ?); eauto.
+Qed.
+
+Lemma func_ok_writes_var2 dom1 dom2 cod GA (avar_env : AVarEnv GA) (func : Skel.Func GA (Skel.Fun2 dom1 dom2 cod)) func_c :
+  aenv_ok avar_env
+  -> func_ok avar_env func func_c
+  -> forall x y z, In z (writes_var (fst (func_c x y))) -> is_local z.
+Proof.
+  unfold func_ok; intros ? H; destruct H as (? & ? & ? & ?); eauto.
+Qed.
+
+Hint Rewrite arr_ok_writes_var func_ok_writes_var1 func_ok_writes_var2 reads_writes assigns_writes writes_writes : typing.
+
+Ltac prove_has_Hi :=
+  introv; 
+  let Hf := fresh "H" in
+  let Hx := fresh "H" in
+  lazymatch goal with
+  | [H : ae_ok _ _ ?f |- In _ (writes_var (fst (?f _))) -> _ ] =>
+    intros Hf; forwards*Hx: arr_ok_writes_var; unfold is_local in *
+  | [H : func_ok _ _ ?f |- In _ (writes_var (fst (?f _))) -> _ ] =>
+    intros Hf; forwards*Hx: func_ok_writes_var1; unfold is_local in *
+  | [H : func_ok _ _ ?f |- In _ (writes_var (fst (?f _ _))) -> _ ] =>
+    intros Hf; forwards*Hx: func_ok_writes_var2; unfold is_local in *
+  | [|- In _ (flatTup (locals _ _ _)) -> _] => 
+    intros Hf; forwards* (? & ? & ?): (>>locals_pref Hf); substs; eauto
+  end;
+   repeat lazymatch goal with
+  | [|- (if prefix ?X ?Y then _ else _) = Hi] =>
+    cutrewrite (prefix X Y = false); [|(applys* (>>prefix_not_eq Hx))]
+  | [|- (if var_eq_dec ?X ?Y then _ else _) = Hi] => 
+    destruct var_eq_dec; [substs; simpl in *; congruence|]
+  end; eauto.
+
 Ltac prove_typing_cmd :=
   lazymatch goal with
   | [|- typing_cmd _ (_ ::T _ ::= [_]) _] =>
@@ -2130,7 +2134,7 @@ Ltac prove_typing_cmd :=
   | [|- typing_cmd _ (WhileI _ _ _) _ ] => econstructor; [prove_typing_bexp| ]
   | [|- typing_cmd _ (Cif _ _ _) _ ] => econstructor; [prove_typing_bexp|..]
   | [|- typing_cmd _ Cskip _ ] => constructor
-  | _ => idtac
+  | _ => try (apply typing_cmd_Hi; [eauto with typing| repeat autorewrite with typing; try (simpl; tauto); try prove_has_Hi ])
   end.
 
 Lemma precise_ex T (P : T -> assn) :
@@ -2482,6 +2486,9 @@ Ltac simpl_nested_istar := match goal with
   | fun i => fun j => array' ?loc (ith_vals ?dist ?vals (j + i * m) 0) 1%Qc =>
     idtac vals;
     rewrites (>>conj_xs_init_flatten0 n m (fun x => array' loc (ith_vals dist vals x 0) 1%Qc))
+  | fun i => fun j => arrays' ?loc (ith_vals ?dist ?vals (j + i * m) 0) 1%Qc =>
+    idtac vals;
+    rewrites (>>conj_xs_init_flatten0 n m (fun x => arrays' loc (ith_vals dist vals x 0) 1%Qc))
   | fun i => fun j => ?X =>
     idtac X;
     rewrites (>>conj_xs_init_flatten0 n m (fun x : nat => X))
@@ -2492,8 +2499,20 @@ Ltac simpl_nested_istar := match goal with
   | fun i => fun j => array' ?loc (ith_vals ?dist ?vals (j + i * m) 0) 1%Qc =>
     idtac vals;
     rewrites (>>conj_xs_init_flatten0 n m (fun x => array' loc (ith_vals dist vals x 0) 1%Qc)) in H
+  | fun i => fun j => arrays' ?loc (ith_vals ?dist ?vals (j + i * m) 0) 1%Qc =>
+    idtac vals;
+    rewrites (>>conj_xs_init_flatten0 n m (fun x => arrays' loc (ith_vals dist vals x 0) 1%Qc)) in H
   | fun i => fun j => ?X =>
     idtac X;
     rewrites (>>conj_xs_init_flatten0 n m (fun x : nat => X)) in H
   end
 end.
+
+Lemma aenv_ok_params GA (avenv : AVarEnv GA) apenv aeenv x v :
+  aenv_ok avenv
+  -> In (x |-> v) (arrInvVar avenv apenv aeenv)
+  -> prefix "_" (str_of_var x) = true.
+Proof.
+  intros; forwards* (? & ? & [? | ?]): arrInvVar_in; substs;
+  destruct H as (? & ?); eauto.
+Qed.

@@ -1,5 +1,4 @@
-Require Import Compiler MyEnv String.
-Require Import List.
+Require Import Host String.
 
 Parameter save_to_file :
   Host.Prog -> String.string -> unit.

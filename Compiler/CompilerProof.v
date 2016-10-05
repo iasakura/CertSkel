@@ -205,8 +205,8 @@ Proof.
           rewrite (id_mark _ (freshes A B = C)) in H
     end;
   unfold id in *; substs;  (try now (do 2 eexists; split; simpl; eauto; omega));
-  try (forwards ?: reads_writes; [now auto_star..|idtac]);
-  try (forwards ?: assigns_writes; [now auto_star..|idtac]);
+  try (rewrite reads_writes in *);
+  try (rewrite assigns_writes in *);
   try (forwards (? & ? & ?): freshes_vars; [now auto_star..|idtac]);
   try (substs; repeat eexists; eauto; omega).
   - exists n0 0; split; eauto; omega.
@@ -1136,8 +1136,8 @@ Proof.
   simpl; introv; repeat rewrite in_app_iff;
   let H := fresh in intros H; des_disj H;
   try first [tauto | now forwards*: IHse | now forwards*: IHse1 | now forwards*: IHse2 | now forwards*: IHse3];
-  try no_side_cond ltac:(forwards*: assigns_writes);
-  try no_side_cond ltac:(forwards*: reads_writes);
+  try no_side_cond ltac:(rewrite assigns_writes in *);
+  try no_side_cond ltac:(rewrite reads_writes in *);
   (try now forwards*: compile_op_wr_vars');
   try forwards*: freshes_prefix;
   substs; simpl; eauto.
@@ -1223,7 +1223,37 @@ Proof.
   unfold resEnv_ok; intros H; intros; forwards*: H;
   unfold is_local, lpref in *; simpl in *; rewrite prefix_nil in *; try congruence.
 Qed.
-                         
+
+Lemma CSL_prop_prem n (tid : Fin.t n) BS R R' (P P' : Prop) Env Env' C :
+  (P -> CSL BS tid (Assn R P Env) C (Assn R' P' Env'))
+  -> CSL BS tid (Assn R P Env) C (Assn R' P' Env').
+Proof.
+  intros ? ? ?; simpl; unfold Assn in *; intros Hsat; sep_split_in Hsat; unfold Apure in *.
+  applys* H.
+  sep_split; eauto.
+Qed.
+  
+Lemma evalExps_env n (tid : Fin.t n)  ty (xs : vars ty) vs R R' P P' Env Env' C BS :
+  evalExps Env (v2e xs) vs
+  -> CSL BS tid (Assn R P ((xs |=> vs) ++ Env)) C (Assn R' P' Env')
+  -> CSL BS tid (Assn R P Env) C (Assn R' P' Env').
+Proof.
+  intros.
+  eapply backwardR; eauto.
+  unfold Assn, sat; intros s h Hsat.
+  sep_split_in Hsat; sep_split; eauto.
+  rewrite env_assns_app; split; eauto.
+  revert HP0 H; clear; induction ty; simpl;
+  try (split; eauto using evalExp_ok, emp_emp_ph).
+  intros; rewrite !env_assns_app; split; intuition.
+Qed.
+
+Lemma evalExps_app ty Env1 Env2 (es : exps ty) (vs : vals ty) :
+  evalExps Env1 es vs -> evalExps (Env1 ++ Env2) es vs.
+Proof.
+  induction ty; simpl; eauto using evalExp_app1; intros [? ?]; eauto.
+Qed.
+
 Lemma compile_func_ok GA fty (f : Skel.Func GA fty) (func : type_of_ftyp fty) (avar_env : AVarEnv GA) : 
   compile_func f avar_env = func -> func_ok avar_env f func.
 Proof.
@@ -1231,7 +1261,9 @@ Proof.
   repeat split; introv; unfold evalM;
   destruct (compile_sexp _ _ _ _) as [[? ?] ?] eqn:Heq; simpl in *;
   eauto using compile_sexp_no_barrs, compile_sexp_wr_vars, compile_sexp_res_vars, compile_sexp_ok;
-  unfold are_local; [intros Hx ? ?| intros Hx Hy ? ?];
+  unfold are_local; [intros Hx ? Heval ?| intros Hx Hy ? Heval Hevaly ?]; apply CSL_prop_prem; intros;
+  [applys* (>>evalExps_env); [apply evalExps_app; apply Heval|];
+   try (applys* (>>evalExps_env); [apply evalExps_app_inv2; apply evalExps_app; apply Hevaly|])..];
   forwards*Htri: compile_sexp_ok; eauto using resEnv_ok0_is_local; unfold kernelInv, sexpInv, scInv in *; simpl in *;
   first [eapply rule_conseq; try apply Htri; prove_imp; eauto; simpl in *; try tauto | (* discharging triples *)
          unfold senv_ok, is_local in *; introv Hin; false;
@@ -1326,26 +1358,28 @@ Proof.
     forwards*Hok: (>>compile_func_ok (Skel.Fun1 Skel.TZ t) arr Hceq Haok).
     simpl in *; unfold func_ok1 in *; repeat split; jauto.
     destruct Hok as (? & ? & Hok & ?).
-    intros; forwards*: Hok.
+    intros; applys* Hok.
     introv [? | []]; substs; eauto.
     intros. 
-    inverts H4.
+    inverts H5.
     erewrite nth_error_some'.
     rewrite Nat2Z.id.
     reflexivity.
-    lia.
+    forwards*: H6; lia.
   - forwards*: (>>compile_func_ok (Skel.Fun1 Skel.TZ cod) Hceq Haok).
     unfold func_ok, func_ok1 in *; simpl in *.
     destruct H as (H1 & H2 & H3 & H4).
     repeat split; [apply H1| apply H2| idtac | apply H4].
-    intros; forwards*: H3.
+    intros; applys* H3.
     intros ? [? | []]; substs; eauto.
     
-    rewrites* (>>mapM_some i (@defval' cod) H5).
+    rewrites* (>>mapM_some i (@defval' cod) H6).
     forwards*: mapM_length.
     
     repeat rewrite seq_length in *.
     destruct lt_dec; try lia.
     repeat rewrite seq_nth.
     destruct lt_dec; eauto.
+    intros; forwards*: H7; eauto.
+    lia.
 Qed.

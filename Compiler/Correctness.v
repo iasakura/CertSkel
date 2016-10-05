@@ -49,6 +49,10 @@ Definition kernelInv {GA}
            (aVarEnv : AVarEnv GA) (aPtrEnv : APtrEnv GA) (aEvalEnv : AEvalEnv GA) R P resEnv p := 
   Assn (arrInvRes aPtrEnv aEvalEnv p *** R) P (resEnv ++ arrInvVar aVarEnv aPtrEnv aEvalEnv).
 
+Definition kernelInv' {GA} 
+           (aPtrEnv : APtrEnv GA) (aEvalEnv : AEvalEnv GA) R P p := 
+  Assn (arrInvRes aPtrEnv aEvalEnv p *** R) P nil.
+
 Definition aenv_ok {GA} (avar_env : AVarEnv GA) :=
   (forall ty (m : member ty GA), prefix "_" (str_of_var (fst (hget avar_env m))) = true)
   /\ (forall (ty : Skel.Typ) (m : member ty GA) (y : var),

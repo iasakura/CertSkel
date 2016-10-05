@@ -1,4 +1,4 @@
-Require Import LibTactics GPUCSL Relations MyEnv.
+Require Import LibTactics GPUCSL Grid Relations MyEnv.
 
 Record kernel := BuildKer { params_of : list (var * CTyp); body_of : program }.
 

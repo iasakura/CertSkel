@@ -1,4 +1,8 @@
+-I .
+-I ../TypedIR
 -R ../tlc/src TLC
 -I ../GPUCSL
 -I ../Compiler
+-I ../Compiler/GPUVeLib
+-I ../Compiler/Skeletons
 -R ../repo/src Cpdt
