@@ -1028,6 +1028,82 @@ Proof.
   eauto.
 Qed.
 
+Lemma assigns_call2_ok GA dom1 dom2 cod (avenv : AVarEnv GA) apenv aeenv
+      (func : Skel.Func GA (Skel.Fun2 dom1 dom2 cod)) func_c (xs : vars dom1) (ys : vars dom2) vs1 vs2 res
+      (ntrd : nat) (tid : Fin.t ntrd)
+      (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd) 
+      (i : nat) 
+      (R : res) (P : Prop) (resEnv : list entry) (p : Qc) n (x : string) :
+  aenv_ok avenv
+  -> func_ok avenv func func_c
+  -> (forall l, In l (flatTup xs) -> ~ is_local l) 
+  -> (forall l, In l (flatTup ys) -> ~ is_local l) 
+  -> (forall (l : var) (v : val), In (l |-> v) resEnv -> ~ is_local l)
+  -> evalExps resEnv (v2e xs) (sc2CUDA vs1)
+  -> evalExps resEnv (v2e ys) (sc2CUDA vs2)
+  -> (P -> Skel.funcDenote GA _ func aeenv vs1 vs2 = Some res)
+  -> CSL BS tid (kernelInv avenv apenv aeenv R P resEnv p)
+         (assigns_call2 (locals x ty n) arr_c ix)
+         (kernelInv avenv apenv aeenv R P
+                    ((locals x ty n) |=> sc2CUDA (gets' res0 i) ++ remove_vars resEnv (flatTup (locals x ty n))) p).
+Proof.
+  intros ? ? (? & ? & Htri & ?) ? ? ?; intros; substs; eauto.
+  eapply rule_seq.
+  forwards*: Htri.
+  eapply kernelInv_inner; eauto.
+  rewrite assigns_writes.
+  Lemma not_is_local_locals x ty n y:
+    prefix "l" x = false
+    -> In y (flatTup (locals x ty n))
+    -> ~is_local y.
+  Proof.
+    intros; unfold is_local.
+    forwards* (? & ? & ?): locals_pref; substs.
+    destruct x.
+    - destruct x0; simpl; eauto.
+    - Opaque Ascii.ascii_dec.
+      simpl.
+      destruct Ascii.ascii_dec; eauto.
+      rewrites* prefix_nil; substs; simpl in *.
+      destruct Ascii.ascii_dec; try congruence.
+      rewrite prefix_nil in H; congruence.
+      Transparent Ascii.ascii_dec.
+  Qed.
+
+  Lemma not_is_param_locals x ty n y:
+    prefix "_" x = false
+    -> In y (flatTup (locals x ty n))
+    -> ~is_param y.
+  Proof.
+    intros; unfold is_param.
+    forwards* (? & ? & ?): locals_pref; substs.
+    destruct x.
+    - destruct x0; simpl; eauto.
+    - Opaque Ascii.ascii_dec.
+      simpl.
+      destruct Ascii.ascii_dec; eauto.
+      rewrites* prefix_nil; substs; simpl in *.
+      destruct Ascii.ascii_dec; try congruence.
+      rewrite prefix_nil in H; congruence.
+  Qed.
+  
+  intros; forwards*: not_is_param_locals.
+  unfold is_param in *; simpl in *.
+  destruct (prefix "_" x); congruence.
+
+  unfold is_param in *; eauto.
+  eapply forward; try apply rule_assigns; eauto using locals_disjoint_ls.
+  repeat rewrite remove_vars_app; prove_imp.
+  apply not_in_disjoint; intros.
+  rewrite fvEs_v2e.
+  forwards*: not_is_local_locals.
+  unfold is_local in *; simpl in *.
+  destruct (prefix "l" x); congruence.
+  apply evalExps_vars.
+  apply incl_appl.
+  eauto.
+Qed.
+
 Lemma ae_ok_tri GA ty (avenv : AVarEnv GA) apenv aeenv (ae : Skel.AE GA ty) arr_c (res0 : Skel.aTypDenote ty) ix 
       (ntrd : nat) (tid : Fin.t ntrd)
           (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd) 
