@@ -580,7 +580,7 @@ Section Compiler.
     | Skel.F2 _ _ _ _ body => Skel.F2 _ _ _ _ (shift_sexp_GA newTy body)
     end.
 
-  Parameter mkFoldAll' : forall typ,
+  Parameter mkReduce_cmd : forall typ,
       nat
       -> nat
       -> nat (* # of unrolling *)
@@ -600,13 +600,13 @@ Section Compiler.
         maptys (fun sv => Grid.SD (fst sv) (snd sv) len)
                (addTyp (locals "sdata" typ 0))).
 
-  Definition mkFoldAll GA typ ntrd nblk g f : kernel :=
+  Definition mkReduce GA typ ntrd nblk g f : kernel :=
     let arr_vars := gen_params GA in
     let params_in := flatten_avars arr_vars in
     let params_out := (out_len_name, Int) :: flatTup (out_name typ) in
     {| params_of := params_out ++ params_in;
        body_of := Grid.Pr (sh_decl ntrd typ)
-                          (mkFoldAll' typ ntrd nblk (S (log2 ntrd)) g f) |}.
+                          (mkReduce_cmd typ ntrd nblk (S (log2 ntrd)) g f) |}.
 
   Definition compile_reduce {GA typ} ntrd nblk
              (host_var_env : list (hostVar * list hostVar))
@@ -620,7 +620,7 @@ Section Compiler.
     let outlen := compile_AE_len host_var_env arr in
     let func := compile_func f (remove_typeinfo arr_vars) in
     
-    do! kerID1 := gen_kernel (mkFoldAll GA typ ntrd nblk get func) in
+    do! kerID1 := gen_kernel (mkReduce GA typ ntrd nblk get func) in
     do! lenVar := fLet outlen in
     do! tempArr := fAllocs dim (Const (Z.of_nat nblk)) in
     let args_in := concat (List.map (fun x => (fst x :: snd x)) host_var_env) in
@@ -634,7 +634,7 @@ Section Compiler.
     (*   ((len_name grp, Int), (arr_name grp dim)) in *)
     let get := @accessor_of_array GA typ (remove_typeinfo arr_vars) HFirst in
     let func := compile_func (shift_func_GA typ f) (remove_typeinfo arr_vars) in
-    do! kerID2 := gen_kernel (mkFoldAll GA typ nblk 1 get func) in
+    do! kerID2 := gen_kernel (mkReduce GA typ nblk 1 get func) in
     (* (Nat.min ((l + ntrd - 1) / ntrd) nblk ) *)
     do! lenVar := fLet (Min (Div (Add outlen (Const (Z.of_nat ntrd - 1)%Z)) (Const (Z.of_nat ntrd)))
                             (Const (Z.of_nat nblk))) in
