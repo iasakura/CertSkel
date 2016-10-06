@@ -21,6 +21,7 @@ Variable GA : list Skel.Typ.
 Variable avar_env : AVarEnv GA.
 Variable aptr_env : APtrEnv GA.
 Variable aeval_env : AEvalEnv GA.
+Notation kinv R P E p := (kernelInv avar_env aptr_env aeval_env R P E p).
 Hypothesis Haok : aenv_ok avar_env.
 
 Variable arr : Skel.AE GA typ.
@@ -128,12 +129,12 @@ Definition mkReduce_cmd :=
   setToLen ;;
   reduceBlock ;;
   Cif ("tid" == 0%Z) (
-    reads t (ty2ctys typ) (v2sh sarr +os 0%Z) ;;
-    writes (v2gl out +os "bid") (v2e t) 
+    writes (v2gl out +os "bid") (v2e ys) 
   ) Cskip.
 
 Section blockReduce.
 Variable tid : Fin.t ntrd.
+Variable bid : Fin.t nblk.
 Variable inp : list (Skel.typDenote typ).
 Hypothesis inp_length : length inp = ntrd.
 Variable l : nat.
@@ -147,8 +148,8 @@ Fixpoint f_sim n i :=
   match n with
   | O => gets' inp i
   | S m => 
-    if Sumbool.sumbool_and (lt_dec (i + st (S n)) l) (lt_dec i (st (S n))) then
-      f_sim m i \op f_sim m (i + st (S n))
+    if Sumbool.sumbool_and (lt_dec (i + st n) l) (lt_dec i (st n)) then
+      f_sim m i \op f_sim m (i + st n)
     else 
       f_sim m i
   end.
@@ -171,34 +172,138 @@ Definition BSpre n i :=
 
 Definition BSpost n i := Binv (f_sim n) n i.
 
+Notation p := (RP (ntrd * nblk)).
+
 Definition BS n := (MyVector.init (fun i : Fin.t ntrd => Assn (BSpre n (nf i)) True nil),
                     MyVector.init (fun i : Fin.t ntrd => Assn (BSpost n (nf i)) True nil)).
 
-Lemma reduceBlock_ok n :
+Lemma st_lt n : st (S n) <= st n.
+Proof.
+  unfold st.
+  apply Nat.pow_le_mono_r; lia.
+Qed.
+
+Hint Rewrite map_length : pure.
+
+Lemma reduce_body_ok n :
   CSL BS tid
-      (Assn (BSpre n (nf tid)) True
+      (kernelInv avar_env aptr_env aeval_env
+         (BSpre n (nf tid)) True
             ("tid" |-> Zn (nf tid) ::
+             "bid" |-> Zn (nf bid) ::
              "slen" |-> Zn l :: 
              sarr |=> inpp ++
-             ys |=> sc2CUDA (f_sim n (nf tid))))
+             ys |=> sc2CUDA (f_sim n (nf tid))) p)
       (reduce_body (S n) (st (S n)))
-      (Assn (BSpre (S n) (nf tid)) True
+      (kernelInv avar_env aptr_env aeval_env
+        (BSpre (S n) (nf tid)) True
             ("tid" |-> Zn (nf tid) ::
+             "bid" |-> Zn (nf bid) ::
              "slen" |-> Zn l :: 
              sarr |=> inpp ++
-             ys |=> sc2CUDA (f_sim (S n) (nf tid)))).
+             ys |=> sc2CUDA (f_sim (S n) (nf tid))) p).
 Proof.
   unfold reduce_body, BS.
   cutrewrite (S n - 1 = n); [|omega].
-  hoare_forward; eauto.
-  unfold BSpost, Binv.
-  do 2 hoare_forward.
-  - hoare_forward.
-    unfold arr2CUDA; rewrite map_length, init_length; lia.
-    unfold dist.
-    destruct Sumbool.sumbool_and; try lia.
-    simplify_remove_var.
-    
-    
 
+  hoare_forward.
+  hoare_forward.
+  - unfold BSpost, Binv.
+    hoare_forward.
+    { unfold arr2CUDA; rewrite map_length, init_length; lia. }
+    { unfold dist; destruct Sumbool.sumbool_and; try lia. }
+    simpl; simplify_remove_var.
+    apply CSL_prop_prem; intros.
+    asserts_rewrite (gets (cvals (f_sim n)) (nf tid + st (S n)) = sc2CUDA (f_sim n (nf tid + st (S n)))).
+    { unfold arr2CUDA; rewrite (nth_map defval').
+      2: autorewrite with pure; lia.
+      rewrite ls_init_spec; destruct lt_dec; simpl; eauto; lia. }
+    (* TODO: implement as VCG *)
+    eapply rule_seq.
+    applys* (>>assigns_call2_ok Haok f_ok); [prove_not_local| evalExps |evalExps ].
+    simplify_remove_var.
+    (* END TODO *)
+    hoare_forward; simplify_remove_var.
+    hoare_forward; simplify_remove_var.
+    { unfold arr2CUDA; rewrite map_length, init_length; lia. }
+    { unfold dist; destruct Sumbool.sumbool_and; try lia. }
+    intros; eauto.
+  - hoare_forward; eauto.
+  - unfold kernelDisj, kernelInv.
+    rewrite app_nil_r.
+    intros s h Hsat; destruct Hsat as [Hsat | Hsat]; fold_sat_in Hsat; revert s h Hsat; unfold BSpre, BSpost, Binv; prove_imp.
+    { destruct Sumbool.sumbool_and; try lia; eauto. }
+    { applys (>>(@eq_from_nth) (@None (vals typ))); unfold arr2CUDA.
+      repeat autorewrite with pure; eauto.
+      introv; repeat autorewrite with pure; intros.
+      repeat rewrite (nth_map defval'); repeat autorewrite with pure; try lia.
+      repeat autorewrite with pure; simpl.
+      unfold dist in *.
+      clear H.
+      Time (repeat match goal with
+       | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; lia)
+       | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; lia)
+      end). }
+    { destruct Sumbool.sumbool_and; try lia; eauto 10. }
+    { applys (>>(@eq_from_nth) (@None (vals typ))); unfold arr2CUDA.
+      repeat autorewrite with pure; eauto.
+      introv; repeat autorewrite with pure; intros.
+      repeat rewrite (nth_map defval'); repeat autorewrite with pure; try lia.
+      repeat autorewrite with pure; simpl.
+      unfold dist in *.
+      clear H.
+      Time (repeat match goal with
+       | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; lia)
+       | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; lia)
+      end). }
+Qed.
+
+Lemma reduce_aux_ok n m :
+  CSL BS tid
+      (kernelInv avar_env aptr_env aeval_env
+         (BSpre n (nf tid)) True
+            ("tid" |-> Zn (nf tid) ::
+             "bid" |-> Zn (nf bid) ::
+             "slen" |-> Zn l :: 
+             sarr |=> inpp ++
+             ys |=> sc2CUDA (f_sim n (nf tid))) p)
+      (reduce_aux (S n) m)
+      (kernelInv avar_env aptr_env aeval_env
+        (BSpre (n + m) (nf tid)) True
+            ("tid" |-> Zn (nf tid) ::
+             "bid" |-> Zn (nf bid) ::
+             "slen" |-> Zn l :: 
+             sarr |=> inpp ++
+             ys |=> sc2CUDA (f_sim (n + m) (nf tid))) p).
+Proof.
+  revert n; induction m; simpl; introv.
+  - rewrite <-plus_n_O; hoare_forward; eauto.
+  - eapply rule_seq; eauto.
+    apply reduce_body_ok.
+    cutrewrite (n + S m = S n + m); try lia; eauto.
+Qed.    
+
+Lemma reduce_ok :
+  CSL BS tid
+      (kernelInv avar_env aptr_env aeval_env
+         (arrays' (val2sh inpp) (ith_vals dist_pre (arr2CUDA inp) (nf tid) 0) 1) True
+            ("tid" |-> Zn (nf tid) ::
+             "bid" |-> Zn (nf bid) ::
+             "slen" |-> Zn l :: 
+             sarr |=> inpp ++
+             ys |=> sc2CUDA (gets' inp (nf tid))) p)
+      reduceBlock
+      (kernelInv avar_env aptr_env aeval_env
+        (BSpre (e_b) (nf tid)) True
+            ("tid" |-> Zn (nf tid) ::
+             "bid" |-> Zn (nf bid) ::
+             "slen" |-> Zn l :: 
+             sarr |=> inpp ++
+             ys |=> sc2CUDA (f_sim e_b (nf tid))) p).
+Proof.
+  forwards*: (>>reduce_aux_ok 0 e_b).
+Qed.
+
+
+  
 End mkReduce.
