@@ -32,8 +32,8 @@ Variable func : Skel.Func GA (Skel.Fun2 typ typ typ).
 Variable func_c : vars typ -> vars typ -> (cmd * vars typ).
 Hypothesis f_ok : func_ok avar_env func func_c.
 
-Variable f : Skel.typDenote typ -> Skel.typDenote typ -> Skel.typDenote typ.
-Infix "\op" := f (at level 50, left associativity).
+Variable f_tot : Skel.typDenote typ -> Skel.typDenote typ -> Skel.typDenote typ.
+Infix "\op" := f_tot (at level 50, left associativity).
 
 Hypothesis f_total :
   forall x y, Skel.funcDenote _ _ func aeval_env x y = Some (x \op y).
@@ -283,7 +283,7 @@ Proof.
     cutrewrite (n + S m = S n + m); try lia; eauto.
 Qed.    
 
-Lemma reduce_ok :
+Lemma reduceBlock_ok :
   CSL BS tid
       (kernelInv avar_env aptr_env aeval_env
          (arrays' (val2sh inpp) (ith_vals dist_pre (arr2CUDA inp) (nf tid) 0) 1) True
@@ -304,6 +304,190 @@ Proof.
   forwards*: (>>reduce_aux_ok 0 e_b).
 Qed.
 
+Lemma sn_double n : S n <= e_b -> st (S n) + st (S n) = st n.
+Proof.
+  intros Hsneb. unfold st.
+  assert (Heq : e_b - n = S (e_b - S n)) by omega; rewrite Heq; simpl; eauto.
+Qed.
 
+Section Sum_of.
+  Variable T : Type.
+  Variable op : T -> T -> T.
+  Hypothesis op_assoc : forall x y z, op (op x y) z = op x (op y z).
+  Hypothesis op_comm : forall x y, op x y = op y x.
+  Variable u : T.
+  Definition op' x y : option T :=
+    match x, y with
+    | None, _ => y
+    | _, None => x
+    | Some x, Some y => Some (op x y)
+    end.
+  Notation "a '+++' b" := (op' a b) (at level 40, left associativity).
   
+  Lemma opopt_assoc x y z : op' (op' x y) z = op' x (op' y z).
+  Proof.
+    destruct x, y, z; simpl; eauto.
+    rewrite op_assoc; eauto.
+  Qed.
+  
+  Lemma opopt_comm x y : op' x y = op' y x.
+  Proof.
+    destruct x, y; simpl; eauto.
+    rewrite op_comm; eauto.
+  Qed.
+  
+  Arguments op' _ _ : simpl never.
+  
+  Fixpoint sum_of_f_opt (s len : nat) f : option T :=
+    match len with
+    | 0 => None
+    | S l => Some (f s) +++ sum_of_f_opt (S s) l f
+    end.
+
+  Fixpoint skip_sum_of_opt skip (s len : nat) f i : option T :=
+    match len with
+    | 0 => None
+    | S l =>
+      if Nat.eq_dec (s mod skip) i 
+      then (skip_sum_of_opt skip (S s) l f i +++ Some (f s))%Z
+      else skip_sum_of_opt skip (S s) l f i
+    end.
+  
+  Lemma sum_of_eq s len f1 f2: 
+    (forall i, s <= i < s + len -> f1 i = f2 i) ->
+    sum_of_f_opt s len f1 = sum_of_f_opt s len f2.
+  Proof.
+    revert s; induction len; simpl; intros s H; eauto. 
+    rewrite IHlen; eauto; intros; try omega.
+    rewrite H; eauto; omega.
+    rewrite H; eauto; try omega.
+  Qed.
+
+  Lemma sum_of_f_split s n m f g :
+    s <= m -> m < s + n ->
+    sum_of_f_opt s n (fun i => if lt_dec i m then f i else g i) = 
+    (sum_of_f_opt s (m - s) f +++ sum_of_f_opt m (n - (m - s)) g)%Z.
+  Proof.
+    revert s m; induction n.
+    - intros s m Hsm Hmn; assert (Heq : (m - s) = 0) by omega; rewrite Heq in *; simpl; eauto.
+    - intros s m Hsm Hmn; remember (S n - (m - s)); simpl in *.
+      assert (s = m \/ s < m) as [Hsm' | Hsm'] by omega; subst.
+      + destruct lt_dec; try omega.
+        rewrite minus_diag; simpl.
+        (* rewrite minus_diag, <-minus_n_O in *; simpl. *)
+        erewrite sum_of_eq; unfold op'; simpl; eauto.
+        intros i Hi; destruct lt_dec; eauto; try omega.
+      + destruct lt_dec; try omega.
+        assert (exists ms, m - s = S ms) as [ms Hms]
+                                           by (exists (m - s - 1); omega); rewrite Hms.
+        simpl.
+        rewrite IHn; try omega.
+        rewrite opopt_assoc; repeat f_equal; omega.
+  Qed.
+
+  Lemma shift_values :
+    forall (l1 : nat) (fc : nat -> T) (s sft : nat),
+      (sum_of_f_opt s l1 fc +++ sum_of_f_opt (s + sft) l1 fc)%Z =
+      sum_of_f_opt s l1 (fun i : nat => (op (fc i) (fc (i + sft)%nat))%Z).
+  Proof.
+    induction l1; intros fc s sft; simpl; auto.
+    cutrewrite (S (s + sft) = S s + sft); [|omega].
+    rewrite <-IHl1; simpl.
+    rewrite <-!opopt_assoc.
+    cutrewrite (Some (op (fc s) (fc (s + sft))) = Some (fc s) +++ Some (fc (s + sft)));
+      [|reflexivity].
+    f_equal; rewrite !opopt_assoc; f_equal; rewrite opopt_comm; eauto.
+  Qed.
+
+  Lemma sum_of_concat :
+    forall (l1 : nat) (fc : nat -> T) (s l2 : nat),
+      sum_of_f_opt s (l1 + l2) fc = (sum_of_f_opt s l1 fc +++ sum_of_f_opt (l1 + s) l2 fc)%Z.
+  Proof.
+    induction l1; intros fc s l2; simpl; auto.
+    rewrite IHl1, opopt_assoc; do 3 f_equal; omega.
+  Qed.
+End Sum_of.
+
+Notation sum_of_vs := (sum_of_f_opt (Skel.typDenote typ) f_tot).  
+
+Notation "a '+++' b" := (op' _ f_tot a b) (at level 40, left associativity).
+Lemma f_inv n :
+  S n <= e_b ->
+  sum_of_vs 0 (min l (st (S n))) (f_sim (S n)) = sum_of_vs 0 (min l (st n)) (f_sim n).
+Proof.
+  intros Hsneb.
+  simpl.
+  lets Hsn : (>>sn_double n ___); try omega.
+  assert (l <= st (S n) \/ st (S n) < l < st n \/ st n <= l) as [HsSnl | [HsSnl | HsSnl] ] by omega.
+  - erewrite sum_of_eq.
+    Focus 2.
+    { simpl; intros i Hi.
+      assert (i <= l) by nia.
+      destruct Sumbool.sumbool_and; try omega.
+      reflexivity. } Unfocus.
+    rewrite !min_l; try omega; eauto.
+  - erewrite sum_of_eq.
+    Focus 2.
+    { simpl; intros i Hi.
+      instantiate (1 := fun i => if lt_dec i (min (l - st (S n)) (st (S n)))
+                                 then (f_sim n i \op f_sim n (i + st (S n))%nat)%Z
+                                 else f_sim n i); simpl.
+      destruct Sumbool.sumbool_and, lt_dec; rewrite Nat.min_glb_lt_iff in *; try omega; eauto.
+    } Unfocus.
+    rewrite sum_of_f_split; try omega.
+    2: now intros; rewrite f_assoc; eauto.
+    2: now simpl; rewrite Nat.min_glb_lt_iff; repeat rewrite Nat.min_lt_iff; split; try omega. 
+    rewrite <-minus_n_O.
+    rewrite (min_l _ (st n)); try omega.
+    rewrite min_l; try omega.
+    rewrite min_r; try omega.
+    cutrewrite (st (S n) - (l - st (S n)) = st n - l); [|omega].
+    rewrite <-shift_values; simpl; eauto.
+    assert (Heq : l = (l - st (S n)) + st (S n)) by omega; rewrite Heq at 5.
+    Lemma shuffle a b c: a +++ b +++ c = a +++ c +++ b.
+    Proof.
+      destruct a, b, c; simpl; eauto.
+      rewrite f_assoc, (f_comm t0 t1), <-f_assoc; eauto.
+      rewrite f_comm; eauto.
+    Qed.
+    rewrite shuffle.
+    rewrite opopt_assoc; eauto.
+    rewrite sum_of_concat; f_equal; clear Heq; eauto.
+    assert (Heq : st (S n) = st n - l + (l - st (S n))) by omega; rewrite Heq.
+    rewrite <-plus_n_O.
+    rewrite sum_of_concat; f_equal; eauto.
+    rewrite <-Heq; f_equal; omega; eauto.
+  - repeat rewrite min_r; try omega.
+    erewrite sum_of_eq.
+    Focus 2.
+    { simpl; intros i Hi.
+      destruct Sumbool.sumbool_and; try omega.
+      reflexivity.
+    } Unfocus.
+    rewrite <-Hsn; rewrite sum_of_concat; eauto.
+    rewrite <-shift_values; f_equal; eauto.
+    f_equal; omega.
+Qed.
+
+Lemma fn_ok n :
+  n <= e_b ->
+  sum_of_vs 0 (min l (st n)) (f_sim n) = sum_of_vs 0 l (fun x => gets' inp x).
+Proof.
+  induction n; simpl.
+  - unfold st; rewrite <-minus_n_O, min_l; try omega.
+    intros; apply sum_of_eq; intros; eauto.
+  - intros; rewrite f_inv; eauto.
+    apply IHn; omega.
+Qed.
+
+Lemma feb_ok : match sum_of_vs 0 l (fun x => gets' inp x) with None => l = 0 | Some v => v = f_sim e_b 0 end.
+Proof.
+  rewrite <-(fn_ok e_b); eauto.
+  unfold st; rewrite minus_diag; simpl.
+  assert (l = 0 \/ l > 0) as [|] by omega; subst; simpl; eauto.
+  rewrite min_r; try omega; simpl; auto.
+Qed.
+
+End blockReduce.
+
 End mkReduce.
