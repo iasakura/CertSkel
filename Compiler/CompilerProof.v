@@ -1224,15 +1224,6 @@ Proof.
   unfold is_local, lpref in *; simpl in *; rewrite prefix_nil in *; try congruence.
 Qed.
 
-Lemma CSL_prop_prem n (tid : Fin.t n) BS R R' (P P' : Prop) Env Env' C :
-  (P -> CSL BS tid (Assn R P Env) C (Assn R' P' Env'))
-  -> CSL BS tid (Assn R P Env) C (Assn R' P' Env').
-Proof.
-  intros ? ? ?; simpl; unfold Assn in *; intros Hsat; sep_split_in Hsat; unfold Apure in *.
-  applys* H.
-  sep_split; eauto.
-Qed.
-  
 Lemma evalExps_env n (tid : Fin.t n)  ty (xs : vars ty) vs R R' P P' Env Env' C BS :
   evalExps Env (v2e xs) vs
   -> CSL BS tid (Assn R P ((xs |=> vs) ++ Env)) C (Assn R' P' Env')
