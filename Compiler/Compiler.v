@@ -603,7 +603,7 @@ Section Compiler.
   Definition mkReduce GA typ ntrd nblk g f : kernel :=
     let arr_vars := gen_params GA in
     let params_in := flatten_avars arr_vars in
-    let params_out := (out_len_name, Int) :: flatTup (out_name typ) in
+    let params_out := (inp_len_name, Int) :: flatTup (out_name typ) in
     {| params_of := params_out ++ params_in;
        body_of := Grid.Pr (sh_decl ntrd typ)
                           (mkReduce_cmd typ ntrd nblk (S (log2 ntrd)) g f) |}.

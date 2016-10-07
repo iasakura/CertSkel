@@ -61,7 +61,7 @@ Close Scope string.
 Definition len_name n := Var (name_of_len (grpOfInt n)).
 Definition out_name (ty : Skel.Typ) :=
   arr_params "_arrOut" ty 0.
-Definition out_len_name := Var (name_of_len "Out").
+Definition inp_len_name := Var (name_of_len "Inp").
 
 Fixpoint foldTup {ty : Skel.Typ} {coqTy A : Type} (sing : coqTy -> A) (f : A -> A -> A) :=
   match ty return typ2Coq coqTy ty -> A with

@@ -258,6 +258,7 @@ Ltac prove_pure :=
   end; substs; repeat split;
   repeat match goal with
   | [H : context [Assn _ _ _]|- _] => clear H
+  | [H : context [kernelInv _ _ _ _ _ _ _]|- _] => clear H
   | [H : evalExp _ _ _ |- _] => clear H
   | [H : evalLExp _ _ _ |- _] => clear H
   | [H : _ |=R _ |- _] => clear H
@@ -576,9 +577,11 @@ Ltac choose_var_vals :=
   let H := fresh in
   let e := fresh in
   unfold incl; simpl; intros e H;
-  repeat rewrite in_app_iff in *; des_disj H; substs; simpl; eauto 20;
+  repeat (rewrite in_app_iff in *; simpl); des_disj H; substs; simpl; eauto 20;
   let rec tac :=
       match goal with
+      | [H : In ?e (?xs |=> ?vs) |- context [?xs |=> ?vs']] => 
+        cutrewrite (vs' = vs); eauto 20
       | [|- ?x |-> ?v = ?x |-> ?v' \/ ?H] =>
         left; cutrewrite (v = v'); eauto;
         solve_zn
@@ -989,7 +992,7 @@ Qed.
 
 Notation char_ := (Ascii.Ascii true true true true true false true false).
 Notation charl := (Ascii.Ascii false false true true false true true false).
-Lemma ae_assigns GA ty (avenv : AVarEnv GA) apenv aeenv (ae : Skel.AE GA ty) arr_c (res0 : Skel.aTypDenote ty) ix 
+Lemma ae_assigns GA ty (avenv : AVarEnv GA) apenv aeenv (ae : Skel.AE GA ty) arr_c (res0 : Skel.aTypDenote ty) ix i'
       (ntrd : nat) (tid : Fin.t ntrd)
           (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd) 
           (i : nat) 
@@ -1000,7 +1003,8 @@ Lemma ae_assigns GA ty (avenv : AVarEnv GA) apenv aeenv (ae : Skel.AE GA ty) arr
   -> ~ is_local x -> ~ is_param x
   -> ~ is_local ix 
   -> (forall (l : var) (v : val), In (l |-> v) resEnv -> ~ is_local l)
-  -> evalExp resEnv ix (Zn i)
+  -> evalExp resEnv ix i'
+  -> i' = Zn i
   -> (P -> i < Datatypes.length res0)
   -> CSL BS tid (kernelInv avenv apenv aeenv R P resEnv p)
          (assigns_get (locals x ty n) arr_c ix)
@@ -1449,8 +1453,21 @@ Ltac prove_incl :=
   | |- incl (_ |=> _) (_ :: _) => apply incl_tl; prove_incl
   end.
 
+Fixpoint vals2es {ty} :=
+  match ty return vals ty -> exps ty with
+  | Skel.TBool | Skel.TZ => fun v => Enum v
+  | Skel.TTup t1 t2 => fun v => (vals2es (fst v), vals2es (snd v))
+  end.
+
+Lemma vals2es_eval ty E (vs : vals ty) :
+  evalExps E (vals2es vs) vs.
+Proof.
+  induction ty; try do 2 constructor; simpl; jauto.
+Qed.
+
 Ltac evalExps :=
   match goal with
+  | [|- evalExps _ (vals2es _) _] => apply vals2es_eval
   | [|- evalExps _ (v2e _) _] => apply evalExps_vars; repeat rewrite <-app_assoc; simpl; prove_incl
   end.
 
@@ -1510,9 +1527,17 @@ Lemma fvlEs_v2sh ty (xs : vars ty) : fv_lEs (v2sh xs) = flatTup xs.
 Proof.
   unfold v2sh, e2sh, v2e; induction ty; simpl; try congruence.
 Qed.
+
+Lemma fvEs_vals2es ty (vs : vals ty) : fv_Es (vals2es vs) = nil.
+Proof.
+  induction ty; simpl; eauto.
+  rewrite IHty1, IHty2; simpl; eauto.
+Qed.
+
 Ltac prove_disj :=
-  repeat first [rewrite fvlEs_v2sh | rewrite fvEs_v2e ];
+  repeat first [rewrite fvlEs_v2sh | rewrite fvEs_v2e | rewrite fvEs_vals2es ];
   lazymatch goal with
+  | [|- disjoint _ nil] => apply disjoint_nil_r
   | [|- disjoint (flatTup (locals _ _ _)) (flatTup (locals _ _ _)) ] =>
     applys* locals_disjoint
   | [|- disjoint (flatTup (locals _ _ _)) _] =>
@@ -1624,7 +1649,7 @@ Ltac hoare_forward_prim' :=
           [prove_not_local| eauto with pure_lemma |prove_not_local | evalExp| prove_pure|..]
       | [Haok : aenv_ok ?avar_env, Hok : ae_ok _ ?arr ?arr_c |- CSL _ _ ?P (assigns_get ?xs ?arr_c _) ?Q] =>
         applys (>>ae_assigns Haok Hok); try (now (prove_not_local)); 
-        [eauto with pure_lemma | evalExp | prove_pure|..]
+        [eauto with pure_lemma | evalExp | solve_zn | prove_pure|..]
       | [Haok : aenv_ok ?avar_env, Hfok : func_ok _ ?f ?f_c |- CSL _ _ ?P (fst (?f_c _)) ?Q] =>
         idtac "ok";
         applys (>>func_ok_tri Haok Hfok); [prove_not_local | prove_not_local | evalExps | eauto with pure_lemma..]

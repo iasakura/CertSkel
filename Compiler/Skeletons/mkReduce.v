@@ -23,6 +23,7 @@ Variable aptr_env : APtrEnv GA.
 Variable aeval_env : AEvalEnv GA.
 Notation kinv R P E p := (kernelInv avar_env aptr_env aeval_env R P E p).
 Hypothesis Haok : aenv_ok avar_env.
+Notation p := (RP (ntrd * nblk)).
 
 Variable arr : Skel.AE GA typ.
 Variable arr_c : var -> (cmd * vars typ).
@@ -47,6 +48,16 @@ Variable result : Skel.aTypDenote typ.
 Hypothesis eval_reduce_ok :
   Skel.skelDenote _ _ (Skel.Reduce _ _ func arr) aeval_env = Some result.
 
+Variable outp : vals typ.
+Variable outs : list (vals typ).
+Hypothesis outs_length : length (outs) = nblk.
+Notation sarr := (locals "sarr" typ 0).
+
+Definition outArr ty := locals "_arrOut" ty 0.
+Notation out := (outArr typ).
+Notation len := inp_len_name.
+Definition dist_outs i := i / ntrd.
+
 Lemma eval_arr_ok :
   { arr_res | Skel.aeDenote _ _ arr aeval_env = Some arr_res}.
 Proof.
@@ -67,10 +78,6 @@ Notation xs := (locals "xs" typ 0).
 Notation ys := (locals "ys" typ 0).
 Notation zs := (locals "zs" typ 0).
 Notation t := (locals "t" typ 0).
-Notation sarr := (locals "sarr" typ 0).
-Definition outArr ty := locals "_arrOut" ty 0.
-Notation out := (outArr typ).
-Notation len := out_len_name.
 
 Definition reduce_body n s :=
   (Cbarrier (n - 1) ;;
@@ -93,15 +100,9 @@ Fixpoint reduce_aux t m :=
 
 Definition reduceBlock := reduce_aux 1 e_b.
 
-Fixpoint vals2es {ty} (v : val) :=
-  match ty return exps ty with
-  | Skel.TBool | Skel.TZ => Enum v
-  | Skel.TTup t1 t2 => (@vals2es t1 v, @vals2es t2 v)
-  end.
-
 Definition seq_reduce inv :=
-  assigns ys (ty2ctys typ) (vals2es 0%Z) ;;
-  writes (v2sh sarr +os "tid") (vals2es 0%Z) ;;
+  assigns ys (ty2ctys typ) (vals2es defval) ;;
+  writes (v2sh sarr +os "tid") (vals2es defval) ;;
   "ix" :T Int ::= ("tid" +C "bid" *C Zn ntrd) ;;
   Cif ("ix" <C len) (
     assigns_get ys arr_c "ix" ;;
@@ -172,8 +173,6 @@ Definition BSpre n i :=
 
 Definition BSpost n i := Binv (f_sim n) n i.
 
-Notation p := (RP (ntrd * nblk)).
-
 Definition BS n := (MyVector.init (fun i : Fin.t ntrd => Assn (BSpre n (nf i)) True nil),
                     MyVector.init (fun i : Fin.t ntrd => Assn (BSpost n (nf i)) True nil)).
 
@@ -184,24 +183,31 @@ Proof.
 Qed.
 
 Hint Rewrite map_length : pure.
+Notation gid := (nf tid + nf bid * ntrd).
 
 Lemma reduce_body_ok n :
   CSL BS tid
       (kernelInv avar_env aptr_env aeval_env
-         (BSpre n (nf tid)) True
-            ("tid" |-> Zn (nf tid) ::
-             "bid" |-> Zn (nf bid) ::
-             "slen" |-> Zn l :: 
-             sarr |=> inpp ++
-             ys |=> sc2CUDA (f_sim n (nf tid))) p)
+         (BSpre n (nf tid) *** arrays' (val2sh outp) (ith_vals dist_outs outs gid 0) 1)
+         True
+         ("tid" |-> Zn (nf tid) ::
+          "bid" |-> Zn (nf bid) ::
+          "slen" |-> Zn l :: 
+          len |-> Zn (length arr_res) ::
+          out |=> outp ++
+          sarr |=> inpp ++
+          ys |=> sc2CUDA (f_sim n (nf tid))) p)
       (reduce_body (S n) (st (S n)))
       (kernelInv avar_env aptr_env aeval_env
-        (BSpre (S n) (nf tid)) True
-            ("tid" |-> Zn (nf tid) ::
-             "bid" |-> Zn (nf bid) ::
-             "slen" |-> Zn l :: 
-             sarr |=> inpp ++
-             ys |=> sc2CUDA (f_sim (S n) (nf tid))) p).
+        (BSpre (S n) (nf tid) *** arrays' (val2sh outp) (ith_vals dist_outs outs gid 0) 1)
+        True
+        ("tid" |-> Zn (nf tid) ::
+         "bid" |-> Zn (nf bid) ::
+         "slen" |-> Zn l :: 
+         len |-> Zn (length arr_res) ::
+         out |=> outp ++
+         sarr |=> inpp ++
+         ys |=> sc2CUDA (f_sim (S n) (nf tid))) p).
 Proof.
   unfold reduce_body, BS.
   cutrewrite (S n - 1 = n); [|omega].
@@ -261,20 +267,26 @@ Qed.
 Lemma reduce_aux_ok n m :
   CSL BS tid
       (kernelInv avar_env aptr_env aeval_env
-         (BSpre n (nf tid)) True
-            ("tid" |-> Zn (nf tid) ::
-             "bid" |-> Zn (nf bid) ::
-             "slen" |-> Zn l :: 
-             sarr |=> inpp ++
-             ys |=> sc2CUDA (f_sim n (nf tid))) p)
+         (BSpre n (nf tid) *** arrays' (val2sh outp) (ith_vals dist_outs outs gid 0) 1)
+         True
+         ("tid" |-> Zn (nf tid) ::
+          "bid" |-> Zn (nf bid) ::
+          "slen" |-> Zn l :: 
+          len |-> Zn (length arr_res) ::
+          out |=> outp ++
+          sarr |=> inpp ++
+          ys |=> sc2CUDA (f_sim n (nf tid))) p)
       (reduce_aux (S n) m)
       (kernelInv avar_env aptr_env aeval_env
-        (BSpre (n + m) (nf tid)) True
-            ("tid" |-> Zn (nf tid) ::
-             "bid" |-> Zn (nf bid) ::
-             "slen" |-> Zn l :: 
-             sarr |=> inpp ++
-             ys |=> sc2CUDA (f_sim (n + m) (nf tid))) p).
+        (BSpre (n + m) (nf tid) *** arrays' (val2sh outp) (ith_vals dist_outs outs gid 0) 1)
+        True
+        ("tid" |-> Zn (nf tid) ::
+        "bid" |-> Zn (nf bid) ::
+        "slen" |-> Zn l :: 
+        len |-> Zn (length arr_res) ::
+        out |=> outp ++
+        sarr |=> inpp ++
+        ys |=> sc2CUDA (f_sim (n + m) (nf tid))) p).
 Proof.
   revert n; induction m; simpl; introv.
   - rewrite <-plus_n_O; hoare_forward; eauto.
@@ -286,20 +298,27 @@ Qed.
 Lemma reduceBlock_ok :
   CSL BS tid
       (kernelInv avar_env aptr_env aeval_env
-         (arrays' (val2sh inpp) (ith_vals dist_pre (arr2CUDA inp) (nf tid) 0) 1) True
-            ("tid" |-> Zn (nf tid) ::
-             "bid" |-> Zn (nf bid) ::
-             "slen" |-> Zn l :: 
-             sarr |=> inpp ++
-             ys |=> sc2CUDA (gets' inp (nf tid))) p)
+         (arrays' (val2sh inpp) (ith_vals dist_pre (arr2CUDA inp) (nf tid) 0) 1 ***
+          arrays' (val2sh outp) (ith_vals dist_outs outs gid 0) 1)
+         True
+         ("tid" |-> Zn (nf tid) ::
+          "bid" |-> Zn (nf bid) ::
+          "slen" |-> Zn l :: 
+          len |-> Zn (length arr_res) ::
+          out |=> outp ++
+          sarr |=> inpp ++
+          ys |=> sc2CUDA (gets' inp (nf tid))) p)
       reduceBlock
       (kernelInv avar_env aptr_env aeval_env
-        (BSpre (e_b) (nf tid)) True
-            ("tid" |-> Zn (nf tid) ::
-             "bid" |-> Zn (nf bid) ::
-             "slen" |-> Zn l :: 
-             sarr |=> inpp ++
-             ys |=> sc2CUDA (f_sim e_b (nf tid))) p).
+        (BSpre (e_b) (nf tid) *** arrays' (val2sh outp) (ith_vals dist_outs outs gid 0) 1)
+        True
+        ("tid" |-> Zn (nf tid) ::
+         "bid" |-> Zn (nf bid) ::
+         "slen" |-> Zn l :: 
+         len |-> Zn (length arr_res) ::
+         out |=> outp ++
+         sarr |=> inpp ++
+         ys |=> sc2CUDA (f_sim e_b (nf tid))) p).
 Proof.
   forwards*: (>>reduce_aux_ok 0 e_b).
 Qed.
@@ -406,6 +425,82 @@ Section Sum_of.
     induction l1; intros fc s l2; simpl; auto.
     rewrite IHl1, opopt_assoc; do 3 f_equal; omega.
   Qed.
+
+  Lemma skip_sum_opt_nil skip i next fc : forall s (len : nat),
+      (forall j, j < next -> (s + j) mod skip <> i) ->
+      skip_sum_of_opt skip s len fc i =
+      skip_sum_of_opt skip (s + next) (len - next) fc i.
+  Proof.
+    induction next; intros s len Hj; simpl.
+    - rewrite <-plus_n_O, <-minus_n_O; auto.
+    - destruct len; auto.
+      cutrewrite (s + S next = S s + next); [|omega].
+      cutrewrite (S len - S next = len - next); [|omega].
+      rewrite <-IHnext.
+      + simpl; destruct Nat.eq_dec; auto.
+        specialize (Hj 0); rewrite <-plus_n_O in Hj; apply Hj in e; [tauto|omega].
+      + intros j Hjn; cutrewrite (S s + j = s + S j); [|omega]; apply Hj; omega.
+  Qed.
+  
+  Lemma skip_sum_opt_unfold skip i (len : nat) fc : forall s,
+      skip <> 0 ->
+      (i < len)%nat -> (i < skip)%nat ->
+      skip_sum_of_opt skip (s * skip) len fc i =
+      (op' (skip_sum_of_opt skip (S s * skip)%nat (len - skip)%nat fc i)%Z
+                  (Some (fc (i + s * skip)%nat))).
+  Proof.
+    intros s Hskip Hil His.
+    rewrite skip_sum_opt_nil with (next:=i). 
+    2: intros; rewrite plus_comm, Nat.add_mod; auto.
+    2: rewrite Nat.mod_mul; auto; rewrite <-plus_n_O, Nat.mod_mod; auto; rewrite Nat.mod_small; omega.
+    assert (exists li, len - i = S li) as [li Hli] by (exists (len - i - 1); omega).
+    rewrite (plus_comm (s * skip));
+      rewrite Hli; simpl; destruct Nat.eq_dec as [He | He].
+    2 : rewrite Nat.mod_add in He; auto; rewrite Nat.mod_small in He; omega.
+    f_equal.
+    rewrite skip_sum_opt_nil with (next:= skip - S i).
+    lazymatch goal with [|- context [skip_sum_of_opt _ ?X _ _ _]] => cutrewrite (X = skip + s * skip); [|omega] end.
+    cutrewrite (li - (skip - S i) = len - skip); [|omega]; auto.
+    intros j Hj. 
+    lazymatch goal with [|- context [?X mod _]] => cutrewrite (X = (S i + j) + s * skip); [|omega] end.
+    rewrite Nat.mod_add; auto; rewrite Nat.mod_small; omega.
+  Qed.
+
+  Lemma skip_sum_opt_sum f skip i s n m :
+    i < skip ->
+    skip * n + i < m + skip <= skip * S n + i ->
+    skip_sum_of_opt skip (s * skip) m f i =
+    sum_of_f_opt s n (fun j => f (i + j * skip)).
+  Proof.
+    revert s m; induction n; simpl; intros s m His Hmi.
+    - assert (m <= i) by omega.
+      rewrites* (>>skip_sum_opt_nil m).
+      { intros; rewrite plus_comm; rewrite Nat.mod_add; try omega;
+        rewrite Nat.mod_small; try omega. }
+      rewrite minus_diag; simpl; eauto.
+    - rewrites* skip_sum_opt_unfold; [|nia..].
+      destruct n; simpl.
+      + rewrites (>>skip_sum_opt_nil (m - skip)); try rewrite minus_diag; simpl; eauto.
+        intros; cutrewrite (skip + s * skip + j = j + (S s) * skip); [|ring];
+          rewrite Nat.mod_add; try omega; rewrite Nat.mod_small; try omega.
+      + cutrewrite (skip + s * skip = S s * skip); [|ring].
+        rewrite IHn; [|try omega..].
+        2: nia.
+        repeat (unfold op'; simpl).
+        repeat lazymatch goal with
+        | [|- context [match ?X with Some _ => _ | None => _ end]] => destruct X
+        end; eauto.
+        rewrite op_comm; auto.
+  Qed.
+  
+  Lemma skip_sum_sum0 f skip i n m :
+    i < skip ->
+    skip * n + i < m + skip <= skip * S n + i ->
+    skip_sum_of_opt skip 0 m f i =
+    sum_of_f_opt 0 n (fun j => f (i + j * skip)).
+  Proof.
+    cutrewrite (0 = 0 * skip); [|omega]; apply skip_sum_opt_sum.
+  Qed.
 End Sum_of.
 
 Notation sum_of_vs := (sum_of_f_opt (Skel.typDenote typ) f_tot).  
@@ -489,5 +584,137 @@ Proof.
 Qed.
 
 End blockReduce.
+
+Section seqReduce.
+
+Variable tid : Fin.t ntrd.
+Variable bid : Fin.t nblk.
+
+Variable svs : list (vals typ).
+Variable sps : (vals typ).
+
+Notation gid := (nf tid + nf bid * ntrd).
+
+Notation skip_sum_of_vs := (skip_sum_of_opt (Skel.typDenote typ) f_tot).
+Notation xix x := (x * (ntrd * nblk) + gid).
+Notation g := (fun x => gets' arr_res x).
+Definition maybe {T : Type} (x : option T) y := match x with Some z => z | None => y end.
+
+Definition seqInv (inpp : vals typ) :=
+  Ex nl i, 
+    kinv (arrays' (val2sh inpp) (ith_vals dist_pre (nseq ntrd defval) (nf tid) 0) 1 ***
+          arrays' (val2sh outp) (ith_vals dist_outs outs gid 0) 1)
+         (0 < nl /\
+          i = nl * (ntrd * nblk) + (nf tid + nf bid * ntrd))
+         ("tid" |-> Zn (nf tid) ::
+          "bid" |-> Zn (nf bid) ::
+          len |-> Zn (length arr_res) ::
+          "ix" |-> Zn i ::
+          out |=> outp ++
+          sarr |=> inpp ++
+          ys |=> sc2CUDA (maybe (skip_sum_of_vs (ntrd * nblk) 0 (min (xix nl) (length arr_res)) g gid) defval')) p.
+
+Definition vi g i := 
+  maybe (skip_sum_of_vs (ntrd * nblk) 0 (length arr_res) g (i + nf bid * ntrd)) defval'.
+
+Lemma seq_reduce_ok inpp inp l : 
+  length inp = ntrd ->
+  CSL (BS inp l inpp) tid
+      (kinv
+         (arrays' (val2sh inpp) (ith_vals dist_pre (arr2CUDA inp) (nf tid) 0) 1 ***
+          arrays' (val2sh outp) (ith_vals dist_outs outs gid 0) 1)
+         True
+         ("tid" |-> Zn (nf tid) ::
+          "bid" |-> Zn (nf bid) ::
+          len |-> Zn (length arr_res) ::
+          out |=> outp ++
+          sarr |=> inpp) p)
+      (seq_reduce (seqInv inpp))
+      (kinv
+         (arrays' (val2sh inpp) (ith_vals dist_pre (arr2CUDA (ls_init 0 ntrd (vi g))) (nf tid) 0) 1 ***
+          arrays' (val2sh outp) (ith_vals dist_outs outs gid 0) 1)
+         True
+         ("tid" |-> Zn (nf tid) ::
+          "bid" |-> Zn (nf bid) ::
+          len |-> Zn (length arr_res) ::
+          out |=> outp ++
+          sarr |=> inpp ++ 
+          ys |=> sc2CUDA (vi g (nf tid))) p).
+Proof.
+  intros.
+  forwards*: (>>nf_lt tid).
+  unfold seq_reduce.
+  hoare_forward; simplify_remove_var.
+  hoare_forward.
+  { unfold arr2CUDA; rewrite map_length; lia. }
+  hoare_forward; simplify_remove_var.
+  hoare_forward.
+  3: introv; destruct 1; eauto.
+  - hoare_forward; simplify_remove_var.
+    hoare_forward; simplify_remove_var.
+    unfold seqInv; hoare_forward.
+    hoare_forward; simplify_remove_var.
+    (* TODO: implement as VCG *)
+    eapply rule_seq.
+    applys* (>>assigns_call2_ok Haok f_ok); [prove_not_local| evalExps |evalExps ].
+    simplify_remove_var.
+    (* TODO: End TODO *)
+    hoare_forward; simplify_remove_var.
+    hoare_forward; simplify_remove_var.
+    intros s h Hsat; exists (S nl) (S nl * (ntrd * nblk) + gid).
+    revert s h Hsat; prove_imp. 
+    { clear H1; nia. }
+    { skip. }
+    intros s h Hsat; exists 1 (1 * (ntrd * nblk) + gid).
+    revert s h Hsat; prove_imp. 
+    { nia. }
+    { skip. }
+    { unfold arr2CUDA.
+      applys (>>(@eq_from_nth) (@None (vals typ))).
+      { repeat autorewrite with pure; rewrite map_length, length_nseq; eauto. }
+      { introv; repeat autorewrite with pure; rewrite map_length, length_nseq; intros.
+        unfold dist_pre; simpl; rewrite nth_nseq.
+        Time (repeat match goal with
+         | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; lia)
+         | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; lia)
+        end). } }
+    hoare_forward; eauto.
+    { rewrite length_nseq; lia. }
+    prove_imp.
+    Ltac clear_assn :=
+      match goal with
+      | [H : context [Assn _ _ _] |- _] => clear H 
+      | [H : context [kernelInv _ _ _ _ _ _ _] |- _] => clear H
+      end.
+    repeat clear_assn.
+    { unfold vi; rewrite Nat.min_r; substs; eauto; lia. }
+    { rewrite Nat.min_r; try (clear_assn; lia).
+      applys (>>(@eq_from_nth) (@None (vals typ))).
+      { unfold arr2CUDA; repeat autorewrite with pure; rewrite length_nseq, map_length, init_length; eauto. }
+      { unfold arr2CUDA; introv; repeat autorewrite with pure; rewrite length_nseq, map_length, init_length; intros.
+        unfold dist_pre; simpl; rewrite nth_nseq, (nth_map defval'); [|autorewrite with pure; clear_assn; lia].
+        repeat autorewrite with pure.
+        clear_assn.
+        Time (repeat match goal with
+         | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; lia)
+         | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; lia)
+        end). 
+        unfold vi; substs; eauto. } }
+  - hoare_forward.
+    prove_imp.
+    { skip. }
+    { applys (>>(@eq_from_nth) (@None (vals typ))).
+      { unfold arr2CUDA; repeat autorewrite with pure; rewrite !map_length, init_length; eauto. }
+      { unfold arr2CUDA; introv; repeat autorewrite with pure; rewrite !map_length, init_length; intros.
+        unfold dist_pre; simpl; rewrite ! (nth_map defval'), ls_init_spec; [|try rewrite init_length; lia..].
+        repeat autorewrite with pure.
+        clear_assn.
+        Time (repeat match goal with
+         | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; lia)
+         | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; lia)
+        end). 
+        unfold vi; substs; simpl.
+        skip. } }
+Qed.    
 
 End mkReduce.

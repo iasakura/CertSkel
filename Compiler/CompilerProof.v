@@ -786,14 +786,14 @@ Proof.
   forwards* (R' & Heq): (>>arrInvRes_unfold aptr_env aeval_env m').
   eapply forward; [|applys* (>>rule_reads_arrays xs (arr2CUDA (hget aeval_env m')) (Z.to_nat i))].
   prove_imp; simpl;
-  rewrite remove_vars_cons, !remove_vars_app in *;
-  repeat rewrite in_app_iff in *; eauto.
+  try (rewrite remove_vars_cons, !remove_vars_app in *; repeat rewrite in_app_iff in *; eauto).
   - forwards*: nth_error_lt.
     unfold arr2CUDA, SkelLib.len in *.
     rewrites (>>(@nth_map) v).
     zify; rewrite Z2Nat.id; lia.
     rewrites (>>nth_error_ok Hnth); eauto.
-  - Lemma aname_eval GA (avar_env : AVarEnv GA) (aptr_env : APtrEnv GA) (aeval_env : AEvalEnv GA)
+  - repeat rewrite in_app_iff in *; eauto.
+Lemma aname_eval GA (avar_env : AVarEnv GA) (aptr_env : APtrEnv GA) (aeval_env : AEvalEnv GA)
           ty (m : member ty GA) len aname :
       hget avar_env m = (len, aname) ->
       evalLExps (arrInvVar avar_env aptr_env aeval_env) (v2gl aname) (val2gl (hget aptr_env m)).

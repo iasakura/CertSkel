@@ -67,7 +67,7 @@ Qed.
 Definition outArr ty := locals "_arrOut" ty 0.
 
 Notation out := (outArr cod).
-Notation len := out_len_name.
+Notation len := inp_len_name.
 Notation t := (locals "t" dom 0).
 
 Definition mkMap_cmd inv :=
@@ -85,7 +85,7 @@ Definition mkMap_prog :=
 Definition mkMap : kernel :=
   let arr_vars := gen_params GA in
   let params_in := flatten_avars arr_vars in
-  let params_out := (out_len_name, Int) :: flatTup (out_name cod) in
+  let params_out := (inp_len_name, Int) :: flatTup (out_name cod) in
   {| params_of := params_out ++ params_in;
      body_of := mkMap_prog |}.
 
