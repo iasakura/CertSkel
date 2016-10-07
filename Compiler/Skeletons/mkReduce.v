@@ -51,7 +51,7 @@ Hypothesis eval_reduce_ok :
 Variable outp : vals typ.
 Variable outs : list (vals typ).
 Hypothesis outs_length : length (outs) = nblk.
-Notation sarr := (locals "sarr" typ 0).
+Notation sarr := (locals "_sarr" typ 0).
 
 Definition outArr ty := locals "_arrOut" ty 0.
 Notation out := (outArr typ).
@@ -772,13 +772,24 @@ Proof.
   nia.
 Qed.
 
+Section mkReduce_block.
+
+Variable bid : Fin.t nblk.
+
+
+Variable inp : list (Skel.typDenote typ). 
+Hypothesis inp_length : length inp = ntrd.
 Variable inpp : vals typ.
 
-Definition BSpre' (tid : Fin.t ntrd) (bid : Fin.t nblk) :=
+Section mkReduce_thread.
+Variable tid : Fin.t ntrd.
+
+Definition BSpre' :=
   (BSpre (ls_init 0 ntrd (fun i => vi g (nf bid) i))
           (min (length arr_res - nf bid * ntrd) ntrd)
           inpp e_b (nf tid)).
-Definition BS' (bid : Fin.t nblk) :=
+
+Definition BS' :=
   (BS (ls_init 0 ntrd (fun i => vi g (nf bid) i))
       (min (length arr_res - nf bid * ntrd) ntrd)
       inpp).
@@ -789,9 +800,8 @@ Ltac clear_assn :=
   | [H : context [kernelInv _ _ _ _ _ _ _] |- _] => clear H
   end.
 
-Lemma mkReduce_cmd_ok inp (tid : Fin.t ntrd) (bid : Fin.t nblk) :
-  length inp = ntrd ->
-  CSL (BS' bid) tid
+Lemma mkReduce_cmd_ok :
+  CSL BS' tid
     (kinv
        (arrays' (val2sh inpp) (ith_vals dist_pre (arr2CUDA inp) (nf tid) 0) 1 ***
         arrays' (val2gl outp) (ith_vals dist_outs outs (nf tid + nf bid * ntrd) 0) 1)
@@ -803,7 +813,7 @@ Lemma mkReduce_cmd_ok inp (tid : Fin.t ntrd) (bid : Fin.t nblk) :
         sarr |=> inpp) p)  
     mkReduce_cmd
     (kernelInv' aptr_env aeval_env
-       ((BSpre' tid bid)  ***
+       (BSpre'  ***
         arrays' (val2gl outp)
           (ith_vals dist_outs (arr2CUDA (ls_init 0 nblk (fun j => (f_sim
                                                                      (ls_init 0 ntrd (fun i : nat => vi g j i))
@@ -863,5 +873,125 @@ Proof.
     { rewrite <-e; simpl; rewrite Nat.mod_mul; eauto. }
     rewrite Nat.mod_add in *; eauto; rewrite Nat.mod_small in *; eauto; try lia. }
 Qed.
-    
+
+End mkReduce_thread.
+
+Definition ith_pre (tid : Fin.t ntrd) := 
+  (kinv
+       (arrays' (val2sh inpp) (ith_vals dist_pre (arr2CUDA inp) (nf tid) 0) 1 ***
+        arrays' (val2gl outp) (ith_vals dist_outs outs (nf tid + nf bid * ntrd) 0) 1)
+       True
+       ("bid" |-> Zn (nf bid) ::
+        len |-> Zn (length arr_res) ::
+        out |=> outp ++
+        sarr |=> inpp) p).
+
+Definition ith_post (tid : Fin.t ntrd) :=
+  kernelInv' aptr_env aeval_env
+       (BSpre' tid ***
+        arrays' (val2gl outp)
+          (ith_vals dist_outs (arr2CUDA (ls_init 0 nblk (fun j => (f_sim
+             (ls_init 0 ntrd (fun i : nat => vi g j i))
+             (min (Datatypes.length arr_res - j * ntrd) ntrd) (e_b) 0))))
+                    (nf tid + nf bid * ntrd) 0) 1)
+       True p.
+
+Notation fin_star n f :=
+  (istar (ls_init 0 n f)).
+
+Definition E (x : var) :=
+  if prefix "_" (str_of_var x) then Lo
+  else if var_eq_dec "bid" x then Lo
+  else Hi.
+
+Definition shvals_last : list (Skel.typDenote typ) :=
+   (ls_init 0 ntrd
+      (f_sim
+         (ls_init 0 ntrd (fun i : nat => vi g (nf bid) i))
+         (min (Datatypes.length arr_res - (nf bid) * ntrd) ntrd) (e_b))).
+
+Lemma reduce_aux_Lo n m : typing_cmd E (reduce_aux n m) Lo.
+Proof.
+  revert n; induction m; simpl; eauto.
+  intros; constructor; eauto.
+  unfold reduce_body, assigns_call2.
+  unfold E; repeat prove_typing_cmd.
+  econstructor.
+  constructor.
+  constructor.
+  prove_typing_exp.
+  prove_typing_exp.
+  prove_typing_bexp.
+  repeat prove_typing_cmd; eauto.
+  prove_typing_cmd.
+Qed.
+
+Lemma reduceBlock_Lo : typing_cmd E reduceBlock Lo.
+Proof.
+  apply reduce_aux_Lo.
+Qed.
+
+Lemma mkReduce_cmd_ok_b :
+  CSLp ntrd E
+    (kinv
+       (arrays (val2sh inpp) (arr2CUDA inp) 1 ***
+        fin_star ntrd (fun i => arrays' (val2gl outp) (ith_vals dist_outs outs (i + nf bid * ntrd) 0) 1))
+       True
+       ("bid" |-> Zn (nf bid) ::
+        len |-> Zn (length arr_res) ::
+        out |=> outp ++
+        sarr |=> inpp) (p * injZ (Zn ntrd)))
+    mkReduce_cmd
+    (kernelInv' aptr_env aeval_env
+       (arrays (val2sh inpp) (arr2CUDA shvals_last) 1  ***
+        fin_star ntrd (fun i =>
+        arrays' (val2gl outp)
+          (ith_vals dist_outs (arr2CUDA (ls_init 0 nblk (fun j => (f_sim
+             (ls_init 0 ntrd (fun i : nat => vi g j i))
+             (min (Datatypes.length arr_res - j * ntrd) ntrd) (e_b) 0))))
+                    (i + nf bid * ntrd) 0) 1))
+       True (p * injZ (Zn ntrd))).
+Proof.
+  applys* (>>rule_block BS' E (MyVector.init ith_pre) (MyVector.init ith_post)); eauto;
+  unfold BS', BS, BSpre, BSpost.
+  - split; intros; simpl; rewrite MyVector.init_spec; prove_low_assn.
+  - intros [|i]; simpl.
+    { unfold Binv; prove_istar_imp.
+      clear H0.
+      rewrite CodeGen.array'_ok in *; try (introv; unfold arr2CUDA, dist_pre, dist; rewrite map_length, init_length; intros; lia).
+      2: introv; unfold arr2CUDA, dist; rewrite map_length, init_length; destruct Sumbool.sumbool_and; try lia.
+      erewrite ls_init_eq0; [eauto|].
+      intros; rewrite ls_init_spec; destruct lt_dec; eauto; lia. }
+    { prove_istar_imp.
+      unfold Binv in *; simpl in *.
+      clear H0.
+      rewrite CodeGen.array'_ok in *;
+        try (introv; unfold arr2CUDA, dist; rewrite map_length, init_length; destruct Sumbool.sumbool_and; clear H; intros; lia).
+      eauto. }
+  - Hint Resolve precise_arrays'.
+    unfold Binv; intros [|i] ?; simpl; split; rewrite !MyVector.init_spec; prove_precise.
+  - unfold ith_pre.
+    prove_istar_imp.
+    rewrite ls_star_res, CodeGen.array'_ok.
+    repeat sep_cancel'.
+    unfold arr2CUDA, dist_pre; introv; rewrite map_length; intros; lia.
+  - unfold ith_post.
+    unfold BSpre', BSpre, Binv, shvals_last.
+    prove_istar_imp.
+    destruct e_b; try lia.
+    repeat rewrite ls_star_res in H.
+    rewrite CodeGen.array'_ok in H.
+    repeat sep_cancel'; eauto.
+    introv; unfold arr2CUDA, dist; rewrite map_length, init_length; destruct Sumbool.sumbool_and; clear H; intros; lia. 
+  - unfold E, ith_pre; introv; rewrite MyVector.init_spec; prove_low_assn.
+  - unfold E, ith_post; introv; rewrite MyVector.init_spec; prove_low_assn.
+  - unfold E, mkReduce_cmd, seq_reduce, setToLen, assigns_get, assigns_call2.
+    instantiate (1 := Lo).
+    repeat apply ty_seq; try apply reduceBlock_Lo; repeat prove_typing_cmd.
+    applys (>>weaken_type Hi); eauto; prove_typing_cmd.
+    applys (>>weaken_type Hi); eauto; prove_typing_cmd.
+  - intros; rewrite !MyVector.init_spec.
+    unfold ith_pre, ith_post; eapply rule_conseq; eauto using mkReduce_cmd_ok.
+    unfold kernelInv; introv; rewrite assn_var_in; revert s h; prove_imp.
+Qed.
 End mkReduce.
