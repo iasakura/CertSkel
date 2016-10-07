@@ -133,6 +133,180 @@ Definition mkReduce_cmd :=
     writes (v2gl out +os "bid") (v2e ys) 
   ) Cskip.
 
+Section Sum_of.
+  Variable T : Type.
+  Variable op : T -> T -> T.
+  Hypothesis op_assoc : forall x y z, op (op x y) z = op x (op y z).
+  Hypothesis op_comm : forall x y, op x y = op y x.
+  Variable u : T.
+  Definition op' x y : option T :=
+    match x, y with
+    | None, _ => y
+    | _, None => x
+    | Some x, Some y => Some (op x y)
+    end.
+  Notation "a '+++' b" := (op' a b) (at level 40, left associativity).
+  
+  Lemma opopt_assoc x y z : op' (op' x y) z = op' x (op' y z).
+  Proof.
+    destruct x, y, z; simpl; eauto.
+    rewrite op_assoc; eauto.
+  Qed.
+  
+  Lemma opopt_comm x y : op' x y = op' y x.
+  Proof.
+    destruct x, y; simpl; eauto.
+    rewrite op_comm; eauto.
+  Qed.
+  
+  Arguments op' _ _ : simpl never.
+  
+  Fixpoint sum_of_f_opt (s len : nat) f : option T :=
+    match len with
+    | 0 => None
+    | S l => Some (f s) +++ sum_of_f_opt (S s) l f
+    end.
+
+  Fixpoint skip_sum_of_opt skip (s len : nat) f i : option T :=
+    match len with
+    | 0 => None
+    | S l =>
+      if Nat.eq_dec (s mod skip) i 
+      then (skip_sum_of_opt skip (S s) l f i +++ Some (f s))%Z
+      else skip_sum_of_opt skip (S s) l f i
+    end.
+  
+  Lemma sum_of_eq s len f1 f2: 
+    (forall i, s <= i < s + len -> f1 i = f2 i) ->
+    sum_of_f_opt s len f1 = sum_of_f_opt s len f2.
+  Proof.
+    revert s; induction len; simpl; intros s H; eauto. 
+    rewrite IHlen; eauto; intros; try omega.
+    rewrite H; eauto; omega.
+    rewrite H; eauto; try omega.
+  Qed.
+
+  Lemma sum_of_f_split s n m f g :
+    s <= m -> m < s + n ->
+    sum_of_f_opt s n (fun i => if lt_dec i m then f i else g i) = 
+    (sum_of_f_opt s (m - s) f +++ sum_of_f_opt m (n - (m - s)) g)%Z.
+  Proof.
+    revert s m; induction n.
+    - intros s m Hsm Hmn; assert (Heq : (m - s) = 0) by omega; rewrite Heq in *; simpl; eauto.
+    - intros s m Hsm Hmn; remember (S n - (m - s)); simpl in *.
+      assert (s = m \/ s < m) as [Hsm' | Hsm'] by omega; subst.
+      + destruct lt_dec; try omega.
+        rewrite minus_diag; simpl.
+        (* rewrite minus_diag, <-minus_n_O in *; simpl. *)
+        erewrite sum_of_eq; unfold op'; simpl; eauto.
+        intros i Hi; destruct lt_dec; eauto; try omega.
+      + destruct lt_dec; try omega.
+        assert (exists ms, m - s = S ms) as [ms Hms]
+                                           by (exists (m - s - 1); omega); rewrite Hms.
+        simpl.
+        rewrite IHn; try omega.
+        rewrite opopt_assoc; repeat f_equal; omega.
+  Qed.
+
+  Lemma shift_values :
+    forall (l1 : nat) (fc : nat -> T) (s sft : nat),
+      (sum_of_f_opt s l1 fc +++ sum_of_f_opt (s + sft) l1 fc)%Z =
+      sum_of_f_opt s l1 (fun i : nat => (op (fc i) (fc (i + sft)%nat))%Z).
+  Proof.
+    induction l1; intros fc s sft; simpl; auto.
+    cutrewrite (S (s + sft) = S s + sft); [|omega].
+    rewrite <-IHl1; simpl.
+    rewrite <-!opopt_assoc.
+    cutrewrite (Some (op (fc s) (fc (s + sft))) = Some (fc s) +++ Some (fc (s + sft)));
+      [|reflexivity].
+    f_equal; rewrite !opopt_assoc; f_equal; rewrite opopt_comm; eauto.
+  Qed.
+
+  Lemma sum_of_concat :
+    forall (l1 : nat) (fc : nat -> T) (s l2 : nat),
+      sum_of_f_opt s (l1 + l2) fc = (sum_of_f_opt s l1 fc +++ sum_of_f_opt (l1 + s) l2 fc)%Z.
+  Proof.
+    induction l1; intros fc s l2; simpl; auto.
+    rewrite IHl1, opopt_assoc; do 3 f_equal; omega.
+  Qed.
+
+  Lemma skip_sum_opt_nil skip i next fc : forall s (len : nat),
+      (forall j, j < next -> (s + j) mod skip <> i) ->
+      skip_sum_of_opt skip s len fc i =
+      skip_sum_of_opt skip (s + next) (len - next) fc i.
+  Proof.
+    induction next; intros s len Hj; simpl.
+    - rewrite <-plus_n_O, <-minus_n_O; auto.
+    - destruct len; auto.
+      cutrewrite (s + S next = S s + next); [|omega].
+      cutrewrite (S len - S next = len - next); [|omega].
+      rewrite <-IHnext.
+      + simpl; destruct Nat.eq_dec; auto.
+        specialize (Hj 0); rewrite <-plus_n_O in Hj; apply Hj in e; [tauto|omega].
+      + intros j Hjn; cutrewrite (S s + j = s + S j); [|omega]; apply Hj; omega.
+  Qed.
+  
+  Lemma skip_sum_opt_unfold skip i (len : nat) fc : forall s,
+      skip <> 0 ->
+      (i < len)%nat -> (i < skip)%nat ->
+      skip_sum_of_opt skip (s * skip) len fc i =
+      (op' (skip_sum_of_opt skip (S s * skip)%nat (len - skip)%nat fc i)%Z
+                  (Some (fc (i + s * skip)%nat))).
+  Proof.
+    intros s Hskip Hil His.
+    rewrite skip_sum_opt_nil with (next:=i). 
+    2: intros; rewrite plus_comm, Nat.add_mod; auto.
+    2: rewrite Nat.mod_mul; auto; rewrite <-plus_n_O, Nat.mod_mod; auto; rewrite Nat.mod_small; omega.
+    assert (exists li, len - i = S li) as [li Hli] by (exists (len - i - 1); omega).
+    rewrite (plus_comm (s * skip));
+      rewrite Hli; simpl; destruct Nat.eq_dec as [He | He].
+    2 : rewrite Nat.mod_add in He; auto; rewrite Nat.mod_small in He; omega.
+    f_equal.
+    rewrite skip_sum_opt_nil with (next:= skip - S i).
+    lazymatch goal with [|- context [skip_sum_of_opt _ ?X _ _ _]] => cutrewrite (X = skip + s * skip); [|omega] end.
+    cutrewrite (li - (skip - S i) = len - skip); [|omega]; auto.
+    intros j Hj. 
+    lazymatch goal with [|- context [?X mod _]] => cutrewrite (X = (S i + j) + s * skip); [|omega] end.
+    rewrite Nat.mod_add; auto; rewrite Nat.mod_small; omega.
+  Qed.
+
+  Lemma skip_sum_opt_sum f skip i s n m :
+    i < skip ->
+    skip * n + i < m + skip <= skip * S n + i ->
+    skip_sum_of_opt skip (s * skip) m f i =
+    sum_of_f_opt s n (fun j => f (i + j * skip)).
+  Proof.
+    revert s m; induction n; simpl; intros s m His Hmi.
+    - assert (m <= i) by omega.
+      rewrites* (>>skip_sum_opt_nil m).
+      { intros; rewrite plus_comm; rewrite Nat.mod_add; try omega;
+        rewrite Nat.mod_small; try omega. }
+      rewrite minus_diag; simpl; eauto.
+    - rewrites* skip_sum_opt_unfold; [|nia..].
+      destruct n; simpl.
+      + rewrites (>>skip_sum_opt_nil (m - skip)); try rewrite minus_diag; simpl; eauto.
+        intros; cutrewrite (skip + s * skip + j = j + (S s) * skip); [|ring];
+          rewrite Nat.mod_add; try omega; rewrite Nat.mod_small; try omega.
+      + cutrewrite (skip + s * skip = S s * skip); [|ring].
+        rewrite IHn; [|try omega..].
+        2: nia.
+        repeat (unfold op'; simpl).
+        repeat lazymatch goal with
+        | [|- context [match ?X with Some _ => _ | None => _ end]] => destruct X
+        end; eauto.
+        rewrite op_comm; auto.
+  Qed.
+  
+  Lemma skip_sum_sum0 f skip i n m :
+    i < skip ->
+    skip * n + i < m + skip <= skip * S n + i ->
+    skip_sum_of_opt skip 0 m f i =
+    sum_of_f_opt 0 n (fun j => f (i + j * skip)).
+  Proof.
+    cutrewrite (0 = 0 * skip); [|omega]; apply skip_sum_opt_sum.
+  Qed.
+End Sum_of.
+
 Section blockReduce.
 Variable tid : Fin.t ntrd.
 Variable bid : Fin.t nblk.
@@ -329,180 +503,6 @@ Proof.
   assert (Heq : e_b - n = S (e_b - S n)) by omega; rewrite Heq; simpl; eauto.
 Qed.
 
-Section Sum_of.
-  Variable T : Type.
-  Variable op : T -> T -> T.
-  Hypothesis op_assoc : forall x y z, op (op x y) z = op x (op y z).
-  Hypothesis op_comm : forall x y, op x y = op y x.
-  Variable u : T.
-  Definition op' x y : option T :=
-    match x, y with
-    | None, _ => y
-    | _, None => x
-    | Some x, Some y => Some (op x y)
-    end.
-  Notation "a '+++' b" := (op' a b) (at level 40, left associativity).
-  
-  Lemma opopt_assoc x y z : op' (op' x y) z = op' x (op' y z).
-  Proof.
-    destruct x, y, z; simpl; eauto.
-    rewrite op_assoc; eauto.
-  Qed.
-  
-  Lemma opopt_comm x y : op' x y = op' y x.
-  Proof.
-    destruct x, y; simpl; eauto.
-    rewrite op_comm; eauto.
-  Qed.
-  
-  Arguments op' _ _ : simpl never.
-  
-  Fixpoint sum_of_f_opt (s len : nat) f : option T :=
-    match len with
-    | 0 => None
-    | S l => Some (f s) +++ sum_of_f_opt (S s) l f
-    end.
-
-  Fixpoint skip_sum_of_opt skip (s len : nat) f i : option T :=
-    match len with
-    | 0 => None
-    | S l =>
-      if Nat.eq_dec (s mod skip) i 
-      then (skip_sum_of_opt skip (S s) l f i +++ Some (f s))%Z
-      else skip_sum_of_opt skip (S s) l f i
-    end.
-  
-  Lemma sum_of_eq s len f1 f2: 
-    (forall i, s <= i < s + len -> f1 i = f2 i) ->
-    sum_of_f_opt s len f1 = sum_of_f_opt s len f2.
-  Proof.
-    revert s; induction len; simpl; intros s H; eauto. 
-    rewrite IHlen; eauto; intros; try omega.
-    rewrite H; eauto; omega.
-    rewrite H; eauto; try omega.
-  Qed.
-
-  Lemma sum_of_f_split s n m f g :
-    s <= m -> m < s + n ->
-    sum_of_f_opt s n (fun i => if lt_dec i m then f i else g i) = 
-    (sum_of_f_opt s (m - s) f +++ sum_of_f_opt m (n - (m - s)) g)%Z.
-  Proof.
-    revert s m; induction n.
-    - intros s m Hsm Hmn; assert (Heq : (m - s) = 0) by omega; rewrite Heq in *; simpl; eauto.
-    - intros s m Hsm Hmn; remember (S n - (m - s)); simpl in *.
-      assert (s = m \/ s < m) as [Hsm' | Hsm'] by omega; subst.
-      + destruct lt_dec; try omega.
-        rewrite minus_diag; simpl.
-        (* rewrite minus_diag, <-minus_n_O in *; simpl. *)
-        erewrite sum_of_eq; unfold op'; simpl; eauto.
-        intros i Hi; destruct lt_dec; eauto; try omega.
-      + destruct lt_dec; try omega.
-        assert (exists ms, m - s = S ms) as [ms Hms]
-                                           by (exists (m - s - 1); omega); rewrite Hms.
-        simpl.
-        rewrite IHn; try omega.
-        rewrite opopt_assoc; repeat f_equal; omega.
-  Qed.
-
-  Lemma shift_values :
-    forall (l1 : nat) (fc : nat -> T) (s sft : nat),
-      (sum_of_f_opt s l1 fc +++ sum_of_f_opt (s + sft) l1 fc)%Z =
-      sum_of_f_opt s l1 (fun i : nat => (op (fc i) (fc (i + sft)%nat))%Z).
-  Proof.
-    induction l1; intros fc s sft; simpl; auto.
-    cutrewrite (S (s + sft) = S s + sft); [|omega].
-    rewrite <-IHl1; simpl.
-    rewrite <-!opopt_assoc.
-    cutrewrite (Some (op (fc s) (fc (s + sft))) = Some (fc s) +++ Some (fc (s + sft)));
-      [|reflexivity].
-    f_equal; rewrite !opopt_assoc; f_equal; rewrite opopt_comm; eauto.
-  Qed.
-
-  Lemma sum_of_concat :
-    forall (l1 : nat) (fc : nat -> T) (s l2 : nat),
-      sum_of_f_opt s (l1 + l2) fc = (sum_of_f_opt s l1 fc +++ sum_of_f_opt (l1 + s) l2 fc)%Z.
-  Proof.
-    induction l1; intros fc s l2; simpl; auto.
-    rewrite IHl1, opopt_assoc; do 3 f_equal; omega.
-  Qed.
-
-  Lemma skip_sum_opt_nil skip i next fc : forall s (len : nat),
-      (forall j, j < next -> (s + j) mod skip <> i) ->
-      skip_sum_of_opt skip s len fc i =
-      skip_sum_of_opt skip (s + next) (len - next) fc i.
-  Proof.
-    induction next; intros s len Hj; simpl.
-    - rewrite <-plus_n_O, <-minus_n_O; auto.
-    - destruct len; auto.
-      cutrewrite (s + S next = S s + next); [|omega].
-      cutrewrite (S len - S next = len - next); [|omega].
-      rewrite <-IHnext.
-      + simpl; destruct Nat.eq_dec; auto.
-        specialize (Hj 0); rewrite <-plus_n_O in Hj; apply Hj in e; [tauto|omega].
-      + intros j Hjn; cutrewrite (S s + j = s + S j); [|omega]; apply Hj; omega.
-  Qed.
-  
-  Lemma skip_sum_opt_unfold skip i (len : nat) fc : forall s,
-      skip <> 0 ->
-      (i < len)%nat -> (i < skip)%nat ->
-      skip_sum_of_opt skip (s * skip) len fc i =
-      (op' (skip_sum_of_opt skip (S s * skip)%nat (len - skip)%nat fc i)%Z
-                  (Some (fc (i + s * skip)%nat))).
-  Proof.
-    intros s Hskip Hil His.
-    rewrite skip_sum_opt_nil with (next:=i). 
-    2: intros; rewrite plus_comm, Nat.add_mod; auto.
-    2: rewrite Nat.mod_mul; auto; rewrite <-plus_n_O, Nat.mod_mod; auto; rewrite Nat.mod_small; omega.
-    assert (exists li, len - i = S li) as [li Hli] by (exists (len - i - 1); omega).
-    rewrite (plus_comm (s * skip));
-      rewrite Hli; simpl; destruct Nat.eq_dec as [He | He].
-    2 : rewrite Nat.mod_add in He; auto; rewrite Nat.mod_small in He; omega.
-    f_equal.
-    rewrite skip_sum_opt_nil with (next:= skip - S i).
-    lazymatch goal with [|- context [skip_sum_of_opt _ ?X _ _ _]] => cutrewrite (X = skip + s * skip); [|omega] end.
-    cutrewrite (li - (skip - S i) = len - skip); [|omega]; auto.
-    intros j Hj. 
-    lazymatch goal with [|- context [?X mod _]] => cutrewrite (X = (S i + j) + s * skip); [|omega] end.
-    rewrite Nat.mod_add; auto; rewrite Nat.mod_small; omega.
-  Qed.
-
-  Lemma skip_sum_opt_sum f skip i s n m :
-    i < skip ->
-    skip * n + i < m + skip <= skip * S n + i ->
-    skip_sum_of_opt skip (s * skip) m f i =
-    sum_of_f_opt s n (fun j => f (i + j * skip)).
-  Proof.
-    revert s m; induction n; simpl; intros s m His Hmi.
-    - assert (m <= i) by omega.
-      rewrites* (>>skip_sum_opt_nil m).
-      { intros; rewrite plus_comm; rewrite Nat.mod_add; try omega;
-        rewrite Nat.mod_small; try omega. }
-      rewrite minus_diag; simpl; eauto.
-    - rewrites* skip_sum_opt_unfold; [|nia..].
-      destruct n; simpl.
-      + rewrites (>>skip_sum_opt_nil (m - skip)); try rewrite minus_diag; simpl; eauto.
-        intros; cutrewrite (skip + s * skip + j = j + (S s) * skip); [|ring];
-          rewrite Nat.mod_add; try omega; rewrite Nat.mod_small; try omega.
-      + cutrewrite (skip + s * skip = S s * skip); [|ring].
-        rewrite IHn; [|try omega..].
-        2: nia.
-        repeat (unfold op'; simpl).
-        repeat lazymatch goal with
-        | [|- context [match ?X with Some _ => _ | None => _ end]] => destruct X
-        end; eauto.
-        rewrite op_comm; auto.
-  Qed.
-  
-  Lemma skip_sum_sum0 f skip i n m :
-    i < skip ->
-    skip * n + i < m + skip <= skip * S n + i ->
-    skip_sum_of_opt skip 0 m f i =
-    sum_of_f_opt 0 n (fun j => f (i + j * skip)).
-  Proof.
-    cutrewrite (0 = 0 * skip); [|omega]; apply skip_sum_opt_sum.
-  Qed.
-End Sum_of.
-
 Notation sum_of_vs := (sum_of_f_opt (Skel.typDenote typ) f_tot).  
 
 Notation "a '+++' b" := (op' _ f_tot a b) (at level 40, left associativity).
@@ -617,6 +617,12 @@ Definition seqInv (inpp : vals typ) :=
 Definition vi g i := 
   maybe (skip_sum_of_vs (ntrd * nblk) 0 (length arr_res) g (i + nf bid * ntrd)) defval'.
 
+Ltac clear_assn :=
+  match goal with
+  | [H : context [Assn _ _ _] |- _] => clear H 
+  | [H : context [kernelInv _ _ _ _ _ _ _] |- _] => clear H
+  end.
+
 Lemma seq_reduce_ok inpp inp l : 
   length inp = ntrd ->
   CSL (BS inp l inpp) tid
@@ -664,11 +670,23 @@ Proof.
     intros s h Hsat; exists (S nl) (S nl * (ntrd * nblk) + gid).
     revert s h Hsat; prove_imp. 
     { clear H1; nia. }
-    { skip. }
+    { rewrites (>>mult_comm (length outs)); eauto.
+      rewrites (>>skip_sum_sum0 nl); eauto.
+      { clear_assn; nia. }
+      rewrites (>>skip_sum_sum0 (S nl)); eauto.
+      { clear_assn; nia. }
+      cutrewrite (S nl = nl + 1); [|clear_assn; lia]; rewrite sum_of_concat; eauto.
+      simpl; f_equal; unfold maybe, op'; destruct (sum_of_f_opt _ _ _ _ _) eqn:Heq.
+      - des_conj H2; substs; do 2 f_equal; clear_assn; nia.
+      - destruct nl; simpl in *; try (destruct sum_of_f_opt; congruence).
+        omega. }
     intros s h Hsat; exists 1 (1 * (ntrd * nblk) + gid).
     revert s h Hsat; prove_imp. 
     { nia. }
-    { skip. }
+    { rewrites (>>mult_comm (length outs)); eauto.
+      rewrites (>>skip_sum_sum0 1); eauto. 
+      clear_assn; nia.
+      simpl; do 2 f_equal; ring. }
     { unfold arr2CUDA.
       applys (>>(@eq_from_nth) (@None (vals typ))).
       { repeat autorewrite with pure; rewrite map_length, length_nseq; eauto. }
@@ -681,11 +699,6 @@ Proof.
     hoare_forward; eauto.
     { rewrite length_nseq; lia. }
     prove_imp.
-    Ltac clear_assn :=
-      match goal with
-      | [H : context [Assn _ _ _] |- _] => clear H 
-      | [H : context [kernelInv _ _ _ _ _ _ _] |- _] => clear H
-      end.
     repeat clear_assn.
     { unfold vi; rewrite Nat.min_r; substs; eauto; lia. }
     { rewrite Nat.min_r; try (clear_assn; lia).
@@ -702,7 +715,10 @@ Proof.
         unfold vi; substs; eauto. } }
   - hoare_forward.
     prove_imp.
-    { skip. }
+    { unfold vi; substs; rewrites (>>mult_comm nblk).
+      rewrites* (>>skip_sum_sum0 0).
+      forwards*: (>>id_lt_nt_gr (nf tid) (nf bid)); nia.
+      simpl; rewrites* defval_sc2CUDA. }
     { applys (>>(@eq_from_nth) (@None (vals typ))).
       { unfold arr2CUDA; repeat autorewrite with pure; rewrite !map_length, init_length; eauto. }
       { unfold arr2CUDA; introv; repeat autorewrite with pure; rewrite !map_length, init_length; intros.
@@ -713,8 +729,11 @@ Proof.
          | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; lia)
          | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; lia)
         end). 
-        unfold vi; substs; simpl.
-        skip. } }
+        unfold vi; substs.
+        rewrites (>>mult_comm (length outs)).
+        rewrites* (>>skip_sum_sum0 0).
+        forwards*: (>>id_lt_nt_gr (nf tid) (nf bid)); nia.
+        simpl; rewrites* defval_sc2CUDA. } }
 Qed.    
 
 End mkReduce.

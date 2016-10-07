@@ -128,10 +128,15 @@ Definition func_ok {GA fty} (avar_env : AVarEnv GA) :=
 
 Fixpoint defval' {ty} :=
   match ty return Skel.typDenote ty with
-  | Skel.TBool => true
+  | Skel.TBool => false
   | Skel.TZ => 0%Z
   | Skel.TTup t1 t2 => (@defval' t1, @defval' t2)
   end.
+
+Lemma defval_sc2CUDA ty : (@defval ty) = sc2CUDA (@defval' ty). 
+Proof.
+  induction ty; simpl; congruence.
+Qed.
 
 Notation gets' arr i := (nth i arr defval').
 Eval simpl in type_of_ftyp (Skel.Fun1 Skel.TZ _).
