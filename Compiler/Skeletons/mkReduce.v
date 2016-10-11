@@ -4,6 +4,9 @@ Require Import CUDALib TypedTerm.
 Require Import Host.
 Require Import Skel_lemma CodeGen CUDALib Correctness Grid CSLTactics CSLLemma.
 
+Notation fin_star n f :=
+  (istar (ls_init 0 n f)).
+
 Section mkReduce.
 
 Variable typ : Skel.Typ.
@@ -50,7 +53,7 @@ Hypothesis eval_reduce_ok :
 
 Variable outp : vals typ.
 Variable outs : list (vals typ).
-Hypothesis outs_length : length (outs) = nblk.
+Hypothesis outs_length : length (outs) = nblk + 0.
 Notation sarr := (locals "_sarr" typ 0).
 
 Definition outArr ty := locals "_arrOut" ty 0.
@@ -629,7 +632,7 @@ Lemma seq_reduce_ok BS inpp inp :
   length inp = ntrd ->
   CSL BS tid
       (kinv
-         (arrays' (val2sh inpp) (ith_vals dist_pre (arr2CUDA inp) (nf tid) 0) 1 ***
+         (arrays' (val2sh inpp) (ith_vals dist_pre inp (nf tid) 0) 1 ***
           arrays' (val2gl outp) (ith_vals dist_outs outs gid 0) 1)
          True
          ("tid" |-> Zn (nf tid) ::
@@ -654,7 +657,6 @@ Proof.
   unfold seq_reduce.
   hoare_forward; simplify_remove_var.
   hoare_forward.
-  { unfold arr2CUDA; rewrite map_length; lia. }
   hoare_forward; simplify_remove_var.
   hoare_forward.
   3: introv; destruct 1; eauto.
@@ -672,8 +674,8 @@ Proof.
     intros s h Hsat; exists (S nl) (S nl * (ntrd * nblk) + gid).
     revert s h Hsat; prove_imp. 
     { clear H1; nia. }
-    { rewrites (>>mult_comm (length outs)); eauto.
-      rewrites (>>skip_sum_sum0 nl); eauto.
+    {  rewrites (>>mult_comm (length inp)); eauto.
+       rewrites (>>skip_sum_sum0 nl); eauto.
       { clear_assn; nia. }
       rewrites (>>skip_sum_sum0 (S nl)); eauto.
       { clear_assn; nia. }
@@ -685,14 +687,14 @@ Proof.
     intros s h Hsat; exists 1 (1 * (ntrd * nblk) + gid).
     revert s h Hsat; prove_imp. 
     { nia. }
-    { rewrites (>>mult_comm (length outs)); eauto.
+    { rewrites (>>mult_comm (length inp)); eauto.
       rewrites (>>skip_sum_sum0 1); eauto. 
       clear_assn; nia.
       simpl; do 2 f_equal; ring. }
     { unfold arr2CUDA.
       applys (>>(@eq_from_nth) (@None (vals typ))).
-      { repeat autorewrite with pure; rewrite map_length, length_nseq; eauto. }
-      { introv; repeat autorewrite with pure; rewrite map_length, length_nseq; intros.
+      { repeat autorewrite with pure; rewrite length_nseq; eauto. }
+      { introv; repeat autorewrite with pure; rewrite length_nseq; intros.
         unfold dist_pre; simpl; rewrite nth_nseq.
         Time (repeat match goal with
          | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; lia)
@@ -717,7 +719,7 @@ Proof.
         unfold vi; substs; eauto. } }
   - hoare_forward.
     prove_imp.
-    { unfold vi; substs; rewrites (>>mult_comm (length outs)).
+    { unfold vi; substs; rewrites (>>mult_comm (length inp)).
       rewrites* (>>skip_sum_sum0 0).
       forwards*: (>>id_lt_nt_gr (nf tid) (nf bid)); nia.
       simpl; rewrites* defval_sc2CUDA. }
@@ -732,7 +734,7 @@ Proof.
          | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; lia)
         end). 
         unfold vi; substs.
-        rewrites (>>mult_comm (length outs)).
+        rewrites (>>mult_comm (length inp)).
         rewrites* (>>skip_sum_sum0 0).
         forwards*: (>>id_lt_nt_gr (nf tid) (nf bid)); nia.
         simpl; rewrites* defval_sc2CUDA. } }
@@ -777,7 +779,7 @@ Section mkReduce_block.
 Variable bid : Fin.t nblk.
 
 
-Variable inp : list (Skel.typDenote typ). 
+Variable inp : list (vals typ). 
 Hypothesis inp_length : length inp = ntrd.
 Variable inpp : vals typ.
 
@@ -803,7 +805,7 @@ Ltac clear_assn :=
 Lemma mkReduce_cmd_ok :
   CSL BS' tid
     (kinv
-       (arrays' (val2sh inpp) (ith_vals dist_pre (arr2CUDA inp) (nf tid) 0) 1 ***
+       (arrays' (val2sh inpp) (ith_vals dist_pre inp (nf tid) 0) 1 ***
         arrays' (val2gl outp) (ith_vals dist_outs outs (nf tid + nf bid * ntrd) 0) 1)
        True
        ("tid" |-> Zn (nf tid) ::
@@ -834,7 +836,8 @@ Proof.
     rewrite ls_init_spec; destruct lt_dec; eauto.
     false; eauto. }
   hoare_forward.
-  hoare_forward; eauto.
+  hoare_forward; eauto; try lia.
+  forwards*: (>>nf_lt bid); lia.
   unfold dist_outs; nia.
   hoare_forward; eauto.
   intros s h; destruct 1 as [Hsat | Hsat]; fold_sat_in Hsat; revert s h Hsat; unfold kernelInv', kernelInv;
@@ -843,9 +846,10 @@ Proof.
     destruct e_b; [false; lia|].
     applys (>> (@eq_from_nth) (@None (vals typ))).
     unfold arr2CUDA; repeat autorewrite with pure; rewrite map_length; autorewrite with pure; eauto.
+    lia.
     introv; repeat autorewrite with pure; intros.
     unfold dist_outs.
-    unfold arr2CUDA; rewrite map_length; autorewrite with pure.
+    unfold arr2CUDA; repeat rewrite map_length; autorewrite with pure.
     rewrite (nth_map defval'); autorewrite with pure; [|clear_assn; lia].
     clear_assn.
     Time (repeat match goal with
@@ -859,8 +863,9 @@ Proof.
     applys (>> (@eq_from_nth) (@None (vals typ))).
     unfold arr2CUDA; repeat autorewrite with pure; rewrite map_length; autorewrite with pure; eauto.
     introv; repeat autorewrite with pure; intros.
-    unfold arr2CUDA; repeat autorewrite with pure; rewrite map_length; autorewrite with pure; eauto.
-    introv; repeat autorewrite with pure; intros.
+    lia.
+    unfold arr2CUDA; repeat autorewrite with pure; eauto.
+    introv; repeat autorewrite with pure; try rewrite map_length; autorewrite with pure; intros.
     unfold dist_outs.
     rewrite (nth_map defval'); autorewrite with pure; [|clear_assn; lia].
     clear_assn.
@@ -878,7 +883,7 @@ End mkReduce_thread.
 
 Definition ith_pre (tid : Fin.t ntrd) := 
   (kinv
-       (arrays' (val2sh inpp) (ith_vals dist_pre (arr2CUDA inp) (nf tid) 0) 1 ***
+       (arrays' (val2sh inpp) (ith_vals dist_pre inp (nf tid) 0) 1 ***
         arrays' (val2gl outp) (ith_vals dist_outs outs (nf tid + nf bid * ntrd) 0) 1)
        True
        ("bid" |-> Zn (nf bid) ::
@@ -934,7 +939,7 @@ Qed.
 Lemma mkReduce_cmd_ok_b :
   CSLp ntrd E
     (kinv
-       (arrays (val2sh inpp) (arr2CUDA inp) 1 ***
+       (arrays (val2sh inpp) inp 1 ***
         fin_star ntrd (fun i => arrays' (val2gl outp) (ith_vals dist_outs outs (i + nf bid * ntrd) 0) 1))
        True
        ("bid" |-> Zn (nf bid) ::
@@ -974,7 +979,7 @@ Proof.
     prove_istar_imp.
     rewrite ls_star_res, CodeGen.array'_ok.
     repeat sep_cancel'.
-    unfold arr2CUDA, dist_pre; introv; rewrite map_length; intros; lia.
+    unfold arr2CUDA, dist_pre; introv; intros; lia.
   - unfold ith_post.
     unfold BSpre', BSpre, Binv, shvals_last.
     prove_istar_imp.
@@ -994,4 +999,330 @@ Proof.
     unfold ith_pre, ith_post; eapply rule_conseq; eauto using mkReduce_cmd_ok.
     unfold kernelInv; introv; rewrite assn_var_in; revert s h; prove_imp.
 Qed.
+End mkReduce_block.
+
+Fixpoint addTyp {ty} :=
+  match ty return vars ty -> vartys ty with 
+  | Skel.TBool => fun x => (x, Bool)
+  | Skel.TZ => fun x => (x, Int)
+  | Skel.TTup t1 t2 => fun xs => (addTyp (fst xs), addTyp (snd xs))
+  end.
+
+Definition sh_decl len typ pref st :=
+  flatTup (maptys (fun sv => Grid.SD (fst sv) (snd sv) len) (addTyp (locals pref typ st))).
+
+Definition mkReduce_prog :=
+  Pr (sh_decl ntrd typ "_sarr" 0) (mkReduce_cmd).
+
+Require Import QArith.
+Close Scope Q_scope.
+
+Lemma n_neq_0_Q n :
+  n <> 0 -> ~(inject_Z (Zn n) == 0)%Q.
+Proof.
+  intros.
+  destruct n; try lia.
+  lets: (>>inject_Z_Sn_gt0 n).
+  lra.
+Qed.
+
+Hint Resolve n_neq_0_Q.
+
+Definition jth_pre (bid : Fin.t nblk) :=
+  (kinv
+       (fin_star ntrd (fun i => arrays' (val2gl outp) (ith_vals dist_outs outs (i + nf bid * ntrd) 0) 1))
+       True
+       (len |-> Zn (length arr_res) ::
+        out |=> outp) (p * injZ (Zn ntrd))).
+
+Definition jth_post (bid : Fin.t nblk) :=
+  (kernelInv' aptr_env aeval_env
+       (fin_star ntrd 
+                 (fun i =>
+                    arrays' (val2gl outp)
+                            (ith_vals dist_outs (arr2CUDA (ls_init 0 nblk (fun j => (f_sim
+                            (ls_init 0 ntrd (fun i : nat => vi g j i))
+                            (min (Datatypes.length arr_res - j * ntrd) ntrd) (e_b) 0))))
+                                      (i + nf bid * ntrd) 0) 1))
+       True (p * injZ (Zn ntrd))).
+
+Lemma length_app_split T n m (l : list T) : 
+  length l = n + m 
+  -> exists l1 l2, length l1 = n /\ length l2 = m /\ l = l1 ++ l2.
+Proof.
+  revert l m; induction n; simpl; eauto.
+  intros; exists (@nil T) l; simpl; split; eauto.
+  intros ? ? Hlen.
+  destruct l as [|x l]; simpl in *; try lia; inverts Hlen.
+  forwards* (l1 & l2 & ? & ? & ?): (>>IHn l m).
+  exists (x :: l1) l2; splits; simpl; eauto.
+  substs; simpl; eauto.
+Qed.
+
+Lemma flatTup_length ty T (xs : typ2Coq T ty):
+  length (flatTup xs) = nleaf ty.
+Proof.
+  induction ty; simpl; try autorewrite with pure; eauto.
+Qed.
+Hint Rewrite flatTup_length : pure.
+
+Lemma sdecl_len_vals n ty T locs pref st :
+  length (sh_decl n ty pref st) = length locs 
+  -> exists (locs' : typ2Coq T ty), locs = flatTup locs'.
+Proof.
+  revert locs; induction ty; simpl.
+  - destruct locs as [| ? [| ? ?]]; simpl; intros; try omega; eexists; eauto.
+  - destruct locs as [| ? [| ? ?]]; simpl; intros; try omega; eexists; eauto.
+  - unfold sh_decl; simpl.
+    intros; autorewrite with pure in *.
+    forwards* (? & ? & ? & ? & ?): (>>length_app_split (nleaf ty1) (nleaf ty2)).
+    forwards* (? & ?): (IHty1); unfold sh_decl; autorewrite with pure; eauto.
+    forwards* (? & ?): (IHty2); unfold sh_decl; autorewrite with pure; eauto.
+    exists (x1, x2); simpl; congruence.
+Qed.
+
+Lemma ls_init_nth_aux' T (xs : list T) d n s :
+  length xs = n 
+  -> ls_init s n (fun i => nth (i - s) xs d) = xs.
+Proof.
+  intros.
+  applys (>>eq_from_nth d); autorewrite with pure; eauto.
+  intros.
+  autorewrite with pure; destruct lt_dec; f_equal; lia.
+Qed.
+Lemma ls_init_nth' T (xs : list T) d n :
+  length xs = n 
+  -> ls_init 0 n (fun i => nth i xs d) = xs.
+Proof.
+  intros; forwards*: (>>ls_init_nth_aux' d n 0); eauto.
+  erewrite ls_init_eq0; eauto.
+  intros; simpl; rewrite* <-minus_n_O.
+Qed.
+
+Require Import SetoidClass.
+Lemma arrays_TZ (l : locs Skel.TZ) (v : list (vals Skel.TZ)) p :
+  arrays l v p == array l v p.
+Proof.
+  revert l; induction v; simpl; try reflexivity.
+  intros; rewrite IHv; reflexivity.
+Qed.
+Lemma arrays_TB (l : locs Skel.TBool) (v : list (vals Skel.TBool)) p :
+  arrays l v p == array l v p.
+Proof.
+  revert l; induction v; simpl; try reflexivity.
+  intros; rewrite IHv; reflexivity.
+Qed.
+Notation convertSvals n vals := (ls_init 0 n (fun i => maptys (fun xs => get xs i) vals)).
+
+Lemma sh_spec_res_tup st n ty (locs : vals ty) vals pref : 
+  sh_spec_pure (sh_decl n ty pref st) (flatTup vals) 
+  ->(sh_spec_res (sh_decl n ty pref st) (flatTup locs) (flatTup vals) ==
+     arrays (val2sh locs) (convertSvals n vals) 1).
+Proof.
+  revert st; induction ty; unfold val2sh; simpl; 
+  try (rewrite emp_unit_r_res).
+  intros; rewrite ls_init_nth'; try lia.
+  rewrite <-arrays_TB, emp_unit_r_res; reflexivity. 
+  intros; rewrite ls_init_nth'; try lia.
+  rewrite <-arrays_TZ, emp_unit_r_res; reflexivity.
+  simpl.
+  
+  Lemma sh_spec_pure_app sd1 sd2 vs1 vs2 :
+    length sd1 = length vs1 
+    -> (sh_spec_pure (sd1 ++ sd2) (vs1 ++ vs2)
+    <-> sh_spec_pure sd1 vs1 /\ sh_spec_pure sd2 vs2).
+  Proof.
+    split.
+    - revert vs1 H; induction sd1 as [|[? ? ?] ?]; intros [|? vs1]; simpl; intros; try lia; eauto.
+      forwards*: IHsd1.
+    - revert vs1 H; induction sd1 as [|[? ? ?] ?]; intros [|? vs1]; simpl; intros; try lia; jauto.
+  Qed.
+  
+  Lemma sh_spec_res_app sd1 sd2 ls1 ls2 vs1 vs2 :
+    length sd1 = length vs1 
+    -> length sd1 = length ls1
+    -> (sh_spec_res (sd1 ++ sd2) (ls1 ++ ls2) (vs1 ++ vs2) ==
+        (sh_spec_res sd1 ls1 vs1 *** sh_spec_res sd2 ls2 vs2)).
+  Proof.
+    revert vs1 ls1; induction sd1 as [|[? ? ?] ?]; intros [|? vs1] [|? ls1]; simpl; intros; try lia; eauto;
+    try (rewrite emp_unit_l_res; reflexivity).
+    rewrite IHsd1; [|lia..].
+    rewrite res_assoc; reflexivity.
+  Qed.
+
+  intros ? Hpure.
+  unfold sh_decl in *; simpl in *.
+  apply sh_spec_pure_app in Hpure as [Hpure1 Hpure2]; [|autorewrite with pure; eauto].
+  rewrite sh_spec_res_app; [|autorewrite with pure; eauto..].
+  rewrites* IHty1; rewrites* IHty2.
+  
+  Lemma arrays_TTup t1 t2 (ls : locs (Skel.TTup t1 t2)) (vs : list (vals (Skel.TTup t1 t2))) p :
+    (arrays ls vs p == (arrays (fst ls) (map fst vs) p *** arrays (snd ls) (map snd vs) p)).
+  Proof.
+    revert ls; induction vs; introv; simpl.
+    rewrite emp_unit_l_res; reflexivity.
+    rewrite <-!res_assoc.
+    apply res_star_proper; [reflexivity|].
+    rewrite <-res_CA, IHvs; reflexivity.
+  Qed.
+
+  Lemma map_ls_init T1 T2 s t (f : nat -> T1) (g : T1 -> T2) :
+    map g (ls_init s t f) = ls_init s t (fun x => g (f x)).
+  Proof.
+    revert s; induction t; simpl; eauto.
+    introv; congruence.
+  Qed.
+  rewrite arrays_TTup, !map_ls_init; simpl; reflexivity.
+Qed.
+
+Lemma sh_spec_env_tup st n ty (locs : vals ty) pref :
+  sh_spec_env (sh_decl n ty pref st) (flatTup locs) = 
+  locals pref ty st |=> locs.
+Proof.
+  revert st; induction ty; simpl; eauto.
+  Lemma sh_spec_env_app sd1 sd2 vs1 vs2 :
+    length sd1 = length vs1 
+    -> sh_spec_env (sd1 ++ sd2) (vs1 ++ vs2) = sh_spec_env sd1 vs1 ++ sh_spec_env sd2 vs2.
+  Proof.
+    revert vs1 vs2; induction sd1 as [|[? ? ?] ?]; simpl; intros [|? vs1] vs2;
+    simpl in *; intros; try lia; eauto.
+    rewrite IHsd1; eauto.
+  Qed.
+  introv; unfold sh_decl in *; simpl in *; rewrite sh_spec_env_app; try congruence.
+  autorewrite with pure; eauto.
+Qed.
+
+Lemma sh_decl_length_aux st n ty pref:
+  length (sh_decl n ty pref st) = nleaf ty.
+Proof.
+  revert st; induction ty; simpl; eauto.
+  intros; unfold sh_decl in *; simpl in *; rewrite app_length; congruence.
+Qed.
+
+Lemma sh_decl_length n ty pref st:
+  length (sh_decl n ty pref st) = nleaf ty.
+Proof. unfold sh_decl; apply sh_decl_length_aux. Qed.
+
+Theorem mkReduce_ok :
+  CSLg ntrd nblk
+    (kinv
+       (arrays (val2gl outp) outs 1)
+       True
+       (len |-> Zn (length arr_res) ::
+        out |=> outp) 1)
+    mkReduce_prog
+    (kernelInv' aptr_env aeval_env
+       (arrays (val2gl outp)
+              (arr2CUDA (ls_init 0 nblk (fun j => (f_sim
+                (ls_init 0 ntrd (fun i : nat => vi g j i))
+                (min (Datatypes.length arr_res - j * ntrd) ntrd) (e_b) 0)))) 1)
+       True 1).
+Proof.
+  assert (Heq : (p * injZ (Zn ntrd) = 1 / injZ (Zn nblk))%Qc).
+  { unfold injZ; Qc_to_Q.
+    rewrite Nat2Z.inj_mul, inject_Z_mult. 
+    field; eauto. }
+  assert (Heq' : (1 = RP nblk * injZ (Zn nblk))%Qc).
+  { unfold injZ; Qc_to_Q; field; eauto. }    
+  applys* (>> rule_grid E (MyVector.init jth_pre) (MyVector.init jth_post));
+    unfold jth_pre, jth_post; repeat rewrite Heq.
+  - intros s h H; rewrite Heq' in H; revert s h H.
+    prove_istar_imp.
+    simpl_nested_istar.
+    rewrite CodeGen.array'_ok.
+    rewrite <-Heq' in *; eauto.
+    intros; unfold dist_outs; nia.
+  - unfold kernelInv; introv; rewrite !MyVector.init_spec.
+    apply CSLp_preprocess; simpl.
+    intros; unfold sh_spec_assn, sh_spec_assn'.
+    forwards* (locs' & ?): (>>sdecl_len_vals H).
+    forwards* (vals' & ?): (>>sdecl_len_vals H0); substs.
+    eapply rule_p_backward; [|intros ? ? Hsat; rewrite Assn_combine in Hsat; eauto].
+    apply rule_p_assn; intros (_ & Hprem).
+    eapply rule_p_conseq.
+    applys (>>mkReduce_cmd_ok_b bid (convertSvals ntrd vals')); try (intros s h; rewrite Assn_combine in *; eauto).
+    { autorewrite with pure; eauto. }
+    + unfold kernelInv; prove_istar_imp; substs; eauto.
+      rewrite sh_spec_env_tup; eauto.
+      rewrite Heq; repeat rewrite <-res_assoc in *.
+      sep_cancel'.
+      rewrites* sh_spec_res_tup in H4.
+      repeat sep_cancel'.
+    + Fixpoint to_shvals {ty} :=
+        match ty return list (vals ty) -> list (list val) with
+        | Skel.TZ | Skel.TBool => fun vals => vals :: nil
+        | Skel.TTup t1 t2 => fun vals => to_shvals (map fst vals) ++ to_shvals (map snd vals)
+        end.
+      exists (to_shvals (arr2CUDA (shvals_last bid))).
+      Lemma to_shvals_length ty (vs : list (vals ty)) :
+        length (to_shvals vs) = nleaf ty.
+      Proof.
+        induction ty; simpl; eauto.
+        rewrite app_length; congruence.
+      Qed.
+      
+      split; [unfold arr2CUDA, shvals_last; rewrite !to_shvals_length; autorewrite with pure|].
+      rewrite sh_decl_length; unfold Apure; eauto.
+      fold_sat; revert s h H1; prove_imp.
+      rewrite Heq in *; repeat rewrite <-res_assoc in *.
+      repeat sep_cancel'.
+      
+      Lemma sh_spec_res_tup' n ty pref st (locs : vals ty) (vals : list (vals ty)):
+        sh_spec_res (sh_decl n ty pref st) (flatTup locs) (to_shvals vals) ==
+        arrays (val2sh locs) vals 1.
+      Proof.
+        unfold sh_decl; revert st; induction ty; simpl; intros.
+        - rewrite arrays_TB, emp_unit_r_res; reflexivity.
+        - rewrite arrays_TZ, emp_unit_r_res; reflexivity.
+        - rewrite sh_spec_res_app.
+          rewrite IHty1.
+          rewrite IHty2.
+          rewrite arrays_TTup; reflexivity.
+          autorewrite with pure; rewrite to_shvals_length; eauto.
+          autorewrite with pure; eauto.
+      Qed.
+      
+      rewrite sh_spec_res_tup'; eauto.
+      
+      Lemma sh_spec_pure_tup' n ty pref st (vs : list (vals ty)) :
+        length vs = n
+        -> sh_spec_pure (sh_decl n ty pref st) (to_shvals vs).
+      Proof.
+        revert st; unfold sh_decl; induction ty; simpl; eauto.
+        intros.
+        rewrite sh_spec_pure_app.
+        2: autorewrite with pure; rewrite to_shvals_length; eauto.
+        split; [apply IHty1|apply IHty2]; rewrite map_length; eauto.
+      Qed.
+      apply sh_spec_pure_tup'.
+      unfold arr2CUDA, shvals_last; rewrite map_length; autorewrite with pure; eauto.
+  - intros s h H; rewrite Heq'; revert s h H.
+    prove_istar_imp.
+    simpl_nested_istar.
+    rewrite CodeGen.array'_ok in H.
+    rewrite <-Heq' in *; eauto.
+    unfold dist_outs, arr2CUDA; rewrite map_length; autorewrite with pure; intros; nia.
+  - intros; rewrite MyVector.init_spec.
+    apply inde_assn_vars.
+    unfold outArr, len, name_of_len.
+    prove_low_expr; intros Hc; des_disj Hc; eauto; try congruence; substs.
+    forwards* H': mpss_in; forwards* (H'' & ? & ?): (>>locals_pref H'); substs; inverts H.
+    forwards* H': mpss_in; forwards* (H'' & ? & ?): (>>locals_pref H'); substs; inverts H.
+    forwards*: aenv_ok_params; simpl in *; congruence.
+    forwards*: aenv_ok_params; simpl in *; congruence.
+  - intros; rewrite MyVector.init_spec.
+    unfold E; prove_low_assn.
+  - intros; rewrite MyVector.init_spec; unfold kernelInv. 
+    apply has_no_vars_assn.
+  - unfold E.
+    Lemma sh_decl_map n ty pref st:
+      map SD_var (sh_decl n ty pref st) = flatTup (locals pref ty st).
+    Proof.
+      revert st; unfold sh_decl; induction ty; simpl; eauto.
+      introv; rewrite map_app; congruence.
+    Qed.      
+    intros ? Hin; rewrite sh_decl_map in Hin; apply locals_pref in Hin as (? & ? & ?);
+    substs; simpl; eauto.
+  - rewrite sh_decl_map; apply locals_disjoint_ls.
+Qed.    
 End mkReduce.
