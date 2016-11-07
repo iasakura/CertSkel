@@ -1,4 +1,4 @@
-Require Import Monad SkelLib Computation ZArith TypedTerm Program.
+Require Import List MyList Monad SkelLib Computation ZArith TypedTerm Program LibTactics Psatz.
 Open Scope Z_scope.
 
 Definition min_idx (arr : list Z) : comp (list (Z * Z))
@@ -7,13 +7,53 @@ Definition min_idx (arr : list Z) : comp (list (Z * Z))
                       then ret x else ret y)
           (zip arr (seq 0 (len arr))).
 
+Lemma mapM_evaltoSome A B (f : A -> comp B) (xs : list A) :
+  (forall i d, (i < length xs)%nat -> exists v, f (nth i xs d) = Some v) ->
+  exists ys, mapM f xs = Some ys.
+Proof.
+  induction xs; intros H; simpl.
+  - exists (@nil B); eauto.
+  - forwards* (vs & ?): IHxs.
+    intros; forwards* (? & ?): (H (S i) d); eauto; try lia.
+    forwards* (v & ?): (H 0)%nat; try lia.
+    exists (v :: vs); simpl; eauto.
+    unfold mapM in *; simpl.
+    rewrite H1, H0; simpl.
+    eauto.
+Qed.
+
 Lemma zip_seq (arr : list Z) :
   ret (zip arr (seq 0 (len arr))) =
   gen (fun i => do! x := nth_error arr i in ret (x, i)) (len arr).
-Admitted.
+Proof.
+  unfold gen, ret, zip; simpl.
+  forwards* (? & ?): (>> mapM_evaltoSome (fun i : Z => do!x := nth_error arr i in Some (x, i)) (seq 0 (len arr))).
+  intros; simpl.
+  rewrites (>>nth_error_some' d).
+  unfold len; rewrite seq_nth, Nat2Z.id; destruct lt_dec.
+  lia.
+  unfold len in *; rewrite seq_length, Nat2Z.id in *; lia.
+  eexists; reflexivity.
+  rewrite H; f_equal.
+  applys (>>eq_from_nth (0, 0)%Z).
+  - forwards*: mapM_length.
+    unfold len in *; rewrite combine_length, seq_length, Nat2Z.id, min_l in *; eauto.
+  - introv; unfold len in *; rewrite combine_length, seq_length, Nat2Z.id, min_l in *; eauto; intros.
+    forwards*: (>>mapM_some i 0 (0,0)%Z).
+    rewrite combine_nth, seq_nth in *.
+    2: rewrite seq_length, Nat2Z.id; auto.
+    rewrite seq_length, Nat2Z.id in *; auto.
+    unfold nth_error, Z_to_nat_error in *.
+    destruct lt_dec; try lia.
+    destruct Z_le_dec; try lia.
+    unfold ret, bind in *; simpl in *; unfold bind_opt in *.
+    rewrites (>>nth_error_some 0%Z) in H1.
+    rewrite Nat2Z.id; lia.
+    rewrite Nat2Z.id in *; congruence.
+Qed.
 
-Definition min_idx_IR:  {p : Skel.AS (Skel.TZ :: nil) (Skel.TTup Skel.TZ Skel.TZ) |
-      equiv1 p (min_idx)}.
+Definition min_idx_IR:
+  {p : Skel.AS (Skel.TZ :: nil) (Skel.TTup Skel.TZ Skel.TZ) | equiv1 p (min_idx)}.
 Proof.
   unfold min_idx.
 
