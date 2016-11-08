@@ -622,7 +622,7 @@ Proof.
        rewrite !Qred_correct.
        reflexivity. }
      rewrite Qcmult_plus_distr_l, Qcmult_1_l; eauto; simpl.
-     rewrite arrays_p_star, IHnt; [|subst nt'; unfold injZ in *; injZ_simplify; Qc_to_Q; eauto; pose proof (inject_Z_n_ge0 nt); try lra..|].
+     rewrite arrays_p_star, IHnt; [|clear IHnt; subst nt'; unfold injZ in *; injZ_simplify; Qc_to_Q; eauto; pose proof (inject_Z_n_ge0 nt); try lra..|].
      rewrite res_comm; reflexivity.
      assert (0 <= inject_Z (Zn nt) * this)%Q by (apply Qmult_le_0_compat; lra_Qc).
      lra.
@@ -724,7 +724,7 @@ Proof.
 Qed.
 
 Program Instance list_set_setoid T : Setoid (list T) :=
-  {| equiv := equiv_list_set T;
+  {| SetoidClass.equiv := equiv_list_set T;
      setoid_equiv := equiv_list_set_equiv T |}.
 
 Instance In_proper T x : Proper (equiv_list_set T ==> iff) (In x).
@@ -869,8 +869,8 @@ Proof.
   intros Hp ? ? Hsat; rewrites (>>arrays_unfold i_n); [rewrite* length_set_nth|].
   rewrite nth_set_nth.
   forwards*: H3.
-  destruct Nat.eq_dec; try lia.
-  destruct lt_dec; try lia.
+  destruct Nat.eq_dec; try (clear Hsat; false; lia).
+  destruct lt_dec; try (clear Hsat; false; lia).
   rewrite <-!res_assoc, res_CA; substs; eauto.
   intros Hp ? ? Hsat.
   lets* Hsat': (>> H4 Hsat).
@@ -902,13 +902,13 @@ Proof.
   intros Hp ? ? Hsat.
   forwards*: H3.
   rewrite (arrays'_unfold _ i).
-  2: rewrite ith_vals_length, length_set_nth; lia.
+  2: rewrite ith_vals_length, length_set_nth; (clear Hsat; lia).
   rewrite (nth_skip _ defval).
-  destruct Nat.eq_dec; try lia.
-  rewrite length_set_nth; destruct lt_dec; [|lia].
+  destruct Nat.eq_dec; try (clear Hsat; lia).
+  rewrite length_set_nth; destruct lt_dec; [|clear Hsat; lia].
   rewrite nth_set_nth.
-  destruct Nat.eq_dec; try lia.
-  destruct lt_dec; try lia.
+  destruct Nat.eq_dec; try (clear Hsat; lia).
+  destruct lt_dec; try (clear Hsat; lia).
   rewrite <-!res_assoc, res_CA; substs; eauto.
   
   intros Hp s h Hsat.

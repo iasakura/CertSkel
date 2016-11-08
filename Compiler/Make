@@ -10,3 +10,4 @@ GPUVeLib/CSLTactics.v
 GPUVeLib/CodeGen.v 
 GPUVeLib/Skel_lemma.v
 Skeletons/mkMap.v
+Skeletons/mkReduce.v

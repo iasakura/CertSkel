@@ -1,4 +1,4 @@
-Require Import SetoidClass.
+Require Import SetoidClass Omega.
 
 Require Import Lang PHeap MyList CSL assertions assertion_lemmas VCG Qcanon array_dist.
 

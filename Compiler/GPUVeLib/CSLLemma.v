@@ -399,7 +399,7 @@ Qed.
 Lemma QcplusQ p q : (this (p + q)%Qc == this p + this q)%Q.
 Proof.
   unfold "+"%Qc.
-  unfold "!!"%Qc.
+  unfold Q2Qc.
   rewrite this_id.
   apply Qred_correct.
 Qed.
@@ -657,7 +657,7 @@ Proof.
   Focus 2.
   { intros Hp s h Hres.
     apply H1 in Hres.
-    fold_sat_in Hres; rewrites* (array_unfold i arr) in Hres; simpl in Hres.
+    rewrites* (array_unfold i arr) in Hres; simpl in Hres.
     repeat rewrite <-res_assoc in *.
     subst; unfold sat in *; sep_cancel; eauto.
     rewrite res_CA in Hres.
@@ -1495,7 +1495,7 @@ Ltac injZ_simplify :=
 Lemma QcmultQ p q : (this (p * q)%Qc == this p * this q)%Q.
 Proof.
   unfold "*"%Qc.
-  unfold "!!"%Qc.
+  unfold Q2Qc.
   rewrite this_id.
   apply Qred_correct.
 Qed.
@@ -1532,7 +1532,7 @@ Ltac Qc_to_Q :=
     repeat (try rewrite this_inv in *; try rewrite Qred_correct in *)
   end.
 
-     rewrite array_p_star, IHnt; [|subst nt'; unfold injZ in *; injZ_simplify; Qc_to_Q; eauto; pose proof (inject_Z_n_ge0 nt); try lra..|].
+     rewrite array_p_star, IHnt; [|clear IHnt; subst nt'; unfold injZ in *; injZ_simplify; Qc_to_Q; eauto; pose proof (inject_Z_n_ge0 nt); try lra..|].
      rewrite res_comm; reflexivity.
      assert (0 <= inject_Z (Zn nt) * this)%Q by (apply Qmult_le_0_compat; lra_Qc).
      lra.

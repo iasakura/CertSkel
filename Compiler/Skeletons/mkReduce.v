@@ -7,137 +7,6 @@ Require Import Skel_lemma CodeGen CUDALib Correctness Grid CSLTactics CSLLemma.
 Notation fin_star n f :=
   (istar (ls_init 0 n f)).
 
-Section mkReduce.
-
-Variable typ : Skel.Typ.
-
-Variable ntrd nblk : nat.
-Variable e_b : nat.
-
-Hypothesis ntrd_neq_0: ntrd <> 0.
-Hypothesis nblk_neq_0: nblk <> 0.
-
-Hypothesis max_th_size : ntrd <= 2 ^ e_b.
-Hypothesis eb_neq_0 : e_b <> 0.
-
-Variable GA : list Skel.Typ.
-Variable avar_env : AVarEnv GA.
-Variable aptr_env : APtrEnv GA.
-Variable aeval_env : AEvalEnv GA.
-Notation kinv R P E p := (kernelInv avar_env aptr_env aeval_env R P E p).
-Hypothesis Haok : aenv_ok avar_env.
-Notation p := (RP (ntrd * nblk)).
-
-Variable arr : Skel.AE GA typ.
-Variable arr_c : var -> (cmd * vars typ).
-Hypothesis arr_ok : ae_ok avar_env arr arr_c.
-
-Variable func : Skel.Func GA (Skel.Fun2 typ typ typ).
-Variable func_c : vars typ -> vars typ -> (cmd * vars typ).
-Hypothesis f_ok : func_ok avar_env func func_c.
-
-Variable f_tot : Skel.typDenote typ -> Skel.typDenote typ -> Skel.typDenote typ.
-Infix "\op" := f_tot (at level 50, left associativity).
-
-Hypothesis f_total :
-  forall x y, Skel.funcDenote _ _ func aeval_env x y = Some (x \op y).
-
-Hypothesis f_comm : 
-  forall x y, x \op y = y \op x.
-Hypothesis f_assoc :
-  forall x y z, x \op y \op z = x \op (y \op z).
-
-Variable result : Skel.aTypDenote typ.
-Hypothesis eval_reduce_ok :
-  Skel.skelDenote _ _ (Skel.Reduce _ _ func arr) aeval_env = Some result.
-
-Variable outp : vals typ.
-Variable outs : list (vals typ).
-Hypothesis outs_length : length (outs) = nblk + 0.
-Notation sarr := (locals "_sarr" typ 0).
-
-Definition outArr ty := locals "_arrOut" ty 0.
-Notation out := (outArr typ).
-Notation len := inp_len_name.
-Definition dist_outs i := i * ntrd.
-
-Lemma eval_arr_ok :
-  { arr_res | Skel.aeDenote _ _ arr aeval_env = Some arr_res}.
-Proof.
-  simpl in *; unfold Monad.bind_opt in *.
-  destruct Skel.aeDenote; simpl in *; inverts eval_reduce_ok; eexists; eauto.
-Qed.
-
-Definition arr_res : Skel.aTypDenote typ := let (a, _) := eval_arr_ok in a.
-
-Definition eval_arr_ok' : Skel.aeDenote _ _ arr aeval_env = Some arr_res.
-Proof.
-  unfold arr_res; destruct eval_arr_ok; eauto.
-Qed.
-
-Hint Resolve eval_arr_ok' : pure_lemma.
-
-Notation xs := (locals "xs" typ 0).
-Notation ys := (locals "ys" typ 0).
-Notation zs := (locals "zs" typ 0).
-Notation t := (locals "t" typ 0).
-
-Notation g := (fun x => gets' arr_res x).
-
-Definition reduce_body n s :=
-  (Cbarrier (n - 1) ;;
-   Cif (Band ("tid" +C Zn s <C "slen") ("tid" <C Zn s)) (
-     reads xs (ty2ctys typ) (v2sh sarr +os ("tid" +C Zn s)) ;;
-     assigns_call2 zs func_c ys xs ;;
-     assigns ys (ty2ctys typ) (v2e zs) ;;
-     writes (v2sh sarr +os "tid") (v2e ys)
-   ) Cskip
-  )%exp.
-
-Definition st n := 2 ^ (e_b - n).
-
-Fixpoint reduce_aux t m :=
-  match m with
-  | O => Cskip    
-  | S m =>
-    reduce_body t (st t) ;; reduce_aux (S t) m 
-  end.
-
-Definition reduceBlock := reduce_aux 1 e_b.
-
-Definition seq_reduce inv :=
-  assigns ys (ty2ctys typ) (vals2es defval) ;;
-  writes (v2sh sarr +os "tid") (vals2es defval) ;;
-  "ix" :T Int ::= ("tid" +C "bid" *C Zn ntrd) ;;
-  Cif ("ix" <C len) (
-    assigns_get ys arr_c "ix" ;;
-    "ix" ::= "ix" +C Zn ntrd *C Zn nblk ;;
-    WhileI inv ("ix" < len) (
-      assigns_get xs arr_c "ix" ;;
-      assigns_call2 zs func_c ys xs ;;
-      assigns ys (ty2ctys typ) (v2e zs) ;;
-      "ix" ::= "ix" +C Zn ntrd *C Zn nblk
-    );;
-    writes (v2sh sarr +os "tid") (v2e ys)
-  ) Cskip.
-
-Definition setToLen :=
-  Cif (len <C "bid" *C Zn ntrd) (
-    "slen" :T Int ::= 0%Z 
-  ) (Cif (len <C ("bid" +C 1%Z) *C Zn ntrd) (
-    "slen" :T Int ::= len -C "bid" *C Zn ntrd 
-  ) (
-    "slen" :T Int ::= Zn ntrd
-  )).
-
-Definition mkReduce_cmd :=
-  seq_reduce FalseP ;;
-  setToLen ;;
-  reduceBlock ;;
-  Cif ("tid" == 0%Z) (
-    writes (v2gl out +os "bid") (v2e ys) 
-  ) Cskip.
-
 Section Sum_of.
   Variable T : Type.
   Variable op : T -> T -> T.
@@ -311,6 +180,137 @@ Section Sum_of.
     cutrewrite (0 = 0 * skip); [|omega]; apply skip_sum_opt_sum.
   Qed.
 End Sum_of.
+
+Section mkReduce.
+
+Variable typ : Skel.Typ.
+
+Variable ntrd nblk : nat.
+Variable e_b : nat.
+
+Hypothesis ntrd_neq_0: ntrd <> 0.
+Hypothesis nblk_neq_0: nblk <> 0.
+
+Hypothesis max_th_size : ntrd <= 2 ^ e_b.
+Hypothesis eb_neq_0 : e_b <> 0.
+
+Variable GA : list Skel.Typ.
+Variable avar_env : AVarEnv GA.
+Variable aptr_env : APtrEnv GA.
+Variable aeval_env : AEvalEnv GA.
+Notation kinv R P E p := (kernelInv avar_env aptr_env aeval_env R P E p).
+Hypothesis Haok : aenv_ok avar_env.
+Notation p := (RP (ntrd * nblk)).
+
+Variable arr : Skel.AE GA typ.
+Variable arr_c : var -> (cmd * vars typ).
+Hypothesis arr_ok : ae_ok avar_env arr arr_c.
+
+Variable func : Skel.Func GA (Skel.Fun2 typ typ typ).
+Variable func_c : vars typ -> vars typ -> (cmd * vars typ).
+Hypothesis f_ok : func_ok avar_env func func_c.
+
+Variable f_tot : Skel.typDenote typ -> Skel.typDenote typ -> Skel.typDenote typ.
+Infix "\op" := f_tot (at level 50, left associativity).
+
+Hypothesis f_total :
+  forall x y, Skel.funcDenote _ _ func aeval_env x y = Some (x \op y).
+
+Hypothesis f_comm : 
+  forall x y, x \op y = y \op x.
+Hypothesis f_assoc :
+  forall x y z, x \op y \op z = x \op (y \op z).
+
+Variable result : Skel.aTypDenote typ.
+Hypothesis eval_reduce_ok :
+  Skel.skelDenote _ _ (Skel.Reduce _ _ func arr) aeval_env = Some result.
+
+Variable outp : vals typ.
+Variable outs : list (vals typ).
+Hypothesis outs_length : length (outs) = nblk + 0.
+Notation sarr := (locals "_sarr" typ 0).
+
+Definition outArr ty := locals "_arrOut" ty 0.
+Notation out := (outArr typ).
+Notation len := inp_len_name.
+Definition dist_outs i := i * ntrd.
+
+Lemma eval_arr_ok :
+  { arr_res | Skel.aeDenote _ _ arr aeval_env = Some arr_res}.
+Proof.
+  simpl in *; unfold Monad.bind_opt in *.
+  destruct Skel.aeDenote; simpl in *; inverts eval_reduce_ok; eexists; eauto.
+Qed.
+
+Definition arr_res : Skel.aTypDenote typ := let (a, _) := eval_arr_ok in a.
+
+Definition eval_arr_ok' : Skel.aeDenote _ _ arr aeval_env = Some arr_res.
+Proof.
+  unfold arr_res; destruct eval_arr_ok; eauto.
+Qed.
+
+Hint Resolve eval_arr_ok' : pure_lemma.
+
+Notation xs := (locals "xs" typ 0).
+Notation ys := (locals "ys" typ 0).
+Notation zs := (locals "zs" typ 0).
+Notation t := (locals "t" typ 0).
+
+Notation g := (fun x => gets' arr_res x).
+
+Definition reduce_body n s :=
+  (Cbarrier (n - 1) ;;
+   Cif (Band ("tid" +C Zn s <C "slen") ("tid" <C Zn s)) (
+     reads xs (ty2ctys typ) (v2sh sarr +os ("tid" +C Zn s)) ;;
+     assigns_call2 zs func_c ys xs ;;
+     assigns ys (ty2ctys typ) (v2e zs) ;;
+     writes (v2sh sarr +os "tid") (v2e ys)
+   ) Cskip
+  )%exp.
+
+Definition st n := 2 ^ (e_b - n).
+
+Fixpoint reduce_aux t m :=
+  match m with
+  | O => Cskip    
+  | S m =>
+    reduce_body t (st t) ;; reduce_aux (S t) m 
+  end.
+
+Definition reduceBlock := reduce_aux 1 e_b.
+
+Definition seq_reduce inv :=
+  assigns ys (ty2ctys typ) (vals2es defval) ;;
+  writes (v2sh sarr +os "tid") (vals2es defval) ;;
+  "ix" :T Int ::= ("tid" +C "bid" *C Zn ntrd) ;;
+  Cif ("ix" <C len) (
+    assigns_get ys arr_c "ix" ;;
+    "ix" ::= "ix" +C Zn ntrd *C Zn nblk ;;
+    WhileI inv ("ix" < len) (
+      assigns_get xs arr_c "ix" ;;
+      assigns_call2 zs func_c ys xs ;;
+      assigns ys (ty2ctys typ) (v2e zs) ;;
+      "ix" ::= "ix" +C Zn ntrd *C Zn nblk
+    );;
+    writes (v2sh sarr +os "tid") (v2e ys)
+  ) Cskip.
+
+Definition setToLen :=
+  Cif (len <C "bid" *C Zn ntrd) (
+    "slen" :T Int ::= 0%Z 
+  ) (Cif (len <C ("bid" +C 1%Z) *C Zn ntrd) (
+    "slen" :T Int ::= len -C "bid" *C Zn ntrd 
+  ) (
+    "slen" :T Int ::= Zn ntrd
+  )).
+
+Definition mkReduce_cmd :=
+  seq_reduce FalseP ;;
+  setToLen ;;
+  reduceBlock ;;
+  Cif ("tid" == 0%Z) (
+    writes (v2gl out +os "bid") (v2e ys) 
+  ) Cskip.
 
 Section blockReduce.
 Variable tid : Fin.t ntrd.
@@ -1203,6 +1203,52 @@ Lemma sh_decl_length n ty pref st:
   length (sh_decl n ty pref st) = nleaf ty.
 Proof. unfold sh_decl; apply sh_decl_length_aux. Qed.
 
+Fixpoint to_shvals {ty} :=
+  match ty return list (vals ty) -> list (list val) with
+  | Skel.TZ | Skel.TBool => fun vals => vals :: nil
+  | Skel.TTup t1 t2 => fun vals => to_shvals (map fst vals) ++ to_shvals (map snd vals)
+  end.
+
+Lemma to_shvals_length ty (vs : list (vals ty)) :
+  length (to_shvals vs) = nleaf ty.
+Proof.
+  induction ty; simpl; eauto.
+  rewrite app_length; congruence.
+Qed.
+
+Lemma sh_spec_res_tup' n ty pref st (locs : vals ty) (vals : list (vals ty)):
+  sh_spec_res (sh_decl n ty pref st) (flatTup locs) (to_shvals vals) ==
+  arrays (val2sh locs) vals 1.
+Proof.
+  unfold sh_decl; revert st; induction ty; simpl; intros.
+  - rewrite arrays_TB, emp_unit_r_res; reflexivity.
+  - rewrite arrays_TZ, emp_unit_r_res; reflexivity.
+  - rewrite sh_spec_res_app.
+    rewrite IHty1.
+    rewrite IHty2.
+    rewrite arrays_TTup; reflexivity.
+    autorewrite with pure; rewrite to_shvals_length; eauto.
+    autorewrite with pure; eauto.
+Qed.
+      
+Lemma sh_spec_pure_tup' n ty pref st (vs : list (vals ty)) :
+  length vs = n
+  -> sh_spec_pure (sh_decl n ty pref st) (to_shvals vs).
+Proof.
+  revert st; unfold sh_decl; induction ty; simpl; eauto.
+  intros.
+  rewrite sh_spec_pure_app.
+  2: autorewrite with pure; rewrite to_shvals_length; eauto.
+  split; [apply IHty1|apply IHty2]; rewrite map_length; eauto.
+Qed.
+
+Lemma sh_decl_map n ty pref st:
+  map SD_var (sh_decl n ty pref st) = flatTup (locals pref ty st).
+Proof.
+  revert st; unfold sh_decl; induction ty; simpl; eauto.
+  introv; rewrite map_app; congruence.
+Qed.      
+
 Theorem mkReduce_ok :
   CSLg ntrd nblk
     (kinv
@@ -1248,52 +1294,15 @@ Proof.
       sep_cancel'.
       rewrites* sh_spec_res_tup in H4.
       repeat sep_cancel'.
-    + Fixpoint to_shvals {ty} :=
-        match ty return list (vals ty) -> list (list val) with
-        | Skel.TZ | Skel.TBool => fun vals => vals :: nil
-        | Skel.TTup t1 t2 => fun vals => to_shvals (map fst vals) ++ to_shvals (map snd vals)
-        end.
-      exists (to_shvals (arr2CUDA (shvals_last bid))).
-      Lemma to_shvals_length ty (vs : list (vals ty)) :
-        length (to_shvals vs) = nleaf ty.
-      Proof.
-        induction ty; simpl; eauto.
-        rewrite app_length; congruence.
-      Qed.
-      
+    + exists (to_shvals (arr2CUDA (shvals_last bid))).
       split; [unfold arr2CUDA, shvals_last; rewrite !to_shvals_length; autorewrite with pure|].
       rewrite sh_decl_length; unfold Apure; eauto.
       fold_sat; revert s h H1; prove_imp.
       rewrite Heq in *; repeat rewrite <-res_assoc in *.
       repeat sep_cancel'.
       
-      Lemma sh_spec_res_tup' n ty pref st (locs : vals ty) (vals : list (vals ty)):
-        sh_spec_res (sh_decl n ty pref st) (flatTup locs) (to_shvals vals) ==
-        arrays (val2sh locs) vals 1.
-      Proof.
-        unfold sh_decl; revert st; induction ty; simpl; intros.
-        - rewrite arrays_TB, emp_unit_r_res; reflexivity.
-        - rewrite arrays_TZ, emp_unit_r_res; reflexivity.
-        - rewrite sh_spec_res_app.
-          rewrite IHty1.
-          rewrite IHty2.
-          rewrite arrays_TTup; reflexivity.
-          autorewrite with pure; rewrite to_shvals_length; eauto.
-          autorewrite with pure; eauto.
-      Qed.
-      
       rewrite sh_spec_res_tup'; eauto.
       
-      Lemma sh_spec_pure_tup' n ty pref st (vs : list (vals ty)) :
-        length vs = n
-        -> sh_spec_pure (sh_decl n ty pref st) (to_shvals vs).
-      Proof.
-        revert st; unfold sh_decl; induction ty; simpl; eauto.
-        intros.
-        rewrite sh_spec_pure_app.
-        2: autorewrite with pure; rewrite to_shvals_length; eauto.
-        split; [apply IHty1|apply IHty2]; rewrite map_length; eauto.
-      Qed.
       apply sh_spec_pure_tup'.
       unfold arr2CUDA, shvals_last; rewrite map_length; autorewrite with pure; eauto.
   - intros s h H; rewrite Heq'; revert s h H.
@@ -1315,14 +1324,8 @@ Proof.
   - intros; rewrite MyVector.init_spec; unfold kernelInv. 
     apply has_no_vars_assn.
   - unfold E.
-    Lemma sh_decl_map n ty pref st:
-      map SD_var (sh_decl n ty pref st) = flatTup (locals pref ty st).
-    Proof.
-      revert st; unfold sh_decl; induction ty; simpl; eauto.
-      introv; rewrite map_app; congruence.
-    Qed.      
     intros ? Hin; rewrite sh_decl_map in Hin; apply locals_pref in Hin as (? & ? & ?);
     substs; simpl; eauto.
   - rewrite sh_decl_map; apply locals_disjoint_ls.
-Qed.    
+Qed.
 End mkReduce.

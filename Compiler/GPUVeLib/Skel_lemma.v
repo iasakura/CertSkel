@@ -774,7 +774,7 @@ Proof.
   intros s Hix0 Hix1 stc.
   revert ix Hix0 s Hix1; induction n; [intros; simpl; try omega|]; intros ix Hix0 s Hix1.
   cutrewrite (S n - ix - 1 = n - ix); [|omega].
-  assert (i < nt) by (subst; apply mod_bound_pos; omega).
+  assert (i < nt) by (subst; apply Nat.mod_bound_pos; omega).
   simpl; rewrite nth_add_nth; [|rewrite distribute_tup_length; eauto..].
   destruct (beq_nat _ _) eqn:Heq;
     [rewrite beq_nat_true_iff in Heq | rewrite beq_nat_false_iff in Heq].

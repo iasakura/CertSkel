@@ -351,7 +351,7 @@ Module PLang.
       destruct (eq_dec x x); try congruence.
       rewrite have1 in *.
       destruct (phF x) as [[pF vF]|]; intuition.
-      + apply Qcle_minus_iff in H8.
+      + apply (Qcle_minus_iff (full_p + pF) 1) in H8.
         cutrewrite (1 + -(full_p + pF) = -pF) in H8; [|unfold full_p; field].
         apply Qcopp_le_compat in H8; ring_simplify in H8.
         apply Qcle_not_lt in H8; tauto.
@@ -559,7 +559,7 @@ Module BigStep.
     - inversion IH; subst; unfold access_ok, write_ok in *; simpl in *. 
       pose proof (IHred eq_refl eq_refl aok wok _ H1).
       econstructor; eauto.
-    - apply eval_If2; eauto.
+    (* - apply eval_If2; eauto. *)
     - eapply eval_Assign; eauto.
       inversion IH; subst; eauto.
     - unfold access_ok in *; simpl in *; destruct aok as [[q v'] h].
@@ -634,7 +634,7 @@ Module BigStep.
         * eapply eval_Seq2; eauto.
           eapply red1_eval; eauto.
           apply (@redp_ster _ _ (s, h) (s', h') (s, ph) (s', ph') s s' ph ph' phF h h'); eauto.
-      + apply eval_If2; eauto.
+      (* + apply eval_If2; eauto. *)
       + inversion IH.
       + inversion IH.
       + inversion IH.

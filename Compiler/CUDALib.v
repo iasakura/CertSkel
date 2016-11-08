@@ -121,11 +121,14 @@ Fixpoint ty2ctys ty :=
   | Skel.TTup t1 t2 => (ty2ctys t1, ty2ctys t2)
   end.
 
-Fixpoint flatTup {ty : Skel.Typ} {T : Type} :=
+Definition flatTup : forall {ty : Skel.Typ} {T : Type}, typ2Coq T ty -> list T. 
+  refine ((fix flatTup (ty : Skel.Typ) (T : Type) := 
   match ty return typ2Coq T ty -> list T with
   | Skel.TBool | Skel.TZ => fun x => x :: nil
-  | Skel.TTup _ _ => fun xs => flatTup (fst xs) ++ flatTup (snd xs)
-  end.
+  | Skel.TTup _ _ => fun xs => _
+  end)).
+  refine (flatTup _ _ (fst xs) ++ flatTup _ _ (snd xs)).
+Defined.
 
 Fixpoint locals pref ty i : vars ty :=
   match ty return vars ty with
@@ -219,7 +222,7 @@ Fixpoint flatten_avars {GA : list Skel.Typ}
          (xs : hlist (fun ty => (var * CTyp * vartys ty)%type) GA) :=
   match xs with
   | HNil => nil
-  | HCons _ _ x xs => 
+  | HCons x xs => 
     let '(x, ty, ls) := x in
     ((x, ty) :: flatTup ls) ++ flatten_avars xs
   end.

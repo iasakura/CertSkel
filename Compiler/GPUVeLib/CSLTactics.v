@@ -214,7 +214,7 @@ Lemma nth_zipWith (A B C : Type) (f : A -> B -> C) xs ys d i d1 d2:
   if Sumbool.sumbool_and _ _ _ _ (lt_dec i (length xs)) (lt_dec i (length ys)) then
     f (nth i xs d1) (nth i ys d2) else d.
 Proof.
-  revert i ys; induction xs; intros [|i] [|? ?]; do 2 destruct lt_dec; simpl in *; eauto; try lia;
+  revert i ys; induction xs; intros [|i] [|? ?]; destruct Sumbool.sumbool_and; simpl in *; eauto; try lia;
   rewrite IHxs; do 2 destruct lt_dec; simpl; eauto; omega.
 Qed.
 
@@ -631,11 +631,11 @@ Ltac apply_read_rule Hle Hv Hn P Res le i :=
       assert (Hres : Res |=R R *** Res'); [sep_auto'|
       assert (Hbnd : P -> i < length arr); [prove_pure|
       applys (>> rule_read_array Hle Hv Hres Hn Hbnd); eauto with pure_lemma]]
-    | array' le (ith_vals ?dist ?arr ?j ?s) _ =>
+    | array' le (ith_vals ?dist ?arr ?j ?s_) _ =>
       idtac "apply read rule: match sarray case.";
       idtac dist i;
       assert (Hres : Res |=R R *** Res'); [sep_auto'|
-      assert (Hbnd : P -> i < length arr /\ dist (s + i) = j); [simpl; prove_pure|
+      assert (Hbnd : P -> i < length arr /\ dist (s_ + i) = j); [simpl; prove_pure|
       applys (>> rule_read_array' Hle Hv Hres Hn Hbnd); eauto with pure_lemma]]
     end in
   let rec iter acc Res :=
@@ -662,10 +662,10 @@ Ltac apply_write_rule Hle Hix He Hn P Res le i :=
       assert (Hres : Res |=R R *** Res'); [sep_auto'|
       assert (Hbnd : P -> i < length arr); [prove_pure|
       applys (>> rule_write_array Hle Hix Hn Hbnd He Hres); eauto with pure_lemma]]
-    | array' le (ith_vals ?dist ?arr ?j ?s) _ =>
+    | array' le (ith_vals ?dist ?arr ?j ?s_) _ =>
       idtac "apply read rule: match sarray case.";
       assert (Hres : Res |=R R *** Res'); [sep_auto'|
-      assert (Hbnd : P -> i < length arr /\ dist (s + i) = j); [prove_pure|
+      assert (Hbnd : P -> i < length arr /\ dist (s_ + i) = j); [prove_pure|
       applys (>> rule_write_array' Hle Hix Hres He Hn Hbnd); eauto with pure_lemma]]
     end in
   let rec iter acc Res :=
@@ -1506,10 +1506,10 @@ Ltac apply_write_rule' Hle Hix He Hn P Res le i :=
       assert (Hres : Res |=R R *** Res'); [sep_auto'|
       assert (Hbnd : P -> i < length arr); [prove_pure|
       applys (>> rule_writes_arrays Hle Hix Hn Hbnd He Hres); eauto with pure_lemma]]
-    | arrays' le (ith_vals ?dist ?arr ?j ?s) _ =>
+    | arrays' le (ith_vals ?dist ?arr ?j ?s_) _ =>
       idtac "apply read rule: match sarray case.";
       assert (Hres : Res |=R R *** Res'); [sep_auto'|
-      assert (Hbnd : P -> i < length arr /\ dist (s + i) = j); [prove_pure|
+      assert (Hbnd : P -> i < length arr /\ dist (s_ + i) = j); [prove_pure|
       applys (>> rule_writes_arrays' Hle Hix He Hn); eauto with pure_lemma]]
     end in
   let rec iter acc Res :=
@@ -1563,11 +1563,11 @@ Ltac apply_read_rule' Hle Hv Hn P Res le i :=
       assert (Hbnd : P -> i < length arr); [prove_pure|
       applys (>> rule_reads_arrays Hle Hv Hres Hn Hbnd);
         (try (now prove_disj)); (try apply locals_disjoint_ls); eauto with pure_lemma]]
-    | arrays' le (ith_vals ?dist ?arr ?j ?s) _ =>
+    | arrays' le (ith_vals ?dist ?arr ?j ?s_) _ =>
       idtac "apply read rule: match sarray case.";
       idtac dist i;
       assert (Hres : P -> Res |=R R *** Res'); [intros Hp; sep_auto'|
-      assert (Hbnd : P -> i < length arr /\ dist (s + i) = j); [simpl; prove_pure|
+      assert (Hbnd : P -> i < length arr /\ dist (s_ + i) = j); [simpl; prove_pure|
       applys (>> rule_reads_arrays' Hle Hv Hres Hn Hbnd); 
         (try (now prove_disj)); (try apply locals_disjoint_ls); eauto with pure_lemma]]
     end in
@@ -1726,7 +1726,7 @@ Lemma div_spec x y :
   exists q r,  x / y = q /\ x = y * q + r /\ r < y.
 Proof.
   intros; exists (x / y) (x mod y); repeat split; eauto.
-  applys* div_mod.
+  applys* Nat.div_mod.
 Qed.
 
 Lemma Zdiv_spec x y :

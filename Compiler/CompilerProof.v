@@ -246,8 +246,8 @@ Fixpoint remove_by_mem {A t} (ls : list A) : member t ls -> list A :=
   | nil => fun m => nil
   | x :: ls => fun m =>
                  match m with
-                 | HFirst _ => fun _ => ls
-                 | HNext _ _ m => fun rec => rec m
+                 | HFirst => fun _ => ls
+                 | HNext m => fun rec => rec m
                  end (remove_by_mem ls)
   end.
 
@@ -756,6 +756,29 @@ Proof.
     reflexivity.
 Qed.
 
+Lemma aname_eval GA (avar_env : AVarEnv GA) (aptr_env : APtrEnv GA) (aeval_env : AEvalEnv GA)
+      ty (m : member ty GA) len aname :
+  hget avar_env m = (len, aname) ->
+  evalLExps (arrInvVar avar_env aptr_env aeval_env) (v2gl aname) (val2gl (hget aptr_env m)).
+Proof.
+  unfold arrInvVar; induction GA;
+  dependent destruction m;
+  dependent destruction avar_env;
+  dependent destruction aptr_env; 
+  dependent destruction aeval_env; simpl; intros; substs.
+  
+  apply evalLExps_gl.
+
+  apply evalExps_vars.
+  repeat rewrite <-app_assoc; simpl.
+  apply incl_cons_ig.
+  apply incl_app_iff; eauto.
+  
+  destruct p; simpl.
+
+  apply evalLExps_cons_ig, evalLExps_app_ig; eauto.
+Qed.
+
 Lemma rule_reads_ainv ntrd BS (tid : Fin.t ntrd) GA GS 
       (svar_env : SVarEnv GS)
       (seval_env : SEvalEnv GS)
@@ -783,7 +806,7 @@ Lemma rule_reads_ainv ntrd BS (tid : Fin.t ntrd) GA GS
                 remove_vars (scInv svar_env seval_env ++ arrInvVar avar_env aptr_env aeval_env) (flatTup xs))).
 Proof.
   intros Hsok Haok Hresok Hget Hnth Hdisj1 Hdisj2 Hdisj3.
-  forwards* (R' & Heq): (>>arrInvRes_unfold aptr_env aeval_env m').
+  lets* (R' & Heq): (arrInvRes_unfold _ aptr_env aeval_env _ m' p).
   eapply forward; [|applys* (>>rule_reads_arrays xs (arr2CUDA (hget aeval_env m')) (Z.to_nat i))].
   prove_imp; simpl;
   try (rewrite remove_vars_cons, !remove_vars_app in *; repeat rewrite in_app_iff in *; eauto).
@@ -793,29 +816,6 @@ Proof.
     zify; rewrite Z2Nat.id; lia.
     rewrites (>>nth_error_ok Hnth); eauto.
   - repeat rewrite in_app_iff in *; eauto.
-Lemma aname_eval GA (avar_env : AVarEnv GA) (aptr_env : APtrEnv GA) (aeval_env : AEvalEnv GA)
-          ty (m : member ty GA) len aname :
-      hget avar_env m = (len, aname) ->
-      evalLExps (arrInvVar avar_env aptr_env aeval_env) (v2gl aname) (val2gl (hget aptr_env m)).
-    Proof.
-      unfold arrInvVar; induction GA;
-      dependent destruction m;
-      dependent destruction avar_env;
-      dependent destruction aptr_env; 
-      dependent destruction aeval_env; simpl; intros; substs.
-      
-      apply evalLExps_gl.
-
-      apply evalExps_vars.
-      repeat rewrite <-app_assoc; simpl.
-      apply incl_cons_ig.
-      apply incl_app_iff; eauto.
-      
-      destruct p; simpl.
-
-      apply evalLExps_cons_ig, evalLExps_app_ig; eauto.
-    Qed.
-
     do 2 apply evalLExps_app_ig.
     applys (>>aname_eval Hget).
   - constructor; simpl.

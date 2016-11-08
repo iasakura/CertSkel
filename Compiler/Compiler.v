@@ -12,6 +12,7 @@ Require Import TypedTerm.
 Require Import CUDALib.
 Require Import Correctness.
 Require Import mkMap.
+Require Import mkReduce.
 
 Open Scope string_scope.
 Definition name := string. 
@@ -143,8 +144,8 @@ Section compiler.
   
   Fixpoint nat_of_member {GS : list Skel.Typ} {ty : Skel.Typ}  (mem : member ty GS) : nat :=
     match mem with
-    | HFirst _ => 0
-    | HNext _ _ m => S (nat_of_member m)
+    | HFirst => 0
+    | HNext m => S (nat_of_member m)
     end.
 
   Definition get_env {T : Type} {GS : list Skel.Typ} {ty : Skel.Typ}
@@ -517,7 +518,7 @@ Section Compiler.
            (start : nat) (xs : hlist B ls) : hlist (fun x => nat * B x)%type ls :=
     match xs with
     | HNil => HNil
-    | HCons _ _ x xs => 
+    | HCons x xs => 
       (start, x) ::: with_idx' (S start) xs
     end.
 
@@ -580,14 +581,6 @@ Section Compiler.
     | Skel.F2 _ _ _ _ body => Skel.F2 _ _ _ _ (shift_sexp_GA newTy body)
     end.
 
-  Parameter mkReduce_cmd : forall typ,
-      nat
-      -> nat
-      -> nat (* # of unrolling *)
-      -> (var -> (cmd * vars typ))
-      -> (vars typ -> vars typ -> cmd * vars typ)
-      -> cmd.
-
   Fixpoint addTyp {ty} :=
     match ty return vars ty -> vartys ty with 
     | Skel.TBool => fun x => (x, Bool)
@@ -605,8 +598,7 @@ Section Compiler.
     let params_in := flatten_avars arr_vars in
     let params_out := (inp_len_name, Int) :: flatTup (out_name typ) in
     {| params_of := params_out ++ params_in;
-       body_of := Grid.Pr (sh_decl ntrd typ)
-                          (mkReduce_cmd typ ntrd nblk (S (log2 ntrd)) g f) |}.
+       body_of := mkReduce_prog typ ntrd nblk (S (log2 ntrd)) g f |}.
 
   Definition compile_reduce {GA typ} ntrd nblk
              (host_var_env : list (hostVar * list hostVar))

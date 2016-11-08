@@ -202,7 +202,7 @@ Proof.
   rewrite Heq; intros.
   forwards*: (>>mapM_some i (@defval' dom)).
   forwards*: mapM_length; eauto.
-  destruct lt_dec; try lia.
+  destruct lt_dec; [|clear H1; lia].
   rewrite H in H1; eauto.
   inverts H1.
   eauto.
