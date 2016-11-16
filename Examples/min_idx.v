@@ -88,11 +88,11 @@ Definition min_idx (arr : list Z) : comp (list (Z * Z))
 Require Import Compiler Ext Extract.
 
 Definition equivIG {GA T} (f_IR : Skel.AS GA T) (p : Host.Prog) := True.
-Definition equivCG {GA T} (f_IR : Skel.typDenote) (p : Host.Prog) := True.
+(* Definition equivCG {GA T} (f_IR : Skel.typDenote) (p : Host.Prog) := True. *)
 
-Definition compileOk GA T (x : Skel.AS GA T) : equivIC x (Compiler.compile_prog 1024 24 x).
+Definition compileOk GA T (x : Skel.AS GA T) : equivIG x (Compiler.compile_prog 1024 24 x).
 Proof.
-  unfold equivIC; eauto.
+  unfold equivIG; eauto.
 Qed.  
   
 Definition min_idx_IR:
@@ -102,7 +102,7 @@ Proof.
   reifyFunc.
 Defined.
 
-Definition res := save_to_file min_idx_CUDA "min_idx.cu".
+Definition res := save_to_file min_idx_IR "min_idx.cu".
 
 Cd "extracted".
 

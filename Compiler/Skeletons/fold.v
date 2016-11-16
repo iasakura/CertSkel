@@ -1167,7 +1167,7 @@ Proof.
         apply precise_ex_star, precise_star; auto.
         eapply precise_sat; [intros stk h [f' Hsat]|].
         { ex_intro (f' s) Hsat; apply Hsat. }
-        apply GCSL.precise_pts.
+        apply Grid.precise_pts.
 Qed.
 
 Lemma precise_binv0_snd bid tid : precise ((snd (binv0 bid))[@tid]).

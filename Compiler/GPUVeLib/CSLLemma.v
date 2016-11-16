@@ -1,4 +1,4 @@
-Require Import GPUCSL scan_lib LibTactics Skel_lemma Psatz Classical GCSL.
+Require Import GPUCSL scan_lib LibTactics Skel_lemma Psatz Classical.
 
 Notation val := Z.
 Arguments Z.add _ _ : simpl never.
