@@ -470,7 +470,7 @@ Section Compiler.
 
   Open Scope list_scope.
 
-  Definition CUDAM := state (nat * (stmt * list kernel)).
+  Definition CUDAM := state (nat * (stmt * GModule)).
   Definition fresh : CUDAM var := 
     do! st := getS in
     let (n, x) := st : (nat * _) in
@@ -492,11 +492,11 @@ Section Compiler.
     do! _ := setI (host_alloc x e) in
     ret x.
 
-  Definition gen_kernel ker : CUDAM kerID :=
+  Definition gen_kernel (ker : kernel) : CUDAM string :=
     do! x := getS in
     let '(n, (is_, kers)) := x in
-    let newID := length kers in
-    do! _ := setS (n, (is_, kers ++ (ker :: nil))) in
+    let newID := ("_ker" ++ nat2str (length kers))%string in
+    do! _ := setS (n, (is_, kers ++ ((newID, Kern ker) :: nil))) in
     ret newID.
 
   Definition mapM {B A M} `{Monad M} (f : A -> M B) (xs : list A) : M (list B) :=
@@ -729,11 +729,11 @@ Section Compiler.
       (toPtr (fst xs), toPtr (snd xs))
     end.
 
-  Definition compile_prog {GA ty} ntrd nblk (p : Skel.AS GA ty) : Host.Prog :=
+  Definition compile_prog {GA ty} ntrd nblk (p : Skel.AS GA ty) : Host.GModule :=
     let ps := gen_params GA in 
     let aenv := remove_typeinfo ps in
     let '(res, (_, (instrs, kers))) := compile_AS ntrd nblk p aenv (0, (host_skip, nil)) in
-    let res := (fst res, flatTup (snd res)) in
+    let res := (fst res :: flatTup (snd res)) in
     let pars := flatten_avars (hmap (fun ty x => ((fst (fst x), Int), toPtr (snd x))) ps) in
-    Build_Prog pars instrs res kers.
+    (kers ++ ("__main", Host (Hf pars instrs res)) :: nil).
 End Compiler.

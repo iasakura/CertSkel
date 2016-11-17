@@ -1,6 +1,7 @@
 Require Import LibTactics GPUCSL Grid Relations MyEnv.
 
-Record kernel := BuildKer { params_of : list (var * CTyp); body_of : program }.
+(* Add kernel name *)
+Record kernel := BuildKer { (* name : string; *) params_of : list (var * CTyp); body_of : program }.
 
 Inductive expr :=
 | VarE (x : var)
@@ -12,13 +13,13 @@ Inductive expr :=
 
 Definition kerID := nat.
 Instance nat_eq : eq_type nat := {|eq_dec := Nat.eq_dec|}.
-Definition hostEnv := Env nat Z _.
 
+(* the syntax of host-side program *)
 Inductive stmt :=
 | host_skip : stmt
 | host_alloc : var -> expr -> stmt
 | host_iLet : var -> expr -> stmt
-| host_invoke : kerID -> nat -> nat -> list expr -> stmt
+| host_invoke : string -> nat -> nat -> list expr -> stmt
 (* runtime expression representing kernel execution *)
 | host_exec_ker : forall ntrd nblk,
     Vector.t (klist ntrd) nblk
@@ -26,15 +27,25 @@ Inductive stmt :=
     -> stmt
 | host_seq : stmt -> stmt -> stmt.
 
-
-Record Prog := {
-  prog_params : list (var * CTyp);
-  prog_stmt : stmt;
-  prog_res : var * list var;
-  prog_kernels : list kernel
+Record hostfun := Hf {
+  host_params : list (var * CTyp);
+  host_stmt : stmt;
+  host_res : list var
 }.
 
-Definition GPUstate := (stack * simple_heap)%type.
+Inductive fd :=
+| Host : hostfun -> fd
+| Kern : kernel -> fd.
+
+Definition fdecl : Type := string * fd. 
+
+(* a program consists of several host/kernel function declarations *)
+Definition GModule := list fdecl.
+
+Record GPUstate := GS {
+  gs_stack : stack;
+  gs_heap : simple_heap
+}.
 
 Definition alloc_heap (start len : nat) : simple_heap :=
   fun i => if Z_le_dec (Z.of_nat start) i then
@@ -42,44 +53,12 @@ Definition alloc_heap (start len : nat) : simple_heap :=
              else None
            else None.
 
-Fixpoint fill_obj (ls : list Z) (s : Z) (h : simple_heap) := 
-  match ls with
-  | nil => Some h
-  | x :: ls =>
-    match h s with
-    | None => None
-    | Some _ =>
-      match fill_obj ls (s + 1) h with
-      | None => None
-      | Some h' => Some (fun i => if eq_dec i s then Some x else h' i)
-      end
-    end
-  end.
-
 Fixpoint bind_params (stk : stack) (xs : list (var * CTyp)) (vs : list Z) : Prop :=
   match xs, vs with
   | nil, nil => True
   | (x, _) :: xs, v :: vs => bind_params stk xs vs /\ stk x = v
   | _, _ => False
   end.
-
-Fixpoint getResFromHeap (p : Z) (n : nat) (gst : simple_heap) : option (list Z) :=
-  match n with
-  | 0 => Some nil
-  | S n => match (getResFromHeap (Z.succ p) n gst) with
-           | None => None
-           | Some vs =>
-             match gst p with
-             | Some v => Some (v :: vs)
-             | None => None
-             end
-           end
-  end.
-
-Section VecNot.
-
-Definition red_g_star nblk ntrd := clos_refl_trans _ (@red_g nblk ntrd).
-Import Vector.VectorNotations.
 
 Definition henv_get (e : stack) (x : var) := e x.
 
@@ -99,6 +78,16 @@ Fixpoint eval_expr (env : stack) (e : expr) : Z :=
   | Sub e1 e2 => Z.sub (eval_expr env e1) (eval_expr env e2)
   end.
 
+Fixpoint func_disp (m : GModule) (name : string) :=
+  match m with
+  | nil => None
+  | (fn, f) :: m => if string_dec name fn then Some f else None
+  end%list.
+
+Section VecNot.
+
+Import Vector.VectorNotations.
+
 Inductive init_GPU (ntrd nblk : nat) : kernel -> list Z
                      -> Vector.t (klist ntrd) nblk
                      -> Vector.t simple_heap nblk
@@ -115,36 +104,31 @@ Inductive init_GPU (ntrd nblk : nat) : kernel -> list Z
     (forall i j v, v <> Var "tid" -> v <> Var "bid" -> snd tst[@j][@i] v = stk v) ->
     init_GPU ntrd nblk ker args tst shp.
 
-Definition kerEnv := list kernel.
-Definition default_kernel := BuildKer nil (Pr nil Cskip).
-
-Definition get_ker (kenv : kerEnv) i :=
-  List.nth_error kenv i.
-
-Fixpoint replace_nth {A : Type} (i : nat) (l : list A) (x : A) :=
-  match i, l with
-  | O, _ :: l => x :: l
-  | S i, y :: l => y :: y :: replace_nth i l x
-  | _, _ => l
-  end%list.
-
-Definition set_henv (henv : hostEnv) i v := upd henv i v.
+(* Fixpoint replace_nth {A : Type} (i : nat) (l : list A) (x : A) := *)
+(*   match i, l with *)
+(*   | O, _ :: l => x :: l *)
+(*   | S i, y :: l => y :: y :: replace_nth i l x *)
+(*   | _, _ => l *)
+(*   end%list. *)
 
 Instance var_eq_type : eq_type var := {|
   eq_dec := var_eq_dec
 |}.
 
-Inductive stmt_exec : kerEnv -> stmt -> GPUstate -> stmt -> GPUstate -> Prop :=
+Inductive stmt_exec : GModule -> stmt -> GPUstate -> stmt -> GPUstate -> Prop :=
 | Exec_alloc kenv (x : var) e (gst : GPUstate) start n :
-    eval_expr (fst gst) e = (Z.of_nat n) ->
-    hdisj (snd gst) (alloc_heap start n) ->
-    stmt_exec kenv (host_alloc x e) gst host_skip (upd (fst gst) x (Z.of_nat start), hplus (snd gst) (alloc_heap start n))
+    eval_expr (gs_stack gst) e = (Z.of_nat n) ->
+    hdisj (gs_heap gst) (alloc_heap start n) ->
+    stmt_exec kenv (host_alloc x e) gst
+              host_skip (GS (upd (gs_stack gst) x (Z.of_nat start))
+                            (hplus (gs_heap gst) (alloc_heap start n)))
 | Exec_iLet kenv x e (gst : GPUstate) n :
-    eval_expr (fst gst) e = n ->
-    stmt_exec kenv (host_iLet x e) gst host_skip (upd (fst gst) x n, snd gst)
+    eval_expr (gs_stack gst) e = n ->
+    stmt_exec kenv (host_iLet x e) gst
+              host_skip (GS (upd (gs_stack gst) x n) (gs_heap gst))
 | Exec_invoke ntrd nblk kenv tst shp kerID ker args vs gst :
-    List.Forall2 (fun a v => eval_expr (fst gst) a = v) args vs ->
-    get_ker kenv kerID = Some ker ->
+    List.Forall2 (fun a v => eval_expr (gs_stack gst) a = v) args vs ->
+    func_disp kenv kerID = Some (Kern ker) ->
     init_GPU ntrd nblk ker vs tst shp ->
     stmt_exec kenv
               (host_invoke kerID ntrd nblk args) gst
@@ -152,13 +136,13 @@ Inductive stmt_exec : kerEnv -> stmt -> GPUstate -> stmt -> GPUstate -> Prop :=
 | Exec_invoke_step kenv ntrd nblk tst tst' shp shp' s h h' :
     red_g (Gs tst shp h)  (Gs tst' shp' h') ->
     stmt_exec kenv
-              (host_exec_ker ntrd nblk tst shp) (s, h)
-              (host_exec_ker ntrd nblk tst' shp') (s, h')
+              (host_exec_ker ntrd nblk tst shp) (GS s h)
+              (host_exec_ker ntrd nblk tst' shp') (GS s h')
 | Exec_invoke_end kenv ntrd nblk tst shp s h :
     (forall i j, fst tst[@j][@i] = Cskip) ->
     stmt_exec kenv
-              (host_exec_ker ntrd nblk tst shp) (s, h)
-              (host_skip) (s, h)
+              (host_exec_ker ntrd nblk tst shp) (GS s h)
+              (host_skip) (GS s h)
 | Exec_seq1 kenv s1 s2 s1' st1 st2 :
     stmt_exec kenv s1 st1 s1' st2  ->
     stmt_exec kenv (host_seq s1 s2) st1 (host_seq s1' s2) st2
@@ -166,14 +150,13 @@ Inductive stmt_exec : kerEnv -> stmt -> GPUstate -> stmt -> GPUstate -> Prop :=
     stmt_exec kenv (host_seq host_skip s) st1 s st2.
 End VecNot.
 
-(* Parameter run : forall a, CUDA a -> a. *)
-(* Axiom runCorrect : forall a (cu : CUDA a) gst gst' v, CUDA_eval _ cu gst v gst' <-> run _ cu = v. *)
-
-Inductive aborts_h : kerEnv -> stmt -> stack -> simple_heap -> Prop :=
+Inductive aborts_h : GModule -> stmt -> stack -> simple_heap -> Prop :=
   | aborts_host_seq : forall ke p p' s h, aborts_h ke p s h -> aborts_h ke (host_seq p p') s h
   | aborts_kernel_call : forall ke kid n m args s h,
-      get_ker ke kid = None \/ n = 0 \/ m = 0 \/
-      (forall ker, get_ker ke kid = Some ker -> length args <> length (params_of ker)) ->
+      func_disp ke kid = None \/
+      (exists f, func_disp ke kid = Some (Host f)) \/
+      n = 0 \/ m = 0 \/
+      (forall ker, func_disp ke kid = Some (Kern ker) -> length args <> length (params_of ker)) ->
       aborts_h ke (host_invoke kid n m args) s h
   | aborts_kernel_exec : forall kenv ntrd nblk tst shp s h,
       (abort_g (Gs tst shp h) \/ bdiv_g ntrd nblk tst shp (htop h)) ->
@@ -181,7 +164,9 @@ Inductive aborts_h : kerEnv -> stmt -> stack -> simple_heap -> Prop :=
 
 Notation zpheap := (gen_pheap Z).
 
-Fixpoint safe_nh (kenv : kerEnv) (n : nat) (s : stack) (gh : zpheap) (p : stmt) (Q : assn) :=
+Require Import Ensembles.
+
+Fixpoint safe_nh (kenv : GModule) (n : nat) (s : stack) (gh : zpheap) (p : stmt) (Q : assn) :=
   match n with
   | 0 => True
   | S n =>
@@ -193,11 +178,30 @@ Fixpoint safe_nh (kenv : kerEnv) (n : nat) (s : stack) (gh : zpheap) (p : stmt) 
     (forall (hF : zpheap) (h h' : simple_heap) (s' : stack) (p' : stmt),
         pdisj gh hF 
         -> ptoheap (phplus gh hF) h'
-        -> stmt_exec kenv p (s, h) p' (s', h') 
+        -> stmt_exec kenv p (GS s h) p' (GS s' h') 
         -> exists (h'' : zpheap),
             pdisj h'' hF /\ ptoheap (phplus h'' hF) h' /\
             safe_nh kenv n s h'' p' Q)
   end.
+
+Definition CSLh (GM : GModule) (P : assn) (ss : stmt) (Q : assn) :=
+  forall s h,
+    P s (as_gheap h) -> forall n, safe_nh GM n s h ss Q.
+
+Definition CSLhfun (GM : GModule) (P : assn) (f : hostfun) (Q : assn) :=
+  forall vs s h,
+    length vs = length (host_params f)
+    -> bind_params s (host_params f) vs
+    -> P s (as_gheap h)
+    -> forall n, safe_nh GM n s h (host_stmt f) Q.
+
+Definition CSLgfun (GM : GModule) (P : assn) (f : kernel) (Q : assn) :=
+  forall ntrd nblk vs tst shs h s,
+    ntrd <> 0 -> nblk <> 0
+    -> init_GPU ntrd nblk f vs tst shs
+    -> bind_params s (params_of f) vs
+    -> P s (as_gheap h)
+    -> forall n, safe_ng ntrd nblk n tst shs h Q.
 
 (* Fixpoint assn_of_bind (params : list var) (args : list Z) := *)
 (*   match params, args with *)
