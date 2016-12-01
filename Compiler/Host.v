@@ -203,6 +203,12 @@ Definition CSLgfun (GM : GModule) (P : assn) (f : kernel) (Q : assn) :=
     -> P s (as_gheap h)
     -> forall n, safe_ng ntrd nblk n tst shs h Q.
 
+Inductive Htri : Type :=
+| All (T : Type) (tri : T -> Htri) : Htri
+| Tri (P : assn) (f : fd) (Q : assn) : Htri.
+
+Notation "'All' x .. y ',' P" := (All _ (fun x => .. (All _ (fun y => P)) ..)) (at level 200, x binder, y binder, P at level 200).
+
 (* Fixpoint assn_of_bind (params : list var) (args : list Z) := *)
 (*   match params, args with *)
 (*   | nil, nil => emp *)
