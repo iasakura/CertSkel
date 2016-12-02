@@ -166,7 +166,11 @@ Notation zpheap := (gen_pheap Z).
 
 Require Import Ensembles.
 
-Fixpoint safe_nh (kenv : GModule) (n : nat) (s : stack) (gh : zpheap) (p : stmt) (Q : assn) :=
+Section Logic.
+
+Variable GM : GModule.
+
+Fixpoint safe_nh (n : nat) (s : stack) (gh : zpheap) (p : stmt) (Q : assn) :=
   match n with
   | 0 => True
   | S n =>
@@ -174,40 +178,107 @@ Fixpoint safe_nh (kenv : GModule) (n : nat) (s : stack) (gh : zpheap) (p : stmt)
     (forall (hF : zpheap) (h' : simple_heap),
         pdisj gh hF 
         -> ptoheap (phplus gh hF) h'
-        -> aborts_h kenv p s h') /\
+        -> aborts_h GM p s h') /\
     (forall (hF : zpheap) (h h' : simple_heap) (s' : stack) (p' : stmt),
         pdisj gh hF 
         -> ptoheap (phplus gh hF) h'
-        -> stmt_exec kenv p (GS s h) p' (GS s' h') 
+        -> stmt_exec GM p (GS s h) p' (GS s' h') 
         -> exists (h'' : zpheap),
             pdisj h'' hF /\ ptoheap (phplus h'' hF) h' /\
-            safe_nh kenv n s h'' p' Q)
+            safe_nh n s h'' p' Q)
   end.
 
-Definition CSLh (GM : GModule) (P : assn) (ss : stmt) (Q : assn) :=
+Definition CSL_nh (P : assn) (ss : stmt) (Q : assn) (n : nat) :=
   forall s h,
-    P s (as_gheap h) -> forall n, safe_nh GM n s h ss Q.
+    P s (as_gheap h) -> safe_nh n s h ss Q.
 
-Definition CSLhfun (GM : GModule) (P : assn) (f : hostfun) (Q : assn) :=
+Definition CSLh P ss Q := forall n, CSL_nh P ss Q n.
+
+Definition CSLhfun_n (P : assn) (f : hostfun) (Q : assn) (n : nat) :=
   forall vs s h,
     length vs = length (host_params f)
     -> bind_params s (host_params f) vs
     -> P s (as_gheap h)
-    -> forall n, safe_nh GM n s h (host_stmt f) Q.
+    -> safe_nh n s h (host_stmt f) Q.
 
-Definition CSLgfun (GM : GModule) (P : assn) (f : kernel) (Q : assn) :=
+Definition CSLhfun P f Q := forall n, CSLhfun_n P f Q n.
+
+Definition CSLgfun_n (P : assn) (f : kernel) (Q : assn) (n : nat) :=
   forall ntrd nblk vs tst shs h s,
     ntrd <> 0 -> nblk <> 0
     -> init_GPU ntrd nblk f vs tst shs
     -> bind_params s (params_of f) vs
     -> P s (as_gheap h)
-    -> forall n, safe_ng ntrd nblk n tst shs h Q.
+    -> safe_ng ntrd nblk n tst shs h Q.
 
-Inductive Htri : Type :=
-| All (T : Type) (tri : T -> Htri) : Htri
-| Tri (P : assn) (f : fd) (Q : assn) : Htri.
+Definition CSLgfun P f Q := forall n, CSLgfun_n P f Q n.
 
-Notation "'All' x .. y ',' P" := (All _ (fun x => .. (All _ (fun y => P)) ..)) (at level 200, x binder, y binder, P at level 200).
+Inductive FSpec : Type :=
+| FAll (T : Type) (tri : T -> FSpec) : FSpec
+| FDbl (P : assn) (Q : assn) : FSpec.
+
+Notation "'All' x .. y ',' tri" := (FAll _ (fun x => .. (FAll _ (fun y => tri)) ..))
+                                     (at level 200, x binder, y binder, tri at level 200).
+
+Fixpoint interp_htri_n (name : string) (fs : FSpec) (n : nat) : Prop :=
+  match fs with
+  | FAll _ tri => forall x, interp_htri_n name (tri x) n
+  | FDbl P Q => 
+    match func_disp GM name with
+    | None => False
+    | Some (Host f) => CSLhfun_n P f Q n
+    | Some (Kern k) => CSLgfun_n P k Q n
+    end
+  end.
+
+Definition FC := list (string * FSpec).
+
+Definition interp_FC_n (G : FC) (n : nat) :=
+  List.Forall (fun x => let '(fn, fs) := x in interp_htri_n fn fs n) G.
+
+Definition sat_htri (G  : FC) fn fs :=
+  forall n, interp_FC_n G (n - 1) -> interp_htri_n fn fs n.
+
+Definition sat_FC (G1 G2 : FC) :=
+  forall n, interp_FC_n G1 (n - 1) -> interp_FC_n G2 n.
+
+Definition fn_ok fn :=
+  match func_disp GM fn with
+  | None => false
+  | Some _ => true
+  end.
+
+Fixpoint fc_ok (G : FC) :=
+  match G with
+  | nil => true
+  | (fn, fs) :: G => andb (fn_ok fn) (fc_ok G)
+  end.
+
+Lemma interp_htri_0 fn fs : fn_ok fn = true -> interp_htri_n fn fs 0.
+Proof.
+  induction fs; simpl; eauto.
+  unfold fn_ok; destruct func_disp; try congruence. 
+  unfold CSLhfun_n, CSLgfun_n; destruct f; simpl; auto.
+Qed.
+
+Lemma interp_fc_0 G : fc_ok G = true -> interp_FC_n G 0.
+Proof.
+  induction G as [|[? ?] ?]; simpl.
+  - intros; constructor.
+  - rewrite Bool.andb_true_iff; intros [? ?]; simpl.
+    constructor; [apply* interp_htri_0|apply* IHG].
+Qed.
+
+Lemma rule_module G : fc_ok G = true -> sat_FC G G -> sat_FC nil G.
+Proof.  
+  unfold sat_FC; intros ? ? n; induction n; simpl.
+  - intros _.
+    apply* interp_fc_0.
+  - intros; apply H0; simpl.
+    rewrite <-minus_n_O; eauto.
+    apply IHn.
+    constructor.
+Qed.
 
 (* Fixpoint assn_of_bind (params : list var) (args : list Z) := *)
 (*   match params, args with *)
