@@ -1282,17 +1282,29 @@ Section For_List_Notation.
       (*   eauto. *)
 Qed.
 
+Inductive init_GPU : program  
+                     -> Vector.t (klist ntrd) nblk
+                     -> Vector.t simple_heap nblk
+                     -> stack (* the stack state of all threads *)
+                     -> Prop :=
+| C_ker (ker : program) 
+        (tst : Vector.t (klist ntrd) nblk) (shp : Vector.t simple_heap nblk) stk :
+    (* bind_params stk (params_of ker) args -> *)
+    (forall i j, decl_sh (get_sh_decl ker) (snd tst[@j][@i]) shp[@j]) ->
+    (forall i j, fst tst[@j][@i]             = get_cmd ker) ->
+    (forall i j, snd tst[@j][@i] (Var "tid") = Z.of_nat (nf i)) ->
+    (forall i j, snd tst[@j][@i] (Var "bid") = Z.of_nat (nf j)) ->
+    (forall i j v, v <> Var "tid" -> v <> Var "bid" -> snd tst[@j][@i] v = stk v) ->
+    init_GPU ker tst shp stk.
+
+Definition CSLg_n (P : assn) (prog : program) (Q : assn) n :=
+  forall tst shp gh stk, 
+    init_GPU prog tst shp stk
+    -> P stk (as_gheap gh)
+    -> safe_ng n tst shp gh Q.
+
 Definition CSLg (P : assn) (prog : program) (Q : assn) :=
-  forall sh gh ks, 
-    (forall tid bid, decl_sh (get_sh_decl prog) (snd ks[@bid][@tid]) sh) ->
-    (forall tid bid, fst ks[@bid][@tid] = get_cmd prog) ->
-    (forall tid bid, snd ks[@bid][@tid] TID = zf tid) ->
-    (forall tid bid, snd ks[@bid][@tid] BID = zf bid) ->
-    (exists stks, forall tid bid v, v <> TID -> snd ks[@bid][@tid] v = stks[@bid] v) ->
-    (exists stk,
-       (forall tid bid v, v <> TID -> v <> BID -> snd ks[@bid][@tid] v = stk v) /\
-       P stk (as_gheap gh)) ->
-  forall n, safe_ng n ks (Vector.const sh nblk) gh Q.
+  forall n, CSLg_n P prog Q n.
 
 Import List.
 
@@ -1465,8 +1477,10 @@ Theorem rule_grid (P : assn) Ps C Qs (Q : assn) sh_decl :
   disjoint_list (List.map SD_var sh_decl) ->
   CSLg P (Pr sh_decl C) Q.
 Proof.
-  simpl; intros HP Htri HQ Hindid Hlow Hnovar Hlo HtidHi HbidLo Hdisvars; unfold CSLg; simpl.
-  introv Hdec HC HTID HBID (stkb & Hstkb) (stk & Hstk & HsatP); introv.
+  simpl; intros HP Htri HQ Hindid Hlow Hnovar Hlo HtidHi HbidLo Hdisvars; unfold CSLg, CSLg_n; simpl.
+  introv Hini HsatP.
+  inverts Hini as Hdec HC HTID HBID Hstk.
+  (* introv Hdec HC HTID HBID (stkb & Hstkb) (stk & Hstk & HsatP); introv. *)
 
   (* split h into heaps of each thread block *)
   apply HP in HsatP.
@@ -1528,19 +1542,24 @@ Proof.
   destruct (fin_gt0_inhabit ntrd_neq_0) as [i _].
   assert (exists locs,
              forall bid,
-               sh_inv sh_decl locs[@bid] (snd ks[@bid][@i]) (htop (loc:=loc) (as_sheap sh))) as [locs Hsh].
-  { apply (vec_exvec (P := fun bid l => sh_inv sh_decl l (snd (ks[@bid])[@i])
-                                               (htop (loc:=loc) (as_sheap sh)))).
+               sh_inv sh_decl locs[@bid] (snd tst[@bid][@i]) (htop (loc:=loc) (as_sheap shp[@bid]))) as [locs Hsh].
+  { apply (vec_exvec (P := fun bid l => sh_inv sh_decl l (snd (tst[@bid])[@i])
+                                               (htop (loc:=loc) (as_sheap shp[@bid])))).
     intros bid.
     forwards*: (>>decl_sh_spec (Hdec i bid)). }
+  assert (Hstkb : forall i1 i2 j v, v <> TID -> snd tst[@j][@i1] v = snd tst[@j][@i2] v).
+  { introv Hneq.
+    destruct (var_eq_dec v BID); substs.
+    - rewrite !HBID; eauto.
+    - rewrite !Hstk; eauto. }
   applys* (>>safe_gl sh_decl locs); simpl; eauto.
   - intros bid; unfold CSLp in Htri.
-    assert (forall tid, fst ks[@bid][@tid] = C) by eauto.
-    assert (forall tid, snd ks[@bid][@tid] TID = zf tid) by eauto.
-    assert (Hlowl2 : low_eq_l2 E (Vector.map (fun s => snd s) ks[@bid])).
+    assert (forall tid, fst tst[@bid][@tid] = C) by eauto.
+    assert (forall tid, snd tst[@bid][@tid] TID = zf tid) by eauto.
+    assert (Hlowl2 : low_eq_l2 E (Vector.map (fun s => snd s) tst[@bid])).
     { apply leq_low_eq_l2; introv Hneq; unfold low_eq; introv Hlox.
       erewrite !nth_map; [|reflexivity..].
-      rewrite !Hstkb; eauto; congruence. }
+      apply Hstkb; congruence. }
     applys* (>> Htri ___ Hlowl2).
     unfold sat_k;
     lazymatch goal with [|- context [ let (_, _) := ?X in _ ]] => destruct X as [stkr Hstkr] end; simpl.
@@ -1570,9 +1589,9 @@ Proof.
       specialize (Hstkr i); rewrite <-Hstkr; eauto.
       specialize (Hstk i bid); rewrite <-Hstk; eauto; try congruence.
       erewrite Vector.nth_map; eauto. }
-    rewrite Vector.const_nth.
+    (* rewrite Vector.const_nth. *)
 
-    assert (sh_inv sh_decl locs[@bid] stkr (htop (as_sheap sh))).
+    assert (sh_inv sh_decl locs[@bid] stkr (htop (as_sheap shp[@bid]))).
     { Lemma sh_inv_inde  (sdec : list Sdecl) (locs : list Z)
             (stk0 stk1 : stack) (E0 : env) (h : pheap) :
         sh_inv sdec locs stk0 h ->
@@ -1592,13 +1611,13 @@ Proof.
     (* assert (pdisj (htop hs'[@bid]) (htop (as_sheap sh))). *)
     (* { rewrite <-hdisj_pdisj. *)
     (*   apply hdisjC, sh_gh_disj; eauto using as_sh_is_sh. } *)
-    exists (as_gheap hs'[@bid]) (htop (as_sheap sh)); repeat split; eauto.
+    exists (as_gheap hs'[@bid]) (htop (as_sheap shp[@bid])); repeat split; eauto.
     + cutrewrite (as_gheap hs'[@bid] = hs[@bid]); auto.
       rewrite H; erewrite Vector.nth_map; eauto.
     + apply pdisjC, sh_gl_is_ph.
     + simpl; rewrite phplus_comm; eauto.
   - introv.
-    rewrite Vector.const_nth; eauto.
+    (* rewrite Vector.const_nth; eauto. *)
     eapply sh_spec_inde.
     Lemma sh_inv_forget sh_decl locs s h:
       sh_inv sh_decl locs s h -> 

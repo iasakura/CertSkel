@@ -88,22 +88,6 @@ Section VecNot.
 
 Import Vector.VectorNotations.
 
-Inductive init_GPU (ntrd nblk : nat) : kernel -> list Z
-                     -> Vector.t (klist ntrd) nblk
-                     -> Vector.t simple_heap nblk
-                     -> Prop :=
-| C_ker (ker : kernel) (args : list Z) 
-        (tst : Vector.t (klist ntrd) nblk) (shp : Vector.t simple_heap nblk) stk :
-    ntrd <> 0 ->
-    nblk <> 0 ->
-    bind_params stk (params_of ker) args ->
-    (forall i j, decl_sh (get_sh_decl (body_of ker)) (snd tst[@j][@i]) shp[@j]) ->
-    (forall i j, fst tst[@j][@i]             = get_cmd (body_of ker)) ->
-    (forall i j, snd tst[@j][@i] (Var "tid") = Zn (nf i)) ->
-    (forall i j, snd tst[@j][@i] (Var "bid") = Zn (nf j)) ->
-    (forall i j v, v <> Var "tid" -> v <> Var "bid" -> snd tst[@j][@i] v = stk v) ->
-    init_GPU ntrd nblk ker args tst shp.
-
 (* Fixpoint replace_nth {A : Type} (i : nat) (l : list A) (x : A) := *)
 (*   match i, l with *)
 (*   | O, _ :: l => x :: l *)
@@ -126,10 +110,11 @@ Inductive stmt_exec : GModule -> stmt -> GPUstate -> stmt -> GPUstate -> Prop :=
     eval_expr (gs_stack gst) e = n ->
     stmt_exec kenv (host_iLet x e) gst
               host_skip (GS (upd (gs_stack gst) x n) (gs_heap gst))
-| Exec_invoke ntrd nblk kenv tst shp kerID ker args vs gst :
+| Exec_invoke ntrd nblk kenv tst shp kerID ker args vs gst stk :
     List.Forall2 (fun a v => eval_expr (gs_stack gst) a = v) args vs ->
     func_disp kenv kerID = Some (Kern ker) ->
-    init_GPU ntrd nblk ker vs tst shp ->
+    init_GPU ntrd nblk (body_of ker) tst shp stk ->
+    bind_params stk (params_of ker) vs ->
     stmt_exec kenv
               (host_invoke kerID ntrd nblk args) gst
               (host_exec_ker ntrd nblk tst shp) gst
@@ -204,7 +189,7 @@ Definition CSLhfun_simp P f Q := forall n, CSLhfun_n_simp P f Q n.
 Definition CSLgfun_n_simp (P : assn) (f : kernel) (Q : assn) (n : nat) :=
   forall ntrd nblk vs tst shs h s,
     ntrd <> 0 -> nblk <> 0
-    -> init_GPU ntrd nblk f vs tst shs
+    -> init_GPU ntrd nblk (body_of f) tst shs s
     -> bind_params s (params_of f) vs
     -> P s (as_gheap h)
     -> safe_ng ntrd nblk n tst shs h Q.
@@ -312,7 +297,22 @@ Proof.
   revert Hok'; clear.
   induction fs; simpl; eauto.
 Qed.
-  
+
+Definition interp_prog_n ntrd nblk G kp sp :=
+  forall n, interp_FC_n G (n - 1) -> interp_fs sp (fun P Q => CSLg_n ntrd nblk P kp Q n).
+
+Lemma rule_kfun fn kf fs G :
+  func_disp GM fn = Some (Kern kf)
+  -> (forall ntrd nblk, interp_prog_n ntrd nblk G (body_of kf) fs)
+  -> sat_htri G fn fs.
+Proof.  
+  intros Hname Hok n Hctx.
+  unfold interp_htri_n; rewrite Hname; cbn.
+  unfold interp_prog_n, CSLgfun_n_simp, CSLg_n in *.
+  revert Hok.
+  induction fs; simpl; eauto.
+Qed.  
+
 (* Fixpoint assn_of_bind (params : list var) (args : list Z) := *)
 (*   match params, args with *)
 (*   | nil, nil => emp *)
