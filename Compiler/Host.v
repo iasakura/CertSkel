@@ -164,8 +164,6 @@ Inductive aborts_h : GModule -> stmt -> stack -> simple_heap -> Prop :=
 
 Notation zpheap := (gen_pheap Z).
 
-Require Import Ensembles.
-
 Section Logic.
 
 Variable GM : GModule.
@@ -269,7 +267,7 @@ Proof.
     constructor; [apply* interp_htri_0|apply* IHG].
 Qed.
 
-Lemma rule_module G : fc_ok G = true -> sat_FC G G -> sat_FC nil G.
+Lemma rule_module_rec G : fc_ok G = true -> sat_FC G G -> sat_FC nil G.
 Proof.  
   unfold sat_FC; intros ? ? n; induction n; simpl.
   - intros _.
@@ -280,6 +278,17 @@ Proof.
     constructor.
 Qed.
 
+Lemma rule_module_each G1 G2 :
+  (forall fn fs, In (fn, fs) G2 -> sat_htri G1 fn fs)
+  -> sat_FC G1 G2.
+Proof.
+  unfold sat_FC, sat_htri, interp_FC_n.
+  intros; repeat rewrite Forall_forall in *; intros.
+  destruct x; apply* H.
+  rewrite Forall_forall; intros.
+  apply* H0.
+Qed.  
+  
 (* Fixpoint assn_of_bind (params : list var) (args : list Z) := *)
 (*   match params, args with *)
 (*   | nil, nil => emp *)
