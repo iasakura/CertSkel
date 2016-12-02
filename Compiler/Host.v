@@ -186,22 +186,22 @@ Fixpoint safe_nh (n : nat) (s : stack) (gh : zpheap) (p : stmt) (Q : assn) :=
             safe_nh n s h'' p' Q)
   end.
 
-Definition CSL_nh (P : assn) (ss : stmt) (Q : assn) (n : nat) :=
+Definition CSLh_n_simp (P : assn) (ss : stmt) (Q : assn) (n : nat) :=
   forall s h,
     P s (as_gheap h) -> safe_nh n s h ss Q.
 
-Definition CSLh P ss Q := forall n, CSL_nh P ss Q n.
+Definition CSLh_simp P ss Q := forall n, CSLh_n_simp P ss Q n.
 
-Definition CSLhfun_n (P : assn) (f : hostfun) (Q : assn) (n : nat) :=
+Definition CSLhfun_n_simp (P : assn) (f : hostfun) (Q : assn) (n : nat) :=
   forall vs s h,
     length vs = length (host_params f)
     -> bind_params s (host_params f) vs
     -> P s (as_gheap h)
     -> safe_nh n s h (host_stmt f) Q.
 
-Definition CSLhfun P f Q := forall n, CSLhfun_n P f Q n.
+Definition CSLhfun_simp P f Q := forall n, CSLhfun_n_simp P f Q n.
 
-Definition CSLgfun_n (P : assn) (f : kernel) (Q : assn) (n : nat) :=
+Definition CSLgfun_n_simp (P : assn) (f : kernel) (Q : assn) (n : nat) :=
   forall ntrd nblk vs tst shs h s,
     ntrd <> 0 -> nblk <> 0
     -> init_GPU ntrd nblk f vs tst shs
@@ -209,7 +209,7 @@ Definition CSLgfun_n (P : assn) (f : kernel) (Q : assn) (n : nat) :=
     -> P s (as_gheap h)
     -> safe_ng ntrd nblk n tst shs h Q.
 
-Definition CSLgfun P f Q := forall n, CSLgfun_n P f Q n.
+Definition CSLgfun_simp P f Q := forall n, CSLgfun_n_simp P f Q n.
 
 Inductive FSpec : Type :=
 | FAll (T : Type) (tri : T -> FSpec) : FSpec
@@ -218,15 +218,17 @@ Inductive FSpec : Type :=
 Notation "'All' x .. y ',' tri" := (FAll _ (fun x => .. (FAll _ (fun y => tri)) ..))
                                      (at level 200, x binder, y binder, tri at level 200).
 
-Fixpoint interp_htri_n (name : string) (fs : FSpec) (n : nat) : Prop :=
+Fixpoint interp_fs (fs : FSpec) (k : assn -> assn -> Prop) : Prop :=
   match fs with
-  | FAll _ tri => forall x, interp_htri_n name (tri x) n
-  | FDbl P Q => 
-    match func_disp GM name with
-    | None => False
-    | Some (Host f) => CSLhfun_n P f Q n
-    | Some (Kern k) => CSLgfun_n P k Q n
-    end
+  | FAll _ fs => forall x, interp_fs (fs x) k
+  | FDbl P Q => k P Q
+  end.
+
+Definition interp_htri_n (name : string) (fs : FSpec) (n : nat) : Prop :=
+  match func_disp GM name with
+  | None => False
+  | Some (Host f) => interp_fs fs (fun P Q => CSLhfun_n_simp P f Q n)
+  | Some (Kern k) => interp_fs fs (fun P Q => CSLgfun_n_simp P k Q n)
   end.
 
 Definition FC := list (string * FSpec).
@@ -254,9 +256,12 @@ Fixpoint fc_ok (G : FC) :=
 
 Lemma interp_htri_0 fn fs : fn_ok fn = true -> interp_htri_n fn fs 0.
 Proof.
+  unfold interp_htri_n.
   induction fs; simpl; eauto.
-  unfold fn_ok; destruct func_disp; try congruence. 
-  unfold CSLhfun_n, CSLgfun_n; destruct f; simpl; auto.
+  unfold fn_ok in *; destruct func_disp; try congruence.
+  destruct f; simpl; auto.
+  unfold fn_ok in *; destruct func_disp; try congruence.
+  destruct f; unfold CSLhfun_n_simp, CSLgfun_n_simp; simpl; eauto.
 Qed.
 
 Lemma interp_fc_0 G : fc_ok G = true -> interp_FC_n G 0.
@@ -288,6 +293,25 @@ Proof.
   rewrite Forall_forall; intros.
   apply* H0.
 Qed.  
+
+Definition CSLh_n G P ss Q :=
+  forall n, interp_FC_n G (n - 1) -> CSLh_n_simp P ss Q n.
+
+Definition interp_stmt_n G ss fs :=
+  forall n, interp_FC_n G (n - 1) -> interp_fs fs (fun P Q => CSLh_n_simp P ss Q n).
+
+Lemma rule_hfun fn hf fs G :
+  func_disp GM fn = Some (Host hf)
+  -> interp_stmt_n G (host_stmt hf) fs
+  -> sat_htri G fn fs.
+Proof.  
+  intros Hname Hok n Hctx.
+  unfold interp_htri_n; rewrite Hname; cbn.
+  unfold interp_stmt_n, CSLh_n_simp, CSLhfun_n_simp in *.
+  forwards* Hok': Hok.
+  revert Hok'; clear.
+  induction fs; simpl; eauto.
+Qed.
   
 (* Fixpoint assn_of_bind (params : list var) (args : list Z) := *)
 (*   match params, args with *)
