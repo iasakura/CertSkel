@@ -18,7 +18,7 @@ Inductive stmt :=
 | host_skip : stmt
 | host_alloc : var -> exp -> stmt
 | host_iLet : var -> exp -> stmt
-| host_invoke : string -> nat -> nat -> list exp -> stmt
+| host_invoke : string -> exp -> exp -> list exp -> stmt
 (* runtime expression representing kernel execution *)
 | host_exec_ker : forall ntrd nblk,
     Vector.t (klist ntrd) nblk
@@ -55,10 +55,10 @@ Definition alloc_heap (start len : nat) : simple_heap :=
              else None
            else None.
 
-Fixpoint bind_params (stk : stack) (xs : list (var * CTyp)) (vs : list Z) : Prop :=
+Fixpoint bind_params (stk : stack) (xs : list var) (vs : list Z) : Prop :=
   match xs, vs with
   | nil, nil => True
-  | (x, _) :: xs, v :: vs => bind_params stk xs vs /\ stk x = v
+  | x :: xs, v :: vs => bind_params stk xs vs /\ stk x = v
   | _, _ => False
   end.
 
@@ -112,14 +112,16 @@ Inductive stmt_exec : GModule -> stmt -> State -> stmt -> State -> Prop :=
     edenot e (st_stack gst) = n ->
     stmt_exec kenv (host_iLet x e) gst
               host_skip (St (upd (st_stack gst) x n) (st_heap gst))
-| Exec_invoke ntrd nblk kenv tst shp kerID ker args vs gst stk :
+| Exec_invoke ent nt enb nb kenv tst shp kerID ker args vs gst stk :
+    edenot ent (st_stack gst) = Zn nt ->
+    edenot enb (st_stack gst) = Zn nb ->
     List.Forall2 (fun a v => edenot a (st_stack gst) = v) args vs ->
     func_disp kenv kerID = Some (Kern ker) ->
-    init_GPU ntrd nblk (body_of ker) tst shp stk ->
-    bind_params stk (params_of ker) vs ->
+    init_GPU nt nb (body_of ker) tst shp stk ->
+    bind_params stk (map fst (params_of ker)) vs ->
     stmt_exec kenv
-              (host_invoke kerID ntrd nblk args) gst
-              (host_exec_ker ntrd nblk tst shp) gst
+              (host_invoke kerID ent enb args) gst
+              (host_exec_ker nt nb tst shp) gst
 | Exec_invoke_step kenv ntrd nblk tst tst' shp shp' s h h' :
     red_g (Gs tst shp h)  (Gs tst' shp' h') ->
     stmt_exec kenv
@@ -133,7 +135,7 @@ Inductive stmt_exec : GModule -> stmt -> State -> stmt -> State -> Prop :=
 | Exec_call kenv st fn hf args vs new_stk :
     func_disp kenv fn = Some (Host hf)
     -> List.Forall2 (fun a v => edenot a (st_stack st) = v) args vs
-    -> bind_params new_stk (host_params hf) vs
+    -> bind_params new_stk (map fst (host_params hf)) vs
     -> stmt_exec kenv 
                  (host_call fn args) st
                  (host_exec_hfun (host_stmt hf) (st_stack st)) (St new_stk (st_heap st))
@@ -155,12 +157,14 @@ End VecNot.
 
 Inductive aborts_h : GModule -> stmt -> stack -> simple_heap -> Prop :=
   | aborts_host_seq : forall ke p p' s h, aborts_h ke p s h -> aborts_h ke (host_seq p p') s h
-  | aborts_kernel_invk : forall ke kid n m args s h,
+  | aborts_kernel_invk : forall ke kid en n em m args s h,
+      edenot en s = Zn n ->
+      edenot em s = Zn m ->
       func_disp ke kid = None \/
       (exists f, func_disp ke kid = Some (Host f)) \/
       n = 0 \/ m = 0 \/
       (forall ker, func_disp ke kid = Some (Kern ker) -> length args <> length (params_of ker)) ->
-      aborts_h ke (host_invoke kid n m args) s h
+      aborts_h ke (host_invoke kid en em args) s h
   | aborts_kernel_exec : forall kenv ntrd nblk tst shp s h,
       (abort_g (Gs tst shp h) \/ bdiv_g ntrd nblk tst shp (htop h)) ->
       aborts_h kenv (host_exec_ker ntrd nblk tst shp) s h
@@ -175,7 +179,7 @@ Inductive aborts_h : GModule -> stmt -> stack -> simple_heap -> Prop :=
 
 Notation zpheap := (gen_pheap Z).
 
-Section Logic.
+Section Rules.
 
 Variable GM : GModule.
 
@@ -190,7 +194,7 @@ Fixpoint safe_nh (n : nat) (s : stack) (gh : zpheap) (p : stmt) (Q : assn) :=
         -> ~ aborts_h GM p s h') /\
     (forall (hF : zpheap) (h h' : simple_heap) (s' : stack) (p' : stmt),
         pdisj gh hF 
-        -> ptoheap (phplus gh hF) h'
+        -> ptoheap (phplus gh hF) h
         -> stmt_exec GM p (St s h) p' (St s' h') 
         -> exists (h'' : zpheap),
             pdisj h'' hF /\ ptoheap (phplus h'' hF) h' /\
@@ -205,7 +209,7 @@ Definition CSLh_simp P ss Q := forall n, CSLh_n_simp P ss Q n.
 
 Definition CSLhfun_n_simp (P : assn) (f : hostfun) (Q : assn) (n : nat) :=
   forall vs s h,
-    bind_params s (host_params f) vs
+    bind_params s (map fst (host_params f)) vs
     -> sat s (as_gheap h) P
     -> safe_nh n s h (host_stmt f) Q.
 
@@ -215,7 +219,7 @@ Definition CSLgfun_n_simp (P : assn) (f : kernel) (Q : assn) (n : nat) :=
   forall ntrd nblk vs tst shs h s,
     ntrd <> 0 -> nblk <> 0
     -> init_GPU ntrd nblk (body_of f) tst shs s
-    -> bind_params s (params_of f) vs
+    -> bind_params s (map fst (params_of f)) vs
     -> sat s (as_gheap h) P
     -> safe_ng ntrd nblk n tst shs h Q.
 
@@ -364,18 +368,18 @@ Proof.
 Qed.
 
 Lemma subst_ent_bind_params y v xs vs s :
-  subst_ent y v (map fst xs) vs
+  subst_ent y v xs vs
   -> bind_params s xs vs 
   -> (y === v) s (emp_ph loc).
 Proof.
-  revert vs; induction xs as [|[x ?] xs]; simpl; try tauto.
+  revert vs; induction xs as [|x xs]; simpl; try tauto.
   intros [|v' vs]; try tauto.
   destruct var_eq_dec; substs; jauto.
   intros ? [? ?]; cbv; congruence.
 Qed.
 
 Lemma subst_env_bind_params E xs vs s : 
-  subst_env E (map fst xs) vs
+  subst_env E xs vs
   -> bind_params s xs vs
   -> env_assns_denote E s (emp_ph loc).
 Proof.
@@ -455,6 +459,29 @@ Proof.
       * introv ? ? Hst; inverts Hst.
 Qed.
 
+Lemma safe_nh_exec_ker nt nb n tst shp h s_ret R P E E' :
+  safe_ng nt nb n tst shp h (Assn R P E)
+  -> env_assns_denote E' s_ret (emp_ph loc)
+  -> safe_nh n s_ret h (host_exec_ker nt nb tst shp) (Assn R P E').
+Proof.
+  revert tst shp h; induction n; simpl; introv; eauto.
+  intros (Hskip & Hsafe1 & Hsafe2 & Hstep) Henv; splits; eauto.
+  - inversion 1.
+  - introv Hdis Heq Hab.
+    inverts Hab.
+    forwards*: Hsafe1.
+  - introv Hdis Heq Hst.
+    inverts Hst as Hst'.
+    + forwards* (h'' & ? & ? & ?): (>> Hstep Hst').
+    + exists h; splits; eauto.
+      destruct n; simpl; eauto; splits; eauto.
+      * intros _.
+        forwards* Hsat: Hskip.
+        unfold Assn in Hsat |- * ;sep_split; sep_split_in Hsat; eauto.
+      * introv ? ? Hab; inverts Hab.
+      * introv ? ? Hst; inverts Hst.
+Qed.
+
 Lemma safe_nh_conseq n s h body P P' :
   P |= P' 
   -> safe_nh n s h body P
@@ -464,6 +491,17 @@ Proof.
   intros ? (? & ? & ?); splits; jauto.
   - intros; apply H; eauto.
   - intros; forwards* (? & ? & ? & ?): H2.
+Qed.
+
+Lemma safe_ng_conseq nt nb n tst shp h P P' :
+  P |= P' 
+  -> safe_ng nt nb n tst shp h P
+  -> safe_ng nt nb n tst shp h P'.
+Proof.
+  revert tst shp h; induction n; simpl; eauto; introv.
+  intros ? (? & ? & ? & ?); splits; jauto.
+  - intros; apply H; eauto.
+  - intros; forwards* (? & ? & ? & ?): H3.
 Qed.
 
 Lemma rule_call (G : FC) (fn : string) (nt nb : nat) (es : list exp)
@@ -529,6 +567,103 @@ Proof.
     applys* Assn_imply.
     unfold incl; eauto.
 Qed.    
+
+Lemma initGPU_ntrd nt nb body tst shp stk: 
+  init_GPU nt nb body tst shp stk ->
+  stk "ntrd" = Zn nt.
+Proof. inversion 1; eauto. Qed.
+
+Lemma initGPU_nblk nt nb body tst shp stk: 
+  init_GPU nt nb body tst shp stk ->
+  stk "nblk" = Zn nb.
+Proof. inversion 1; eauto. Qed.
+
+Lemma rule_invk (G : FC) (fn : string) (nt nb : nat) (es : list exp)
+      (xs : list (var * CTyp)) (vs : list val) body
+      fs ent ntrd enb nblk
+      Rpre Ppre Epre
+      Rpst Ppst
+      RF R E (P : Prop) :
+  fc_ok G = true
+  -> In (fn, fs) G
+  -> func_disp GM fn = Some (Kern (BuildKer xs body))
+  -> length es = length xs
+  -> inst_spec fs (Assn Rpre Ppre Epre) (Assn Rpst Ppst nil)
+  -> List.Forall2 (fun e v => evalExp E e v) (enb :: ent :: es) (Zn nblk :: Zn ntrd :: vs)
+  -> ntrd <> 0 -> nblk <> 0
+  -> (P -> subst_env Epre (Var "nblk" :: Var "ntrd" :: map fst xs) (Zn nblk :: Zn ntrd :: vs))
+  -> (P -> Ppre)
+  -> (P -> R |=R Rpre *** RF)
+  -> CSLh_n G
+            (Assn R P E)
+            (host_invoke fn ent enb es)
+            (Assn (Rpst *** RF) (P /\ Ppst) E).
+Proof.
+  intros Hfcok Hinfn Hdisp Harg Hinst Heval Hntrd Hnblk Hsubst Hp Hr n HFC s h Hsat.
+  inverts Heval as Henb Heval.
+  inverts Heval as Hent Heval.
+  destruct n; simpl; eauto.
+  splits; eauto.
+  - inversion 1.
+  - introv Hdisj Htoh Habort.
+    inverts Habort as Hent0 Henb0 Habort.
+    destruct Habort as [? | [ [? ?] | [Hn0 | [Hm0 | Hcallab] ]]]; try congruence.
+    + unfold Assn, sat in Hsat; sep_split_in Hsat.
+      forwards* Hent': (>>evalExp_ok Hent).
+      hnf in Hent'; simpl in Hent'; substs.
+      rewrite Hent', Nat2Z.inj_iff in Hent0; eauto.
+    + unfold Assn, sat in Hsat; sep_split_in Hsat.
+      forwards* Henb': (>>evalExp_ok Henb).
+      hnf in Henb'; simpl in Henb'; substs.
+      rewrite Henb', Nat2Z.inj_iff in Henb0; eauto.
+    + forwards* Hc: (>> Hcallab Hdisp); simpl in Hc.
+  - introv Hdis Htoh Hstep.
+    simpl in HFC; rewrite <-minus_n_O in HFC.
+    unfold interp_FC_n, interp_htri_n in HFC; rewrite Forall_forall in HFC.
+    forwards* Hfn: (>>HFC Hinfn); rewrite Hdisp in Hfn.
+    forwards* Hfn': (>>interp_fs_inst Hfn Hinst); simpl in Hfn'.
+    unfold CSLgfun_n_simp in Hfn'; simpl in Hfn'.
+    inverts Hstep as Hent' Henb' Heval' Hdisp' Hinit Hbnd; simpl in *.
+    rewrite Hdisp in Hdisp'; inverts Hdisp'; simpl in *.
+    unfold Assn, sat in Hsat.
+    sep_split_in Hsat.
+    forwards* (h1 & h2 & Hpre & HF & Hdis12 & Heq12): (>> Hr HP Hsat).
+    forwards* (h1' & h2' & ? & ? & Heq12'): (>> phplus_gheap  Heq12); substs.
+    assert (Heq : nb0 = nblk); [ | subst nb0 ].
+    { unfold Assn, sat in Hsat; sep_split_in Hsat.
+      forwards* Henb'': (>>evalExp_ok Henb).
+      hnf in Henb''; simpl in Henb''; substs.
+      rewrite Henb'', Nat2Z.inj_iff in Henb'; eauto. }
+    assert (Heq : nt0 = ntrd); [ | subst nt0 ].
+    { unfold Assn, sat in Hsat; sep_split_in Hsat.
+      forwards* Hent'': (>>evalExp_ok Hent).
+      hnf in Hent''; simpl in Hent''; substs.
+      rewrite Hent'', Nat2Z.inj_iff in Hent'; substs; eauto. }
+    forwards* Hsafe: (>>Hfn' h1' Hinit Hbnd).
+    (* Proof that precond holds *)
+    { unfold sat, Assn; sep_split; eauto.
+      - applys* Hp.
+      - applys* (>>subst_env_bind_params (Hsubst HP)).
+        repeat split; eauto using initGPU_ntrd, initGPU_nblk.
+        simpl in Hsubst.
+        cutrewrite (vs = vs0); eauto.
+        revert Heval Heval' HP0; clear.
+        intros H; revert vs0; induction H; inversion 1; intros; substs; eauto.
+        forwards*: evalExp_ok.
+        f_equal; eauto. }
+    (* h **                                     hF -> 
+       h1' ** (h2' : framed w.r.t. fun exec. ) ** hF -> *)
+    exists h; splits; eauto.
+    rewrite <-as_gheap_pdisj in Hdis12.
+    asserts_rewrite (h = phplus_pheap Hdis12).
+    { destruct h; apply pheap_eq; eauto. }
+    applys* safe_nh_frame.
+    applys* (>>safe_nh_exec_ker (@nil entry)).
+    applys* (>>safe_ng_conseq Hsafe).
+    applys* Assn_imply.
+    unfold incl; eauto.
+Qed.
+End Rules. 
 
 (* Fixpoint assn_of_bind (params : list var) (args : list Z) := *)
 (*   match params, args with *)
