@@ -282,26 +282,26 @@ Definition reduceBlock := reduce_aux 1 e_b.
 Definition seq_reduce inv :=
   assigns ys (ty2ctys typ) (vals2es defval) ;;
   writes (v2sh sarr +os "tid") (vals2es defval) ;;
-  "ix" :T Int ::= ("tid" +C "bid" *C Zn ntrd) ;;
+  "ix" :T Int ::= ("tid" +C "bid" *C "ntrd") ;;
   Cif ("ix" <C len) (
     assigns_get ys arr_c "ix" ;;
-    "ix" ::= "ix" +C Zn ntrd *C Zn nblk ;;
+    "ix" ::= "ix" +C "ntrd" *C "nblk" ;;
     WhileI inv ("ix" < len) (
       assigns_get xs arr_c "ix" ;;
       assigns_call2 zs func_c ys xs ;;
       assigns ys (ty2ctys typ) (v2e zs) ;;
-      "ix" ::= "ix" +C Zn ntrd *C Zn nblk
+      "ix" ::= "ix" +C "ntrd" *C "nblk"
     );;
     writes (v2sh sarr +os "tid") (v2e ys)
   ) Cskip.
 
 Definition setToLen :=
-  Cif (len <C "bid" *C Zn ntrd) (
+  Cif (len <C "bid" *C "ntrd") (
     "slen" :T Int ::= 0%Z 
-  ) (Cif (len <C ("bid" +C 1%Z) *C Zn ntrd) (
-    "slen" :T Int ::= len -C "bid" *C Zn ntrd 
+  ) (Cif (len <C ("bid" +C 1%Z) *C "ntrd") (
+    "slen" :T Int ::= len -C "bid" *C "ntrd"
   ) (
-    "slen" :T Int ::= Zn ntrd
+    "slen" :T Int ::= "ntrd"
   )).
 
 Definition mkReduce_cmd :=
@@ -371,6 +371,8 @@ Lemma reduce_body_ok n :
          True
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           "slen" |-> Zn l :: 
           len |-> Zn (length arr_res) ::
           out |=> outp ++
@@ -382,6 +384,8 @@ Lemma reduce_body_ok n :
         True
         ("tid" |-> Zn (nf tid) ::
          "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
          "slen" |-> Zn l :: 
          len |-> Zn (length arr_res) ::
          out |=> outp ++
@@ -450,6 +454,8 @@ Lemma reduce_aux_ok n m :
          True
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           "slen" |-> Zn l :: 
           len |-> Zn (length arr_res) ::
           out |=> outp ++
@@ -460,12 +466,14 @@ Lemma reduce_aux_ok n m :
         (BSpre (n + m) (nf tid) *** arrays' (val2gl outp) (ith_vals dist_outs outs gid 0) 1)
         True
         ("tid" |-> Zn (nf tid) ::
-        "bid" |-> Zn (nf bid) ::
-        "slen" |-> Zn l :: 
-        len |-> Zn (length arr_res) ::
-        out |=> outp ++
-        sarr |=> inpp ++
-        ys |=> sc2CUDA (f_sim (n + m) (nf tid))) p).
+         "bid" |-> Zn (nf bid) ::
+         "nblk" |-> Zn nblk ::
+         "ntrd" |-> Zn ntrd ::
+         "slen" |-> Zn l :: 
+         len |-> Zn (length arr_res) ::
+         out |=> outp ++
+         sarr |=> inpp ++
+         ys |=> sc2CUDA (f_sim (n + m) (nf tid))) p).
 Proof.
   revert n; induction m; simpl; introv.
   - rewrite <-plus_n_O; hoare_forward; eauto.
@@ -482,6 +490,8 @@ Lemma reduceBlock_ok :
          True
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           "slen" |-> Zn l :: 
           len |-> Zn (length arr_res) ::
           out |=> outp ++
@@ -493,6 +503,8 @@ Lemma reduceBlock_ok :
         True
         ("tid" |-> Zn (nf tid) ::
          "bid" |-> Zn (nf bid) ::
+         "nblk" |-> Zn nblk ::
+         "ntrd" |-> Zn ntrd ::
          "slen" |-> Zn l :: 
          len |-> Zn (length arr_res) ::
          out |=> outp ++
@@ -613,6 +625,8 @@ Definition seqInv (inpp : vals typ) :=
           i = nl * (ntrd * nblk) + (nf tid + nf bid * ntrd))
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           len |-> Zn (length arr_res) ::
           "ix" |-> Zn i ::
           out |=> outp ++
@@ -637,6 +651,8 @@ Lemma seq_reduce_ok BS inpp inp :
          True
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           len |-> Zn (length arr_res) ::
           out |=> outp ++
           sarr |=> inpp) p)
@@ -647,6 +663,8 @@ Lemma seq_reduce_ok BS inpp inp :
          True
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           len |-> Zn (length arr_res) ::
           out |=> outp ++
           sarr |=> inpp ++ 
@@ -748,6 +766,8 @@ Lemma setToLen_ok BS R (tid : Fin.t ntrd) (bid : Fin.t nblk) inpp y:
          R True
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           len |-> Zn (length arr_res) ::
           out |=> outp ++
           sarr |=> inpp ++ ys |=> y) p)
@@ -756,6 +776,8 @@ Lemma setToLen_ok BS R (tid : Fin.t ntrd) (bid : Fin.t nblk) inpp y:
          R True
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           len |-> Zn (length arr_res) ::
           "slen" |-> Zn (min (length arr_res - nf bid * ntrd) ntrd) ::
           out |=> outp ++
@@ -810,6 +832,8 @@ Lemma mkReduce_cmd_ok :
        True
        ("tid" |-> Zn (nf tid) ::
         "bid" |-> Zn (nf bid) ::
+        "nblk" |-> Zn nblk ::
+        "ntrd" |-> Zn ntrd ::
         len |-> Zn (length arr_res) ::
         out |=> outp ++
         sarr |=> inpp) p)  
@@ -887,6 +911,8 @@ Definition ith_pre (tid : Fin.t ntrd) :=
         arrays' (val2gl outp) (ith_vals dist_outs outs (nf tid + nf bid * ntrd) 0) 1)
        True
        ("bid" |-> Zn (nf bid) ::
+        "nblk" |-> Zn nblk ::
+        "ntrd" |-> Zn ntrd ::
         len |-> Zn (length arr_res) ::
         out |=> outp ++
         sarr |=> inpp) p).
@@ -907,6 +933,8 @@ Notation fin_star n f :=
 Definition E (x : var) :=
   if prefix "_" (str_of_var x) then Lo
   else if var_eq_dec "bid" x then Lo
+  else if var_eq_dec "ntrd" x then Lo
+  else if var_eq_dec "nblk" x then Lo
   else Hi.
 
 Definition shvals_last : list (Skel.typDenote typ) :=
@@ -943,6 +971,8 @@ Lemma mkReduce_cmd_ok_b :
         fin_star ntrd (fun i => arrays' (val2gl outp) (ith_vals dist_outs outs (i + nf bid * ntrd) 0) 1))
        True
        ("bid" |-> Zn (nf bid) ::
+        "nblk" |-> Zn nblk ::
+        "ntrd" |-> Zn ntrd ::
         len |-> Zn (length arr_res) ::
         out |=> outp ++
         sarr |=> inpp) (p * injZ (Zn ntrd)))
@@ -1032,7 +1062,9 @@ Definition jth_pre (bid : Fin.t nblk) :=
   (kinv
        (fin_star ntrd (fun i => arrays' (val2gl outp) (ith_vals dist_outs outs (i + nf bid * ntrd) 0) 1))
        True
-       (len |-> Zn (length arr_res) ::
+       ("nblk" |-> Zn nblk ::
+        "ntrd" |-> Zn ntrd ::
+        len |-> Zn (length arr_res) ::
         out |=> outp) (p * injZ (Zn ntrd))).
 
 Definition jth_post (bid : Fin.t nblk) :=
@@ -1254,7 +1286,9 @@ Theorem mkReduce_ok :
     (kinv
        (arrays (val2gl outp) outs 1)
        True
-       (len |-> Zn (length arr_res) ::
+       ("nblk" |-> Zn nblk ::
+        "ntrd" |-> Zn ntrd ::
+        len |-> Zn (length arr_res) ::
         out |=> outp) 1)
     mkReduce_prog
     (kernelInv' aptr_env aeval_env
@@ -1289,7 +1323,7 @@ Proof.
     applys (>>mkReduce_cmd_ok_b bid (convertSvals ntrd vals')); try (intros s h; rewrite Assn_combine in *; eauto).
     { autorewrite with pure; eauto. }
     + unfold kernelInv; prove_istar_imp; substs; eauto.
-      rewrite sh_spec_env_tup; eauto.
+      rewrite sh_spec_env_tup; eauto 10.
       rewrite Heq; repeat rewrite <-res_assoc in *.
       sep_cancel'.
       rewrites* sh_spec_res_tup in H4.

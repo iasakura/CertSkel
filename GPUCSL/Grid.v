@@ -1292,6 +1292,7 @@ Inductive init_GPU : program
     (* bind_params stk (params_of ker) args -> *)
     (forall i j, decl_sh (get_sh_decl ker) (snd tst[@j][@i]) shp[@j]) ->
     (forall i j, fst tst[@j][@i]             = get_cmd ker) ->
+    stk (Var "nblk") = Z.of_nat nblk -> stk (Var "ntrd") = Z.of_nat ntrd ->
     (forall i j, snd tst[@j][@i] (Var "tid") = Z.of_nat (nf i)) ->
     (forall i j, snd tst[@j][@i] (Var "bid") = Z.of_nat (nf j)) ->
     (forall i j v, v <> Var "tid" -> v <> Var "bid" -> snd tst[@j][@i] v = stk v) ->
@@ -1479,7 +1480,7 @@ Theorem rule_grid (P : assn) Ps C Qs (Q : assn) sh_decl :
 Proof.
   simpl; intros HP Htri HQ Hindid Hlow Hnovar Hlo HtidHi HbidLo Hdisvars; unfold CSLg, CSLg_n; simpl.
   introv Hini HsatP.
-  inverts Hini as Hdec HC HTID HBID Hstk.
+  inverts Hini as Hdec HC Hnblk Hntrd HTID HBID Hstk.
   (* introv Hdec HC HTID HBID (stkb & Hstkb) (stk & Hstk & HsatP); introv. *)
 
   (* split h into heaps of each thread block *)

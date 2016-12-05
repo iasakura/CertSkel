@@ -71,12 +71,12 @@ Notation len := inp_len_name.
 Notation t := (locals "t" dom 0).
 
 Definition mkMap_cmd inv :=
-  "i" :T Int ::= "tid" +C "bid" *C Zn ntrd ;;
+  "i" :T Int ::= "tid" +C "bid" *C "ntrd" ;;
   WhileI inv ("i" <C len) (
     assigns_get t arr_c "i" ;;
     fst (f_c t) ;;
     writes (v2gl out +os "i") (v2e (snd (f_c t))) ;;
-    "i" ::= Zn ntrd *C Zn nblk +C "i"
+    "i" ::= "ntrd" *C "nblk" +C "i"
   )%exp.
 
 Definition mkMap_prog :=
@@ -123,6 +123,8 @@ Definition inv'  :=
               i < length arr_res + ntrd * nblk)
              (len |-> Zn (length arr_res) ::
               "i" |-> Zn i ::
+              "nblk" |-> Zn nblk ::
+              "ntrd" |-> Zn ntrd ::
               out |=> outp) p).
 
 Ltac t :=
@@ -216,6 +218,8 @@ Lemma mkMap_cmd_ok BS :
          True
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           len |-> Zn (length arr_res) ::
           out |=> outp) p)
       (mkMap_cmd inv')
@@ -268,6 +272,8 @@ Definition ith_pre (tid : Fin.t ntrd) :=
      (arrays' (val2gl outp) (skip outs (ntrd * nblk) (nf tid + nf bid * ntrd)) 1)
      True
      ("bid" |-> Zn (nf bid) ::
+      "nblk" |-> Zn nblk ::
+      "ntrd" |-> Zn ntrd ::
       len |-> Zn (length arr_res) ::
       out |=> outp) p).
 
@@ -283,7 +289,9 @@ Definition jth_pre : assn :=
     avar_env aptr_env aeval_env 
     (fin_star ntrd (fun i => arrays' (val2gl outp) (skip outs (ntrd * nblk) (i + (nf bid) * ntrd)) 1))
     True
-    (len |-> Zn (length arr_res) ::
+    ("nblk" |-> Zn nblk ::
+     "ntrd" |-> Zn ntrd ::
+     len |-> Zn (length arr_res) ::
      out |=> outp) (p * injZ (Zn ntrd)).
 
 Definition jth_post : assn :=
@@ -295,6 +303,8 @@ Definition jth_post : assn :=
 Definition E := fun x : var =>
   if prefix "_" (str_of_var x) then Lo
   else if var_eq_dec "bid" x then Lo
+  else if var_eq_dec "ntrd" x then Lo
+  else if var_eq_dec "nblk" x then Lo
   else Hi.
 
 Definition BS (n : nat) := default ntrd.
@@ -344,7 +354,10 @@ Lemma mkMap_prog_ok :
        (kernelInv avar_env aptr_env aeval_env
                   (arrays (val2gl outp) outs 1)
                   True
-                  (len |-> Zn (length arr_res) :: out |=> outp) 1)
+                  ("nblk" |-> Zn nblk ::
+                   "ntrd" |-> Zn ntrd ::
+                   len |-> Zn (length arr_res) :: 
+                   out |=> outp) 1)
        mkMap_prog
        (kernelInv' aptr_env aeval_env 
                   (arrays (val2gl outp) result' 1)
