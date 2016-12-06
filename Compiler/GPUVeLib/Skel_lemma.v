@@ -15,8 +15,8 @@ Fixpoint fv_E (e : exp) :=
     | Elt e1 e2
     | e1 +C e2 
     | e1 *C e2
-    | e1 -C e2 => fv_E e1 ++ fv_E e2
-    | e1>>1 => fv_E e1
+    | e1 -C e2 
+    | e1 /C e2 => fv_E e1 ++ fv_E e2
   end%exp.
 
 Fixpoint fv_lE (e : loc_exp) :=

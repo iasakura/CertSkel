@@ -18,7 +18,7 @@ Fixpoint skip_sum (skip : nat) (s len : nat) (f : nat -> Z) (i : nat) :=
 Eval compute in skip_sum 3 0 10 (fun i => Z.of_nat i) 3.
 Eval compute in skip_sum 3 4 10 (fun i => Z.of_nat i) 3.
 
-Notation " p '>>1'" := (Ediv2 p) (at level 40, left associativity) : exp_scope.
+Notation " e1 '/C' e2 " := (Ediv e1 e2) (at level 40, left associativity) : exp_scope.
 
 Definition dbl s := if Nat.eq_dec s 0 then 1 else s * 2.
 
@@ -798,8 +798,8 @@ Fixpoint has_no_vars_E (e : exp) :=
   match e with
     | Evar _ => False
     | Enum _ => True
-    | Emin e1 e2 | Eeq e1 e2 | Elt e1 e2 | (e1 +C e2) | (e1 *C e2) | (e1 -C e2) => has_no_vars_E e1 /\ has_no_vars_E e2
-    | (e1 >>1) => has_no_vars_E e1
+    | Emin e1 e2 | Eeq e1 e2 | Elt e1 e2 | (e1 +C e2) | (e1 *C e2) | (e1 -C e2) | e1 /C e2 =>
+      has_no_vars_E e1 /\ has_no_vars_E e2
   end.
 
 Lemma has_no_vars_E_correct (e : exp) s1 s2 :
@@ -808,7 +808,6 @@ Lemma has_no_vars_E_correct (e : exp) s1 s2 :
 Proof.
   induction e; simpl; try tauto; 
   try now (destruct 1; intros; erewrite IHe1, IHe2; eauto).
-  intros; erewrite IHe; eauto.
 Qed.
 
 Fixpoint has_no_vars_lE (e : loc_exp) :=

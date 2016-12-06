@@ -126,9 +126,9 @@ Inductive evalExp : list entry -> exp -> val -> Prop :=
 | SEval_sub env e1 v1 e2 v2 :
     evalExp env e1 v1 -> evalExp env e2 v2 ->
     evalExp env (e1 -C e2) (v1 - v2)%Z
-| SEval_div2 env e1 v1 :
-    evalExp env e1 v1 -> 
-    evalExp env (e1 >>1) (v1 / 2)%Z
+| SEval_div2 env e1 e2 v1 v2 :
+    evalExp env e1 v1 -> evalExp env e2 v2 ->
+    evalExp env (e1 /C e2) (v1 / v2)%Z
 | SEval_var env e v : In (Ent e v) env -> evalExp env e v.
 
 Lemma env_denote_in Env e v:
@@ -149,8 +149,7 @@ Proof.
   try forwards*: IHevalExp;
   unfold_conn_all; simpl in *; try congruence;
   substs; auto.
-  - rewrite Zdiv2_div; eauto.
-  - applys* env_denote_in.
+  applys* env_denote_in.
 Qed.
 
 Definition loc_off l i := 

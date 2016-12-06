@@ -52,7 +52,7 @@ Inductive exp :=
 | Eeq (e1: exp) (e2: exp)
 | Emult (e1 : exp) (e2 : exp)
 | Esub (e1 : exp) (e2 : exp)
-| Ediv2 (e : exp).
+| Ediv (e1 e2 : exp).
 
 Inductive bexp :=
 | Beq (e1: exp) (e2: exp)
@@ -111,7 +111,8 @@ Fixpoint edenot e s :=
     | Eeq e1 e2 => if eq_dec (edenot e1 s) (edenot e2 s) then 1 else 0 
     | Emult e1 e2 => edenot e1 s * edenot e2 s
     | Esub e1 e2 => edenot e1 s - edenot e2 s
-    | Ediv2 e1 => Z.div2 (edenot e1 s)
+    (* TODO: treating 0 division behavior *)
+    | Ediv e1 e2 => Z.div (edenot e1 s) (edenot e2 s)
   end%Z.
 
 Fixpoint ledenot e s :=
@@ -745,8 +746,8 @@ Section NonInter.
   | ty_sub : forall (e1 e2 : exp) (ty1 ty2 : type), 
                 typing_exp e1 ty1 -> typing_exp e2 ty2 ->
                 typing_exp (Esub e1 e2) (join ty1 ty2)
-  | ty_div2 : forall (e : exp) (ty : type),
-                typing_exp e ty -> typing_exp (Ediv2 e) ty.
+  | ty_div : forall (e1 e2 : exp) (ty1 ty2 : type),
+                typing_exp e1 ty1 -> typing_exp e2 ty2 -> typing_exp (Ediv e1 e2) (join ty1 ty2).
 
   Inductive typing_bexp : bexp -> type -> Prop := 
   | ty_eq : forall (e1 e2 : exp) (ty1 ty2 : type), 
@@ -807,7 +808,6 @@ Section NonInter.
              rewrite IHe1, IHe2; eauto).
     - inversion hty; specialize (heq x).
       destruct (g x); unfold le_type in H0; try congruence; eauto.
-    - inversion hty; rewrite IHe; eauto. 
   Qed.
 
   Lemma low_eq_eq_lexp (e : loc_exp) (s1 s2 : stack) :
@@ -1071,7 +1071,7 @@ Section Substitution.
       | Eplus e1 e2 => Eplus (subE x e e1) (subE x e e2)
       | Emult e1 e2 => Emult (subE x e e1) (subE x e e2)
       | Esub e1 e2 => Esub (subE x e e1) (subE x e e2)
-      | Ediv2 e1 => Ediv2 (subE x e e1)
+      | Ediv e1 e2 => Ediv (subE x e e1) (subE x e e2)
     end.
   Fixpoint sublE x e e0 := 
     match e0 with 
