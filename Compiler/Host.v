@@ -49,11 +49,11 @@ Record State := St {
   st_heap : simple_heap
 }.
 
-Definition alloc_heap (start len : nat) : simple_heap :=
-  fun i => if Z_le_dec (Z.of_nat start) i then
-             if Z_lt_dec i (Z.of_nat start + Z.of_nat len)%Z then Some (0%Z)
-             else None
-           else None.
+Fixpoint alloc_heap (start : nat) (vs : list Z) : simple_heap :=
+  match vs with
+  | nil => fun x => None
+  | v :: vs => fun l => if Z.eq_dec l (Zn start) then Some v else alloc_heap (S start) vs l
+  end.
 
 Fixpoint bind_params (stk : stack) (xs : list var) (vs : list Z) : Prop :=
   match xs, vs with
@@ -102,16 +102,16 @@ Instance var_eq_type : eq_type var := {|
 |}.
 
 Inductive stmt_exec : GModule -> stmt -> State -> stmt -> State -> Prop :=
-| Exec_alloc kenv (x : var) e (gst : State) start n :
-    edenot e (st_stack gst) = (Z.of_nat n) ->
-    hdisj (st_heap gst) (alloc_heap start n) ->
+| Exec_alloc kenv (x : var) e (gst : State) start vs :
+    edenot e (st_stack gst) = (Z.of_nat (length vs)) ->
+    hdisj (st_heap gst) (alloc_heap start vs) ->
     stmt_exec kenv (host_alloc x e) gst
-              host_skip (St (upd (st_stack gst) x (Z.of_nat start))
-                            (hplus (st_heap gst) (alloc_heap start n)))
+              host_skip (St (var_upd (st_stack gst) x (Z.of_nat start))
+                            (hplus (st_heap gst) (alloc_heap start vs)))
 | Exec_iLet kenv x e (gst : State) n :
     edenot e (st_stack gst) = n ->
     stmt_exec kenv (host_iLet x e) gst
-              host_skip (St (upd (st_stack gst) x n) (st_heap gst))
+              host_skip (St (var_upd (st_stack gst) x n) (st_heap gst))
 | Exec_invoke ent nt enb nb kenv tst shp kerID ker args vs gst stk :
     edenot ent (st_stack gst) = Zn nt ->
     edenot enb (st_stack gst) = Zn nb ->
@@ -151,10 +151,11 @@ Inductive stmt_exec : GModule -> stmt -> State -> stmt -> State -> Prop :=
 | Exec_seq1 kenv s1 s2 s1' st1 st2 :
     stmt_exec kenv s1 st1 s1' st2  ->
     stmt_exec kenv (host_seq s1 s2) st1 (host_seq s1' s2) st2
-| Exec_seq2 kenv s st1 st2 :
-    stmt_exec kenv (host_seq host_skip s) st1 s st2.
+| Exec_seq2 kenv s st :
+    stmt_exec kenv (host_seq host_skip s) st s st.
 End VecNot.
 
+(* TODO: check e >= 0 in alloc(e) *)
 Inductive aborts_h : GModule -> stmt -> stack -> simple_heap -> Prop :=
   | aborts_host_seq : forall ke p p' s h, aborts_h ke p s h -> aborts_h ke (host_seq p p') s h
   | aborts_kernel_invk : forall ke kid en n em m args s h,
@@ -504,7 +505,7 @@ Proof.
   - intros; forwards* (? & ? & ? & ?): H3.
 Qed.
 
-Lemma rule_call (G : FC) (fn : string) (nt nb : nat) (es : list exp)
+Lemma rule_call (G : FC) (fn : string) (es : list exp)
       xs vs body res
       fs 
       Rpre Ppre Epre
@@ -663,4 +664,222 @@ Proof.
     applys* Assn_imply.
     unfold incl; eauto.
 Qed.
-End Rules. 
+
+Lemma rule_host_skip G P : CSLh_n G P host_skip P.
+Proof.
+  unfold  CSLh_n, CSLh_n_simp; induction n; simpl; eauto.
+  introv _ Hsat; splits; eauto.
+  - intros; intros Hc; inverts Hc.
+  - introv Hdis Heq H; inverts H.
+Qed.
+
+Lemma safe_nh_skip n s h P:
+  sat s (as_gheap h) P
+  -> safe_nh n s h host_skip P.
+Proof.
+  destruct n; simpl; eauto.
+  intros Hsat; splits; eauto.
+  - introv ? ? Hc; inverts Hc.
+  - introv ? ? Hc; inverts Hc.
+Qed.
+
+Lemma rule_host_let G R P E x e v : 
+  evalExp E e v
+  -> CSLh_n G (Assn R P E)  (host_iLet x e) (Assn R P ((x |-> v) :: (remove_var E x))).
+Proof.
+  intros Heval n _ s h Hsat; destruct n; simpl; eauto; splits. 
+  - inversion 1.
+  - introv Hdis Heq Hc; inverts Hc.
+  - introv Hdis Heq Hstep.
+    inverts Hstep.
+    exists h; splits; eauto.
+    apply safe_nh_skip.
+    unfold Assn, sat in Hsat |- *; sep_split_in Hsat; sep_split; eauto.
+    simpl; split; eauto using remove_var_imp.
+    + unfold "==="; simpl.
+      unfold var_upd; destruct var_eq_dec; try congruence.
+      forwards*: evalExp_ok.
+    + apply remove_var_inde; simpl; eauto.
+      applys* remove_var_imp.
+Qed.
+
+Lemma hdisjC loc (h1 h2 : heap loc) : hdisj h1 h2 -> hdisj h2 h1.
+Proof. unfold hdisj; intros H x; specialize (H x); tauto. Qed.
+
+Lemma hplusC loc (h1 h2 : heap loc) :
+  hdisj h1 h2 
+        -> hplus h1 h2 = hplus h2 h1.
+Proof.
+  intros Hdis.
+  extensionality l; specialize (Hdis l); unfold hplus; destruct (h1 l), (h2 l); eauto.
+  destruct Hdis; congruence.
+Qed.
+
+Require Import Psatz.
+
+Lemma alloc_heap_gt x start vs v : 
+  alloc_heap start vs x = Some v -> (Zn start <= x)%Z.
+Proof.
+  revert start; induction vs; simpl; intros; try congruence.
+  destruct Z.eq_dec; substs; try lia; eauto.
+  forwards*: IHvs; lia.
+Qed.
+
+Lemma alloc_heap_ok start vs s  :
+  sat_res s (as_gheap (htop (alloc_heap start vs))) (array (GLoc (Zn start)) vs 1).
+Proof.
+  revert start; induction vs; introv; simpl.
+  - unfold sat_res, sat; simpl; unfold_conn; simpl; unfold as_gheap', htop'.
+    destruct x as [[|] ?]; eauto.
+  - exists (as_gheap (htop (fun l => if Z.eq_dec l (Zn start) then Some a else None)))
+           (as_gheap (htop (alloc_heap (S start) vs))); splits; eauto.
+    + simpl; unfold_conn; simpl.
+      unfold as_gheap', htop'; destruct x as [[|] ?]; eauto.
+      destruct Z.eq_dec, eq_dec; eauto; try congruence.
+    + cutrewrite ((Zn start + 1)%Z = Zn (S start)); [| lia].
+      apply IHvs.
+    + intros [[|] l]; simpl; eauto.
+      unfold htop'; simpl.
+      destruct Z.eq_dec; substs; eauto.
+      destruct alloc_heap eqn:Heq; eauto.
+      forwards*: alloc_heap_gt.
+      revert H; clear; intros; false; zify; omega.
+    + extensionality l; unfold phplus; simpl; unfold as_gheap', htop'.
+      destruct l as [[|] l]; simpl; eauto.
+      destruct Z.eq_dec; substs; eauto.
+      destruct alloc_heap eqn:Heq; eauto.
+      forwards*: alloc_heap_gt.
+      revert H; clear; intros; false; zify; omega.
+Qed.
+
+Lemma phplus_gheap_comm' (h1 : zpheap) (h2: zpheap) (dis : pdisj h1 h2) :
+  phplus_pheap (proj1 (as_gheap_pdisj h1 h2) dis) = as_gheap (phplus_pheap dis).
+Proof.
+  apply pheap_eq.
+  extensionality l; simpl; unfold phplus, as_gheap'.
+  destruct l as [[|] ?]; eauto.
+Qed.
+
+Lemma rule_host_alloc G R P E x e size : 
+  evalExp E e (Zn size)
+  -> CSLh_n G (Assn R P E)
+            (host_alloc x e)
+            (Ex p vs, Assn (array (GLoc p) vs 1 *** R) P ((x |-> p) :: (remove_var E x))).
+Proof.
+  intros Heval n _ s h Hsat; destruct n; simpl; eauto; splits. 
+  - inversion 1.
+  - introv Hdis Heq Hc; inverts Hc.
+  - introv Hdis Heq Hstep.
+    inverts Hstep as Heval' Hdis'; simpl in *.
+    unfold Assn, sat in Hsat; sep_split_in Hsat.
+    forwards* Heval'': evalExp_ok; unfold_conn_in Heval''; simpl in Heval''.
+    assert (size = length vs); [|subst size].
+    { rewrite Heval'' in Heval'; rewrite Nat2Z.inj_iff in Heval'; eauto. }
+    pose (htop (alloc_heap start vs)) as h_alc.
+    forwards* Heq': ptoheap_eq.
+    lets Hdis_alc: Hdis'.
+    rewrite hdisj_pdisj in Hdis'.
+    rewrite <-Heq' in Hdis'.
+    assert (Hdis'' : pdisj h_alc h).
+    { apply pdisjC, pdisjE1, pdisjC in Hdis'; eauto. }
+    exists (phplus_pheap Hdis''); splits; eauto.
+    + apply pdisj_padd_expand; eauto.
+    + cutrewrite (PHeap.this (phplus_pheap Hdis'') = phplus h_alc h); [|eauto].
+      rewrite padd_assoc.
+      rewrite Heq'.
+      unfold h_alc; rewrite <-hplus_phplus; eauto using hdisjC.
+      rewrite hplus_phplus; eauto using hdisjC.
+      rewrite hplusC; eauto.
+      apply ptoheap_plus; eauto using hdisjC.
+      apply ptoheap_htop.
+    + apply safe_nh_skip.
+      exists (Zn start) vs.
+      unfold Assn, sat in Hsat |- *; sep_split_in Hsat; sep_split; eauto.
+      * simpl; split; eauto using remove_var_imp.
+        -- unfold "==="; simpl.
+           unfold var_upd; destruct var_eq_dec; try congruence.
+        -- apply remove_var_inde; simpl; eauto.
+           applys* remove_var_imp.
+      * simpl; rewrite <-phplus_gheap_comm'.
+        exists (as_gheap h_alc) (as_gheap h); splits; eauto.
+        -- apply alloc_heap_ok.
+        -- apply as_gheap_pdisj; eauto.
+Qed.
+
+Lemma safe_seq : forall (n : nat) (C C2 : stmt) (s : stack) (h : zpheap) (Q R : assn),
+  safe_nh n s h C Q ->
+  (forall m s' h', m <= n -> Q s' (as_gheap h') -> safe_nh m s' h' C2 R)%nat ->
+  safe_nh n s h (host_seq C C2) R.
+Proof.
+  induction n; introv Hsafe H; simpl; eauto; unfold safe_nt in *.
+  splits; try congruence.
+  - introv Hdis Heq Haborts; inversion Haborts; subst; simpl in *; jauto.
+  - introv Hdis Heq Hstep; inverts Hstep as Hstep'; eauto.
+    + destruct Hsafe as (? & ? & Hstep); forwards* (h'' & ? & ? & ?): Hstep.
+      exists h''; splits; eauto.
+    + destruct Hsafe as (? & _).
+      forwards*: (H n s' h).
+Qed.
+
+Lemma safe_nh_mono n m s h c P :
+  safe_nh n s h c P -> m <= n -> safe_nh m s h c P.
+Proof.
+  revert m s h c P; induction n; simpl; introv.
+  - intros; assert (m = 0); [omega|substs]; simpl; eauto.
+  - intros (Hskip & Hsafe & Hstep) Hmn.
+    destruct m; [simpl; eauto|]; simpl; splits; eauto.
+    introv Hdis' Heq' Hstep'.
+    forwards* (h'' & ? & ? & ?): Hstep; exists h''; splits; eauto.
+    apply IHn; eauto; omega.
+Qed.
+
+Lemma safe_ng_mono nt nb n m tst shp h P :
+  safe_ng nt nb n tst shp h P -> m <= n -> 
+  safe_ng nt nb m tst shp h P.
+Proof.
+  revert m tst shp h P; induction n; simpl; introv.
+  - intros; assert (m = 0); [omega|substs]; simpl; eauto.
+  - intros (Hskip & Hsafe1 & Hsafe2 & Hstep) Hmn.
+    destruct m; [simpl; eauto|]; simpl; splits; eauto.
+    introv Hdis' Heq' Hstep'.
+    forwards* (h'' & ? & ? & ?): Hstep; exists h''; splits; eauto.
+    apply IHn; eauto; omega.
+Qed.
+
+Lemma interp_htri_n_mono n m fn fs :
+  interp_htri_n fn fs n -> m <= n -> interp_htri_n fn fs m.
+Proof.
+  unfold interp_htri_n.
+  destruct func_disp as [[|]|]; eauto.
+  - induction fs; simpl; eauto.
+    unfold CSLhfun_n_simp.
+    intros H ?; intros.
+    forwards*: H.
+    eauto using safe_nh_mono.
+  - induction fs; simpl; eauto.
+    unfold CSLgfun_n_simp.
+    intros H ?; intros.
+    forwards*: (>>H H3).
+    eauto using safe_ng_mono.
+Qed.
+
+Lemma interp_FC_n_mono G n m :  
+  interp_FC_n G n -> m <= n -> interp_FC_n G m.
+Proof.
+  unfold interp_FC_n; rewrite !Forall_forall; intros H Hle [fn fs] Hin.
+  forwards*: H; simpl in *.
+  applys* interp_htri_n_mono.
+Qed.
+
+Lemma rule_host_seq G P Q R s1 s2 :
+  CSLh_n G P s1 Q
+  -> CSLh_n G Q s2 R 
+  -> CSLh_n G P (host_seq s1 s2) R.
+Proof.
+  unfold CSLh_n, CSLh_n_simp; intros.
+  eapply safe_seq; eauto.
+  intros; applys* H0.
+  applys* interp_FC_n_mono; omega.
+Qed.
+    
+End Rules.
