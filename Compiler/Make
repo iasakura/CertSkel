@@ -1,6 +1,6 @@
 Correctness.v 
 CUDALib.v
-CompilerProof.v 
+SeqCompilerProof.v 
 Host.v
 MyEnv.v
 MyMSets.v
