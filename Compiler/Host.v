@@ -764,7 +764,7 @@ Lemma rule_host_alloc G R P E x e size :
   evalExp E e (Zn size)
   -> CSLh_n G (Assn R P E)
             (host_alloc x e)
-            (Ex p vs, Assn (array (GLoc p) vs 1 *** R) P ((x |-> p) :: (remove_var E x))).
+            (Ex p vs, Assn (array (GLoc p) vs 1 *** R) (length vs = size /\ P) ((x |-> p) :: (remove_var E x))).
 Proof.
   intros Heval n _ s h Hsat; destruct n; simpl; eauto; splits. 
   - inversion 1.
@@ -795,6 +795,7 @@ Proof.
     + apply safe_nh_skip.
       exists (Zn start) vs.
       unfold Assn, sat in Hsat |- *; sep_split_in Hsat; sep_split; eauto.
+      * unfold_conn; split; eauto.
       * simpl; split; eauto using remove_var_imp.
         -- unfold "==="; simpl.
            unfold var_upd; destruct var_eq_dec; try congruence.
