@@ -120,7 +120,7 @@ Definition usable (xs : list var) n : Prop :=
 
 Definition code_ok G P Q xs ys : assnST := fun n s GM =>
   sat_FC GM G G /\ CSLh_n GM G P s Q /\ usable xs n /\ usable ys n /\
-  incl (fv_assn Q) xs /\ disjoint ys xs.
+  fv_assn Q xs /\ disjoint ys xs.
 
 (* Definition code_ok G P Q : assnST :=  *)
 (*   fun _ c gm => CSLh_n gm G P c Q. *)
@@ -258,7 +258,7 @@ Qed.
 
 Lemma rule_setI G P Q R ss xs xs' ys :
   (forall GM, CSLh_n GM G Q ss R)
-  -> (incl (fv_assn R) (xs ++ xs'))
+  -> (fv_assn R (xs ++ xs'))
   -> (incl xs' ys)
   -> ST_ok (code_ok G P Q xs ys)
            (setI ss)
@@ -318,7 +318,7 @@ Proof.
 Qed.
 
 Lemma code_ok_float T G P Q xs ys (m : CUDAM T) Post :
-  (incl (fv_assn Q) xs -> disjoint ys xs -> ST_ok (code_ok G P Q xs ys) m Post)
+  (fv_assn Q xs -> disjoint ys xs -> ST_ok (code_ok G P Q xs ys) m Post)
   -> ST_ok (code_ok G P Q xs ys) m Post.
 Proof.
   unfold ST_ok, code_ok; intros H; intros.
@@ -346,7 +346,7 @@ Proof.
   eapply rule_bind; [|eauto|].
   { applys* (>>rule_setI (x :: nil)).
     - intros; applys* rule_host_let.
-    - rewrite fv_assn_env in *; simpl.
+    - rewrite fv_assn_base in *; simpl.
       unfold incl; simpl.
       introv; repeat (rewrite in_app_iff; simpl).
       intros [? | ?]; substs; eauto.
@@ -357,14 +357,102 @@ Proof.
   eapply rule_forward; [apply rule_ret|].
   introv (Hfs & Htri & Hxs & Hys & Henv' & Hdisj'); splits; eauto.
   - cutrewrite (E = remove_var E x); [eauto|].
-    rewrites fv_assn_env in Hincl.
+    rewrites fv_assn_base in Hincl.
     rewrites* remove_var_disjoint.
   - applys* (>>usable_incl Hxs).
     unfold incl; simpl; introv [? | ?]; substs; eauto;
     repeat (rewrite in_app_iff; simpl); eauto.
   - applys* (>>usable_incl Hys); unfold incl; introv ?.
     simpl; destruct var_eq_dec; try congruence.
-  - rewrite fv_assn_env in *; unfold incl in *; simpl.
+  - rewrite fv_assn_base in *; unfold incl in *; simpl.
+    intros ? [?|?]; eauto.
+  - apply disjoint_comm; simpl; split.
+    + intros Hc.
+      forwards*: (disjoint_remove_xs ys (x :: nil)).
+      apply disjoint_comm in H; simpl in H; jauto.
+    + destruct Hdisj as [_ Hdisj].
+      apply disjoint_comm in Hdisj.
+      applys (>>disjoint_incl Hdisj).
+      apply remove_xs_incl.
+Qed.
+
+Lemma rule_fAlloc G Pre R P E xs ys e size :
+  evalExp E e (Zn size)
+  -> ST_ok (code_ok G Pre (Assn R P E) xs ys)
+           (fAlloc e)
+           (fun x => code_ok G Pre (Ex p vs, Assn (array (GLoc p) vs 1 *** R) (length vs = size /\ P)
+                                                  (x |-> p :: E))
+                             (x :: xs) (remove_xs ys (x :: nil))).
+Proof.
+  unfold fLet; intros Hveal.
+  eapply rule_bind; [apply rule_fresh|eauto |].
+  introv; apply code_ok_float; intros Hincl Hdisj; simpl in Hdisj.
+  eapply rule_bind; [|eauto|].
+  { applys* (>>rule_setI (x :: nil)).
+    - intros; applys* rule_host_alloc.
+    - repeat (rewrite fv_assn_Ex; introv); rewrite fv_assn_base in *; simpl.
+      unfold incl; simpl.
+      introv; repeat (rewrite in_app_iff; simpl).
+      intros [? | ?]; substs; eauto.
+      left; apply Hincl.
+      forwards*: remove_var_incl'. 
+    - unfold incl; simpl; intros ? [|[]]; eauto. }
+  introv.
+  eapply rule_forward; [apply rule_ret|].
+  introv (Hfs & Htri & Hxs & Hys & Henv' & Hdisj'); splits; eauto.
+  - cutrewrite (E = remove_var E x); [eauto|].
+    rewrites fv_assn_base in Hincl.
+    rewrites* remove_var_disjoint.
+  - applys* (>>usable_incl Hxs).
+    unfold incl; simpl; introv [? | ?]; substs; eauto;
+    repeat (rewrite in_app_iff; simpl); eauto.
+  - applys* (>>usable_incl Hys); unfold incl; introv ?.
+    simpl; destruct var_eq_dec; try congruence.
+  - repeat (rewrite fv_assn_Ex; introv); rewrite fv_assn_base in *; unfold incl in *; simpl.
+    intros ? [?|?]; eauto.
+  - apply disjoint_comm; simpl; split.
+    + intros Hc.
+      forwards*: (disjoint_remove_xs ys (x :: nil)).
+      apply disjoint_comm in H; simpl in H; jauto.
+    + destruct Hdisj as [_ Hdisj].
+      apply disjoint_comm in Hdisj.
+      applys (>>disjoint_incl Hdisj).
+      apply remove_xs_incl.
+Qed.
+
+Lemma rule_fAllocs G Pre R P E xs ys e size :
+  evalExp E e (Zn size)
+  -> ST_ok (code_ok G Pre (Assn R P E) xs ys)
+           (fAlloc e)
+           (fun x => code_ok G Pre (Ex p vs, Assn (array (GLoc p) vs 1 *** R) (length vs = size /\ P)
+                                                  (x |-> p :: E))
+                             (x :: xs) (remove_xs ys (x :: nil))).
+Proof.
+  unfold fLet; intros Hveal.
+  eapply rule_bind; [apply rule_fresh|eauto |].
+  introv; apply code_ok_float; intros Hincl Hdisj; simpl in Hdisj.
+  eapply rule_bind; [|eauto|].
+  { applys* (>>rule_setI (x :: nil)).
+    - intros; applys* rule_host_alloc.
+    - repeat (rewrite fv_assn_Ex; introv); rewrite fv_assn_base in *; simpl.
+      unfold incl; simpl.
+      introv; repeat (rewrite in_app_iff; simpl).
+      intros [? | ?]; substs; eauto.
+      left; apply Hincl.
+      forwards*: remove_var_incl'. 
+    - unfold incl; simpl; intros ? [|[]]; eauto. }
+  introv.
+  eapply rule_forward; [apply rule_ret|].
+  introv (Hfs & Htri & Hxs & Hys & Henv' & Hdisj'); splits; eauto.
+  - cutrewrite (E = remove_var E x); [eauto|].
+    rewrites fv_assn_base in Hincl.
+    rewrites* remove_var_disjoint.
+  - applys* (>>usable_incl Hxs).
+    unfold incl; simpl; introv [? | ?]; substs; eauto;
+    repeat (rewrite in_app_iff; simpl); eauto.
+  - applys* (>>usable_incl Hys); unfold incl; introv ?.
+    simpl; destruct var_eq_dec; try congruence.
+  - repeat (rewrite fv_assn_Ex; introv); rewrite fv_assn_base in *; unfold incl in *; simpl.
     intros ? [?|?]; eauto.
   - apply disjoint_comm; simpl; split.
     + intros Hc.

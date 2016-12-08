@@ -511,14 +511,16 @@ Section Compiler.
       ret (xs1, xs2)
     end.
 
-  Fixpoint fAllocs (typ : Skel.Typ) e : CUDAM (vars typ) :=
+  Fixpoint fAllocs' (typ : Skel.Typ) (size : var) : CUDAM (vars typ) :=
     match typ return CUDAM (vars typ) with
-    | Skel.TZ | Skel.TBool => fAlloc e
+    | Skel.TZ | Skel.TBool => fAlloc size
     | Skel.TTup t1 t2 => 
-      do! xs1 := fAllocs t1 e in
-      do! xs2 := fAllocs t2 e in
+      do! xs1 := fAllocs' t1 size in
+      do! xs2 := fAllocs' t2 size in
       ret (xs1, xs2)
     end.
+
+  Definition fAllocs typ e := do! size := fLet e in fAllocs' typ size.
 
   Definition getLen {GA typ} (x : member typ GA) (env : AVarEnv GA) : exp :=
     (fst (hget env x)).
