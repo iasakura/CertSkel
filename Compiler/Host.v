@@ -811,7 +811,7 @@ Lemma safe_seq : forall (n : nat) (C C2 : stmt) (s : stack) (h : zpheap) (Q R : 
   safe_nh n s h C Q ->
   (forall m s' h', m <= n -> Q s' (as_gheap h') -> safe_nh m s' h' C2 R)%nat ->
   safe_nh n s h (host_seq C C2) R.
-Proof.
+forwards*: Hstep1Proof.
   induction n; introv Hsafe H; simpl; eauto; unfold safe_nt in *.
   splits; try congruence.
   - introv Hdis Heq Haborts; inversion Haborts; subst; simpl in *; jauto.

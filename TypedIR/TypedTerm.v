@@ -49,33 +49,33 @@ Module Skel.
     | EVar _ _ _ x => fun sa se => ret (hget se x)
     | ENum _ _ n => fun sa se => ret n
     | EBin _ _ _ _ _ op t1 t2 => fun sa se =>
-      do! x := sexpDenote _ _ _ t1 sa se in
-      do! y := sexpDenote _ _ _ t2 sa se in
+      do! x <- sexpDenote _ _ _ t1 sa se in
+      do! y <- sexpDenote _ _ _ t2 sa se in
       ret (opDenote _ _ _ op x y)
     | EA _ _ _ x e => fun sa se =>
-      do! v := sexpDenote _ _ _ e sa se in
+      do! v <- sexpDenote _ _ _ e sa se in
       let arr := hget sa x in
       nth_error arr v
     | ELen _ _ _ x => fun sa se =>
       let arr := hget sa x in
       ret (Z.of_nat (length arr))
     | EIf _ _ _ t1 t2 t3 => fun sa se =>
-      do! b := sexpDenote _ _ _ t1 sa se in
-      do! th := sexpDenote _ _ _ t2 sa se in
-      do! el := sexpDenote _ _ _ t3 sa se in
+      do! b <- sexpDenote _ _ _ t1 sa se in
+      do! th <- sexpDenote _ _ _ t2 sa se in
+      do! el <- sexpDenote _ _ _ t3 sa se in
       ret (if b then th else el)
     | ECons _ _ _ _ t1 t2 => fun sa se =>
-      do! v1 := sexpDenote _ _ _ t1 sa se in
-      do! v2 := sexpDenote _ _ _ t2 sa se in
+      do! v1 <- sexpDenote _ _ _ t1 sa se in
+      do! v2 <- sexpDenote _ _ _ t2 sa se in
       ret (v1, v2)
     | EPrj1 _ _ _ _ t => fun sa se =>
-      do! v1 := sexpDenote _ _ _ t sa se in
+      do! v1 <- sexpDenote _ _ _ t sa se in
       ret (fst v1)
     | EPrj2 _ _ _ _ t => fun sa se =>
-      do! v1 := sexpDenote _ _ _ t sa se in
+      do! v1 <- sexpDenote _ _ _ t sa se in
       ret (snd v1)
     | ELet _ _ _ _ e1 e2 => fun sa se =>
-      do! v1 := sexpDenote _ _ _ e1 sa se in
+      do! v1 <- sexpDenote _ _ _ e1 sa se in
       sexpDenote _ _ _ e2 sa (HCons v1 se)
     end.
 
@@ -143,16 +143,16 @@ Module Skel.
     hlist aTypDenote GA -> comp (aTypDenote t) :=
     match skel with
     | Map _ _ _ f e => fun sa =>
-      do! arr := aeDenote _ _ e sa in
+      do! arr <- aeDenote _ _ e sa in
       mapM (funcDenote _ _ f sa) arr
     | Reduce _ _ f e => fun sa =>
-      do! arr := aeDenote _ _ e sa in
+      do! arr <- aeDenote _ _ e sa in
       reduceM (funcDenote _ _ f sa) arr
     | Seq _ start len => fun sa => 
       ret (seq (lexpDenote _ _ start sa) (lexpDenote _ _ len sa))
     | Zip _ _ _ a1 a2 => fun sa =>
-      do! a1 := aeDenote _ _ a1 sa in
-      do! a2 := aeDenote _ _ a2 sa in
+      do! a1 <- aeDenote _ _ a1 sa in
+      do! a2 <- aeDenote _ _ a2 sa in
       ret (zip a1 a2)
     end.
 
@@ -164,7 +164,7 @@ Module Skel.
     hlist aTypDenote GA -> comp (aTypDenote t) :=
       match as_ with
       | ALet _ _ _ skel e => fun sa =>
-        do! x := skelDenote _ _ skel sa in
+        do! x <- skelDenote _ _ skel sa in
         asDenote _ _ e (HCons x sa) 
       | ARet _ _ x => fun sa => ret (hget sa x)
       end.

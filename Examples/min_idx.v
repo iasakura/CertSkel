@@ -1,24 +1,24 @@
 Require Import Monad SkelLib Computation ZArith TypedTerm Program.
 Open Scope Z_scope.
 
-Lemma let_ret T (app : comp T) : (do! x := app in ret x) = app.
+Lemma let_ret T (app : comp T) : (do! x <- app in ret x) = app.
 Proof. unfold bind; simpl; unfold bind_opt; destruct app; eauto. Qed.
 
 Ltac let_intro_pure f T ans :=
   lazymatch f with
   | fun x => x => constr:(fun (k : T -> ans) x => k (f x))
   | fun x => seq (@?n x) (@?m x) =>
-    constr:(fun (k : list Z -> ans) x => do! t := ret (seq (n x) (m x)) in k t)
+    constr:(fun (k : list Z -> ans) x => do! t <- ret (seq (n x) (m x)) in k t)
   | fun x => zip (@?arg1 x) (@?arg2 x) =>
     let arg1' := let_intro_pure arg1 T ans in
     let arg2' := let_intro_pure arg2 T ans in
     constr:(fun k x => 
                  arg1' (fun t1 => 
                  arg2' (fun t2 => 
-                 do! t3 := ret (zip t1 t2) in k t3) x) x)
+                 do! t3 <- ret (zip t1 t2) in k t3) x) x)
   | fun x => reduceM (@?op x) (@?arg1 x) =>
     let arg1' := let_intro_pure arg1 T ans in
-    constr:(fun k x => arg1' (fun t1 => do! t2 := (reduceM (op x) t1) in k t2) x)
+    constr:(fun k x => arg1' (fun t1 => do! t2 <- (reduceM (op x) t1) in k t2) x)
   end.
 
 Ltac let_intro := lazymatch goal with
@@ -45,7 +45,7 @@ Ltac reifyFunc' :=
     transform prog ltac:(fun res => exists res)
   end.
 
-Lemma let_lift1 {A B : Type} (f : A -> comp B) (xs : A) : f xs = do! t := ret xs in f t.
+Lemma let_lift1 {A B : Type} (f : A -> comp B) (xs : A) : f xs = do! t <- ret xs in f t.
 Proof. eauto. Qed.
 Lemma if_app (A B : Type) (f : A -> B) (b : bool) x y :
   (f (if b then x else y)) = (if b then f x else f y).
@@ -57,16 +57,16 @@ Ltac prove_equiv1 :=
   repeat
     (match goal with _ => idtac end;
       lazymatch goal with
-      | [|- context [do! _ := ret ?skel in _]] =>  rewrite <-(let_lift1 _ skel)
-      | [|- context [do! x := ?skel in ret x]] =>  rewrite (let_ret _ skel)
+      | [|- context [do! _ <- ret ?skel in _]] =>  rewrite <-(let_lift1 _ skel)
+      | [|- context [do! x <- ?skel in ret x]] =>  rewrite (let_ret _ skel)
       end);
     repeat rewrite let_ret;
   repeat f_equal;
   repeat (let l := fresh in extensionality l; intros);
   repeat (match goal with _ => idtac end;
       lazymatch goal with
-      | [|- context [do! _ := ret ?skel in _]] =>  rewrite <-(let_lift1 _ skel)
-      | [|- context [do! x := ?skel in ret x]] =>  rewrite (let_ret _ skel)
+      | [|- context [do! _ <- ret ?skel in _]] =>  rewrite <-(let_lift1 _ skel)
+      | [|- context [do! x <- ?skel in ret x]] =>  rewrite (let_ret _ skel)
       | [|- context [ret (if _ then _ else _)]] =>  rewrite (if_app _ _ ret)
       end); eauto.
 

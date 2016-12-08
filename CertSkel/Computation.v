@@ -16,10 +16,10 @@ Proof.
   intros ? [? ?]; eexists; eauto.
 Qed.
 
-Lemma let_bind {A B : Type} (t : list A) (f : list A -> comp B) : (let x := t in f x) = (do! x := ret t in f x).
+Lemma let_bind {A B : Type} (t : list A) (f : list A -> comp B) : (let x := t in f x) = (do! x <- ret t in f x).
 Proof. eauto. Qed.
 
-Lemma let_lift1 {A B : Type} (f : list A -> comp B) (xs : list A) : f xs = do! t := ret xs in f t.
+Lemma let_lift1 {A B : Type} (f : list A -> comp B) (xs : list A) : f xs = do! t <- ret xs in f t.
 Proof. eauto. Qed.
 
 Definition skels := (tt, @reduceM, @zip, seq).
@@ -52,7 +52,7 @@ Ltac forEach f xs :=
   end.
 
 Lemma let_lift2 {A B C : Type} (ae : list A) (f : list A -> comp B) (g : B -> comp C) :
-  (do! t := do! u := ret ae in f u in g t) = (do! u := ret ae in do! t := f u in g t).
+  (do! t <- do! u <- ret ae in f u in g t) = (do! u <- ret ae in do! t <- f u in g t).
 Proof. eauto. Qed.
 
 Definition myfst {A B} (x : A * B) := match x with (x, y) => x end.
@@ -68,16 +68,16 @@ Ltac eval_tup t :=
 Ltac bind_last term k :=
   idtac "term = " term;
   lazymatch term with
-  | (fun x => do! y := ?t in @?u x y) =>
+  | (fun x => do! y <- ?t in @?u x y) =>
     let c := eval cbv beta in (fun t => u (myfst t) (mysnd t)) in
     bind_last c ltac:(fun f =>
-    let res := eval cbv beta in (fun x => do! y := t in f (x, y)) in
+    let res := eval cbv beta in (fun x => do! y <- t in f (x, y)) in
     k res)
   | (fun x => @?u x) =>
     let ty := type of u in
     idtac u ":" ty;
     match ty with
-    | _ -> comp _ => k (fun x => do! y := u x in ret y)
+    | _ -> comp _ => k (fun x => do! y <- u x in ret y)
     | _ => k term
     end
   end.
@@ -259,7 +259,7 @@ Ltac scalarExpr GA GS f k :=
       scalarExpr GA (ty1 :: GS) t2 ltac:(fun t2' =>
       k (Skel.ELet _ _ _ _ t1' t2'))))
     end
-  | (fun a (x : ?T) => do! y := @?t1 a x in @?t2 a x y) =>
+  | (fun a (x : ?T) => do! y <- @?t1 a x in @?t2 a x y) =>
     idtac "scalarExpr: matched to let case";
     lazymatch type of t1 with
     | _ -> _ -> comp ?Ty =>
@@ -435,7 +435,7 @@ Ltac skelApp GA f k :=
     reifyAE GA arr2 ltac:(fun arr2 =>
     idtac arr1 arr2;
     k (Skel.Zip _ _ _ arr1 arr2)))
-  | (fun (x : ?T) => do! a1 := (@?arr1 x) in do! a2 := (@?arr2 x) in zip a1 a2) =>
+  | (fun (x : ?T) => do! a1 <- (@?arr1 x) in do! a2 <- (@?arr2 x) in zip a1 a2) =>
     idtac "match to zip";
     reifyAE GA arr1 ltac:(fun arr1 =>
     reifyAE GA arr2 ltac:(fun arr2 =>
@@ -447,7 +447,7 @@ Ltac skelApp GA f k :=
     reifyAE GA arr ltac:(fun arr =>
     scalarFunc GA f ltac:(fun f =>
     k (Skel.Reduce _ _ f arr)))
-  | (fun (x : ?T) => do! a := (@?arr x) in reduceM (@?f x) a) =>
+  | (fun (x : ?T) => do! a <- (@?arr x) in reduceM (@?f x) a) =>
     idtac "match to reduce";
     idtac "skelApp: f, arr = " f arr;
     reifyAE GA arr ltac:(fun arr =>
@@ -459,7 +459,7 @@ Ltac skelApp GA f k :=
     reifyAE GA arr ltac:(fun arr =>
     scalarFunc GA f ltac:(fun f =>
     k (Skel.Map _ _ _ f arr)))
-  | (fun (x : ?T) => do! a := (@?arr x) in mapM (@?f x) a) =>
+  | (fun (x : ?T) => do! a <- (@?arr x) in mapM (@?f x) a) =>
     idtac "match to map";
     idtac "skelApp: f, arr = " f arr;
     reifyAE GA arr ltac:(fun arr =>
@@ -484,7 +484,7 @@ Ltac transform' GA prog k :=
   idtac "prog = " prog;
   lazymatch prog with
     (* Note that @?c x t should not be @?c t x, the captured term by c would be malformed *)
-  | (fun (x : ?T) => do! t := @?ae x in @?c x t) =>
+  | (fun (x : ?T) => do! t <- @?ae x in @?c x t) =>
     idtac "match do case";
     let T_of_ae := lazymatch type of ae with _ -> comp ?T => T end in
     let c' := eval cbv beta in (fun (x : T * T_of_ae) => c (myfst x) (mysnd x)) in
@@ -502,9 +502,9 @@ Ltac transform' GA prog k :=
 Goal False.
   let t := constr:(
   fun (x : unit * list Z) =>
-    do! idx := ret (seq 0 (len (mysnd x))) in
-    do! arrIdx := ret (zip (mysnd x) idx) in
-    do! res := reduceM (fun x y : Z * Z => if fst x <? fst y then ret x else ret y) arrIdx in
+    do! idx <- ret (seq 0 (len (mysnd x))) in
+    do! arrIdx <- ret (zip (mysnd x) idx) in
+    do! res <- reduceM (fun x y : Z * Z => if fst x <? fst y then ret x else ret y) arrIdx in
     ret res : comp _) in
   transform' (Skel.TZ :: nil) t ltac:(fun res => pose res as prog).
   Eval simpl in Skel.asDenote (Skel.TZ :: nil) _ prog.
@@ -541,23 +541,21 @@ Ltac transform prog k :=
 Goal False.
   let t := constr:(
   fun (x : list Z) =>
-    do! idx := ret (seq 0 (len x)) in
-    do! arrIdx := ret (zip x idx) in
-    do! res := reduceM (fun x y : Z * Z => if fst x <? fst y then ret x else ret y) arrIdx in
+    do! idx <- ret (seq 0 (len x)) in
+    do! arrIdx <- ret (zip x idx) in
+    do! res <- reduceM (fun x y : Z * Z => if fst x <? fst y then ret x else ret y) arrIdx in
     ret res : comp _) in
   transform t ltac:(fun res => pose res as prog).
 
-  let t := constr:(fun (p : unit * list Z) (i : Z) => do!x1 := nth_error (mysnd p) i in ret (x1, i)) in
+  let t := constr:(fun (p : unit * list Z) (i : Z) => do! x1 <- nth_error (mysnd p) i in ret (x1, i)) in
   scalarFunc (Skel.TZ :: nil) t ltac:(fun res => pose res as p).
   let t := constr:(fun (p : unit * list Z) => 
-          gen (fun i : Z => do!x1 := nth_error (mysnd p) i in ret (x1, i))
+          gen (fun i : Z => do! x1 <- nth_error (mysnd p) i in ret (x1, i))
                (len (mysnd p))) in
   reifyAE (Skel.TZ :: nil) t ltac:(fun res => pose res as p').
 
   let t := constr:((fun x0 : list Z =>
-      do!x1
-      := (do!t
-          := gen (fun i : Z => do!x1 := nth_error x0 i in ret (x1, i))
+      do! x1 <- (do! t <- gen (fun i : Z => do! x1 <- nth_error x0 i in ret (x1, i))
                (len x0)
           in reduceM
                (fun x1 y : Z * Z =>
