@@ -94,15 +94,15 @@ Proof.
       rewrite Nat.min_r; omega.
 Qed.
 
-Definition assnST : Type := nat -> stmt -> GModule -> Prop.
+Definition assnST : Type := nat -> nat -> Prop.
+Definition assnStmt : Type := GModule -> stmt -> Prop.
 
-Definition ST_ok {T} (P : assnST) (gen : CUDAM T) (Q : T -> assnST) :=
-  forall n n' st st' GM GM' v,
-    P n (seqs st) GM 
-    -> gen n GM = (v, (n', st', GM'))
-    -> Q v n' ((seqs (st ++ st'))) GM'.
+Definition ST_ok {T} (P : assnST) (gen : CUDAM T) (Q : T -> assnST) (A : T -> assnStmt) :=
+  forall (n m n' m' : nat) st GM v,
+    P n m 
+    -> gen n m = (v, (n', m', st, GM))
+    -> Q v n' m' /\ A v GM (seqs st).
 
-Definition FC_ok (G : FC) : assnST := fun _ _ gm => sat_FC gm G G.
 Parameter fv_assn : assn -> list var -> Prop.
 Axiom fv_assn_ok : forall P xs ys,
     fv_assn P xs -> disjoint xs ys -> inde P ys.
@@ -118,9 +118,13 @@ Definition usable_var x n : Prop := forall m, x = hvar m -> m < n.
 Definition usable (xs : list var) n : Prop :=
   List.Forall (fun x => usable_var x n) xs.
 
-Definition code_ok G P Q xs ys : assnST := fun n s GM =>
-  sat_FC GM G G /\ CSLh_n GM G P s Q /\ usable xs n /\ usable ys n /\
-  fv_assn Q xs /\ disjoint ys xs.
+Definition var_ok xs ys : assnST := fun n m =>
+  usable xs n /\ usable ys n /\ disjoint ys xs.
+
+Definition code_ok Gp G P Q xs : assnStmt := fun GM st => 
+  forall GMp, sat_FC GMp Gp Gp -> 
+              sat_FC (GMp ++ GM) (Gp ++ G) (Gp ++ G) /\
+              CSLh_n (GMp ++ GM) (Gp ++ G) P st Q /\ fv_assn Q xs.
 
 (* Definition code_ok G P Q : assnST :=  *)
 (*   fun _ c gm => CSLh_n gm G P c Q. *)
@@ -234,25 +238,29 @@ Proof.
   eauto using safe_seqs_app.
 Qed.
 
-Lemma rule_fresh G P Q xs ys:
-  ST_ok (code_ok G P Q xs ys) 
-        fresh
-        (fun y => code_ok G P Q xs (y :: ys)).
+Lemma rule_fresh G Q xs ys:
+  fv_assn Q xs 
+  -> ST_ok (var_ok xs ys) 
+           freshP
+           (fun y => var_ok xs (y :: ys))
+           (fun y => code_ok G nil Q Q xs).
 Proof.
-  unfold ST_ok, fresh, setC, code_ok.
-  introv (Hfs & Htri & Hxs & Hys & Henv & Hdisj) Heq.
+  unfold ST_ok, freshP, setPn, code_ok.
+  introv Henv (Hxs & Hys & Hdisj) Heq.
   inverts Heq.
   splits; eauto.
-  - rewrite app_nil_r; eauto.
-  - applys (>>usable_weaken Hxs); omega.
-  - constructor.
-    + apply lt_usable_var; omega.
-    + applys (>>usable_weaken Hys); omega.
-  - split; eauto.
-    intros Hc.
-    unfold usable in Hxs; rewrite Forall_forall in Hxs.
-    forwards* H: Hxs.
-    apply usable_var_lt in H; omega.
+  - splits; eauto.
+    + applys (>>usable_weaken Hxs); omega.
+    + constructor.
+      * apply lt_usable_var; omega.
+      * applys (>>usable_weaken Hys); omega.
+    + split; eauto.
+      intros Hc.
+      unfold usable in Hxs; rewrite Forall_forall in Hxs.
+      forwards* H: Hxs.
+      apply usable_var_lt in H; omega.
+  - intros; splits; try rewrite !app_nil_r; eauto.
+    simpl; apply rule_host_skip.
 Qed.  
 
 Fixpoint remove_xs (xs : list var) (ys : list var) :=
@@ -310,37 +318,36 @@ Proof.
   intros [? | ?]; eauto.
 Qed.
 
-Lemma rule_hseq GM G st st' P Q R:
-  CSLh_n GM G P st Q 
-  -> CSLh_n GM G Q st' R
-  -> CSLh_n GM G P (hseq st st') R.
-Proof.
-  intros.
-  destruct st'; simpl; eauto using rule_host_seq.
-  intros n Hfc s h Hp.
-  forwards*: (>>H0 n Hfc).
-  forwards*: (>>H n Hfc s h Hp).
-  clear Hp H; revert s h st H1 H2; clear; induction n; simpl; eauto; introv.
-  intros Htri (? & ? & ?); splits; eauto.
-  - intros; substs; forwards*H': H; forwards*: (>>Htri H); simpl in *; jauto.
-  - intros; forwards*(h'' & ? & ?): H1; exists h''; splits; jauto.
-    applys* IHn.
-    intros ? ? Hq; forwards*: Htri; eauto using safe_nh_mono.
-Qed.
+(* Lemma rule_hseq GM G st st' P Q R: *)
+(*   CSLh_n GM G P st Q  *)
+(*   -> CSLh_n GM G Q st' R *)
+(*   -> CSLh_n GM G P (hseq st st') R. *)
+(* Proof. *)
+(*   intros. *)
+(*   destruct st'; simpl; eauto using rule_host_seq. *)
+(*   intros n Hfc s h Hp. *)
+(*   forwards*: (>>H0 n Hfc). *)
+(*   forwards*: (>>H n Hfc s h Hp). *)
+(*   clear Hp H; revert s h st H1 H2; clear; induction n; simpl; eauto; introv. *)
+(*   intros Htri (? & ? & ?); splits; eauto. *)
+(*   - intros; substs; forwards*H': H; forwards*: (>>Htri H); simpl in *; jauto. *)
+(*   - intros; forwards*(h'' & ? & ?): H1; exists h''; splits; jauto. *)
+(*     applys* IHn. *)
+(*     intros ? ? Hq; forwards*: Htri; eauto using safe_nh_mono. *)
+(* Qed. *)
 
-Lemma rule_setI G P Q R ss xs xs' ys :
-  (forall GM, CSLh_n GM G Q ss R)
-  -> (fv_assn R (xs ++ xs'))
+Lemma rule_setI G P Q ss xs xs' ys :
+  (forall GM, CSLh_n GM G P ss Q)
+  -> (fv_assn Q (xs ++ xs'))
   -> (incl xs' ys)
-  -> ST_ok (code_ok G P Q xs ys)
+  -> ST_ok (var_ok xs ys)
            (setI ss)
-           (fun _ => code_ok G P R (xs ++ xs') (remove_xs ys xs')).
+           (fun _ => var_ok (xs ++ xs') (remove_xs ys xs'))
+           (fun _ => code_ok G nil P Q (xs ++ xs')).
 Proof.
   unfold code_ok.
-  introv Htri Hfv Hxs' (Hfs & Htr & Hxs & Hys & Henv & Hdisj) Heq; simpl in *.
-  inverts Heq; splits; jauto.   
-  - eapply rule_app_seqs; eauto; simpl.
-    eapply rule_host_seq; eauto using rule_host_skip.
+  introv Htri Hfv Hxs' (Hxs & Hys & Hdisj) Heq; simpl in *.
+  unfold var_ok; inverts Heq; splits; [splits|..]; jauto.   
   - apply usable_app; eauto.
     applys* usable_incl.
   - eapply usable_incl; [|eauto using remove_xs_incl]; eauto.
@@ -348,24 +355,180 @@ Proof.
     + apply disjoint_comm; applys (>>disjoint_incl ys); eauto using disjoint_comm.
       apply remove_xs_incl.
     + apply disjoint_remove_xs.
+  - introv Hsat; splits; try rewrite !app_nil_r; eauto.
+    simpl; eauto.
+    eapply rule_host_seq; eauto using rule_host_skip.
 Qed.  
 
-Definition nST P : assnST := fun n _ _ => P n.
+Lemma func_disp_not_in GM id : 
+  func_disp GM id = None <-> (forall k, ~In (id, k) GM).
+Proof. 
+  induction GM as [|[? ?] ?]; simpl; splits; eauto.
+  - destruct string_dec; substs; try congruence.
+    introv Hdisp Hc.
+    destruct Hc as [Heq | Hc]; [inverts Heq|]; eauto.
+    rewrite IHGM in Hdisp; jauto.
+  - intros Hc; destruct string_dec; [ substs|].
+    + forwards*: Hc.
+    + apply IHGM; introv Hc'.
+      forwards*: (>>Hc k).
+Qed.
+Lemma func_disp_incl_none GM GM' id : 
+  incl GM GM' 
+  -> func_disp GM' id = None -> func_disp GM id = None.
+Proof.
+  unfold incl; intros Hinc HGM'.
+  rewrite func_disp_not_in in *.
+  introv Hc; forwards*: (>>HGM').
+Qed.
+Lemma func_disp_in GM id fd :
+  disjoint_list (map fst GM)
+  -> func_disp GM id = Some fd <-> (In (id, fd) GM).
+Proof.
+  induction GM as [|[? ?] ?]; simpl; intros Hdisj; splits; try congruence; try tauto.
+  - intros Heq; destruct string_dec.
+    + inverts Heq; substs; eauto.
+    + forwards*: IHGM.
+  - intros [Heq | Hin]; [inverts Heq|]; substs.
+    + destruct string_dec; congruence.
+    + destruct string_dec; eauto; substs.
+      * destruct Hdisj as [Hnin _]; false; apply* Hnin.
+        rewrite in_map_iff; exists (s, fd); jauto.
+      * apply IHGM in Hin; jauto; rewrite Hin.
+Qed.
 
-Lemma rule_bind T1 T2 P (Q : T1 -> assnST) R (gen : CUDAM T1) (gen' : T1 -> CUDAM T2) :
-  ST_ok P gen Q
-  -> (forall x, ST_ok (Q x) (gen' x) R)
-  -> ST_ok P (do! x <- gen in gen' x) R.
+Lemma func_disp_incl GM GM' id fd fd' :
+  incl GM GM' 
+  -> disjoint_list (map fst GM')
+  -> func_disp GM id = Some fd -> func_disp GM' id = Some fd'
+  -> fd = fd'.
+Proof.
+  induction GM as [|(? & ?) ?]; simpl; intros Hincl Hdisj Hdisp Hdisp'; try congruence.
+  destruct string_dec; substs; [inverts Hdisp|].
+  - rewrites* func_disp_in in Hdisp'.
+    forwards*: (>> Hincl (s, fd)); simpl; eauto.
+    Lemma disjoint_list_map A B x y (f : A -> B) xs :
+      disjoint_list (map f xs) 
+      -> In x xs -> In y xs -> f x = f y -> x = y.
+    Proof.
+      induction xs; simpl; try tauto.
+      intros [Hnin Hdisj] [? | Hinx] [? | Hiny] Heq; substs; jauto.
+      false; apply Hnin; apply in_map_iff; exists y; eauto.
+      false; apply Hnin; apply in_map_iff; exists x; eauto.
+    Qed.
+    forwards*: (>>disjoint_list_map (s, fd') Hdisj); congruence.
+  - applys* IHGM.
+    unfold incl in *; simpl in *; eauto.
+Qed.
+
+Lemma safe_nh_weaken GM GM' n s h st Q :
+  disjoint_list (map fst GM')
+  -> safe_nh GM n s h st Q 
+  -> incl GM GM' 
+  -> safe_nh GM' n s h st Q .
+Proof.
+  revert s h st; induction n; simpl; eauto.
+  introv HdisGM' (Hskip & Hsafe & Hstep) Hincl; splits; jauto.
+  - introv Hdisj Heq Hc; applys* Hsafe.
+    Lemma aborts_h_weaken GM GM' st s h : 
+      aborts_h GM' st s h
+      -> incl GM GM'
+      -> disjoint_list (map fst GM')
+      -> aborts_h GM st s h.
+    Proof.
+      intros Hab Hincl HHdisj; induction Hab; try now constructor; jauto.
+      - destruct H1 as [Hdisp | [[f Hdisp] | [Hn0 | [ Hm0 | Harg] ]]]; 
+        econstructor; eauto.
+        + eauto using func_disp_incl_none.
+        + destruct (func_disp GM kid) as [fd'|] eqn:Heq; eauto.
+          forwards*: (>>func_disp_incl Heq Hdisp); substs; eauto.
+        + destruct (func_disp GM kid) as [|ker] eqn:Heq; eauto.
+          destruct (func_disp ke kid) as [|ker] eqn:Heq'; eauto.
+          repeat right; introv He; inverts He.
+          apply Harg; eauto.
+          f_equal; symmetry; applys* (>>func_disp_incl Hincl).
+          forwards*: (>>func_disp_incl_none Hincl Heq'); congruence.
+      - econstructor. 
+        destruct H as [Hdisp | [[f Hdisp] | Harg]]; eauto.
+        + eauto using func_disp_incl_none.
+        + destruct (func_disp GM fn) as [fd'|] eqn:Heq; eauto.
+          forwards*: (>>func_disp_incl Heq Hdisp); substs; eauto.
+        + destruct (func_disp GM fn) as [|ker] eqn:Heq; eauto.
+          destruct (func_disp ke fn) as [|ker] eqn:Heq'; eauto.
+          repeat right; introv He; inverts He.
+          apply Harg; eauto.
+          f_equal; symmetry; applys* (>>func_disp_incl Hincl).
+          forwards*: (>>func_disp_incl_none Hincl Heq'); congruence.
+    Qed.
+    applys* aborts_h_weaken.
+  - Lemma stmt_exec_weaken GM GM' st state st' state' :
+      stmt_exec GM' st state st' state'
+      -> disjoint_list (map fst GM')
+      -> incl GM GM' 
+      -> ~aborts_h GM st (st_stack state) (st_heap state)
+      -> stmt_exec GM st state st' state'.
+    Proof.
+      induction 1; intros Hdisj Hincl Hnab; try econstructor; eauto.
+      - destruct (func_disp GM kerID) eqn:Heq.
+        + f_equal; applys* (>>func_disp_incl Hincl).
+        + false; apply Hnab; econstructor; eauto.
+      - destruct (func_disp GM fn) eqn:Heq.
+        + f_equal; applys* (>>func_disp_incl Hincl).
+        + false; apply Hnab; econstructor; eauto.
+      - apply IHstmt_exec; eauto.
+        intros Hc; apply Hnab; constructor; eauto.
+      - apply IHstmt_exec; eauto.
+        intros Hc; apply Hnab; constructor; eauto.
+    Qed.
+    introv Hdis Heq Hstep'; forwards* (h'' & ? & ? & ?): (>>Hstep).
+    { applys* stmt_exec_weaken. }
+Qed.
+
+Lemma CSLh_n_weaken GM G GM' G' P st Q :
+  disjoint_list (map fst GM')
+  -> CSLh_n GM G P st Q
+  -> fc_ok GM G = true
+  -> sat_FC GM G G
+  -> incl GM GM' -> incl G G'
+  -> CSLh_n GM' G' P st Q.
+Proof.
+  unfold CSLh_n, CSLh_n_simp; intros.
+  applys* (>>safe_nh_weaken GM GM').
+  apply H0; eauto.
+  assert (sat_FC GM nil G) by (applys* rule_module_rec).
+  apply H7, Forall_forall; simpl; try tauto.
+Qed.  
+
+Lemma rule_bind T1 T2 Pre Pst Pst' xs ys P Q Gp G G' R (gen : CUDAM T1) (gen' : T1 -> CUDAM T2) :
+  ST_ok Pre gen (fun x => Pst x) (fun x => code_ok Gp G P (Q x) (xs x))
+  -> (forall x, ST_ok (Pst x)
+                      (gen' x) 
+                      (fun y => Pst' y)
+                      (fun y => code_ok (Gp ++ G) G' (Q x) (R y) (ys y)))
+  -> ST_ok Pre
+           (do! x <- gen in gen' x)
+           (fun y => Pst' y)
+           (fun y => code_ok Gp (G ++ G') P (R y) (ys y)).
 Proof.
   unfold ST_ok in *; intros.
   inverts H2.
-  destruct (gen _ _) as (? & ((? & ?) & ?)) eqn:Heq.
-  forwards*: H.
-  destruct (gen' _ _) as (? & ((? & ?) & ?)) eqn:Heq'.
-  forwards*: H0.
-  inverts H4.
-  rewrite app_assoc; eauto.
-Qed.
+  destruct (gen _ _) as [? [[[? ?] ?] ?]] eqn:Heq.
+  forwards* (? & ?): H.
+  destruct (gen' _ _ _) as [? [[[? ?] ?] ?]] eqn:Heq'.
+  forwards* (? & ?): H0.
+  inverts H4; splits; jauto.
+  unfold code_ok in *; introv Hok.
+  forwards*: H3.
+  forwards*: (>>H6 (GMp ++ g)).
+  rewrite <-!app_assoc in *.
+  splits; jauto.
+  - eapply rule_app_seqs; jauto.
+    applys* (>>CSLh_n_weaken (GMp ++ g) (Gp ++ G)).
+    + skip.
+    + skip.
+    + rewrite app_assoc; apply incl_app_iff; eauto.
+    + rewrite app_assoc; apply incl_app_iff; eauto.
+Qed.  
 
 Lemma remove_var_incl Env x:
   incl (remove_var Env x) Env.
@@ -537,11 +700,12 @@ Proof.
   - simpl.
     eapply rule_bind; eauto.
     introv; simpl.
-    Lemma rule_ex_gen A T G Pre Pst xs ys G' Pre' Pst' xs' ys' (gen : CUDAM A) : 
-      (forall x : T, ST_ok (code_ok G Pre (Pst x) xs ys) gen
-                           (fun x => code_ok (G' x) (Pre' x) (Pst' x) (xs' x) (ys' x)))
-      -> ST_ok (code_ok G Pre (Ex x : T, Pst x) xs ys) gen
-               (fun x => code_ok (G' x) (Pre' x) (Pst' x) (xs' x) (ys' x)).
+    Lemma rule_ex_gen A B T G Pre Pst xs ys G' Pst' xs' ys' (gen : CUDAM A) (k : A -> CUDAM B): 
+      ST_ok (code_ok G Pre Pst xs ys) gen
+            (fun x => code_ok (G' x) Pre (Ex y, Pst' y x) (xs' x) (ys' x))
+      -> (forall x, ST_ok (code_ok (G' x) Pre (Ex y, Pst' y x) (xs' x) (ys' x))
+                          (k x)
+                          
     Proof.
       unfold ST_ok; introv Hsat Hok Hgen.
       unfold code_ok in *.

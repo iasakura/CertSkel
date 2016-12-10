@@ -473,41 +473,46 @@ Section Compiler.
                             | _ => host_seq st st'
                             end.
   
-  Definition CUDAM A := nat -> GModule -> (A * (nat * list stmt * GModule)).
+  Definition CUDAM A := nat -> nat -> (A * (nat * nat * list stmt * GModule)).
   Global Instance CUDAM_Monad : Monad CUDAM := {
-    ret A x := fun n gm => (x, (n, nil, gm));
-    bind A B x f := fun n gm =>
-                      let '(y, (n', st, gm')) := x n gm in
-                      let '(z, (n'', st', gm'')) := f y n' gm' in
-                      (z, (n'', app st st', gm''))
+    ret A x := fun n m => (x, (n, m, nil, nil));
+    bind A B x f := fun n m =>
+                      let '(y, (n', m', st, gm)) := x n m in
+                      let '(z, (n'',m'', st', gm')) := f y n' m' in
+                      (z, (n'', m'', app st st', gm ++ gm'))
   }.
-  Definition getC : CUDAM nat := fun n gm => (n, (n, nil, gm)).
-  Definition getGM : CUDAM GModule := fun n gm => (gm, (n, nil, gm)).
-  Definition setC x : CUDAM unit := fun _ gm => (tt, (x, nil, gm)).
-  Definition setGM gm : CUDAM unit := fun n _ => (tt, (n, nil, gm)).
+  Definition getPn : CUDAM nat := fun n m => (n, (n, m, nil, nil)).
+  Definition getFn : CUDAM nat := fun n m => (m, (n, m, nil, nil)).
+  Definition setPn x : CUDAM unit := fun n m => (tt, (x, m, nil, nil)).
+  Definition setFn x : CUDAM unit := fun n m => (tt, (n, x, nil, nil)).
+  Definition setGM gm : CUDAM unit := fun n m => (tt, (n, m, nil, gm)).
+  Definition setI (i : stmt) : CUDAM unit := fun n m => (tt, (n, m, i :: nil, nil)).
 
-  Definition fresh : CUDAM var := 
-    do! n <- getC in
-    do! _ <- setC (S n) in
+  Definition freshP : CUDAM var := 
+    do! n <- getPn in
+    do! _ <- setPn (S n) in
     ret (Var ("h" ++ nat2str n))%string.
 
-  Definition setI (i : stmt) : CUDAM unit := fun n gm => (tt, (n, i :: nil, gm)).
+  Definition freshF : CUDAM string := 
+    do! n <- getFn in
+    do! _ <- setFn (S n) in
+    let newID := ("_ker" ++ nat2str n)%string in
+    ret newID.
 
   Definition fLet e : CUDAM var :=
-    do! x <- fresh in
+    do! x <- freshP in
     do! _ <- setI (host_iLet x e) in
     ret x.
 
   Definition fAlloc e : CUDAM var :=
-    do! x <- fresh in
+    do! x <- freshP in
     do! _ <- setI (host_alloc x e) in
     ret x.
 
   Definition gen_kernel (ker : kernel) : CUDAM string :=
-    do! gm <- getGM in
-    let newID := ("_ker" ++ nat2str (length gm))%string in
-    do! _ <- setGM (gm ++ ((newID, Kern ker) :: nil)) in
-    ret newID.
+    do! id <- freshF in
+    do! _ <- setGM ((id, Kern ker) :: nil) in
+    ret id.
 
   Definition mapM {B A M} `{Monad M} (f : A -> M B) (xs : list A) : M (list B) :=
     sequence (map f xs).
@@ -746,7 +751,7 @@ Section Compiler.
   Definition compile_prog {GA ty} ntrd nblk (p : Skel.AS GA ty) : Host.GModule :=
     let ps := gen_params GA in 
     let aenv := remove_typeinfo ps in
-    let '(res, (_, instrs, kers)) := compile_AS ntrd nblk p aenv 0 nil in
+    let '(res, (_, instrs, kers)) := compile_AS ntrd nblk p aenv 0 0 in
     let res := (fst res :: flatTup (snd res)) in
     let pars := flatten_avars (hmap (fun ty x => ((fst (fst x), Int), toPtr (snd x))) ps) in
     (kers ++ ("__main", Host (Hf pars (seqs instrs) res)) :: nil).

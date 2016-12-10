@@ -83,7 +83,7 @@ Definition lift {A B C : Type} (f : A -> B -> C) x y :=
 Fixpoint func_disp (m : GModule) (name : string) :=
   match m with
   | nil => None
-  | (fn, f) :: m => if string_dec name fn then Some f else None
+  | (fn, f) :: m => if string_dec name fn then Some f else func_disp m name
   end%list.
 
 Section VecNot.
@@ -313,7 +313,7 @@ Definition CSLh_n G P ss Q :=
   forall n, interp_FC_n G (n - 1) -> CSLh_n_simp P ss Q n.
 
 Definition interp_stmt_n G ss fs :=
-  forall n, interp_FC_n G (n - 1) -> interp_fs fs (fun P Q => CSLh_n_simp P ss Q n).
+  interp_fs fs (fun P Q => CSLh_n G P ss Q).
 
 Lemma rule_hfun fn hf fs G :
   func_disp GM fn = Some (Host hf)
@@ -324,8 +324,9 @@ Proof.
   unfold interp_htri_n; rewrite Hname; cbn.
   unfold interp_stmt_n, CSLh_n_simp, CSLhfun_n_simp in *.
   forwards* Hok': Hok.
-  revert Hok'; clear.
+  revert Hok'.
   induction fs; simpl; eauto.
+  introv Hcsl; forwards*: Hcsl.
 Qed.
 
 Definition interp_prog_n ntrd nblk G kp sp :=
@@ -811,7 +812,7 @@ Lemma safe_seq : forall (n : nat) (C C2 : stmt) (s : stack) (h : zpheap) (Q R : 
   safe_nh n s h C Q ->
   (forall m s' h', m <= n -> Q s' (as_gheap h') -> safe_nh m s' h' C2 R)%nat ->
   safe_nh n s h (host_seq C C2) R.
-forwards*: Hstep1Proof.
+Proof.
   induction n; introv Hsafe H; simpl; eauto; unfold safe_nt in *.
   splits; try congruence.
   - introv Hdis Heq Haborts; inversion Haborts; subst; simpl in *; jauto.
@@ -882,5 +883,5 @@ Proof.
   intros; applys* H0.
   applys* interp_FC_n_mono; omega.
 Qed.
-    
+   
 End Rules.
