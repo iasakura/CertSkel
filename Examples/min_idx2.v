@@ -27,7 +27,7 @@ Lemma zip_seq (arr : list Z) :
   gen (fun i => do! x <- nth_error arr i in ret (x, i)) (len arr).
 Proof.
   unfold gen, ret, zip; simpl.
-  forwards* (? & ?): (>> mapM_evaltoSome (fun i : Z => do!x := nth_error arr i in Some (x, i)) (seq 0 (len arr))).
+  forwards* (? & ?): (>> mapM_evaltoSome (fun i : Z => do!x <- nth_error arr i in Some (x, i)) (seq 0 (len arr))).
   intros; simpl.
   rewrites (>>nth_error_some' d).
   unfold len; rewrite seq_nth, Nat2Z.id; destruct lt_dec.
@@ -105,9 +105,9 @@ Defined.
 
 Require Import Compiler Ext Extract.
 
-Definition min_idx_CUDA : Host.Prog :=
+Definition min_idx_CUDA : Host.GModule :=
   match min_idx_IR with
-  | exist ir _ =>
+  | exist _ ir _ =>
     Compiler.compile_prog 1024 24 ir
   end.
 
