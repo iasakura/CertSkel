@@ -1013,3 +1013,37 @@ Proof.
   
   simpl in *; tauto.
 Qed.
+
+Lemma rule_freshF Gp Q xs ys fns fns' :
+  fv_assn Q xs
+  -> ST_ok (var_ok xs ys fns fns') 
+           freshF
+           (fun kn => var_ok xs ys fns (kn :: fns'))
+           (fun kn => code_ok Gp nil Q (const Q kn) (const xs kn)).
+Proof.
+  unfold ST_ok, freshP, setPn, code_ok.
+  introv Hfv (Hxs & Hys & Hdisj & Hdxs & Hdys &  Hfns & Hfns' & Hdisj' & Hdfns & Hdfns') Heq.
+  inverts Heq.
+  splits; eauto.
+  - splits; eauto.
+    + applys (>>usable_weaken Hxs); omega.
+    + constructor.
+      * apply lt_usable_var; omega.
+      * applys (>>usable_weaken Hys); omega.
+    + split; eauto.
+      intros Hc.
+      unfold usable in Hxs; rewrite Forall_forall in Hxs.
+      forwards* H: Hxs.
+      apply usable_var_lt in H; omega.
+    + simpl; splits; eauto.
+      unfold usable, usable_var in *; rewrite Forall_forall in *.
+      intros Hc; forwards*: Hys; omega.
+  - intros; splits; try rewrite !app_nil_r; simpl; eauto.
+    simpl; apply rule_host_skip.
+Qed.  
+
+Lemma rule_gen_kernel k xs ys fns fns' :
+  ST_ok (var_ok xs ys fns fns') 
+        (gen_kernel k) 
+        (fun kn => )
+        (fun kn => )

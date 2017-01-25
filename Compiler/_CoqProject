@@ -1,4 +1,3 @@
--R . Top
 -R ../tlc/src TLC
 -R ../repo/src Cpdt
 -R ../CertSkel Top
@@ -6,3 +5,4 @@
 -R ../TypedIR Top
 -R Skeletons Top
 -R GPUVeLib Top
+-R . Top
