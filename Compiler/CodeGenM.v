@@ -120,7 +120,7 @@ Definition usable (xs : list var) n : Prop :=
   List.Forall (fun x => usable_var x n) xs.
 
 Definition usable_fn x n :=
-  exists m, x = kname m /\ m < n.
+  forall m, x = kname m -> m < n.
 
 Definition usable_fns (xs : list string) n : Prop :=
   List.Forall (fun x => usable_fn x n) xs.
@@ -1014,6 +1014,36 @@ Proof.
   simpl in *; tauto.
 Qed.
 
+Lemma usable_fn_weaken fn n m :
+  n <= m
+  -> usable_fn fn n 
+  -> usable_fn fn m.
+Proof.
+  unfold usable_fn; intros ? H ? H'; forwards*: (>>H H'); omega.
+Qed.
+  
+Lemma usable_fns_weaken fns n m :
+  n <= m
+  -> usable_fns fns n 
+  -> usable_fns fns m.
+Proof.
+  intros Hmn H; induction H; constructor; eauto using usable_fn_weaken.
+Qed.
+
+Lemma kname_inj m n : kname m = kname n -> m = n.
+Proof.
+  unfold kname; intros H.
+  inverts H.
+  forwards*: (>>nat_to_string_inj H1).
+Qed.
+
+Lemma lt_usable_fn n m :
+  m < n -> usable_fn (kname m) n.
+Proof.
+  intros Hmn m' Heq.
+  forwards*: (>>kname_inj Heq); omega.
+Qed.
+
 Lemma rule_freshF Gp Q xs ys fns fns' :
   fv_assn Q xs
   -> ST_ok (var_ok xs ys fns fns') 
@@ -1026,18 +1056,20 @@ Proof.
   inverts Heq.
   splits; eauto.
   - splits; eauto.
-    + applys (>>usable_weaken Hxs); omega.
+    + applys (>>usable_fns_weaken Hfns); omega.
     + constructor.
-      * apply lt_usable_var; omega.
-      * applys (>>usable_weaken Hys); omega.
-    + split; eauto.
-      intros Hc.
-      unfold usable in Hxs; rewrite Forall_forall in Hxs.
-      forwards* H: Hxs.
-      apply usable_var_lt in H; omega.
+      * apply lt_usable_fn; omega.
+      * applys (>>usable_fns_weaken Hfns'); omega.
     + simpl; splits; eauto.
-      unfold usable, usable_var in *; rewrite Forall_forall in *.
-      intros Hc; forwards*: Hys; omega.
+      * apply disjoint_comm; split; eauto using disjoint_comm.
+        intros Hc.
+        unfold usable_fns in Hfns; rewrite Forall_forall in Hfns.
+        forwards* H: Hfns.
+        forwards*: H; omega.
+      * intros Hc.
+        unfold usable_fns in Hfns'; rewrite Forall_forall in Hfns'.
+        forwards* H: Hfns'.
+        forwards*: H; omega.
   - intros; splits; try rewrite !app_nil_r; simpl; eauto.
     simpl; apply rule_host_skip.
 Qed.  
