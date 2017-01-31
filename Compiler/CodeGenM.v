@@ -94,7 +94,7 @@ Proof.
       rewrite Nat.min_r; omega.
 Qed.
 
-Definition STPre : Type := nat -> nat -> Prop.
+Definition STPre : Type := nat -> nat -> GModule -> Prop.
 Definition STPost : Type := 
   nat -> nat (* pre state *)
   -> nat -> nat (* post state *)
@@ -103,10 +103,10 @@ Definition STPost : Type :=
 (* Definition assnStmt : Type := GModule -> stmt -> Prop. *)
 
 Definition ST_ok {T} (P : STPre) (gen : CUDAM T) (Q : T -> STPost) :=
-  forall (n m n' m' : nat) st GM v,
-    P n m 
+  forall (n m n' m' : nat) st GMp GM v,
+    P n m GMp
     -> gen n m = (v, (n', m', st, GM))
-    -> Q v n m n' m' GM (seqs st).
+    -> Q v n m n' m' (GMp ++ GM) (seqs st).
 
 Parameter fv_assn : assn -> list var -> Prop.
 Axiom fv_assn_ok : forall P xs ys,
@@ -124,23 +124,23 @@ Definition fvOk xs n : Prop :=
 Definition fnOk fns n : Prop :=
   List.Forall (fun fn => exists m, fn = kname m /\ m < n) fns.
 
-Definition preST xs fns ys gns : STPre := fun n m =>
-  fvOk xs n /\ fnOk fns m /\
-  fvOk ys n /\ fnOk gns m /\
-  disjoint ys xs /\ disjoint fns gns.
+Definition preST xs fns ys Gp : STPre := fun n m M =>
+  fvOk xs n /\ fnOk fns m /\ fvOk ys n /\ 
+  disjoint ys xs /\ disjoint fns (map fst M) /\
+  sat_FC M Gp Gp /\ disjoint_list (map fst M) /\
+  fnOk (map fst M) m.
 
-Definition postST (P Q : assn) (Gp G : FC) xs fns ys gns : STPost := fun n m n' m' M st =>
+Definition postST (P Q : assn) (Gp G : FC) xs fns ys : STPost := fun n m n' m' M st =>
   n <= n' /\ m <= m' /\
   fv_assn Q xs /\ incl (map fst G) fns /\
-  preST xs fns ys gns n' m' /\
-  disjoint_list M /\
-  List.Forall (fun fn => exists i, fn = kname i /\ m <= i < m') (map fst M) /\
-  forall Mp,
-    sat_FC Mp Gp Gp
-    -> disjoint_list (map fst Mp)
-    -> List.Forall (fun fn => exists i, fn = kname i /\ i < m) (map fst Mp)
-    -> sat_FC (Mp ++ M) (Gp ++ G) (Gp ++ G) /\
-       CSLh_n (Mp ++ M) (Gp ++ G) P st Q.
+  
+  fvOk xs n' /\ fnOk fns m' /\ fvOk ys n' /\ 
+  disjoint ys xs /\ disjoint fns (map fst M) /\
+  disjoint_list (map fst M) /\
+  fnOk (map fst M) m' /\
+
+  sat_FC M (Gp ++ G) (Gp ++ G) /\
+  CSLh_n M (Gp ++ G) P st Q.
 
 (* Definition code_ok G P Q : assnST :=  *)
 (*   fun _ c gm => CSLh_n gm G P c Q. *)
@@ -300,16 +300,16 @@ Proof.
   apply hvar_inj in H1; omega.
 Qed.
 
-Lemma rule_fresh P G xs fns ys gns :
+Lemma rule_fresh P G xs fns ys :
   fv_assn P xs
-  -> ST_ok (preST xs fns ys gns)
+  -> ST_ok (preST xs fns ys G)
            freshP
-           (fun x => postST P P G nil xs fns (x :: ys) gns).
+           (fun x => postST P P G nil xs fns (x :: ys)).
 Proof.
   unfold ST_ok, freshP, postST, preST.
   introv (HxsOk & HfnsOk & HysOk & HgnsOk & Hys & Hgns) Heq. 
   inverts Heq.
-  splits; simpl; jauto; try omega; [|splits 6|introv Hsat Hdisj HMp; splits]; jauto.
+  splits; [..|splits]; repeat rewrite app_nil_r; jauto; try omega.
   - apply incl_nil_l.
   - applys (>>fvOk_weaken HxsOk); omega.
   - constructor.
@@ -317,7 +317,6 @@ Proof.
     + applys (>>fvOk_weaken HysOk); omega.
   - split; eauto.
     applys* fvOk_ge.
-  - repeat rewrites* app_nil_r.
   - repeat rewrite app_nil_r.
     apply rule_host_skip.
 Qed.      
@@ -407,29 +406,27 @@ Proof.
   apply disjoint_comm in H0; apply disjoint_comm; eapply disjoint_incl; eauto.
 Qed.
 
-Lemma rule_setI G P Q ss xs ys xs' fns gns :
+Lemma rule_setI G P Q ss xs ys xs' fns  :
   (forall GM, sat_FC GM G G -> CSLh_n GM G P ss Q)
   -> fv_assn Q (xs ++ xs')
   -> incl xs' ys
-  -> ST_ok (preST xs fns ys gns)
+  -> ST_ok (preST xs fns ys G)
            (setI ss)
-           (fun x => postST P Q G nil (xs ++ xs') fns (remove_xs ys xs') gns).
+           (fun x => postST P Q G nil (xs ++ xs') fns (remove_xs ys xs')).
 Proof.
   unfold ST_ok, freshP, postST, preST.
-  introv (HxsOk & HfnsOk & HysOk & HgnsOk & Hys & Hgns) Heq. 
+  introv Hsat Hfv Hincl (HxsOk & HfnsOk & HysOk & Hdisjysxs & Hdisjfns & HsatG & HdisjGM & HokGM) Heq. 
   inverts Heq.
-  splits; simpl; jauto; [|splits|introv Hsat Hdisj HMp; splits]; jauto.
+  splits; [..|splits]; repeat rewrite app_nil_r; jauto.
   - apply incl_nil_l. 
-  - 
-    apply fvOk_app; eauto.
+  - apply fvOk_app; eauto.
     applys* fvOk_incl.
   - applys (>>fvOk_incl HysOk).
     apply remove_xs_incl.
   - rewrite disjoint_app; splits.
-    applys* (>>disjoint_incl_r Hys); apply remove_xs_incl.
+    applys* (>>disjoint_incl_r Hdisjysxs); apply remove_xs_incl.
     apply disjoint_remove_xs.
-  - rewrite !app_nil_r; eauto.
-  - rewrite !app_nil_r; eapply rule_host_seq; [eauto|apply rule_host_skip].
+  - eapply rule_host_seq; [eauto|apply rule_host_skip].
 Qed.  
 
 Lemma func_disp_not_in GM id : 
@@ -594,36 +591,37 @@ Qed.
 Definition ExStmt {T} (f : T -> STPost) := fun n m n' m' gm st => exists x, f x n m n' m' gm st.
 
 Lemma rule_bind T1 T2
-      xs ys fns gns
-      xs' ys' fns' gns'
-      xs'' ys'' fns'' gns'' 
+      xs ys fns 
+      xs' ys' fns' 
+      xs'' ys'' fns'' 
       P Q Gp G G' R 
       (gen : CUDAM T1) (gen' : T1 -> CUDAM T2) :
-  ST_ok (preST xs fns ys gns)
+  ST_ok (preST xs fns ys Gp)
         gen
-        (fun x => postST P (Q x) Gp (G x) (xs' x) (fns' x) (ys' x) (gns' x))
+        (fun x => postST P (Q x) Gp (G x) (xs' x) (fns' x) (ys' x))
   -> (forall x,
-         ST_ok (preST (xs' x) (fns' x) (ys' x) (gns' x))
+         ST_ok (preST (xs' x) (fns' x) (ys' x) (Gp ++ G x))
                (gen' x)
                (fun y => postST (Q x) (R x y) (Gp ++ G x) (G' x y) 
-                                (xs'' x y) (fns'' x y) (ys'' x y) (gns'' x y)))
-  -> ST_ok (preST xs fns ys gns)
+                                (xs'' x y) (fns'' x y) (ys'' x y)))
+  -> ST_ok (preST xs fns ys Gp)
            (bind gen gen')
            (fun y => ExStmt (fun x => postST P (R x y) Gp (G x ++ G' x y)
-                                             (xs'' x y) (fns' x ++ fns'' x y) (ys'' x y) (gns'' x y))).
+                                             (xs'' x y) (fns' x ++ fns'' x y) (ys'' x y))).
 Proof.
   unfold ST_ok, freshP, postST, preST.
-  intros Hgen Hgen' n m n'' m'' st0 M0 v0 (HxsOk & HfnsOk & HysOk & HgnsOk & Hys & Hgns) Heq.
+  intros Hgen Hgen' n m n'' m'' st0 M0 M1 v0 (HxsOk & HfnsOk & HysOk & Hdisjxy & Hfns & Hsat & HdisjM & HokM) Heq.
   inverts Heq.
   destruct (gen _ _) as [v [[[n' m'] st] M']] eqn:Heqgen.
   destruct (gen' _ _ _) as [v' [[[? ?] st'] M'']] eqn:Heqgen'.
   inverts H0.
   exists v.
-  forwards* (? & ? & HQxs' & HGfns' & (Hok & HM'dis & HM'ok & Hfunc)): Hgen; clear Hgen.
-  forwards* (? & ? & HQxs'' & HGfns'' & (Hok' & HM''dis & HM''ok & Hfunc')): Hgen'; clear Hgen'.
-  Time splits; jauto; try omega.
-  { rewrite map_app.
-    Lemma incl_app_lr A (xs ys zs ws : list A) :
+  forwards* : Hgen; clear Hgen.
+  forwards* : Hgen'; clear Hgen'.
+  repeat rewrite map_app in *.
+  repeat rewrite <-app_assoc in *.
+  Time splits; [..|splits]; jauto; try omega.
+  { Lemma incl_app_lr A (xs ys zs ws : list A) :
       incl xs zs
       -> incl ys ws
       -> incl (xs ++ ys) (zs ++ ws).
@@ -632,8 +630,15 @@ Proof.
       rewrite in_app_iff in *.
       intuition.
     Qed.    
-    apply incl_app_lr; eauto. }
-  { splits; jauto.
+    apply incl_app_lr; jauto. }
+  { Lemma fnOk_app fn gn n : 
+      fnOk fn n -> fnOk gn n -> fnOk (fn ++ gn) n.
+    Proof.
+      intros; apply Forall_app; eauto.
+    Qed.
+    apply fnOk_app; jauto.
+    
+    splits; jauto.
     - apply Forall_app; jauto.
       Lemma fnOk_weaken n m fns :
         n <= m -> fnOk fns n -> fnOk fns m.
