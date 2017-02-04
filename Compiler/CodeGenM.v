@@ -751,54 +751,64 @@ Qed.
 (* Notation "'Ex_st' x .. y , p" := (ex_st (fun x => .. (ex_st (fun y => p)) ..)) *)
 (*   (at level 200, x binder, right associativity). *)
 
-Lemma rule_fAlloc Gp R P E xs ys e len fns fns' :
+Lemma rule_fAlloc Gp R P E xs ys len l fns :
   fv_assn (Assn R P E) xs 
-  -> evalExp E e (Zn len)
-  -> ST_ok (var_ok xs ys fns fns')
-           (fAlloc e)
-           (fun x => var_ok (x :: xs) ys fns fns')
-           (fun x => code_ok Gp nil (Assn R P E)
-                             (Ex p xs, Assn (array (GLoc p) xs 1 *** R) (length xs = len /\ P) (x |-> p :: E)) (x :: xs)).
+  -> evalExp E len (Zn l)
+  -> ST_ok (preST xs ys fns Gp)
+           (fAlloc len)
+           (fun x => postST (Assn R P E)
+                            (Ex p vs, (Assn (array (GLoc p) vs 1 *** R)) (Datatypes.length vs = l /\ P) (x |-> p :: E))
+                            Gp nil (x :: xs) ys fns).
 Proof.
-  unfold fLet; intros Hfv Hveal.
-  applys* rule_bind; [applys* rule_fresh|..]; simpl; eauto.
-  2: simpl; eauto.
-  introv; apply code_ok_float; intros.
-  applys* rule_bind; [apply rule_setI|..].
-  { introv; applys* rule_host_alloc. }
-  { instantiate (1 := x :: nil); simpl; tauto. }
-  { rewrite fv_assn_Ex; intros p.
-    rewrite fv_assn_Ex; intros vs.
-    rewrite fv_assn_base in *.
-    apply incl_cons; try rewrite in_app_iff; simpl; eauto.
-    apply incl_appl.
-    eapply incl_tran; eauto using remove_var_incl'. }
-  { eauto using incl_cons, incl_nil, incl_hd. }
-  introv; apply rule_ret; eauto.
-  { rewrite fv_assn_Ex; intros p.
-    rewrite fv_assn_Ex; intros vs.
-    rewrite fv_assn_base in *.
-    apply incl_cons; [apply incl_hd; simpl; eauto|applys* incl_tl]. }
-  { intros s h (p & vs & Hsat); exists p vs; revert s h Hsat; apply Assn_imply.
-    intros _; apply incl_cons; [apply incl_hd; simpl; auto|].
-    rewrite fv_assn_base in Hfv.
-    simpl in H; rewrites* remove_var_disjoint; eauto using incl_tl. 
-    intros; eauto.
-    intros; eauto. }
-  { intros n m (? & ? & ? & ? & ? & ? & ? & ? & ? & ?); splits; eauto.
-    - unfold usable in *; rewrite Forall_forall in *; simpl.
-      intros ? [? | ?]; apply H5; rewrite in_app_iff; simpl; eauto.
-    - simpl in H6, H1; destruct var_eq_dec; try congruence.
-      simpl in H.
-      rewrite remove_xs_nin in H6; eauto.
-      apply disjoint_comm; simpl; tauto.
-    - simpl in H, H1.
-      apply disjoint_comm; simpl; splits; try apply disjoint_comm; try tauto.
-    - simpl in H |- *; try tauto.
-    - simpl in *; try tauto. }
-  simpl; eauto.
-  simpl; eauto.
-  simpl; eauto.
+  unfold fAlloc; intros Hfv Heval.
+  eapply rule_backward.
+  eapply rule_bind.
+  applys* (>>rule_fresh (Assn R P E)).
+  introv.
+  simpl.
+  apply code_ok_float; intros Hdxy Hdy; simpl in Hdxy, Hdy.
+  eapply rule_backward.
+  applys* (>>rule_bind (Assn R P E)).
+  applys (>>rule_setI (x :: nil)).
+  { intros; applys* rule_host_alloc. }
+  do 2 (apply fv_assn_Ex; intros); apply fv_assn_base; simpl.
+  unfold incl; introv; simpl; repeat rewrite in_app_iff in *; eauto.
+  destruct 1; eauto.
+  rewrite fv_assn_base in Hfv.
+  right; apply remove_var_incl' in H.
+  applys* Hfv.
+  unfold incl; introv; simpl; tauto.
+  simpl; destruct var_eq_dec; try congruence.
+  rewrites* remove_xs_disj.
+  introv.
+  rewrite remove_var_disjoint.
+  2: intros Hc; rewrite fv_assn_base in *; apply Hfv in Hc; unfold K in *; tauto.
+  eapply (rule_ret _ x (fun x => (K (x :: K xs x) x0))
+                   (fun x => (K (K ys x) x0))
+                   (fun x => K fns x0)
+                   (fun x' => K (Ex (p : val) (vs : list val),
+                               Assn (array (GLoc p) vs 1 *** R) (Datatypes.length vs = l /\ P)
+                                    (x' |-> p :: E)) x0)).
+  unfold K; do 2 (apply fv_assn_Ex; intros); rewrite fv_assn_base.
+  simpl.
+  apply incl_cons_lr.
+  rewrite fv_assn_base in Hfv; eauto; simpl.
+  simpl.
+  introv [t Hc]; eauto.
+  cutrewrite (K (@nil var) x = K (K (@nil var) x) v) in Hc; [|eauto].
+  cutrewrite (K (v :: K xs v) t = v :: K xs v) in Hc; [|eauto].
+  cutrewrite (K (K ys v) t = K (K ys x) v) in Hc; [|eauto].
+  cutrewrite (K fns t = fns) in Hc; [|eauto].
+  cutrewrite (K (Ex (p : val) (vs : list val),
+                 Assn (array (GLoc p) vs 1 *** R)
+                      (Datatypes.length vs = l /\ P) (v |-> p :: E)) t = 
+              (Ex (p : val) (vs : list val),
+                 Assn (array (GLoc p) vs 1 *** R)
+                      (Datatypes.length vs = l /\ P) (v |-> p :: E))) in Hc; [|eauto].
+  apply Hc.
+  unfold K; simpl.
+
+  introv [x H]; eauto.
 Qed.
 
 Lemma forall_reorder A B T (f : A -> B -> T) : B -> A -> T.
