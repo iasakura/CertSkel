@@ -849,32 +849,36 @@ Global Instance vals_hasDefval T ty (d : hasDefval T) : hasDefval (typ2Coq T ty)
                            end) ty}.
 Global Instance listA_hasDefval A : hasDefval (list A) := {default := nil}.
 
-Lemma rule_code_ex (T A : Type) `{hd_A : hasDefval A} (gen : CUDAM T) P (Q : T -> assnST) (Gp G : FC)
-      (p : A -> assn) (q : T -> assn) (xs : T -> list var)  :
-  (forall y, ST_ok P gen Q (fun (x : T) => code_ok Gp G (p y) (q x) (xs x)))
-  -> ST_ok P gen Q (fun (x : T) => code_ok Gp G (Ex y : A, p y) (q x) (xs x)).
+Lemma rule_code_ex (T A : Type) `{hd_A : hasDefval A} (gen : CUDAM T) (Gp G : T -> FC)
+      P xs ys fns (p : T -> A -> assn) (q : T -> assn) :
+  (forall y, ST_ok P gen (fun (x : T) => postST (p x y) (q x) (Gp x) (G x) (xs x) (fns x) (ys x)))
+  -> ST_ok P gen (fun (x : T) => postST (Ex y, p x y) (q x) (Gp x) (G x) (xs x) (fns x) (ys x)).
 Proof.
-  unfold ST_ok, code_ok; intros.
-  assert (forall (n m n' m' : nat) (st : list stmt) 
-        (GM : GModule) (v : T),
-      P n m ->
+  unfold ST_ok, postST; intros.
+  assert (H' : forall (n m n' m' : nat) (st : list stmt) 
+        (GMp GM : GModule) (v : T),
+      P n m GMp ->
       gen n m = (v, (n', m', st, GM)) ->
-      Q v n' m' /\
-      (forall GMp : GModule,
-       sat_FC GMp Gp Gp ->
-       disjoint_list (map fst GMp) ->
-       map fst GMp = map fst Gp ->
-       sat_FC (GMp ++ GM) (Gp ++ G) (Gp ++ G) /\
-       (forall y, CSLh_n (GMp ++ GM) (Gp ++ G) (p y) (seqs st) (q v)) /\
-       fv_assn (q v) (xs v) /\
-       disjoint_list (map fst GM) /\ map fst GM = map fst G)).
+      n <= n' /\
+      m <= m' /\
+      fv_assn (q v) (xs v) /\
+      fvOk (xs v) n' /\
+      fnOk (fns v) m' /\
+      fvOk (ys v) n' /\
+      disjoint (ys v) (xs v) /\
+      disjoint (fns v) (map fst (GMp ++ GM)) /\
+      disjoint_list (ys v) /\
+      disjoint_list (map fst (GMp ++ GM)) /\
+      fnOk (map fst (GMp ++ GM)) m' /\
+      incl (map fst (Gp v ++ G v)) (map fst (GMp ++ GM)) /\
+      sat_FC (GMp ++ GM) (Gp v ++ G v) (Gp v ++ G v) /\
+      forall (y : A), CSLh_n (GMp ++ GM) (Gp v ++ G v) (p v y) (seqs st) (q v)).
   { intros.
-    splits; [forwards*: (H default)|].
-    intros; splits; (try forwards* (? &  H'): (>> H default); forwards*: H').
-    intros; forwards*: (>>H y).
-    destruct H9; forwards*: H10. }
-  splits; forwards* (? & ?): H2.
-  intros; splits; forwards*: H4.
+    forwards*: (H default); splits; [..|splits]; jauto.
+    introv.
+    forwards*: (H y). }
+  forwards*H'': H'.
+  splits; [..|splits]; jauto.
   apply rule_host_ex; jauto.
 Qed.
 
