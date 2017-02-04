@@ -1108,22 +1108,16 @@ Proof.
   - unfold incl; intros; simpl in *; rewrite !in_app_iff in *; eauto.
 Qed.
 
-Lemma usable_fn_weaken fn n m :
+Lemma fnOk_weaken fn n m :
   n <= m
-  -> usable_fn fn n 
-  -> usable_fn fn m.
+  -> fnOk fn n 
+  -> fnOk fn m.
 Proof.
-  unfold usable_fn; intros ? H ? H'; forwards*: (>>H H'); omega.
+  unfold fnOk; rewrite !Forall_forall; intros.
+  forwards*(?&?&?): H0; eexists; splits; eauto.
+  omega.
 Qed.
   
-Lemma usable_fns_weaken fns n m :
-  n <= m
-  -> usable_fns fns n 
-  -> usable_fns fns m.
-Proof.
-  intros Hmn H; induction H; constructor; eauto using usable_fn_weaken.
-Qed.
-
 Lemma kname_inj m n : kname m = kname n -> m = n.
 Proof.
   unfold kname; intros H.
@@ -1131,45 +1125,37 @@ Proof.
   forwards*: (>>nat_to_string_inj H1).
 Qed.
 
-Lemma lt_usable_fn n m :
-  m < n -> usable_fn (kname m) n.
+Lemma fnOk_ge n m xs :
+  fnOk xs n -> n <= m -> ~ In (kname m) xs.
 Proof.
-  intros Hmn m' Heq.
-  forwards*: (>>kname_inj Heq); omega.
+  unfold fnOk; rewrite Forall_forall; intros H ? Hc.
+  forwards* (? & ? & ?): H.
+  apply kname_inj in H1; omega.
 Qed.
 
-Lemma rule_freshF Gp Q xs ys fns fns' :
-  fv_assn Q xs
-  -> ST_ok (var_ok xs ys fns fns') 
+Lemma rule_freshF G P xs ys fns :
+  fv_assn P xs
+  -> ST_ok (preST xs fns ys G)
            freshF
-           (fun kn => var_ok xs ys fns (kn :: fns'))
-           (fun kn => code_ok Gp nil Q (const Q kn) (const xs kn)).
+           (fun fn => postST P (K P fn) G nil (K xs fn) (fn :: fns) ys).
 Proof.
-  unfold ST_ok, freshP, setPn, code_ok.
-  introv Hfv (Hxs & Hys & Hdisj & Hdxs & Hdys &  Hfns & Hfns' & Hdisj' & Hdfns & Hdfns') Heq.
+  unfold ST_ok, freshP, postST, preST.
+  introv (HxsOk & HfnsOk & HysOk & HgnsOk & Hys & Hgns & HsatF & HdisGMp & HinclG & HGMpOk) Heq. 
   inverts Heq.
-  splits; eauto.
-  - splits; eauto.
-    + applys (>>usable_fns_weaken Hfns); omega.
-    + constructor.
-      * apply lt_usable_fn; omega.
-      * applys (>>usable_fns_weaken Hfns'); omega.
-    + simpl; splits; eauto.
-      * apply disjoint_comm; split; eauto using disjoint_comm.
-        intros Hc.
-        unfold usable_fns in Hfns; rewrite Forall_forall in Hfns.
-        forwards* H: Hfns.
-        forwards*: H; omega.
-      * intros Hc.
-        unfold usable_fns in Hfns'; rewrite Forall_forall in Hfns'.
-        forwards* H: Hfns'.
-        forwards*: H; omega.
-  - intros; splits; try rewrite !app_nil_r; simpl; eauto.
-    simpl; apply rule_host_skip.
+  splits; [..|splits]; repeat rewrite app_nil_r; jauto; try omega.
+  - constructor.
+    + exists m; splits; eauto.
+    + applys (>>fnOk_weaken HfnsOk); omega.
+  - split; eauto.
+    eapply fnOk_ge; eauto.
+  - eapply fnOk_weaken; [|eauto]; omega.
+  - repeat rewrite app_nil_r.
+    apply rule_host_skip.
 Qed.  
 
-Lemma rule_gen_kernel k xs ys fns fns' :
-  ST_ok (var_ok xs ys fns fns') 
-        (gen_kernel k) 
-        (fun kn => )
-        (fun kn => )
+Lemma rule_gen_kernel G P xs ys fns k fs:
+  (forall M, interp_kfun M G k fs)
+  -> fv_assn P xs
+  -> ST_ok (preST xs fns ys G)
+           (gen_kernel k)
+           (fun fn => postST P (K P fn) G ((fn, fs) :: nil) (K xs fn) (fn :: fns) ys).
