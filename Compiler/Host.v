@@ -332,14 +332,17 @@ Qed.
 Definition interp_prog_n ntrd nblk G kp sp :=
   forall n, interp_FC_n G (n - 1) -> interp_fs sp (fun P Q => CSLg_n ntrd nblk P kp Q n).
 
+Definition interp_kfun (G : FC) (k : kernel) (fs : FSpec) :=
+  forall ntrd nblk, interp_prog_n ntrd nblk G (body_of k) fs.
+
 Lemma rule_kfun fn kf fs G :
   func_disp GM fn = Some (Kern kf)
-  -> (forall ntrd nblk, interp_prog_n ntrd nblk G (body_of kf) fs)
+  -> interp_kfun G kf fs
   -> sat_htri G fn fs.
 Proof.  
   intros Hname Hok n Hctx.
   unfold interp_htri_n; rewrite Hname; cbn.
-  unfold interp_prog_n, CSLgfun_n_simp, CSLg_n in *.
+  unfold interp_kfun, interp_prog_n, CSLgfun_n_simp, CSLg_n in *.
   revert Hok.
   induction fs; simpl; eauto.
 Qed.
