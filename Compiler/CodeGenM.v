@@ -128,6 +128,7 @@ Definition preST xs fns ys Gp : STPre := fun n m M =>
   fvOk xs n /\ fnOk fns m /\ fvOk ys n /\ 
   disjoint ys xs /\ disjoint fns (map fst M) /\
   disjoint_list ys /\
+  disjoint_list fns /\
   sat_FC M Gp Gp /\ disjoint_list (map fst M) /\
   incl (map fst Gp) (map fst M) /\ 
   fnOk (map fst M) m.
@@ -139,6 +140,7 @@ Definition postST (P Q : assn) (Gp G : FC) xs fns ys : STPost := fun n m n' m' M
   fvOk xs n' /\ fnOk fns m' /\ fvOk ys n' /\ 
   disjoint ys xs /\ disjoint fns (map fst M) /\
   disjoint_list ys /\
+  disjoint_list fns  /\
   disjoint_list (map fst M) /\
   fnOk (map fst M) m' /\
 
@@ -443,7 +445,7 @@ Proof.
     apply disjoint_remove_xs.
     applys* (>>disjoint_incl_r Hdisjysxs); apply remove_xs_incl.
   - applys* disjoint_list_removed.
-  - eapply rule_host_seq; [eauto|apply rule_host_skip].
+  - eapply rule_host_seq; [jauto|apply rule_host_skip].
 Qed.  
 
 Lemma rule_setI' G P Q ss xs ys xs' fns  :
@@ -724,7 +726,7 @@ Arguments ret {f _ A} x : simpl never.
 Arguments bind {f _ A B} _ _ : simpl never.
 
 Lemma code_ok_float T xs ys fns Gp (m : CUDAM T) Q :
-  (disjoint ys xs -> disjoint_list ys -> ST_ok (preST xs fns ys Gp) m Q)
+  (disjoint_list fns -> disjoint ys xs -> disjoint_list ys -> ST_ok (preST xs fns ys Gp) m Q)
   -> ST_ok (preST xs fns ys Gp) m Q.
 Proof.
   unfold ST_ok, preST; intros H; intros.
@@ -763,7 +765,7 @@ Proof.
   applys* rule_fresh'.
   introv.
   simpl.
-  apply code_ok_float; intros Hdxy Hdy; simpl in Hdxy, Hdy.
+  apply code_ok_float; intros Hdfns Hdxy Hdy; simpl in Hdxy, Hdy.
   applys* (>>rule_bind' (Assn R P E)).
   { instantiate (1 := fun _ => nil); instantiate (1 := nil); eauto. }
   applys (>>rule_setI' (x :: nil)).
@@ -811,7 +813,7 @@ Proof.
   applys* rule_fresh'.
   introv.
   simpl.
-  apply code_ok_float; intros Hdxy Hdy; simpl in Hdxy, Hdy.
+  apply code_ok_float; intros Hdfns Hdxy Hdy; simpl in Hdxy, Hdy.
   applys* (>>rule_bind' (Assn R P E)).
   { instantiate (1 := K nil); instantiate (1 := nil); eauto. }
   applys (>>rule_setI' (x :: nil)).
@@ -872,6 +874,7 @@ Proof.
       disjoint (ys v) (xs v) /\
       disjoint (fns v) (map fst (GMp ++ GM)) /\
       disjoint_list (ys v) /\
+      disjoint_list (fns v) /\
       disjoint_list (map fst (GMp ++ GM)) /\
       fnOk (map fst (GMp ++ GM)) m' /\
       incl (map fst (Gp v ++ G v)) (map fst (GMp ++ GM)) /\
@@ -1047,20 +1050,22 @@ Proof.
   eauto using disjoint_incl.
 Qed.
 
-Lemma postST_imp P P' Q Q' Gp G xs xs' ys ys' fns :
+Lemma postST_imp P P' Q Q' Gp G xs xs' ys ys' fns fns':
   P' |= P ->
   Q |= Q' ->
   (forall xs, fv_assn Q xs -> fv_assn Q' xs) ->
   incl xs' xs ->
   incl ys' ys ->
+  incl fns' fns ->
+  disjoint_list fns' -> disjoint_list ys' ->
   forall n m n' m' M st,
-    postST P Q Gp G xs ys fns n m n' m' M st ->
-    postST P' Q' Gp G xs' ys' fns n m n' m' M st.
+    postST P Q Gp G xs fns ys n m n' m' M st ->
+    postST P' Q' Gp G xs' fns' ys' n m n' m' M st.
 Proof.
-  unfold postST; intros; destruct H4 as (? & ? & ? & ? & ? & ? & ? & ? & ? & ? & ? & ? & ?); splits; [..|splits]; jauto;
+  unfold postST; intros; destruct H7 as (? & ? & ? & ? & ? & ? & ? & ? & ? & ? & ? & ? & ? & ?); splits; [..|splits]; jauto;
   unfold fnOk, fvOk, incl in *; rewrite !Forall_forall in *;
   intros; intuition.
-  skip.
+  admit.
   eapply disjoint_incl_l; [|eapply disjoint_incl]; eauto.
   eapply disjoint_incl_l; [|eapply disjoint_incl]; eauto.
   Lemma sat_FC_strong M Gp G : sat_FC M nil G -> sat_FC M Gp G.
@@ -1073,6 +1078,7 @@ Proof.
   Qed.
   (* apply rule_module_rec in H17. *)
   (* 2: apply fc_ok_same; unfold incl; eauto. *)
+  
   eapply rule_host_backward; [|eauto].
   Lemma rule_host_forward M G P P' st Q :
     CSLh_n M G P st Q -> P' |= P -> CSLh_n M G P' st Q.
@@ -1094,8 +1100,9 @@ Lemma rule_fAllocs typ Gp R P E xs ys fns size l :
 Proof.
   intros Heval Hfv.
   unfold fAllocs.
-  cutrewrite (@nil (string * FSpec) = nil ++ nil); [|eauto].
+  apply code_ok_float; intros Hfns Hdxy Hdfs.
   eapply rule_bind'.
+  { instantiate (1 := K nil); instantiate (1 := nil); eauto. }
   { applys* rule_fLet. }
   intros s; simpl.
   eapply rule_backward.
@@ -1141,7 +1148,7 @@ Lemma rule_freshF G P xs ys fns :
   fv_assn P xs
   -> ST_ok (preST xs fns ys G)
            freshF
-           (fun fn => postST P (K P fn) G nil (K xs fn) (fn :: fns) ys).
+           (fun fn => postST P (K P fn) G nil (K xs fn) (fn :: fns) (K ys fn)).
 Proof.
   unfold ST_ok, freshP, postST, preST.
   introv (HxsOk & HfnsOk & HysOk & HgnsOk & Hys & Hgns & HsatF & HdisGMp & HinclG & HGMpOk) Heq. 
@@ -1151,11 +1158,77 @@ Proof.
     + exists m; splits; eauto.
     + applys (>>fnOk_weaken HfnsOk); omega.
   - split; eauto.
+    eapply fnOk_ge; jauto.
+  - split; jauto.
     eapply fnOk_ge; eauto.
-  - eapply fnOk_weaken; [|eauto]; omega.
+  - eapply fnOk_weaken; [|jauto]; omega.
   - repeat rewrite app_nil_r.
     apply rule_host_skip.
 Qed.  
+
+Definition interp_fd M fd fs :=
+  forall n,
+    match fd with
+    | Host f => interp_fs fs (fun P Q => CSLhfun_n_simp M P f Q n)
+    | Kern k => interp_fs fs (fun P Q : assn => CSLgfun_n_simp P k Q n)
+    end.
+
+Lemma sat_FC_weaken M G fn fd fs : 
+  ~In fn (map fst M)
+  -> interp_fd (M ++ (fn, fd) :: nil) fd fs
+  -> disjoint_list (map fst M)
+  -> sat_FC M nil G
+  -> sat_FC (M ++ (fn, fd) :: nil) nil (G ++ (fn, fs) :: nil).
+Proof.
+  intros Hnin Hf Hdis Hsat.
+  unfold sat_FC in *; introv _.
+  specialize (Hsat n).
+  unfold interp_FC_n in *; rewrite !Forall_forall in *.
+  intros [fn' fs'] Hin; simpl in *.
+  rewrite in_app_iff in *; simpl in *; destruct Hin as [Hin| [Hin | []]].
+  - forwards*: (>>Hsat Hin).
+    revert Hnin Hdis H; clear; intros.
+    unfold interp_htri_n in *.
+    destruct (func_disp M fn') eqn:HMfn'; try tauto.
+    apply func_disp_in in HMfn'; try tauto.
+    rewrite in_map_iff in Hnin.
+    destruct (func_disp (M ++ _) fn') eqn:HMfnfn'.
+    Focus 2.
+    { rewrite func_disp_not_in in HMfnfn'.
+      specialize (HMfnfn' f); rewrite !in_app_iff in HMfnfn'; simpl in HMfnfn';
+      apply HMfnfn'; eauto. } Unfocus.
+    Lemma func_disp_pref M M' fn fd :
+      func_disp M fn = Some fd -> func_disp (M ++ M') fn = Some fd.
+    Proof.
+      induction M; simpl; try congruence.
+      destruct a, string_dec; eauto.
+    Qed.            
+    apply func_disp_in in HMfn'; eauto.
+    erewrite func_disp_pref in HMfnfn'; eauto.
+    inverts HMfnfn'; destruct f0; eauto.
+    revert Hnin Hdis H; clear; induction fs'; simpl; eauto; intros ? ?.
+    unfold CSLhfun_n_simp; intros Hsat; intros.
+    forwards*:H.
+    eapply safe_nh_weaken; eauto.
+    2: unfold incl; intros; rewrite in_app_iff; simpl; eauto.
+    rewrite map_app; simpl.
+    apply disjoint_list_app; simpl; eauto.
+    introv; rewrite in_map_iff; intros [? [? ?]] [Hc | []]; eauto.
+    apply Hnin; eexists; splits; substs; eauto.
+  - inverts Hin.
+    unfold interp_htri_n in *.
+    Lemma func_disp_npref M M' fn :
+      ~In fn (map fst M) -> func_disp (M ++ M') fn = func_disp M' fn.
+    Proof.
+      induction M as [|[? ?] ?]; simpl; eauto.
+      destruct string_dec; substs.
+      intros; false; eauto.
+      intros; eauto.
+    Qed.
+    rewrites* func_disp_npref.
+    simpl; destruct string_dec; try congruence.
+    apply Hf.
+Qed.
 
 Lemma rule_gen_kernel G P xs ys fns k fs:
   (forall M, sat_FC M G G -> interp_kfun M G k fs)
@@ -1166,5 +1239,75 @@ Lemma rule_gen_kernel G P xs ys fns k fs:
 Proof.
   intros HkOk Hfv.
   unfold gen_kernel.
-  
-  apply rule_bind'.
+  applys* rule_bind'.
+  { intros y; instantiate (1 := fun y => (y, fs) :: nil); instantiate (1 := nil); eauto. }
+  { applys* rule_freshF. }
+  intros fn; simpl.
+  Lemma rule_bind'' T1 T2
+        xs ys fns 
+        xs' ys' fns' 
+        xs'' ys'' fns'' 
+        P Q Gp G G' R 
+        (gen : CUDAM T1) (gen' : T1 -> CUDAM T2) :
+    ST_ok (preST xs fns ys Gp)
+          gen
+          (fun x => postST P (Q x) Gp G (xs' x) (fns' x) (ys' x))
+    -> (forall x,
+           ST_ok (preST (xs' x) (fns' x) (ys' x) (Gp ++ G))
+                 (gen' x)
+               (fun y => postST (Q x) (R y) (Gp ++ G) (G' y) 
+                                (xs'' y) (fns'' y) (ys'' y)))
+    -> ST_ok (preST xs fns ys Gp)
+             (bind gen gen')
+             (fun y => postST P (R y) Gp (G ++ G' y)
+                              (xs'' y) (fns'' y) (ys'' y)).
+  Proof.
+    intros.
+    eapply rule_backward.
+    eapply rule_bind; [apply H|apply H0].
+    introv [? ?]; eauto.
+  Qed.
+  cutrewrite ((fun y =>
+                postST (K P fn) (K P y) (G ++ nil) ((y, fs) :: nil) 
+                       (K xs y) (y :: fns) ys) =
+              (fun y =>
+                postST (K P fn) (K P y) (G ++ nil) (((y, fs) :: nil) ++ K nil y) 
+                       (K xs y) (y :: fns) ys)); [|extensionality x; eauto].
+  apply code_ok_float; intros.
+  eapply rule_backward.
+  eapply rule_bind''.
+  { instantiate (1 := K ys).
+    instantiate (1 := K fns).
+    instantiate (1 := K xs). 
+    instantiate (1 := (fn, fs) :: nil).
+    instantiate (1 := K P).
+    instantiate (1 := P).
+    unfold postST; introv (HxsOk & HfnsOk & HysOk & HgnsOk & Hys & Hgns & HsatF & HdisGMp & HinclG & HGMpOk) Heq.  
+    inverts Heq.
+    repeat rewrite app_nil_r in *; repeat rewrite map_app in *.
+    simpl in *.
+    splits; [..|splits]; jauto.
+    inverts HfnsOk; unfold fnOk; eauto.
+    apply disjoint_app; splits; jauto.
+    apply disjoint_list_app; jauto.
+    simpl; eauto.
+    introv ? [Hc | []]; substs; jauto.
+    unfold fnOk in HfnsOk; inverts HfnsOk.
+    apply Forall_app; jauto.
+    unfold incl in *; introv; rewrite !in_app_iff; intuition.
+    2: apply rule_host_skip.
+    apply sat_FC_strong.
+    apply rule_module_rec in HdisGMp.
+    2: applys* fc_ok_same.
+    apply sat_FC_weaken; jauto.
+    unfold interp_fd; eauto.
+
+    
+    unfold sat_FC in *; intros ? Hhyp.
+    unfold interp_FC_n in *; rewrite Forall_forall in *.
+    intros [fn' fs'] Hin.
+    forwards* Hsat: (>>HdisGMp n).
+    rewrite Forall_forall in Hsat.
+    rewrite in_app_iff in *; simpl in *; destruct Hin as [Hin| [Hin | []]].
+    forwards*: (>>Hsat (fn', fs')).
+    apply interp_htri_n
