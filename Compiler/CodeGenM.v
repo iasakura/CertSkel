@@ -674,9 +674,10 @@ Lemma rule_bind' T1 T2
       xs ys fns 
       xs' ys' fns' 
       xs'' ys'' fns'' 
-      P Q Gp G G' R 
+      P Q Gp G G' G'' R 
       (gen : CUDAM T1) (gen' : T1 -> CUDAM T2) :
-  ST_ok (preST xs fns ys Gp)
+  (forall y, G ++ G' y = G'' y) 
+  -> ST_ok (preST xs fns ys Gp)
         gen
         (fun x => postST P (Q x) Gp G (xs' x) (fns' x) (ys' x))
   -> (forall x,
@@ -686,13 +687,16 @@ Lemma rule_bind' T1 T2
                                 (xs'' y) (fns'' y) (ys'' y)))
   -> ST_ok (preST xs fns ys Gp)
            (bind gen gen')
-           (fun y => postST P (R y) Gp (G ++ G' y)
+           (fun y => postST P (R y) Gp (G'' y)
                             (xs'' y) (fns'' y) (ys'' y)).
 Proof.
   intros.
+  cutrewrite ((fun y : T2 => postST P (R y) Gp (G'' y) (xs'' y) (fns'' y) (ys'' y)) =
+          (fun y : T2 => postST P (R y) Gp (G ++ G' y) (xs'' y) (fns'' y) (ys'' y))); [|eauto].
   eapply rule_backward.
-  eapply rule_bind; [apply H|apply H0].
+  eapply rule_bind; [apply H0|apply H1].
   introv [? ?]; eauto.
+  extensionality x; simpl; rewrites* H. 
 Qed.  
 
 Lemma remove_var_incl Env x:
@@ -754,13 +758,14 @@ Lemma rule_fLet Gp R P E xs ys e v fns :
            (fun x => postST (Assn R P E) (Assn R P (x |-> v :: E)) Gp (K nil x) (x :: xs) (K ys x) (K fns x)).
 Proof.
   unfold fLet; intros Hfv Heval.
-  eapply rule_backward.
   eapply rule_bind'.
+  { instantiate (1 := fun _ => nil); instantiate (1 := nil); eauto. }
   applys* rule_fresh'.
   introv.
   simpl.
   apply code_ok_float; intros Hdxy Hdy; simpl in Hdxy, Hdy.
   applys* (>>rule_bind' (Assn R P E)).
+  { instantiate (1 := fun _ => nil); instantiate (1 := nil); eauto. }
   applys (>>rule_setI' (x :: nil)).
   { intros; applys* rule_host_let. }
   apply fv_assn_base; simpl.
@@ -783,7 +788,6 @@ Proof.
   simpl.
   apply incl_cons_lr.
   rewrite fv_assn_base in Hfv; eauto; simpl.
-  eauto.
 Qed.      
 
 (* Definition ex_st {T} (f : T -> assnST) : assnST := *)
@@ -802,13 +806,14 @@ Lemma rule_fAlloc Gp R P E xs ys len l fns :
                             Gp (K nil x) (x :: xs) (K ys x) (K fns x)).
 Proof.
   unfold fLet; intros Hfv Heval.
-  eapply rule_backward.
   eapply rule_bind'.
+  { instantiate (1 := K nil); instantiate (1 := nil); eauto. }
   applys* rule_fresh'.
   introv.
   simpl.
   apply code_ok_float; intros Hdxy Hdy; simpl in Hdxy, Hdy.
   applys* (>>rule_bind' (Assn R P E)).
+  { instantiate (1 := K nil); instantiate (1 := nil); eauto. }
   applys (>>rule_setI' (x :: nil)).
   { intros; applys* rule_host_alloc. }
   do 2 (apply fv_assn_Ex; intros); apply fv_assn_base; simpl.
@@ -833,7 +838,6 @@ Proof.
   simpl.
   apply incl_cons_lr.
   rewrite fv_assn_base in Hfv; eauto; simpl.
-  eauto.
 Qed.
 
 Lemma forall_reorder A B T (f : A -> B -> T) : B -> A -> T.
@@ -895,7 +899,7 @@ Lemma rule_fAllocs' typ Gp R P E (size : var) xs ys l fns :
            (fAllocs' typ size)
            (fun x => postST (Assn R P (size |-> Zn l :: E))
                             (Ex ps vs, (Assn (arrays (val2gl ps) vs 1 *** R)) (Datatypes.length vs = l /\ P) (size |-> Zn l :: x |=> ps ++ E))
-                            Gp nil (size :: flatTup x ++ xs) fns ys).
+                            Gp (K nil x) (size :: flatTup x ++ xs) (K fns x) (K ys x)).
 Proof.
   rewrite fv_assn_base.
   revert R P E xs ys; induction typ; simpl; eauto; simpl; introv Hfv.
@@ -943,9 +947,8 @@ Proof.
     eapply rule_host_backward; [jauto|].
     intros s h (p & vs & Hsat); exists p vs; revert s h Hsat; prove_imp.
     rewrite mkReduce.arrays_TZ; eauto.
-  - eapply rule_backward.
-    eapply rule_bind'.
-    instantiate (1 := fun x => K ys x); simpl; unfold K.
+  - eapply rule_bind'.
+    { instantiate (1 := K nil); instantiate (1 := nil); eauto. }
     applys* IHtyp1.
     intros xs1; simpl.
     unfold K.
@@ -955,7 +958,7 @@ Proof.
     intros vs1.
     rewrite app_nil_r.
     eapply rule_bind'.
-    instantiate (1 := fun x => K ys x); simpl; unfold K.
+    { instantiate (1 := K nil); instantiate (1 := nil); eauto. }
     apply IHtyp2.
     Lemma map_flatTup typ (xs : vars typ) vs : 
       map ent_e (xs |=> vs) = flatTup xs.
@@ -975,10 +978,10 @@ Proof.
       eapply rule_host_backward; [apply rule_host_skip|eauto].
     Qed.
     intros xs2; simpl; unfold K.
-    instantiate (4 := fun x => nil); simpl.
-    rewrite app_assoc.
-    apply (rule_ret' _ (xs1,xs2)
-                     (fun xs' => size :: (flatTup (snd xs') ++ flatTup (fst xs')) ++ xs)
+    rewrite app_assoc, !app_nil_r.
+    eapply rule_forward.
+    apply  (rule_ret' _ (xs1,xs2)
+                     (fun xs' => size :: (flatTup (fst xs') ++ flatTup (snd xs')) ++ xs)
                      (fun xs' => ys)
                      (fun xs' => fns)
                      _
@@ -1000,18 +1003,18 @@ Proof.
     { do 2 (apply fv_assn_Ex; intros); apply fv_assn_base; simpl; rewrite !map_app, !map_flatTup, <-app_assoc.
       unfold incl in *; simpl; introv; repeat rewrite in_app_iff; intuition. }
     unfold vals; simpl; eauto.
-    unfold postST; introv H; splits; [..|splits]; jauto.
-    { destruct H as (_ & _ & H' & _).
-      do 2 (apply fv_assn_Ex; intros); apply fv_assn_base.
-      rewrite fv_assn_Ex in H'; forwards*: (>>H' v0).
-      rewrite fv_assn_Ex in H; forwards*: (>>H v1).
-      apply fv_assn_base in H0.
-      unfold incl in *; simpl in *; introv; specialize (H0 a); repeat rewrite in_app_iff in *.
-      intuition. }
-    { destruct H as (_ & _ & _ & H' & _). 
+    unfold preST; introv H; splits; [..|splits]; jauto.
+    (* { destruct H as (_ & _ & H' & _). *)
+    (*   do 2 (apply fv_assn_Ex; intros); apply fv_assn_base. *)
+    (*   rewrite fv_assn_Ex in H'; forwards*: (>>H' v0). *)
+    (*   rewrite fv_assn_Ex in H; forwards*: (>>H v1). *)
+    (*   apply fv_assn_base in H0. *)
+    (*   unfold incl in *; simpl in *; introv; specialize (H0 a); repeat rewrite in_app_iff in *. *)
+    (*   intuition. } *)
+    { destruct H as (H' & _).
       unfold fvOk in *; rewrite Forall_forall in *; introv; specialize (H' x); simpl in *; 
       repeat rewrite in_app_iff in *; intuition. }
-    { destruct H as (_ & _ & _ & _ & _ & _ & H' & _).
+    { destruct H as (_ & _ & _ & H' & _).
       apply disjoint_comm in H'; apply disjoint_comm; simpl in *.
       splits; jauto.
       Lemma disjoint_app_l (T : Type) (xs ys zs : list T) :
@@ -1022,6 +1025,7 @@ Proof.
       Qed.
       repeat rewrite disjoint_app_l in *; tauto. }
 Qed.
+
 Require Import Permutation.
 Lemma disjoint_list_perm A (xs : list A) ys :
   Permutation xs ys -> disjoint_list xs -> disjoint_list ys.
@@ -1154,8 +1158,13 @@ Proof.
 Qed.  
 
 Lemma rule_gen_kernel G P xs ys fns k fs:
-  (forall M, interp_kfun M G k fs)
+  (forall M, sat_FC M G G -> interp_kfun M G k fs)
   -> fv_assn P xs
   -> ST_ok (preST xs fns ys G)
            (gen_kernel k)
            (fun fn => postST P (K P fn) G ((fn, fs) :: nil) (K xs fn) (fn :: fns) ys).
+Proof.
+  intros HkOk Hfv.
+  unfold gen_kernel.
+  
+  apply rule_bind'.
