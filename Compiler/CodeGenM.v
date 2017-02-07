@@ -1320,3 +1320,22 @@ Proof.
   introv; simpl.
   apply (rule_ret _ _ (fun _ => xs) (fun _ => fns) (fun _ => ys) (fun _ => P) ((G ++ nil) ++ (fn, fs) :: nil)); eauto.
 Qed.
+
+Lemma rule_invokeKernel G P xs ys fns fs fn e_ntrd e_nblk args
+      (es : list exp)
+      (ps : list (var * CTyp)) (vs : list val) body
+      fs ntrd nblk
+      Rpre Ppre Epre
+      Rpst Ppst
+      RF R E (P : Prop) :
+  In (fn, fs) G
+  -> length es = length xs
+  -> inst_spec fs (Assn Rpre Ppre Epre) (Assn Rpst Ppst nil)
+  -> List.Forall2 (fun e v => evalExp E e v) (e_nblk :: e_ntrd :: es) (Zn nblk :: Zn ntrd :: vs)
+  -> ntrd <> 0 -> nblk <> 0
+  -> (P -> subst_env Epre (Var "nblk" :: Var "ntrd" :: map fst xs) (Zn nblk :: Zn ntrd :: vs))
+  -> (P -> Ppre)
+  -> (P -> R |=R Rpre *** RF)
+  ST_ok (preST xs fns ys G)
+        (invokeKernel fn e_ntrd e_nblk args)
+        (postST (Assn R P E) (Assn (Rpst *** RF) (P /\ Ppst) E) G nil xs fns ys).
