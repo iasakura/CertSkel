@@ -34,6 +34,7 @@ Record hostfun := Hf {
   host_stmt : stmt;
   host_res : list var
 }.
+Section VecNot.
 
 Inductive fd :=
 | Host : hostfun -> fd
@@ -80,13 +81,17 @@ Definition lift {A B C : Type} (f : A -> B -> C) x y :=
 (*   | Sub e1 e2 => Z.sub (eval_expr env e1) (eval_expr env e2) *)
 (*   end. *)
 
-Fixpoint func_disp (m : GModule) (name : string) :=
-  match m with
+Fixpoint find_assoc {A B : Type} {eqt : eq_type A} (xs : list (A * B)) x : option B :=
+  match xs with
   | nil => None
-  | (fn, f) :: m => if string_dec name fn then Some f else func_disp m name
-  end%list.
+  | (k, y) :: xs => if eq_dec x k then Some y else find_assoc xs x
+  end.
 
-Section VecNot.
+Instance eq_type_string : eq_type string.
+constructor; apply string_dec.
+Defined.
+
+Definition func_disp (m : GModule) (name : string) := find_assoc m name.
 
 Import Vector.VectorNotations.
 
