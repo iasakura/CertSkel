@@ -34,7 +34,6 @@ Record hostfun := Hf {
   host_stmt : stmt;
   host_res : list var
 }.
-Section VecNot.
 
 Inductive fd :=
 | Host : hostfun -> fd
@@ -81,17 +80,13 @@ Definition lift {A B C : Type} (f : A -> B -> C) x y :=
 (*   | Sub e1 e2 => Z.sub (eval_expr env e1) (eval_expr env e2) *)
 (*   end. *)
 
-Fixpoint find_assoc {A B : Type} {eqt : eq_type A} (xs : list (A * B)) x : option B :=
-  match xs with
+Fixpoint func_disp (m : GModule) (name : string) :=
+  match m with
   | nil => None
-  | (k, y) :: xs => if eq_dec x k then Some y else find_assoc xs x
-  end.
+  | (fn, f) :: m => if string_dec name fn then Some f else func_disp m name
+  end%list.
 
-Instance eq_type_string : eq_type string.
-constructor; apply string_dec.
-Defined.
-
-Definition func_disp (m : GModule) (name : string) := find_assoc m name.
+Section VecNot.
 
 Import Vector.VectorNotations.
 
@@ -166,19 +161,19 @@ Inductive aborts_h : GModule -> stmt -> stack -> simple_heap -> Prop :=
   | aborts_kernel_invk : forall ke kid en n em m args s h,
       edenot en s = Zn n ->
       edenot em s = Zn m ->
-      (* func_disp ke kid = None \/ *)
-      (* (exists f, func_disp ke kid = Some (Host f)) \/ *)
-      n = 0 \/ m = 0 ->
-      (* (forall ker, func_disp ke kid = Some (Kern ker) -> length args <> length (params_of ker)) -> *)
+      func_disp ke kid = None \/
+      (exists f, func_disp ke kid = Some (Host f)) \/
+      n = 0 \/ m = 0 \/
+      (forall ker, func_disp ke kid = Some (Kern ker) -> length args <> length (params_of ker)) ->
       aborts_h ke (host_invoke kid en em args) s h
   | aborts_kernel_exec : forall kenv ntrd nblk tst shp s h,
       (abort_g (Gs tst shp h) \/ bdiv_g ntrd nblk tst shp (htop h)) ->
       aborts_h kenv (host_exec_ker ntrd nblk tst shp) s h
-  (* | aborts_hfun_call : forall ke fn args s h, *)
-  (*     func_disp ke fn = None \/ *)
-  (*     (exists f, func_disp ke fn = Some (Kern f)) \/ *)
-  (*     (forall hf, func_disp ke fn = Some (Host hf) -> length args <> length (host_params hf)) -> *)
-  (*     aborts_h ke (host_call fn args) s h *)
+  | aborts_hfun_call : forall ke fn args s h,
+      func_disp ke fn = None \/
+      (exists f, func_disp ke fn = Some (Kern f)) \/
+      (forall hf, func_disp ke fn = Some (Host hf) -> length args <> length (host_params hf)) ->
+      aborts_h ke (host_call fn args) s h
   | aborts_hfun_exec : forall kenv body ret_stk s h,
       aborts_h kenv body s h
       -> aborts_h kenv (host_exec_hfun body ret_stk) s h.
@@ -231,14 +226,10 @@ Definition CSLkfun_n_simp (P : assn) (f : kernel) (Q : assn) (n : nat) :=
 
 (* Definition CSLkfun_simp P f Q := forall n, CSLkfun_n_simp P f Q n. *)
 
-Inductive FTag : Set := Hfun | Kfun.
-
+Inductive FTag := Hfun | Kfun.
 Inductive FTri : Type :=
 | FAll (T : Type) (tri : T -> FTri) : FTri
 | FDbl (P : assn) (Q : assn) : FTri.
-
-Notation "'All' x .. y ',' tri" := (FAll _ (fun x => .. (FAll _ (fun y => tri)) ..))
-                                     (at level 200, x binder, y binder, tri at level 200).
 
 Record FSpec := FS { fs_tag : FTag; fs_params : list var; fs_tri : FTri}.
 
@@ -258,6 +249,9 @@ Definition interp_hfun_n_simp h (fs : FSpec) n :=
   fs_params fs = map fst (host_params h) /\
   interp_ftri (fs_tri fs) (fun P Q => CSLhfun_n_simp P h Q n).
 
+Notation "'All' x .. y ',' tri" := (FAll _ (fun x => .. (FAll _ (fun y => tri)) ..))
+                                     (at level 200, x binder, y binder, tri at level 200).
+
 Definition interp_fd_simp fd fs n := 
   match fd with
   | Host f => interp_hfun_n_simp f fs n
@@ -265,13 +259,9 @@ Definition interp_fd_simp fd fs n :=
   end.
 
 Definition interp_f_n (name : string) (fs : FSpec) (n : nat) : Prop :=
-  match n with
-  | O => True
-  | _ => 
-    match func_disp GM name with
-    | None => False
-    | Some fd => interp_fd_simp fd fs n
-    end
+  match func_disp GM name with
+  | None => False
+  | Some fd => interp_fd_simp fd fs n
   end.
 
 Definition FC := list (string * FSpec).
@@ -292,48 +282,50 @@ Definition interp_f (G  : FC) fn fs := with_ctx G (fun n => interp_f_n fn fs n).
 Definition sat_FC (G1 G2 : FC) :=
   forall n, interp_FC_n G1 (n - 1) -> interp_FC_n G2 n.
 
-Definition params_fd fd :=
-  match fd with
-  | Host h => host_params h
-  | Kern k => params_of k
-  end.
-
 Definition fn_ok fn fs :=
   match func_disp GM fn with
   | None => False
-  | Some f => fs_params fs = map fst (params_fd f) /\
-              match f with
-              | Host _ => fs_tag fs = Hfun
-              | Kern _ => fs_tag fs = Kfun
-              end
+  | Some (Host (Hf xs st _)) => fs_tag fs = Hfun /\ fs_params fs = map fst xs
+  | Some (Kern (BuildKer xs st)) => fs_tag fs = Kfun /\ fs_params fs = map fst xs
   end.
 
 Fixpoint fc_ok (G : FC) :=
   match G with
   | nil => True
-  | (fn, fs) :: G => fn_ok fn fs /\ fc_ok G
+  | (fn, fs) :: G => (fn_ok fn fs) /\ (fc_ok G)
   end.
 
-Lemma interp_fd_0 fn fs : interp_f_n fn fs 0.
-Proof.
-  unfold interp_f_n, interp_fd_simp, interp_hfun_n_simp, interp_kfun_n_simp; unfold fn_ok.
-  destruct func_disp; eauto.
+Lemma interp_fd_0 fn fs : fn_ok fn fs -> interp_f_n fn fs 0.
+Proof. 
+  unfold fn_ok; destruct fs; simpl.
+  unfold interp_f_n, interp_fd_simp, interp_hfun_n_simp, interp_kfun_n_simp; simpl.
+  destruct func_disp; try tauto.
+  destruct f as [[? ? ?]| [? ?]]; intros [? ?]; splits; eauto; induction fs_tri0; simpl; eauto;
+  cbv; eauto.
 Qed.
+(*   destruct fs; simpl. *)
+(*   destruct func_disp. *)
+(*   induction fs; simpl; eauto. *)
+(*   unfold fn_ok in *; destruct func_disp; try congruence. *)
+(*   destruct f; simpl; auto. *)
+(*   unfold fn_ok in *; destruct func_disp; try congruence. *)
+(*   destruct f; unfold CSLhfun_n_simp, CSLkfun_n_simp; simpl; eauto. *)
+(* Qed. *)
 
-Lemma interp_fc_0 G : interp_FC_n G 0.
+Lemma interp_fc_0 G : fc_ok G -> interp_FC_n G 0.
 Proof.
-  induction G as [|[? [? ?]] ?]; simpl.
+  induction G as [|[? ?] ?]; simpl.
   - intros; constructor.
-  - constructor; eauto using interp_fd_0.
+  - intros [? ?]; simpl.
+    constructor; [apply* interp_fd_0|apply* IHG].
 Qed.
 
-Lemma rule_module_rec G : (* fc_ok G ->  *)sat_FC G G -> sat_FC nil G.
+Lemma rule_module_rec G : fc_ok G -> sat_FC G G -> sat_FC nil G.
 Proof.  
-  unfold sat_FC; intros ? n; induction n; simpl.
-  - intros; simpl.
-    inverts H0.
+  unfold sat_FC; intros ? ? n; induction n; simpl.
+  - intros _.
     apply* interp_fc_0.
-  - intros; apply H; simpl.
+  - intros; apply H0; simpl.
     rewrite <-minus_n_O; eauto.
     apply IHn.
     constructor.
@@ -548,16 +540,18 @@ Proof.
 Qed.
 
 Lemma rule_call (G : FC) (fn : string) (es : list exp)
-      vs fs 
+      xs vs body res
+      fs 
       Rpre Ppre Epre
       Rpst Ppst
       RF R E (P : Prop) :
-  In (fn, fs) G
-  -> fs_tag fs = Hfun
-  -> length es = length (fs_params fs)
+  fc_ok G
+  -> In (fn, fs) G
+  -> func_disp GM fn = Some (Host (Hf xs body res))
+  -> length es = length xs
   -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) (Assn Rpst Ppst nil)
   -> List.Forall2 (fun e v => evalExp E e v) es vs
-  -> (P -> subst_env Epre (fs_params fs) vs)
+  -> (P -> subst_env Epre (map fst xs) vs)
   -> (P -> Ppre)
   -> (P -> R |=R Rpre *** RF)
   -> CSLh G
@@ -565,23 +559,22 @@ Lemma rule_call (G : FC) (fn : string) (es : list exp)
             (host_call fn es)
             (Assn (Rpst *** RF) (P /\ Ppst) E).
 Proof.
-  intros Hinfn Htag Harg Hinst Heval Hsubst Hp Hr n HFC s h Hsat.
+  intros Hfcok Hinfn Hdisp Harg Hinst Heval Hsubst Hp Hr n HFC s h Hsat.
   destruct n; simpl; eauto.
-  cutrewrite (S n - 1 = n) in HFC; [|omega].
   splits; eauto.
   - inversion 1.
   - introv Hdisj Htoh Habort.
     inverts Habort as Habort.
+    destruct Habort as [? | [ [? ?] | Hcallab] ]; try congruence.
+    forwards* Hc: (>> Hcallab Hdisp); simpl in Hc.
   - introv Hdis Htoh Hstep.
-    (* simpl in HFC; rewrite <-minus_n_O in HFC. *)
+    simpl in HFC; rewrite <-minus_n_O in HFC.
     unfold interp_FC_n, interp_f_n in HFC; rewrite Forall_forall in HFC.
-    forwards* Hfn: (>>HFC Hinfn).
-    inverts Hstep as Hdisp Heval' Hbnd; simpl in *.
-    destruct n; eauto.
-    remember (S n) as n'.
-    rewrite Hdisp in Hfn.
+    forwards* Hfn: (>>HFC Hinfn); rewrite Hdisp in Hfn.
     forwards* Hfn': (>>interp_fs_inst Hfn Hinst); simpl in Hfn'.
     unfold CSLhfun_n_simp in Hfn'; simpl in Hfn'.
+    inverts Hstep as Hdisp' Heval' Hbnd; simpl in *.
+    rewrite Hdisp in Hdisp'; inverts Hdisp'; simpl in *.
     unfold Assn, sat in Hsat.
     sep_split_in Hsat.
     forwards* (h1 & h2 & Hpre & HF & Hdis12 & Heq12): (>> Hr HP Hsat).
@@ -591,8 +584,6 @@ Proof.
     { unfold sat, Assn; sep_split; eauto.
       - applys* Hp.
       - applys* subst_env_bind_params.
-        simpl in Hfn; unfold interp_hfun_n_simp in Hfn; destruct Hfn as (? & Hparams & ?).
-        rewrite Hparams.
         cutrewrite (vs = vs0); eauto.
         revert Heval Heval' HP0; clear.
         intros H; revert vs0; induction H; inversion 1; intros; substs; eauto.
@@ -623,18 +614,19 @@ Lemma initGPU_nblk nt nb body tst shp stk:
 Proof. inversion 1; eauto. Qed.
 
 Lemma rule_invk (G : FC) (fn : string) (nt nb : nat) (es : list exp)
-      (vs : list val)
+      (xs : list (var * CTyp)) (vs : list val) body
       fs ent ntrd enb nblk
       Rpre Ppre Epre
       Rpst Ppst
       RF R E (P : Prop) :
-  In (fn, fs) G
-  -> fs_tag fs = Kfun
-  -> length es = length (fs_params fs)
+  fc_ok G 
+  -> In (fn, fs) G
+  -> func_disp GM fn = Some (Kern (BuildKer xs body))
+  -> length es = length xs
   -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) (Assn Rpst Ppst nil)
   -> List.Forall2 (fun e v => evalExp E e v) (enb :: ent :: es) (Zn nblk :: Zn ntrd :: vs)
   -> ntrd <> 0 -> nblk <> 0
-  -> (P -> subst_env Epre (Var "nblk" :: Var "ntrd" :: (fs_params fs)) (Zn nblk :: Zn ntrd :: vs))
+  -> (P -> subst_env Epre (Var "nblk" :: Var "ntrd" :: map fst xs) (Zn nblk :: Zn ntrd :: vs))
   -> (P -> Ppre)
   -> (P -> R |=R Rpre *** RF)
   -> CSLh G
@@ -642,7 +634,7 @@ Lemma rule_invk (G : FC) (fn : string) (nt nb : nat) (es : list exp)
             (host_invoke fn ent enb es)
             (Assn (Rpst *** RF) (P /\ Ppst) E).
 Proof.
-  intros Hinfn Htag Harg Hinst Heval Hntrd Hnblk Hsubst Hp Hr n HFC s h Hsat.
+  intros Hfcok Hinfn Hdisp Harg Hinst Heval Hntrd Hnblk Hsubst Hp Hr n HFC s h Hsat.
   inverts Heval as Henb Heval.
   inverts Heval as Hent Heval.
   destruct n; simpl; eauto.
@@ -650,7 +642,7 @@ Proof.
   - inversion 1.
   - introv Hdisj Htoh Habort.
     inverts Habort as Hent0 Henb0 Habort.
-    destruct Habort.
+    destruct Habort as [? | [ [? ?] | [Hn0 | [Hm0 | Hcallab] ]]]; try congruence.
     + unfold Assn, sat in Hsat; sep_split_in Hsat.
       forwards* Hent': (>>evalExp_ok Hent).
       hnf in Hent'; simpl in Hent'; substs.
@@ -659,17 +651,15 @@ Proof.
       forwards* Henb': (>>evalExp_ok Henb).
       hnf in Henb'; simpl in Henb'; substs.
       rewrite Henb', Nat2Z.inj_iff in Henb0; eauto.
+    + forwards* Hc: (>> Hcallab Hdisp); simpl in Hc.
   - introv Hdis Htoh Hstep.
     simpl in HFC; rewrite <-minus_n_O in HFC.
     unfold interp_FC_n, interp_f_n in HFC; rewrite Forall_forall in HFC.
-    inverts Hstep as Hent' Henb' Heval' Hdisp Hinit Hbnd; simpl in *.
     forwards* Hfn: (>>HFC Hinfn); rewrite Hdisp in Hfn.
-    destruct n.
-    { exists h; splits; eauto. }
     forwards* Hfn': (>>interp_fs_inst Hfn Hinst); simpl in Hfn'.
-    remember (S n) as n'.
     unfold CSLkfun_n_simp in Hfn'; simpl in Hfn'.
-    rewrite Hdisp in Hdisp; inverts Hdisp; simpl in *.
+    inverts Hstep as Hent' Henb' Heval' Hdisp' Hinit Hbnd; simpl in *.
+    rewrite Hdisp in Hdisp'; inverts Hdisp'; simpl in *.
     unfold Assn, sat in Hsat.
     sep_split_in Hsat.
     forwards* (h1 & h2 & Hpre & HF & Hdis12 & Heq12): (>> Hr HP Hsat).
@@ -689,8 +679,6 @@ Proof.
     { unfold sat, Assn; sep_split; eauto.
       - applys* Hp.
       - applys* (>>subst_env_bind_params (Hsubst HP)).
-        simpl in Hfn; destruct Hfn as (? & Hparams & ?).
-        rewrite Hparams.
         repeat split; eauto using initGPU_ntrd, initGPU_nblk.
         simpl in Hsubst.
         cutrewrite (vs = vs0); eauto.
@@ -897,23 +885,18 @@ Lemma interp_f_n_mono n m fn fs :
   interp_f_n fn fs n -> m <= n -> interp_f_n fn fs m.
 Proof.
   unfold interp_f_n, interp_fd_simp, interp_hfun_n_simp, interp_kfun_n_simp.
-  destruct n; [destruct m; try omega; eauto|].
-  destruct m; eauto.
-  remember (S n) as n'; remember (S m) as m'.
-  destruct func_disp as [[|]|]; eauto; intros; splits; jauto.
-  - destruct H as (_ & _ & H).
-    destruct fs; simpl; simpl in *.
-    induction fs_tri0; simpl; eauto.
+  destruct func_disp as [[|]|]; eauto.
+  - destruct fs as [? ? ftri]; simpl.
+    intros (? & ? & ?); intros; splits; eauto.
+    induction ftri; simpl; eauto.
     unfold CSLhfun_n_simp.
+    forwards*: H0.
     intros.
-    forwards*: H.
-    eauto using safe_nh_mono.
-  - destruct H as (_ & _ & H).
-    destruct fs; simpl; simpl in *.
-    induction fs_tri0; simpl; eauto.
+    eapply safe_nh_mono; eauto.
+  - destruct fs as [? ? ftri]; simpl.
+    intros (? & ? & ?); intros; splits; eauto.
+    induction ftri; simpl; eauto.
     unfold CSLkfun_n_simp.
-    intros.
-    forwards*: (>>H H3).
     eauto using safe_ng_mono.
 Qed.
 
