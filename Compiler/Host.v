@@ -240,13 +240,9 @@ Fixpoint interp_ftri (fs : FTri) (k : assn -> assn -> Prop) : Prop :=
   end.
 
 Definition interp_kfun_n_simp k (fs : FSpec) n :=
-  fs_tag fs = Kfun /\
-  fs_params fs = map fst (params_of k) /\
   interp_ftri (fs_tri fs) (fun P Q => CSLkfun_n_simp P k Q n).
 
 Definition interp_hfun_n_simp h (fs : FSpec) n :=
-  fs_tag fs = Hfun /\
-  fs_params fs = map fst (host_params h) /\
   interp_ftri (fs_tri fs) (fun P Q => CSLhfun_n_simp P h Q n).
 
 Notation "'All' x .. y ',' tri" := (FAll _ (fun x => .. (FAll _ (fun y => tri)) ..))
@@ -300,8 +296,9 @@ Proof.
   unfold fn_ok; destruct fs; simpl.
   unfold interp_f_n, interp_fd_simp, interp_hfun_n_simp, interp_kfun_n_simp; simpl.
   destruct func_disp; try tauto.
-  destruct f as [[? ? ?]| [? ?]]; intros [? ?]; splits; eauto; induction fs_tri0; simpl; eauto;
-  cbv; eauto.
+  destruct f as [[? ? ?]| [? ?]]; intros [? ?];
+  eauto; induction fs_tri0; simpl; eauto;
+  simpl; cbv; eauto.
 Qed.
 (*   destruct fs; simpl. *)
 (*   destruct func_disp. *)
@@ -539,19 +536,38 @@ Proof.
   - intros; forwards* (? & ? & ? & ?): H3.
 Qed.
 
+Lemma fc_ok_func_disp G fn fs :
+  fc_ok G 
+  -> In (fn, fs) G
+  -> match fs_tag fs with
+     | Hfun => exists xs body res, func_disp GM fn = Some (Host (Hf xs body res)) /\ map fst xs = fs_params fs
+     | Kfun => exists xs body, func_disp GM fn = Some (Kern (BuildKer xs body)) /\ map fst xs = fs_params fs
+     end.
+Proof.
+  induction G as [|[? ?] ?]; simpl; try tauto.
+  intros Hfc Hin.
+  destruct fs as [tag xs ftri]; simpl in *.
+  destruct Hfc as [Hs Hg].
+  destruct Hin; [|apply IHG; eauto].
+  inverts H.
+  unfold fn_ok in Hs; destruct func_disp eqn:Heq; simpl in *; try tauto.
+  destruct f as [[? ? ?]| [? ?]]; destruct tag; destruct Hs; try congruence;
+  [do 3 eexists|do 2 eexists]; split; eauto.
+Qed.
+
 Lemma rule_call (G : FC) (fn : string) (es : list exp)
-      xs vs body res
+      vs
       fs 
       Rpre Ppre Epre
       Rpst Ppst
       RF R E (P : Prop) :
   fc_ok G
+  -> fs_tag fs = Hfun
   -> In (fn, fs) G
-  -> func_disp GM fn = Some (Host (Hf xs body res))
-  -> length es = length xs
+  -> length es = length (fs_params fs)
   -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) (Assn Rpst Ppst nil)
   -> List.Forall2 (fun e v => evalExp E e v) es vs
-  -> (P -> subst_env Epre (map fst xs) vs)
+  -> (P -> subst_env Epre (fs_params fs) vs)
   -> (P -> Ppre)
   -> (P -> R |=R Rpre *** RF)
   -> CSLh G
@@ -559,8 +575,11 @@ Lemma rule_call (G : FC) (fn : string) (es : list exp)
             (host_call fn es)
             (Assn (Rpst *** RF) (P /\ Ppst) E).
 Proof.
-  intros Hfcok Hinfn Hdisp Harg Hinst Heval Hsubst Hp Hr n HFC s h Hsat.
+  intros Hfcok Htag Hinfn Harg Hinst Heval Hsubst Hp Hr n HFC s h Hsat.
   destruct n; simpl; eauto.
+  forwards*: (fc_ok_func_disp).
+  rewrite Htag in H; destruct H as (xs & body & res & Hdisp & Hxsps).
+  rewrite <-Hxsps, map_length in *.
   splits; eauto.
   - inversion 1.
   - introv Hdisj Htoh Habort.
@@ -614,19 +633,19 @@ Lemma initGPU_nblk nt nb body tst shp stk:
 Proof. inversion 1; eauto. Qed.
 
 Lemma rule_invk (G : FC) (fn : string) (nt nb : nat) (es : list exp)
-      (xs : list (var * CTyp)) (vs : list val) body
+      (vs : list val)
       fs ent ntrd enb nblk
       Rpre Ppre Epre
       Rpst Ppst
       RF R E (P : Prop) :
-  fc_ok G 
+  fc_ok G
+  -> fs_tag fs = Kfun
   -> In (fn, fs) G
-  -> func_disp GM fn = Some (Kern (BuildKer xs body))
-  -> length es = length xs
+  -> length es = length (fs_params fs)
   -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) (Assn Rpst Ppst nil)
   -> List.Forall2 (fun e v => evalExp E e v) (enb :: ent :: es) (Zn nblk :: Zn ntrd :: vs)
   -> ntrd <> 0 -> nblk <> 0
-  -> (P -> subst_env Epre (Var "nblk" :: Var "ntrd" :: map fst xs) (Zn nblk :: Zn ntrd :: vs))
+  -> (P -> subst_env Epre (Var "nblk" :: Var "ntrd" :: fs_params fs) (Zn nblk :: Zn ntrd :: vs))
   -> (P -> Ppre)
   -> (P -> R |=R Rpre *** RF)
   -> CSLh G
@@ -634,7 +653,10 @@ Lemma rule_invk (G : FC) (fn : string) (nt nb : nat) (es : list exp)
             (host_invoke fn ent enb es)
             (Assn (Rpst *** RF) (P /\ Ppst) E).
 Proof.
-  intros Hfcok Hinfn Hdisp Harg Hinst Heval Hntrd Hnblk Hsubst Hp Hr n HFC s h Hsat.
+  intros Hfcok Htag Hinfn Harg Hinst Heval Hntrd Hnblk Hsubst Hp Hr n HFC s h Hsat.
+  forwards*: (fc_ok_func_disp).
+  rewrite Htag in H; destruct H as (xs & body & Hdisp & Hxsps).
+  rewrite <-Hxsps, map_length in *.
   inverts Heval as Henb Heval.
   inverts Heval as Hent Heval.
   destruct n; simpl; eauto.
@@ -887,14 +909,14 @@ Proof.
   unfold interp_f_n, interp_fd_simp, interp_hfun_n_simp, interp_kfun_n_simp.
   destruct func_disp as [[|]|]; eauto.
   - destruct fs as [? ? ftri]; simpl.
-    intros (? & ? & ?); intros; splits; eauto.
+    intros; eauto.
     induction ftri; simpl; eauto.
     unfold CSLhfun_n_simp.
     forwards*: H0.
     intros.
     eapply safe_nh_mono; eauto.
   - destruct fs as [? ? ftri]; simpl.
-    intros (? & ? & ?); intros; splits; eauto.
+    intros; eauto.
     induction ftri; simpl; eauto.
     unfold CSLkfun_n_simp.
     eauto using safe_ng_mono.
