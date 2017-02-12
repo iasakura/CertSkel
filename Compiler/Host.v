@@ -245,9 +245,6 @@ Definition interp_kfun_n_simp k (fs : FSpec) n :=
 Definition interp_hfun_n_simp h (fs : FSpec) n :=
   interp_ftri (fs_tri fs) (fun P Q => CSLhfun_n_simp P h Q n).
 
-Notation "'All' x .. y ',' tri" := (FAll _ (fun x => .. (FAll _ (fun y => tri)) ..))
-                                     (at level 200, x binder, y binder, tri at level 200).
-
 Definition interp_fd_simp fd fs n := 
   match fd with
   | Host f => interp_hfun_n_simp f fs n
@@ -942,3 +939,6 @@ Proof.
 Qed.
    
 End Rules.
+
+Notation "'All' x .. y ',' tri" := (FAll _ (fun x => .. (FAll _ (fun y => tri)) ..))
+                                     (at level 200, x binder, y binder, tri at level 200).
