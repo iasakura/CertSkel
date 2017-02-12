@@ -1386,6 +1386,8 @@ Qed.
 
 Lemma rule_invokeKernel kerID fs ntrd nblk args G R (P : Prop) E Epre Rpre Rpst RF Ppst Ppre xs ys fns vs enb ent :
   In (kerID, fs) G
+  -> incl (map ent_e E) xs
+  -> fs_tag fs = Kfun
   -> length args = length (fs_params fs)
   -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) (Assn Rpst Ppst nil)
   -> List.Forall2 (fun e v => evalExp E e v) (enb :: ent :: args) (Zn nblk :: Zn ntrd :: vs)
@@ -1394,6 +1396,16 @@ Lemma rule_invokeKernel kerID fs ntrd nblk args G R (P : Prop) E Epre Rpre Rpst 
   -> (P -> Ppre)
   -> (P -> R |=R Rpre *** RF)
   -> ST_ok (preST xs fns ys G)
-           (invokeKernel kerID enb ent args)
-           (fun _ => postST (Assn R P E) (Assn (Rpst *** RF) (P /\ Ppst) E) G G xs fns ys).
+           (invokeKernel kerID ent enb args)
+           (fun _ => postST (Assn R P E) (Assn (Rpst *** RF) (P /\ Ppst) E) G nil xs fns ys).
 Proof.
+  unfold ST_ok, preST, postST.
+  intros.
+  inverts H11.
+  rewrite !app_nil_r.
+  splits; [..|splits]; jauto.
+  rewrites* fv_assn_base.
+  eapply rule_host_seq.
+  applys (>>rule_invk H1 H4); jauto.
+  apply rule_host_skip.
+Qed.
