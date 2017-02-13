@@ -133,7 +133,7 @@ Definition preST ys fns P Gp : STPre := fun n m M =>
   fc_ok M Gp /\
   fnOk (map fst M) m.
 
-Definition postST (P Q : assn) (Gp G : FC) fns ys : STPost := fun n m n' m' M st =>
+Definition postST ys fns (P Q : assn) (Gp G : FC) : STPost := fun n m n' m' M st =>
   n <= n' /\ m <= m' /\
   
   (exists xs, fv_assn Q xs /\ fvOk xs n' /\ disjoint ys xs) /\
@@ -306,7 +306,7 @@ Qed.
 Lemma rule_fresh P G fns ys :
   ST_ok (preST ys fns P G)
         freshP
-        (fun x => postST P (K P x) G (K nil x) (K fns x) (x :: ys)).
+        (fun x => postST (x :: ys) (K fns x) P (K P x) G (K nil x)).
 Proof.
   unfold ST_ok, freshP, postST, preST.
   introv (HxsOk & HfnsOk & HysOk & HgnsOk & Hys & Hgns) Heq. 
@@ -328,7 +328,7 @@ Qed.
 Lemma rule_fresh' P G fns ys :
   ST_ok (preST ys fns P G)
            freshP
-           (fun x => postST P (K P x) G nil (K fns x) (x :: ys)).
+           (fun x => postST (x :: ys) (K fns x) P (K P x) G nil).
 Proof.
   apply rule_fresh.
 Qed.
@@ -424,7 +424,7 @@ Lemma rule_setI G P Q ss ys xs' fns  :
   -> incl xs' ys
   -> ST_ok (preST ys fns P G)
            (setI ss)
-           (fun x => postST P (K Q x) G (K nil x) (K fns x) (K (remove_xs ys xs') x)).
+           (fun x => postST (K (remove_xs ys xs') x) (K fns x) P (K Q x) G (K nil x)).
 Proof.
   unfold ST_ok, freshP, postST, preST, K.
   introv Hsat Hfv Hincl (HxsOk & HfnsOk & HysOk & Hdisjysxs & Hdisjfns & HsatG & HdisjGM & HokGM) Heq. 
@@ -448,7 +448,7 @@ Lemma rule_setI' G P Q ss ys xs' fns  :
   -> incl xs' ys
   -> ST_ok (preST ys fns P G)
            (setI ss)
-           (fun x => postST P (K Q x) G nil (K fns x) (K (remove_xs ys xs') x)).
+           (fun x => postST (K (remove_xs ys xs') x) (K fns x) P (K Q x) G nil ).
 Proof.
   apply rule_setI.
 Qed.
@@ -624,14 +624,14 @@ Lemma rule_bind T1 T2
       (gen : CUDAM T1) (gen' : T1 -> CUDAM T2) :
   ST_ok (preST ys fns P Gp)
         gen
-        (fun x => postST P (Q x) Gp (G x) (fns' x) (ys' x))
+        (fun x => postST (ys' x) (fns' x) P (Q x) Gp (G x))
   -> (forall x,
          ST_ok (preST (ys' x) (fns' x) (Q x) (Gp ++ G x))
                (gen' x)
-               (fun y => postST (Q x) (R x y) (Gp ++ G x) (G' x y) (fns'' x y) (ys'' x y)))
+               (fun y => postST (ys'' x y) (fns'' x y) (Q x) (R x y) (Gp ++ G x) (G' x y)))
   -> ST_ok (preST ys fns P Gp)
            (bind gen gen')
-           (fun y => ExStmt (fun x => postST P (R x y) Gp (G x ++ G' x y) (fns'' x y) (ys'' x y))).
+           (fun y => ExStmt (fun x => postST (ys'' x y) (fns'' x y) P (R x y) Gp (G x ++ G' x y))).
 Proof.
   unfold ST_ok, freshP, postST, preST.
   intros Hgen Hgen' n m n'' m'' st0 M0 M1 v0 (HxsOk & HfnsOk & HysOk & Hdisjxy & Hfns & Hsat & HdisjM & HokM) Heq.
@@ -671,18 +671,18 @@ Lemma rule_bind' T1 T2
   (forall y, G ++ G' y = G'' y) 
   -> ST_ok (preST fns ys P Gp)
         gen
-        (fun x => postST P (Q x) Gp G (fns' x) (ys' x))
+        (fun x => postST (ys' x) (fns' x) P (Q x) Gp G)
   -> (forall x,
          ST_ok (preST (ys' x) (fns' x) (Q x) (Gp ++ G))
                (gen' x)
-               (fun y => postST (Q x) (R y) (Gp ++ G) (G' y) (fns'' y) (ys'' y)))
+               (fun y => postST (ys'' y) (fns'' y) (Q x) (R y) (Gp ++ G) (G' y)))
   -> ST_ok (preST fns ys P Gp)
            (bind gen gen')
-           (fun y => postST P (R y) Gp (G'' y) (fns'' y) (ys'' y)).
+           (fun y => postST (ys'' y) (fns'' y) P (R y) Gp (G'' y)).
 Proof.
   intros.
-  cutrewrite ((fun y : T2 => postST P (R y) Gp (G'' y) (fns'' y) (ys'' y)) =
-          (fun y : T2 => postST P (R y) Gp (G ++ G' y) (fns'' y) (ys'' y))); [|eauto].
+  cutrewrite ((fun y : T2 => postST (ys'' y) (fns'' y) P (R y) Gp (G'' y)) =
+          (fun y : T2 => postST (ys'' y) (fns'' y) P (R y) Gp (G ++ G' y))); [|eauto].
   eapply rule_backward.
   eapply rule_bind; [apply H0|apply H1].
   introv [? ?]; eauto.
@@ -701,7 +701,7 @@ Definition env_ok xs E :=
   (forall x v, In (x |-> v) E -> In x xs).
 
 Lemma rule_ret (T : Type) (v : T) ys fns P Gp :
-  ST_ok (preST (ys v) (fns v) (P v) Gp) (ret v) (fun u => postST (P v) (P u) Gp (K nil u) (fns u) (ys u)).
+  ST_ok (preST (ys v) (fns v) (P v) Gp) (ret v) (fun u => postST (ys u) (fns u) (P v) (P u) Gp (K nil u)).
 Proof.
   unfold ST_ok, preST, postST; intros.
   inverts H0.
@@ -744,7 +744,7 @@ Lemma rule_fLet Gp R P E ys e v fns :
   evalExp E e v
   -> ST_ok (preST ys fns (Assn R P E) Gp)
            (fLet e)
-           (fun x => postST (Assn R P E) (Assn R P (x |-> v :: E)) Gp (K nil x) (K fns x) (K ys x)).
+           (fun x => postST (K ys x) (K fns x) (Assn R P E) (Assn R P (x |-> v :: E)) Gp (K nil x)).
 Proof.
   unfold fLet; intros Hfv Heval.
   eapply rule_bind'.
@@ -793,9 +793,9 @@ Lemma rule_fAlloc Gp R P E ys len l fns :
   evalExp E len (Zn l)
   -> ST_ok (preST ys fns (Assn R P E) Gp)
            (fAlloc len)
-           (fun x => postST (Assn R P E)
+           (fun x => postST (K ys x) (K fns x) (Assn R P E)
                             (Ex p vs, (Assn (array (GLoc p) vs 1 *** R)) (Datatypes.length vs = l /\ P) (x |-> p :: E))
-                            Gp (K nil x) (K fns x) (K ys x)).
+                            Gp (K nil x)).
 Proof.
   unfold fLet; intros Hfv Heval.
   eapply rule_bind'.
@@ -865,8 +865,8 @@ Qed.
 
 Lemma rule_code_ex (T A : Type) `{hd_A : hasDefval A} (gen : CUDAM T) Gp (G : T -> FC)
       ys0 fns0 ys fns (p : A -> assn) (q : T -> assn) :
-  (forall y, ST_ok (preST ys0 fns0 (p y) Gp) gen (fun (x : T) => postST (p y) (q x) Gp (G x) (fns x) (ys x)))
-  -> ST_ok (preST ys0 fns0 (Ex y, p y) Gp) gen (fun (x : T) => postST (Ex y, p y) (q x) Gp (G x) (fns x) (ys x)).
+  (forall y, ST_ok (preST ys0 fns0 (p y) Gp) gen (fun (x : T) => postST (ys x) (fns x) (p y) (q x) Gp (G x)))
+  -> ST_ok (preST ys0 fns0 (Ex y, p y) Gp) gen (fun (x : T) => postST (ys x) (fns x) (Ex y, p y) (q x) Gp (G x)).
 Proof.
   unfold ST_ok, postST; intros.
   assert (H' : forall (n m n' m' : nat) (st : list stmt) 
@@ -907,9 +907,9 @@ Qed.
 Lemma rule_fAllocs' typ Gp R P E (size : var) ys l fns :
   ST_ok (preST ys fns (Assn R P (size |-> Zn l :: E)) Gp)
            (fAllocs' typ size)
-           (fun x => postST (Assn R P (size |-> Zn l :: E))
+           (fun x => postST (K ys x) (K fns x) (Assn R P (size |-> Zn l :: E))
                             (Ex ps vs, (Assn (arrays (val2gl ps) vs 1 *** R)) (Datatypes.length vs = l /\ P) (size |-> Zn l :: x |=> ps ++ E))
-                            Gp (K nil x) (K fns x) (K ys x)).
+                            Gp (K nil x)).
 Proof.
   revert R P E ys; induction typ; simpl; eauto; simpl; introv.
   - eapply rule_backward.
@@ -984,7 +984,7 @@ Proof.
       (P |= Q v)
       -> (forall xs, fv_assn P xs -> fv_assn (Q v) xs)
       -> ST_ok (preST (ys v) (fns v) P Gp) (ret v) 
-               (fun x => postST P (Q x) Gp nil (fns x) (ys x)).
+               (fun x => postST (ys x) (fns x) P (Q x) Gp nil).
     Proof.
       intros; unfold ST_ok, preST, postST; intros; splits; [..|splits]; inverts H2; repeat rewrite app_nil_r; jauto.
       eapply rule_host_backward; [apply rule_host_skip|eauto].
@@ -1074,8 +1074,8 @@ Lemma postST_imp P P' Q Q' Gp G ys ys' fns fns':
   incl fns' fns ->
   disjoint_list fns' -> disjoint_list ys' ->
   forall n m n' m' M st,
-    postST P Q Gp G fns ys n m n' m' M st ->
-    postST P' Q' Gp G fns' ys' n m n' m' M st.
+    postST ys fns P Q Gp G n m n' m' M st ->
+    postST ys' fns' P' Q' Gp G n m n' m' M st.
 Proof.
   unfold postST; intros.
   destruct H6 as (? & ? & (? & ? & ? & ?) & ? & ? & ? & ? & ? & ? & ? & ?); splits; [..|splits]; jauto;
@@ -1113,9 +1113,9 @@ Lemma rule_fAllocs typ Gp R P E ys fns size l :
   evalExp E size (Zn l)
   -> ST_ok (preST ys fns (Assn R P E) Gp)
            (fAllocs typ size)
-           (fun x => postST (Assn R P E)
+           (fun x => postST ys fns (Assn R P E)
                             (Ex ps vs, (Assn (arrays (val2gl ps) vs 1 *** R)) (Datatypes.length vs = l /\ P) (x |=> ps ++ E))
-                            Gp nil fns ys).
+                            Gp nil).
 Proof.
   intros Heval.
   unfold fAllocs.
@@ -1164,7 +1164,7 @@ Lemma rule_freshF G P xs ys fns :
   fv_assn P xs
   -> ST_ok (preST ys fns P G)
            freshF
-           (fun fn => postST P (K P fn) G nil (fn :: fns) (K ys fn)).
+           (fun fn => postST (K ys fn) (fn :: fns) P (K P fn) G nil).
 Proof.
   unfold ST_ok, freshP, postST, preST.
   introv (HxsOk & HfnsOk & HysOk & HgnsOk & Hys & Hgns & HsatF & HdisGMp & HinclG & HGMpOk) Heq. 
@@ -1294,7 +1294,7 @@ Lemma rule_gen_kernel G P xs ys fns k fs:
   -> fv_assn P xs
   -> ST_ok (preST ys fns P G)
            (gen_kernel k)
-           (fun fn => postST P (K P fn) G ((fn, fs) :: nil) fns ys).
+           (fun fn => postST ys fns P (K P fn) G ((fn, fs) :: nil)).
 Proof.
   intros Htag Hparams HkOk Hfv.
   unfold gen_kernel.
@@ -1310,14 +1310,14 @@ Proof.
         (gen : CUDAM T1) (gen' : T1 -> CUDAM T2) :
     ST_ok (preST ys fns P Gp)
           gen
-          (fun x => postST P (Q x) Gp G (fns' x) (ys' x))
+          (fun x => postST (ys' x) (fns' x) P (Q x) Gp G)
     -> (forall x,
            ST_ok (preST (ys' x) (fns' x) (Q x) (Gp ++ G))
                  (gen' x)
-                 (fun y => postST (Q x) (R y) (Gp ++ G) (G' y) (fns'' y) (ys'' y)))
+                 (fun y => postST (ys'' y) (fns'' y) (Q x) (R y) (Gp ++ G) (G' y)))
     -> ST_ok (preST ys fns P Gp)
              (bind gen gen')
-             (fun y => postST P (R y) Gp (G ++ G' y) (fns'' y) (ys'' y)).
+             (fun y => postST (ys'' y) (fns'' y) P (R y) Gp (G ++ G' y)).
   Proof.
     intros.
     eapply rule_backward.
@@ -1326,8 +1326,8 @@ Proof.
   Qed.
   
   Lemma rule_ret_back (T T' : Type) (m : CUDAM T) (v : T') P Q Gp G fns ys fns' ys' :
-    ST_ok (preST ys fns P Gp) (do! _ <- m in ret v) (fun x => postST P (K Q v) Gp (G v) (fns' v) (ys' v))
-    -> ST_ok (preST ys fns P Gp) (do! _ <- m in ret v) (fun x => postST P (K Q x) Gp (G x) (fns' x) (ys' x)).
+    ST_ok (preST ys fns P Gp) (do! _ <- m in ret v) (fun x => postST (ys' v) (fns' v) P (K Q v) Gp (G v))
+    -> ST_ok (preST ys fns P Gp) (do! _ <- m in ret v) (fun x => postST (ys' x) (fns' x) P (K Q x) Gp (G x)).
   Proof.
     unfold ST_ok; simpl; eauto; intros.
     unfold bind in *; simpl in *.
@@ -1339,14 +1339,14 @@ Proof.
   Qed.
   apply rule_ret_back.
   cutrewrite ((fun _ =>
-                postST (K P fn) (K P fn) (G ++ nil) ((fn, fs) :: nil) fns ys) =
+                postST ys fns (K P fn) (K P fn) (G ++ nil) ((fn, fs) :: nil)) =
               (fun y : string =>
-                postST (K P fn) (K P y) (G ++ nil) (((fn, fs) :: nil) ++ K nil y) fns ys)); [|extensionality x; unfold K; rewrite !app_nil_r; eauto].
+                postST ys fns (K P fn) (K P y) (G ++ nil) (((fn, fs) :: nil) ++ K nil y))); [|extensionality x; unfold K; rewrite !app_nil_r; eauto].
   apply code_ok_float; intros.
   eapply rule_bind''.
-  { instantiate (1 := K ys).
+  { instantiate (1 := K P).
     instantiate (1 := K fns).
-    instantiate (1 := K P).
+    instantiate (1 := K ys).
     unfold postST; introv (HxsOk & HfnsOk & HysOk & HgnsOk & Hys & Hgns & HsatF & HdisGMp & HinclG & HGMpOk) Heq.  
     inverts Heq.
     repeat rewrite app_nil_r in *; repeat rewrite map_app in *.
@@ -1391,7 +1391,7 @@ Lemma rule_invokeKernel kerID fs ntrd nblk args G R (P : Prop) E Epre Rpre Rpst 
   -> (P -> R |=R Rpre *** RF)
   -> ST_ok (preST ys fns (Assn R P E) G)
            (invokeKernel kerID ent enb args)
-           (fun _ => postST (Assn R P E) (Assn (Rpst *** RF) (P /\ Ppst) E) G nil fns ys).
+           (fun _ => postST ys fns (Assn R P E) (Assn (Rpst *** RF) (P /\ Ppst) E) G nil).
 Proof.
   unfold ST_ok, preST, postST.
   intros.
