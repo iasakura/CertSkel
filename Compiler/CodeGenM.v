@@ -120,9 +120,9 @@ Definition hvar n := Var ("h" ++ nat2str n).
 Definition kname n := ("_ker" ++ nat2str n)%string.
 
 Definition fvOk xs n : Prop :=
-  List.Forall (fun x => exists m, x = hvar m /\ m < n) xs.
+  List.Forall (fun x => forall m, x = hvar m -> m < n) xs.
 Definition fnOk fns n : Prop :=
-  List.Forall (fun fn => exists m, fn = kname m /\ m < n) fns.
+  List.Forall (fun fn => forall m, fn = kname m -> m < n) fns.
 
 Definition preST xs fns ys Gp : STPre := fun n m M =>
   fvOk xs n /\ fnOk fns m /\ fvOk ys n /\ 
@@ -294,15 +294,14 @@ Lemma fvOk_weaken fvs n m :
   n <= m -> fvOk fvs n -> fvOk fvs m.
 Proof.
   unfold fvOk; intros Hnm H; induction H; constructor; eauto.
-  destruct H as (m' & ? & ?); exists m'; splits; eauto; omega.
+  intros; forwards*: H; omega.
 Qed.
 
 Lemma fvOk_ge n m xs :
   fvOk xs n -> n <= m -> ~ In (hvar m) xs.
 Proof.
   unfold fvOk; rewrite Forall_forall; intros H ? Hc.
-  forwards* (? & ? & ?): H.
-  apply hvar_inj in H1; omega.
+  intros; forwards*: H; omega.
 Qed.
 
 Lemma rule_fresh P G xs fns ys :
@@ -317,7 +316,7 @@ Proof.
   splits; [..|splits]; repeat rewrite app_nil_r; jauto; try omega.
   - applys (>>fvOk_weaken HxsOk); omega.
   - constructor.
-    + exists n; splits; eauto.
+    + intros ? H'; apply hvar_inj in H'; substs; omega.
     + applys (>>fvOk_weaken HysOk); omega.
   - split; eauto.
     applys* fvOk_ge.
@@ -1082,6 +1081,9 @@ Proof.
   unfold fnOk, fvOk, incl in *; rewrite !Forall_forall in *;
   intros; intuition.
   admit.
+  forwards*: H10.
+  forwards*: H11.
+  forwards*: H12.
   eapply disjoint_incl_l; [|eapply disjoint_incl]; eauto.
   eapply disjoint_incl_l; [|eapply disjoint_incl]; eauto.
   Lemma sat_FC_strong M Gp G : sat_FC M nil G -> sat_FC M Gp G.
@@ -1141,8 +1143,7 @@ Lemma fnOk_weaken fn n m :
   -> fnOk fn m.
 Proof.
   unfold fnOk; rewrite !Forall_forall; intros.
-  forwards*(?&?&?): H0; eexists; splits; eauto.
-  omega.
+  forwards*: H0; omega.
 Qed.
   
 Lemma kname_inj m n : kname m = kname n -> m = n.
@@ -1156,8 +1157,7 @@ Lemma fnOk_ge n m xs :
   fnOk xs n -> n <= m -> ~ In (kname m) xs.
 Proof.
   unfold fnOk; rewrite Forall_forall; intros H ? Hc.
-  forwards* (? & ? & ?): H.
-  apply kname_inj in H1; omega.
+  forwards*: H; omega.
 Qed.
 
 Lemma rule_freshF G P xs ys fns :
@@ -1171,7 +1171,7 @@ Proof.
   inverts Heq.
   splits; [..|splits]; repeat rewrite app_nil_r; jauto; try omega.
   - constructor.
-    + exists m; splits; eauto.
+    + intros ? Heq; apply kname_inj in Heq; subst; omega.
     + applys (>>fnOk_weaken HfnsOk); omega.
   - split; eauto.
     eapply fnOk_ge; jauto.
