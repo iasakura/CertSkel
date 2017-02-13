@@ -306,7 +306,7 @@ Qed.
 Lemma rule_fresh P G fns ys :
   ST_ok (preST ys fns P G)
         freshP
-        (fun x => postST (x :: ys) (K fns x) P (K P x) G (K nil x)).
+        (fun x => postST (K (x :: ys) x) (K fns x) P (K P x) G (K nil x)).
 Proof.
   unfold ST_ok, freshP, postST, preST.
   introv (HxsOk & HfnsOk & HysOk & HgnsOk & Hys & Hgns) Heq. 
@@ -323,15 +323,15 @@ Proof.
     eapply fvOk_ge; eauto.
   - repeat rewrite app_nil_r.
     apply rule_host_skip.
-Qed.      
-
-Lemma rule_fresh' P G fns ys :
-  ST_ok (preST ys fns P G)
-           freshP
-           (fun x => postST (x :: ys) (K fns x) P (K P x) G nil).
-Proof.
-  apply rule_fresh.
 Qed.
+
+(* Lemma rule_fresh' P G fns ys : *)
+(*   ST_ok (preST ys fns P G) *)
+(*            freshP *)
+(*            (fun x => postST (x :: ys) (K fns x) P (K P x) G nil). *)
+(* Proof. *)
+(*   apply rule_fresh. *)
+(* Qed. *)
 
 Fixpoint remove_xs (xs : list var) (ys : list var) :=
   match xs with
@@ -442,16 +442,16 @@ Proof.
   - eapply rule_host_seq; [jauto|apply rule_host_skip].
 Qed.  
 
-Lemma rule_setI' G P Q ss ys xs' fns  :
-  (forall GM, sat_FC GM G G -> CSLh GM G P ss Q)
-  -> (forall xs, fv_assn P xs -> fv_assn Q (xs' ++ xs))
-  -> incl xs' ys
-  -> ST_ok (preST ys fns P G)
-           (setI ss)
-           (fun x => postST (K (remove_xs ys xs') x) (K fns x) P (K Q x) G nil ).
-Proof.
-  apply rule_setI.
-Qed.
+(* Lemma rule_setI' G P Q ss ys xs' fns  : *)
+(*   (forall GM, sat_FC GM G G -> CSLh GM G P ss Q) *)
+(*   -> (forall xs, fv_assn P xs -> fv_assn Q (xs' ++ xs)) *)
+(*   -> incl xs' ys *)
+(*   -> ST_ok (preST ys fns P G) *)
+(*            (setI ss) *)
+(*            (fun x => postST (K (remove_xs ys xs') x) (K fns x) P (K Q x) G nil ). *)
+(* Proof. *)
+(*   apply rule_setI. *)
+(* Qed. *)
 
 Lemma func_disp_not_in GM id : 
   func_disp GM id = None <-> (forall k, ~In (id, k) GM).
@@ -744,18 +744,18 @@ Lemma rule_fLet Gp R P E ys e v fns :
   evalExp E e v
   -> ST_ok (preST ys fns (Assn R P E) Gp)
            (fLet e)
-           (fun x => postST (K ys x) (K fns x) (Assn R P E) (Assn R P (x |-> v :: E)) Gp (K nil x)).
+           (fun x => postST (K ys x) (K fns x) (Assn R P E) ((Assn R P (x |-> v :: E))) Gp (K nil x)).
 Proof.
   unfold fLet; intros Hfv Heval.
   eapply rule_bind'.
   { instantiate (1 := fun _ => nil); instantiate (1 := nil); eauto. }
-  applys* rule_fresh'.
+  applys* rule_fresh.
   introv.
   simpl.
   apply code_ok_float; intros Hdfns (xs' & Hfvxs & Hdxy) Hdy; simpl in Hdxy, Hdy.
   applys* (>>rule_bind' (Assn R P E)).
   { instantiate (1 := fun _ => nil); instantiate (1 := nil); eauto. }
-  applys (>>rule_setI' (x :: nil)).
+  applys (>>rule_setI (x :: nil)).
   { intros; applys* rule_host_let. }
   { introv; rewrite !fv_assn_base; simpl.
     intros; applys* incl_cons_lr.
@@ -800,13 +800,13 @@ Proof.
   unfold fLet; intros Hfv Heval.
   eapply rule_bind'.
   { instantiate (1 := K nil); instantiate (1 := nil); eauto. }
-  applys* rule_fresh'.
+  applys* rule_fresh.
   introv.
   simpl.
   apply code_ok_float; intros Hdfns (xs' & Hfvxs & Hdxy) Hdy; simpl in Hdxy, Hdy.
   applys* (>>rule_bind' (Assn R P E)).
   { instantiate (1 := K nil); instantiate (1 := nil); eauto. }
-  applys (>>rule_setI' (x :: nil)).
+  applys (>>rule_setI (x :: nil)).
   { intros; applys* rule_host_alloc. }
   { intros; do 2 (apply fv_assn_Ex; intros); rewrite fv_assn_base in *; simpl.
     apply incl_cons_lr.
@@ -906,10 +906,10 @@ Qed.
 
 Lemma rule_fAllocs' typ Gp R P E (size : var) ys l fns :
   ST_ok (preST ys fns (Assn R P (size |-> Zn l :: E)) Gp)
-           (fAllocs' typ size)
-           (fun x => postST (K ys x) (K fns x) (Assn R P (size |-> Zn l :: E))
-                            (Ex ps vs, (Assn (arrays (val2gl ps) vs 1 *** R)) (Datatypes.length vs = l /\ P) (size |-> Zn l :: x |=> ps ++ E))
-                            Gp (K nil x)).
+        (fAllocs' typ size)
+        (fun x => postST (K ys x) (K fns x) (Assn R P (size |-> Zn l :: E))
+                         (Ex ps vs, (Assn (arrays (val2gl ps) vs 1 *** R)) (Datatypes.length vs = l /\ P) (size |-> Zn l :: x |=> ps ++ E))
+                         Gp (K nil x)).
 Proof.
   revert R P E ys; induction typ; simpl; eauto; simpl; introv.
   - eapply rule_backward.
@@ -1113,9 +1113,9 @@ Lemma rule_fAllocs typ Gp R P E ys fns size l :
   evalExp E size (Zn l)
   -> ST_ok (preST ys fns (Assn R P E) Gp)
            (fAllocs typ size)
-           (fun x => postST ys fns (Assn R P E)
+           (fun x => postST (K ys x) (K fns x) (Assn R P E)
                             (Ex ps vs, (Assn (arrays (val2gl ps) vs 1 *** R)) (Datatypes.length vs = l /\ P) (x |=> ps ++ E))
-                            Gp nil).
+                            Gp (K nil x)).
 Proof.
   intros Heval.
   unfold fAllocs.
@@ -1160,11 +1160,10 @@ Proof.
   forwards*: H; omega.
 Qed.
 
-Lemma rule_freshF G P xs ys fns :
-  fv_assn P xs
-  -> ST_ok (preST ys fns P G)
-           freshF
-           (fun fn => postST (K ys fn) (fn :: fns) P (K P fn) G nil).
+Lemma rule_freshF G P ys fns :
+  ST_ok (preST ys fns P G)
+        freshF
+        (fun fn => postST (K ys fn) (fn :: fns) P (K P fn) G (K nil fn)).
 Proof.
   unfold ST_ok, freshP, postST, preST.
   introv (HxsOk & HfnsOk & HysOk & HgnsOk & Hys & Hgns & HsatF & HdisGMp & HinclG & HGMpOk) Heq. 
@@ -1287,14 +1286,13 @@ Proof.
     intros; applys* Hctx.
 Qed.
 
-Lemma rule_gen_kernel G P xs ys fns k fs:
+Lemma rule_gen_kernel G P ys fns k fs:
   fs_tag fs = Kfun 
   -> fs_params fs = map fst (params_of k)
   -> (forall M, sat_FC M G G -> interp_kfun M G k fs)
-  -> fv_assn P xs
   -> ST_ok (preST ys fns P G)
            (gen_kernel k)
-           (fun fn => postST ys fns P (K P fn) G ((fn, fs) :: nil)).
+           (fun fn => postST (K ys fn) (K fns fn) P (K P fn) G ((fn, fs) :: nil)).
 Proof.
   intros Htag Hparams HkOk Hfv.
   unfold gen_kernel.
@@ -1343,7 +1341,8 @@ Proof.
               (fun y : string =>
                 postST ys fns (K P fn) (K P y) (G ++ nil) (((fn, fs) :: nil) ++ K nil y))); [|extensionality x; unfold K; rewrite !app_nil_r; eauto].
   apply code_ok_float; intros.
-  eapply rule_bind''.
+  eapply rule_bind'.
+  { instantiate (1 := K nil); instantiate (1 := (fn, fs) :: nil); eauto. }
   { instantiate (1 := K P).
     instantiate (1 := K fns).
     instantiate (1 := K ys).
@@ -1391,7 +1390,7 @@ Lemma rule_invokeKernel kerID fs ntrd nblk args G R (P : Prop) E Epre Rpre Rpst 
   -> (P -> R |=R Rpre *** RF)
   -> ST_ok (preST ys fns (Assn R P E) G)
            (invokeKernel kerID ent enb args)
-           (fun _ => postST ys fns (Assn R P E) (Assn (Rpst *** RF) (P /\ Ppst) E) G nil).
+           (fun r => postST (K ys r) (K fns r) (Assn R P E) (K (Assn (Rpst *** RF) (P /\ Ppst) E) r) G (K nil r)).
 Proof.
   unfold ST_ok, preST, postST.
   intros.
@@ -1399,6 +1398,7 @@ Proof.
   rewrite !app_nil_r.
   splits; [..|splits]; jauto.
   destruct H9 as ((xs' & ? & ? & ?) & _); exists xs'; splits; jauto.
+  unfold K.
   rewrites* fv_assn_base in *.
   eapply rule_host_seq.
   applys (>>rule_invk H1 H4); jauto.
