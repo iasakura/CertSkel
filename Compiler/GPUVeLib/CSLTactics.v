@@ -2726,3 +2726,29 @@ Proof.
   applys* H.
   sep_split; eauto.
 Qed.
+
+
+Lemma CSLkfun_body ntrd nblk P k Q n:
+  CSLg_n ntrd nblk P (body_of k) Q n ->
+  CSLkfun_n_simp' ntrd nblk P k Q n.
+Proof.
+  unfold CSLkfun_n_simp', CSLg_n; intros; eauto.
+Qed.
+
+Lemma CSLg_float ntrd nblk R (P : Prop) E p Q n :
+  (P -> CSLg_n ntrd nblk (Assn R P E) p Q n)
+  -> CSLg_n ntrd nblk (Assn R P E) p Q n.
+Proof.
+  unfold CSLg_n; intros; eauto.
+  applys* H.
+  unfold Assn in *; sep_split_in H1; eauto.
+Qed.
+
+Lemma CSLg_weaken_pure ntrd nblk R (P : Prop) E p Q n :
+  CSLg_n ntrd nblk (Assn R True E) p Q n
+  -> CSLg_n ntrd nblk (Assn R P E) p Q n.
+Proof.
+  unfold CSLg_n; intros; eauto.
+  applys* H.
+  clear H0; revert H1; generalize (as_gheap gh); revert stk; prove_imp.
+Qed.

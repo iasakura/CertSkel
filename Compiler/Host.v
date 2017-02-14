@@ -1,4 +1,4 @@
-Require Import LibTactics GPUCSL Grid Relations MyEnv CSLLemma.
+Require Import LibTactics GPUCSL Grid Relations MyEnv CSLLemma Psatz.
 
 (* Add kernel name *)
 Record kernel := BuildKer { (* name : string; *) params_of : list (var * CTyp); body_of : program }.
@@ -216,6 +216,14 @@ Definition CSLhfun_n_simp (P : assn) (f : hostfun) (Q : assn) (n : nat) :=
 
 (* Definition CSLhfun_simp P f Q := forall n, CSLhfun_n_simp P f Q n. *)
 
+Definition CSLkfun_n_simp' ntrd nblk  (P : assn) (f : kernel) (Q : assn) (n : nat) :=
+  forall vs tst shs h s,
+    ntrd <> 0 -> nblk <> 0
+    -> init_GPU ntrd nblk (body_of f) tst shs s
+    -> bind_params s (map fst (params_of f)) vs
+    -> sat s (as_gheap h) P
+    -> safe_ng ntrd nblk n tst shs h Q.
+
 Definition CSLkfun_n_simp (P : assn) (f : kernel) (Q : assn) (n : nat) :=
   forall ntrd nblk vs tst shs h s,
     ntrd <> 0 -> nblk <> 0
@@ -223,6 +231,22 @@ Definition CSLkfun_n_simp (P : assn) (f : kernel) (Q : assn) (n : nat) :=
     -> bind_params s (map fst (params_of f)) vs
     -> sat s (as_gheap h) P
     -> safe_ng ntrd nblk n tst shs h Q.
+
+Lemma CSLkfun_threads_vars ntrd nblk P p Q n :
+  (forall nt nb, P nt nb |= ("ntrd" === Zn nt) //\\ ("nblk" === Zn nb)) ->
+  (forall ntrd nblk, CSLkfun_n_simp' ntrd nblk (P ntrd nblk) p Q n) ->
+  CSLkfun_n_simp (P ntrd nblk) p Q n.
+Proof.
+  unfold CSLkfun_n_simp', CSLkfun_n_simp; intros.
+  inverts H3.
+  forwards*: H.
+  unfold_conn_in H3; simpl in *; destruct H3.
+  assert (ntrd = ntrd0) by nia.
+  assert (nblk = nblk0) by nia.
+  substs.
+  eapply H0; eauto.
+  constructor; eauto.
+Qed.
 
 (* Definition CSLkfun_simp P f Q := forall n, CSLkfun_n_simp P f Q n. *)
 

@@ -1639,5 +1639,17 @@ Proof.
     eauto.
 Qed.
 
+Lemma CSLg_thread_config (P P' : assn) p Q :
+  (P' ** !(Var "nblk" === Enum (Z.of_nat nblk)) ** !(Var "ntrd" === Enum (Z.of_nat ntrd)) |= P) ->
+  CSLg P p Q  -> CSLg P' p Q.
+Proof.
+  unfold CSLg, CSLg_n.
+  intros.
+  eapply H0; eauto.
+  apply H.
+  inverts H1.
+  sep_split; eauto.
+Qed.
+
 End For_List_Notation.
 End GlobalCSL.
