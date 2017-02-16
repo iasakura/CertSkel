@@ -1383,7 +1383,7 @@ Lemma rule_invokeKernel kerID fs ntrd nblk args G R (P : Prop) E Epre Rpre Rpst 
   -> fs_tag fs = Kfun
   -> length args = length (fs_params fs)
   -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) (Assn Rpst Ppst nil)
-  -> List.Forall2 (fun e v => evalExp E e v) (enb :: ent :: args) (Zn nblk :: Zn ntrd :: vs)
+  -> evalExpseq E (enb :: ent :: args) (Zn nblk :: Zn ntrd :: vs)
   -> ntrd <> 0 -> nblk <> 0
   -> (P -> subst_env Epre (Var "nblk" :: Var "ntrd" :: fs_params fs) (Zn nblk :: Zn ntrd :: vs))
   -> (P -> Ppre)

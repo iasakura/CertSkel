@@ -114,7 +114,7 @@ Module Skel.
     | LLen _ GA x => fun sa => 
       let arr := hget sa x in Z.of_nat (length arr)
     | LMin _ a1 a2 => fun sa => 
-      Z.min (lexpDenote _ _ a1 sa) (lexpDenote _ _ a1 sa) 
+      Z.min (lexpDenote _ _ a1 sa) (lexpDenote _ _ a2 sa) 
     end.
 
   Inductive AE : list Typ -> Typ -> Type :=
@@ -130,7 +130,8 @@ Module Skel.
     end).
       pose (fun i => funcDenote _ _ f sa i) as f'.
       pose (lexpDenote _ _ len sa) as n.
-      apply (mapM f' (seq 0 n)).
+      Require Import ZArith.
+      apply (if Z_le_dec 0 n then mapM f' (seq 0 n) else None).
   Defined.
   
   Inductive SkelE : list Typ -> Typ -> Type  :=

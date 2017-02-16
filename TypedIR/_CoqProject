@@ -1,3 +1,4 @@
 -R ../tlc/src TLC
 -R ../repo/src Cpdt
 -R ../GPUCSL Top
+-R . Top

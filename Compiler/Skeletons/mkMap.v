@@ -414,7 +414,7 @@ Proof.
   - simpl; tauto.
 Qed.
 End mkMap.
-
+ 
 Lemma mkMap_ok M G GA dom cod arr_c (f_c : vars dom -> cmd * vars cod) pars tag avar_env :
   aenv_ok avar_env
   -> interp_kfun M G (mkMap GA dom cod arr_c f_c)

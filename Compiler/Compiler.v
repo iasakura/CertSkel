@@ -587,7 +587,7 @@ Section Compiler.
     
     do! kerID <- gen_kernel (mkMap GA dom cod g f)  in
     do! outlenVar <- fLet outlen in
-    do! outArr <- fAllocs cod outlen in
+    do! outArr <- fAllocs cod outlenVar in
     let args_in := flatten_aenv host_var_env in
     let args_out := outlenVar :: (flatTup outArr) in
     do! t <- invokeKernel kerID (Zn ntrd) (Zn nblk) (List.map Evar (args_out ++ args_in)) in

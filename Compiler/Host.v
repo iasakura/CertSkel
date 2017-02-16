@@ -653,6 +653,13 @@ Lemma initGPU_nblk nt nb body tst shp stk:
   stk "nblk" = Zn nb.
 Proof. inversion 1; eauto. Qed.
 
+Definition evalExpseq E (es : list exp) (vs : list val) := Forall2 (fun e v => evalExp E e v) es vs.
+
+Lemma evalExpseq_app E es1 es2 vs1 vs2 :
+  evalExpseq E es1 vs1 -> evalExpseq E es2 vs2 ->
+  evalExpseq E (es1 ++ es2) (vs1 ++ vs2).
+Proof. apply Forall2_app. Qed.
+
 Lemma rule_invk (G : FC) (fn : string) (nt nb : nat) (es : list exp)
       (vs : list val)
       fs ent ntrd enb nblk
@@ -664,7 +671,7 @@ Lemma rule_invk (G : FC) (fn : string) (nt nb : nat) (es : list exp)
   -> In (fn, fs) G
   -> length es = length (fs_params fs)
   -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) (Assn Rpst Ppst nil)
-  -> List.Forall2 (fun e v => evalExp E e v) (enb :: ent :: es) (Zn nblk :: Zn ntrd :: vs)
+  -> evalExpseq E (enb :: ent :: es) (Zn nblk :: Zn ntrd :: vs)
   -> ntrd <> 0 -> nblk <> 0
   -> (P -> subst_env Epre (Var "nblk" :: Var "ntrd" :: fs_params fs) (Zn nblk :: Zn ntrd :: vs))
   -> (P -> Ppre)

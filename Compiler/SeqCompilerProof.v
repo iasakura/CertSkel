@@ -1363,7 +1363,8 @@ Proof.
     repeat split; [apply H1| apply H2| idtac | apply H4].
     intros; applys* H3.
     intros ? [? | []]; substs; eauto.
-    
+    destruct Z_le_dec; try congruence.
+
     rewrites* (>>mapM_some i (@defval' cod) H6).
     forwards*: mapM_length.
     
