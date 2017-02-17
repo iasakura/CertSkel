@@ -40,12 +40,22 @@ Fixpoint nleaf ty :=
   | Skel.TTup t1 t2 => nleaf t1 + nleaf t2
   end.
 
-Fixpoint arr_params pref ty i := 
-  match ty return vartys ty with
-  | Skel.TBool => (Var (pref ++ nat2str i), Ptr Bool)
-  | Skel.TZ => (Var (pref ++ nat2str i), Ptr Int)
-  | Skel.TTup t1 t2 => (arr_params pref t1 i, arr_params pref t2 (nleaf t1 + i))
+Fixpoint locals pref ty i : vars ty :=
+  match ty return vars ty with
+  | Skel.TBool | Skel.TZ => Var (pref ++ nat2str i)
+  | Skel.TTup t1 t2 =>
+    (locals pref t1 i, locals pref t2 (nleaf t1 + i))
   end.
+
+Definition arr_params' pref ty i := locals pref ty i.
+Fixpoint with_CTyp {ty} : vars ty -> vartys ty :=
+  match ty return vars ty -> vartys ty with
+  | Skel.TBool => fun x => (x, Bool)
+  | Skel.TZ => fun x => (x, Int)
+  | Skel.TTup t1 t2 => fun xs => (with_CTyp (fst xs), with_CTyp (snd xs))
+  end.
+
+Definition arr_params pref ty i := with_CTyp (arr_params' pref ty i).
 
 Definition arr_name n (ty : Skel.Typ) :=
   arr_params ("_arrIn" ++ nat2str n) ty 0.
@@ -129,13 +139,6 @@ Definition flatTup : forall {ty : Skel.Typ} {T : Type}, typ2Coq T ty -> list T.
   end)).
   refine (flatTup _ _ (fst xs) ++ flatTup _ _ (snd xs)).
 Defined.
-
-Fixpoint locals pref ty i : vars ty :=
-  match ty return vars ty with
-  | Skel.TBool | Skel.TZ => Var (pref ++ nat2str i)
-  | Skel.TTup t1 t2 =>
-    (locals pref t1 i, locals pref t2 (nleaf t1 + i))
-  end.
 
 Definition str_of_var v : string :=
   match v with
