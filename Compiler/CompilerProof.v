@@ -136,12 +136,30 @@ Proof.
   - applys* evalExpseq_app2.
 Qed.
 
+Lemma out_params_fst pref ty n :
+  maptys fst (arr_params pref ty n) = locals pref ty n.
+Proof.
+  revert n; induction ty; simpl; eauto.
+  intros; simpl.
+  unfold arr_params in *; rewrite IHty1, IHty2; eauto.
+Qed.  
+
+Lemma out_name_fst ty :
+  maptys fst (out_name ty) = locals ("_arrOut") ty 0. 
+Proof.
+  apply out_params_fst.
+Qed.  
+
+Lemma arr_name_fst n ty :
+  maptys fst (arr_name n ty) = locals ("_arrIn" ++ nat2str n) ty 0.
+Proof.
+  apply out_params_fst.
+Qed.
+
 Lemma out_name_locals typ :
   map fst (flatTup (out_name typ)) = flatTup (mkMap.outArr typ).
 Proof.
-  unfold out_name, mkMap.outArr; generalize 0.
-  induction typ; simpl; eauto.
-  intros; rewrite map_app, IHtyp1, IHtyp2; eauto.
+  rewrite <-flatTup_map, out_name_fst; eauto.
 Qed.
 
 Lemma subst_env_app E1 E2 xs vs : 
@@ -197,6 +215,145 @@ Proof.
   rewrite map_flatTup; eauto using disjoint_comm.
   apply IHtyp2; eauto using disjoint_list_proj2.
 Qed.
+
+Lemma arrInvVar_nin GA (avenv : AVarEnv GA) (apenv : APtrEnv GA) (aeenv : AEvalEnv GA) x :
+  aenv_ok avenv 
+  -> prefix "_" (str_of_var x) = false
+  -> ~ In x (map ent_e (arrInvVar avenv apenv aeenv)).
+Proof.
+  intros ? ? ?.
+  rewrite in_map_iff in *; destruct H1 as (? & ? & ?); substs.
+  destruct x0.
+  forwards* ?: aenv_ok_params; simpl in *; congruence.
+Qed.
+
+Lemma inp_len_name_arrInvVar GA (aeenv : AEvalEnv GA) (apenv : APtrEnv GA) :
+  ~In inp_len_name (map ent_e (arrInvVar (remove_typeinfo (gen_params GA)) apenv aeenv)).
+Proof.
+  unfold gen_params.
+  generalize 0.
+  induction GA; dependent destruction aeenv; dependent destruction apenv; simpl; eauto.
+  intros; rewrite map_app, in_app_iff.
+  intros [Hin | [Hin | Hin]].
+  - destruct n; cbv in Hin; congruence.
+  - rewrite in_map_iff in Hin; destruct Hin as (? & ? & ?); substs.
+    clear IHGA.
+    revert H H0; generalize 0; clear.
+    unfold arr_name; generalize 0.
+    induction a; introv ? ? Hin; simpl in *;
+    try (destruct Hin as [Hin|[]]; substs; cbv in H0; congruence).
+    rewrite in_app_iff in Hin; destruct Hin; eauto.
+  - forwards*: IHGA.
+Qed.
+
+Lemma arr_params_in x pref ty n :
+  In x (flatTup (arr_params pref ty n))
+  -> prefix pref (str_of_var (fst x)) = true.
+Proof.
+  revert n; induction ty; simpl; [intros n [H|[]]; subst; simpl; apply prefix_cat..|].
+  intros n; rewrite in_app_iff; intros [? | ?]; eauto.
+Qed.
+
+Lemma out_name_arrInvVar GA (aeenv : AEvalEnv GA) (apenv : APtrEnv GA) typ :
+  disjoint (map ent_e (arrInvVar (remove_typeinfo (gen_params GA)) apenv aeenv))
+           (map fst (flatTup (out_name typ))).
+Proof.
+  unfold gen_params.
+  generalize 0.
+  unfold out_name; generalize 0.
+  induction GA; dependent destruction aeenv; dependent destruction apenv; simpl; eauto.
+  introv; rewrite map_app, !disjoint_app_l; simpl.
+  splits.
+  - clear IHGA; revert n0 n; induction typ; simpl; try (intros ? ? [H|[]]; cbv in H; congruence).
+    intros; rewrite map_app, in_app_iff; intros [? | ?]; firstorder.
+  - apply not_in_disjoint; intros ?.
+    unfold arr_name; rewrite !in_map_iff; intros [? [? ?]] [? [? ?]]; substs.
+    destruct x0; apply mpss_in in H0.
+    rewrite flatTup_map in H0.
+    rewrite in_map_iff in H0; destruct H0 as [? [? ?]]; substs.
+    apply arr_params_in in H0.
+    apply arr_params_in in H2; simpl in *.
+    destruct x1, x; simpl in *; substs.
+    rewrite prefix_ex in H0; destruct H0 as (? & ?).
+    rewrite prefix_ex in H2; destruct H2 as (? & ?).
+    rewrite H0 in H; simpl in *.
+    rewrite string_app_assoc in H.
+    cbv in H; congruence. 
+  - apply IHGA.
+Qed.
+
+Lemma subst_env_params GA apenv aeenv :
+  subst_env
+    (arrInvVar (remove_typeinfo (gen_params GA)) apenv aeenv)
+    (map fst (flatten_avars (gen_params GA))) (flatten_aeenv aeenv apenv).
+Proof.
+  unfold gen_params; generalize 0.
+  induction GA; dependent destruction aeenv; dependent destruction apenv.
+  - simpl; eauto.
+  - intros n; split; simpl.
+    + match goal with [|- if ?b then ?th else ?el] => destruct b end;
+      simpl; try congruence; eauto.
+    + simpl.
+      apply subst_env_app; split.
+      * apply subst_env_cons2.
+        { rewrite arr_name_fst.
+          rewrite map_flatTup.
+          apply locals_not_in; eauto. }
+        rewrite map_app; apply subst_env_app1.
+        rewrite <-flatTup_map, !arr_name_fst.
+        apply subst_env_flatTup.
+        Lemma arr_name_disjoint n ty :
+          disjoint_list (flatTup (maptys fst (arr_name n ty))).
+        Proof.
+          rewrite arr_name_fst.
+          apply locals_disjoint_ls.
+        Qed.
+        apply locals_disjoint_ls.
+      * apply subst_env_cons2; eauto.
+        { intros Hc.
+          apply in_map_iff in Hc; destruct Hc as (? & ? & ?).
+          destruct x; simpl in *; substs.
+          assert (HnSn : n < S n) by omega.
+          revert H0 HnSn; generalize (S n); generalize n.
+          clear; induction GA; simpl in *; eauto.
+          introv; rewrite in_app_iff; intros [Hc | [Hc | Hc]]; substs.
+          - inverts Hc.
+            revert n0 H0; clear; induction n; simpl in *.
+            destruct n0; simpl; intros.
+            omega.
+            cbv in H0; congruence.
+            destruct n0; [cbv; congruence|].
+            simpl; intros; eapply IHn.
+            inverts H0; eauto.
+            omega.
+          - rewrite arr_name_fst in Hc; apply mpss_in in Hc.
+            apply locals_not_in in Hc; eauto.
+          - dependent destruction apenv.
+            dependent destruction aeenv.
+            simpl in Hc; eauto. }
+        rewrite map_app; rewrite <-flatTup_map, arr_name_fst.
+        apply subst_env_app2; [rewrite !flatTup_length; eauto|..].
+        { assert (HnSn : n < S n) by omega.
+          revert HnSn; generalize (S n); generalize n.
+          clear IHGA; clear; induction GA; simpl in *; eauto.
+          introv Hnn0; rewrite !map_app; splits.
+          - apply locals_not_in; simpl; eauto.
+          - apply disjoint_app_l; splits.
+            + rewrite arr_name_fst, map_flatTup.
+              apply locals_disjoint; simpl.
+              revert n0 Hnn0; induction n; simpl.
+              intros; destruct n0; simpl; eauto; omega.
+              intros; destruct n0; simpl; eauto.
+              apply IHn; omega.
+              revert n0 Hnn0; induction n; simpl.
+              intros; destruct n0; simpl; eauto; omega.
+              intros; destruct n0; simpl; eauto.
+              apply IHn; omega.
+            + dependent destruction apenv; 
+              dependent destruction aeenv; eauto. }
+        apply IHGA; eauto. 
+Qed.
+
 
 Lemma compile_map_ok GA dom cod ntrd nblk
       (avenv : AVarEnv GA) (apenv : APtrEnv GA) (aeenv : AEvalEnv GA)
@@ -279,20 +436,31 @@ Proof.
           apply subst_env_app1.
           rewrite out_name_locals.
           apply subst_env_flatTup; apply locals_disjoint_ls.
-        * instantiate (1 := apenv).
-          skip. 
-    - intros [? ?]; splits; eauto.
-      
-      skip. skip.
+        * do 2 (apply subst_env_cons2; [applys* arrInvVar_nin; apply genenv_ok|]).
+          apply subst_env_cons2.
+          apply inp_len_name_arrInvVar.
+          apply subst_env_app2.
+          rewrite map_length, !flatTup_length; eauto.
+          apply out_name_arrInvVar.          
+          apply subst_env_params.
+    - intros [? ?]; splits; eauto.      
+      applys* compile_AE_ok.
+      forwards*: (>> compile_func_ok (Skel.Fun1 dom cod)).
       instantiate (1 := result).
       instantiate (1 := vs).
       forwards*: SkelLib.mapM_length; congruence.
     - intros; rewrite <-res_assoc.
       repeat sep_cancel'.
       eauto. }
-  introv.
-  Lemma rule_ret_ignore (T : Type) P (v : T) Q : ST_ok P (ret v) (fun _ => Q).
-                                                   admit.
+  introv; simpl.
+  
+  Lemma rule_ret_ignore (T : Type) xs fns P Q Gp (v : T) :
+    P |= Q 
+    -> ST_ok (preST xs fns P Gp) (ret v) (fun _ => postST xs fns P Q Gp nil).
+  Proof.
+    unfold ST_ok.
+    
+    
   Qed.
   instantiate (1 := (fun _ _ => True)).
   instantiate (1 := K (K fns)).
