@@ -354,6 +354,20 @@ Proof.
         apply IHGA; eauto. 
 Qed.
 
+Lemma rule_ret_ignore (T : Type) xs fns P Q Gp (v : T) :
+  P |= Q
+  -> (forall xs, fv_assn P xs -> fv_assn Q xs)
+  -> ST_ok (preST xs fns P Gp) (ret v) (fun _ => postST xs fns P Q Gp Gp).
+Proof.
+  unfold ST_ok, preST, postST.
+  introv Hpq Hfv (? & ? & ? & ? & ? & ? & ? & ? & ? & ?) Heq. 
+  inverts Heq.
+  destruct H as (? & ? & ? & ?).
+  rewrite !app_nil_r.
+  splits; [..|splits]; jauto.
+  eapply rule_host_backward; eauto.
+  eapply rule_host_skip.
+Qed.
 
 Lemma compile_map_ok GA dom cod ntrd nblk
       (avenv : AVarEnv GA) (apenv : APtrEnv GA) (aeenv : AEvalEnv GA)
@@ -368,20 +382,19 @@ Lemma compile_map_ok GA dom cod ntrd nblk
                               (Ex ps len, kernelInv avenv apenv aeenv
                                                     (arrays (val2gl ps) (arr2CUDA result) 1%Qc)
                                                     True
-                                                    (fst res |-> len :: snd res |=> ps) 1%Qc) Gp nil).
+                                                    (fst res |-> len :: snd res |=> ps) 1%Qc) Gp Gp).
 Proof.
   intros Hntrd0 Hnblk0 Heval.
 
   unfold Skel.skelDenote in Heval.
+  pose proof Heval as Heval'.
   unfold bind in Heval; simpl in Heval.
   destruct (Skel.aeDenote _ _ _ _) as [inp|] eqn:Heq1; [|inverts Heval].
   simpl in Heval.
   destruct (SkelLib.mapM _ inp) as [out|] eqn:Heq2; inverts Heval.
 
   unfold compile_map; simpl.
-  eapply rule_backward.
-  evar (ftri : FTri).
-  eapply rule_bind.
+  eapply rule_bind'.
   { applys (>>rule_gen_kernel).
     3: intros; applys (>>mkMap_ok (remove_typeinfo (gen_params GA))).
     simpl; eauto.
@@ -389,12 +402,10 @@ Proof.
     apply genenv_ok. }
   intros gen_map.
   eapply rule_bind'.
-  { instantiate (3 := nil); simpl; eauto. }
   apply rule_fLet.
   { simpl; applys* eval_compile_AE_len. }
   intros outLen.
   eapply rule_bind'.
-  { instantiate (3 := nil); simpl; eauto. }
   apply rule_fAllocs.
   { evalExp. }
   intros outs.
@@ -406,11 +417,8 @@ Proof.
   intros vs.
   apply rule_ret_back.
   eapply rule_bind'.
-  { instantiate (1 := K (K nil)).
-    instantiate (1 := K nil).
-    instantiate (1 := nil); simpl; eauto. }
   { eapply rule_invokeKernel.
-    - rewrite !in_app_iff; simpl; eauto.
+    - unfold K; rewrite !in_app_iff; simpl; eauto.
     - simpl; eauto.
     - simpl; rewrite !map_app, !app_length, !map_length, !flatTup_length; eauto.
       do 2 f_equal.
@@ -454,19 +462,27 @@ Proof.
       eauto. }
   introv; simpl.
   
-  Lemma rule_ret_ignore (T : Type) xs fns P Q Gp (v : T) :
-    P |= Q 
-    -> ST_ok (preST xs fns P Gp) (ret v) (fun _ => postST xs fns P Q Gp nil).
-  Proof.
-    unfold ST_ok.
-    
-    
-  Qed.
-  instantiate (1 := (fun _ _ => True)).
-  instantiate (1 := K (K fns)).
-  instantiate (1 := K (K xs)).
   unfold K.
-  apply (rule_ret_ignore _ _ (outLen, outs) (fun _ => _)).
+  eapply rule_backward.
+  apply rule_ret_ignore; eauto.
+  introv.
+  applys* postST_imp.
+  prove_imp.
+  rewrite <-res_assoc in *; repeat sep_cancel'.
+  apply incl_appl; eauto.
+  introv; rewrite fv_assn_base; intros.
+  do 2 (apply fv_assn_Ex; intros); unfold kernelInv; rewrite fv_assn_base.
+  eapply incl_tran in H; eauto.
+  simpl; rewrite !map_app.
+  unfold incl; introv; simpl; rewrite !in_app_iff; simpl; try tauto.
+  intros.
+  rewrite map_flatTup in *.
+  tauto.
+  
+
+  Grab Existential Variables.
+  rewrite <-Heq1 in Heval'; apply Heval'.
+Qed.
 
 Theorem compile_AS_ok GA ty ntrd nblk (p : Skel.AS GA ty) :
   let M := compile_prog ntrd nblk p in
