@@ -234,15 +234,15 @@ Definition CSLkfun_n_simp (P : assn) (f : kernel) (Q : assn) (n : nat) :=
 
 Lemma CSLkfun_threads_vars ntrd nblk P p Q n :
   (forall nt nb, P nt nb |= ("ntrd" === Zn nt) //\\ ("nblk" === Zn nb)) ->
-  (forall ntrd nblk, CSLkfun_n_simp' ntrd nblk (P ntrd nblk) p Q n) ->
-  CSLkfun_n_simp (P ntrd nblk) p Q n.
+  (forall ntrd nblk, CSLkfun_n_simp' ntrd nblk (P ntrd nblk) (p ntrd nblk) (Q ntrd nblk) n) ->
+  CSLkfun_n_simp (P ntrd nblk) (p ntrd nblk) (Q ntrd nblk) n.
 Proof.
   unfold CSLkfun_n_simp', CSLkfun_n_simp; intros.
   inverts H3.
   forwards*: H.
   unfold_conn_in H3; simpl in *; destruct H3.
-  assert (ntrd = ntrd0) by nia.
-  assert (nblk = nblk0) by nia.
+  assert (ntrd = ntrd0) by omega.
+  assert (nblk = nblk0) by omega.
   substs.
   eapply H0; eauto.
   constructor; eauto.

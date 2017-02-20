@@ -428,7 +428,7 @@ Lemma mkMap_ok M G GA dom cod arr_c (f_c : vars dom -> cmd * vars cod) pars tag 
 Proof.
   intros Havok n Hctx; unfold interp_kfun_n_simp; simpl.
   intros ntrd nblk aptr_env aeval_env arr f result eval_map_ok outp outs.
-  eapply (CSLkfun_threads_vars ntrd nblk (fun n m => _)).
+  eapply (CSLkfun_threads_vars ntrd nblk (fun n m => _) (fun n m => _) (fun n m => _)).
   unfold kernelInv, Assn; simpl; unfold sat.
   { introv H; sep_split_in H; unfold_conn_all; simpl in *; jauto. }
   introv.

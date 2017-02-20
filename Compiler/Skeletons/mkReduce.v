@@ -1281,7 +1281,7 @@ Proof.
   introv; rewrite map_app; congruence.
 Qed.      
 
-Theorem mkReduce_ok :
+Theorem mkReduce_prog_ok :
   CSLg ntrd nblk
     (kinv
        (arrays (val2gl outp) outs 1)
@@ -1363,3 +1363,66 @@ Proof.
   - rewrite sh_decl_map; apply locals_disjoint_ls.
 Qed.
 End mkReduce.
+
+Definition mkReduce GA typ ntrd g f : kernel :=
+  let arr_vars := gen_params GA in
+  let params_in := flatten_avars arr_vars in
+  let params_out := (inp_len_name, Int) :: flatTup (out_name typ) in
+  {| params_of := params_out ++ params_in;
+     body_of := mkReduce_prog typ ntrd (S (log2 ntrd)) g f |}.
+
+Open Scope nat_scope.
+
+Lemma mkReduce_ok M G (GA : list Skel.Typ) (typ : Skel.Typ) (ntrd : nat)
+      (arr_c : var -> cmd * vars typ) (func_c : vars typ -> vars typ -> cmd * vars typ)
+      pars tag avar_env :
+  aenv_ok avar_env
+  -> let e_b := S (log2 ntrd) in
+     interp_kfun M G (mkReduce GA typ ntrd arr_c func_c)
+                 (FS pars tag 
+                     (All nblk aptr_env aeval_env arr (func : Skel.Func GA (Skel.Fun2 typ typ typ)) f_tot
+                          result eval_reduce_ok outp outs,
+                      FDbl (kernelInv avar_env aptr_env aeval_env (arrays (val2gl outp) outs 1)
+                                      (ntrd <> 0 /\ nblk <> 0 /\ ntrd <= 2 ^ e_b /\ e_b <> 0 /\
+                                       ae_ok avar_env arr arr_c /\ func_ok avar_env func func_c /\
+                                       (forall x y, Skel.funcDenote GA (Skel.Fun2 typ typ typ) func aeval_env x y =
+                                                    Some (f_tot x y)) /\
+                                       (forall x y : Skel.typDenote typ, f_tot x y = f_tot y x) /\
+                                       (forall x y z, f_tot (f_tot x y) z = f_tot x (f_tot y z)) /\
+                                       Datatypes.length outs = nblk + 0)
+                                      ("nblk" |-> Zn nblk :: "ntrd" |-> Zn ntrd :: inp_len_name |-> Zn
+                                      (length (arr_res typ GA aeval_env arr func result eval_reduce_ok)) ::
+                                      outArr typ |=> outp) 1)
+                           (kernelInv' aptr_env aeval_env
+                                       (arrays (val2gl outp)
+                                               (arr2CUDA
+                                                  (scan_lib.ls_init 0 nblk
+                                                     (fun j : nat =>
+                                                        f_sim typ e_b f_tot
+                                                              (scan_lib.ls_init 0 ntrd
+                                                                (fun i : nat =>
+                                                                   vi typ ntrd nblk GA aeval_env arr func f_tot result
+                                                                      eval_reduce_ok
+                                                                      (fun x : nat =>
+                                                                         gets'
+                                                                           (arr_res typ GA aeval_env arr func result
+                                                                                    eval_reduce_ok) x) j i))
+                                                              (min
+                                                                 (Datatypes.length
+                                                                    (arr_res typ GA aeval_env arr func result
+                                                                             eval_reduce_ok) - j * ntrd) ntrd) e_b 0))) 1) True 1))).
+Proof.
+  intros Havok e_b n Hctx; unfold interp_kfun_n_simp.
+  subst e_b.
+  intros nblk aptr_env aeval_env arr f f_tot result eval_map_ok outp outs.
+
+  eapply (CSLkfun_threads_vars ntrd nblk (fun n m => _) (fun n m => _) (fun n m => _)).
+  { unfold kernelInv, Assn; simpl; unfold sat.
+    introv H; sep_split_in H; unfold_conn_all; simpl in *; jauto. }
+  introv.
+  intros ? ?.
+  apply CSLkfun_body.
+  apply CSLg_float; intros Hprem; apply CSLg_weaken_pure.
+  clear Hctx; revert n.
+  applys* mkReduce_prog_ok.
+Qed.
