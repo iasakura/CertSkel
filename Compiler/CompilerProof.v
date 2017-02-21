@@ -609,7 +609,60 @@ Proof.
                                                          (Datatypes.length inp - j * ntrd) ntrd) n 0)) ::: aeenv) =
           Some result).
   { simpl; unfold bind; simpl.
-    admit. }
+    Lemma shift_func_GA_ok GA typ typ' f arr aeenv :
+      Skel.funcDenote (typ :: GA) (Skel.Fun2 typ' typ' typ') (shift_func_GA typ f) (arr ::: aeenv) =
+      Skel.funcDenote GA (Skel.Fun2 typ' typ' typ') f aeenv.
+    Proof.
+      dependent destruction f; simpl.
+      extensionality x; extensionality y.
+      generalize (y ::: x ::: HNil).
+      generalize dependent (typ' :: typ' :: nil).
+      clear x y.
+      introv; induction s; simpl; eauto;
+      try (now (rewrite IHs1; f_equal; extensionality l; rewrite IHs2; eauto));
+      try (now (rewrite IHs; f_equal; eauto));
+      try (now (rewrite IHs1; f_equal; extensionality l; rewrite IHs2; f_equal; extensionality l';
+                rewrite IHs3; eauto)).
+    Qed.
+    rewrite shift_func_GA_ok.
+    assert (Hfeq : Skel.funcDenote GA _ f aeenv = fun x y => Some (f_tot x y)) by
+        (extensionality l; extensionality l'; eauto).
+    rewrite Hfeq in *.
+    Lemma sum_of_f_opt_reduceM T (f : T -> T -> T) s len g :
+      SkelLib.reduceM (fun x y => Some (f x y)) (scan_lib.ls_init s len g) =
+      match sum_of_f_opt _ f s len g with
+      | None => None
+      | Some x => Some (x :: nil)
+      end.
+    Proof.
+      unfold SkelLib.reduceM; revert s; induction len; simpl; eauto.
+      introv.
+      specialize (IHlen (S s)).
+      destruct fold_right eqn:Heq1; destruct sum_of_f_opt eqn:Heq2; inverts IHlen; eauto.
+    Qed.
+    rewrite sum_of_f_opt_reduceM.
+    rewrite <-Heq2.
+    Lemma ls_init_nth_aux' T (xs : list T) d n s :
+      length xs = n 
+      -> scan_lib.ls_init s n (fun i => nth (i - s) xs d) = xs.
+    Proof.
+      intros.
+      applys (>>eq_from_nth d); autorewrite with pure; eauto.
+      intros.
+      autorewrite with pure; destruct lt_dec; f_equal; lia.
+    Qed.
+    Lemma ls_init_nth' T (xs : list T) d n :
+      length xs = n 
+      -> scan_lib.ls_init 0 n (fun i => nth i xs d) = xs.
+    Proof.
+      intros; forwards*: (>>ls_init_nth_aux' d n 0); eauto.
+      erewrite scan_lib.ls_init_eq0; eauto.
+      intros; simpl; rewrite* <-minus_n_O.
+    Qed.
+    rewrite <-(ls_init_nth' _ inp defval' (length inp)); eauto.
+    rewrite sum_of_f_opt_reduceM.
+    rewrites* <-(>>fn_ok ntrd nblk (S (log2 ntrd))).
+  }
 
   eapply rule_bind'.
   { apply rule_gen_kernel.
