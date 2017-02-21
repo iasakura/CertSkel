@@ -627,13 +627,6 @@ Section Compiler.
         maptys (fun sv => Grid.SD (fst sv) (snd sv) len)
                (addTyp (locals "sdata" typ 0))).
 
-  Definition mkReduce GA typ ntrd g f : kernel :=
-    let arr_vars := gen_params GA in
-    let params_in := flatten_avars arr_vars in
-    let params_out := (inp_len_name, Int) :: flatTup (out_name typ) in
-    {| params_of := params_out ++ params_in;
-       body_of := mkReduce_prog typ ntrd (S (log2 ntrd)) g f |}.
-
   Definition compile_reduce {GA typ} ntrd nblk
              (host_var_env : AVarEnv GA)
              (f : Skel.Func GA (Skel.Fun2 typ typ typ))
