@@ -660,17 +660,74 @@ Lemma evalExpseq_app E es1 es2 vs1 vs2 :
   evalExpseq E (es1 ++ es2) (vs1 ++ vs2).
 Proof. apply Forall2_app. Qed.
 
+
+Lemma safe_nh_frame' n nt nb tst shp s (h hF : zpheap) Q R P E (dis : pdisj h hF) : 
+  sat_res s (as_gheap hF) R
+  -> (P : Prop)
+  -> has_no_vars Q
+  -> safe_ng nt nb n tst shp h Q
+  -> env_assns_denote E s (emp_ph loc) 
+  -> safe_nh n s (phplus_pheap dis) (host_exec_ker nt nb tst shp) (Assn R P E ** Q).
+Proof.
+  revert s h tst shp hF dis; induction n; introv; simpl; eauto.
+  intros HsatF Hp HQvar (Hskip & Hsafe1 & Hsafe2 & Hstep) Henv; splits; eauto.
+  - intros; try congruence.
+  - introv Hdis' Heq' Hab.
+    rewrite padd_assoc in Heq'.
+    rewrites* pdisj_padd_expand in Hdis'; eauto.
+    destruct Hdis'.
+    inverts Hab as [Hab|Hab]; [forwards*: (>>Hsafe1 (phplus_pheap H0))| ].
+    Lemma bdiv_g_irr nt nb tst shp h h' :
+      bdiv_g nt nb tst shp h -> bdiv_g nt nb tst shp h'.
+    Proof.
+      intros H; inverts H.
+      econstructor.
+      eapply bdiv_weaken; eauto.
+    Qed.
+    eapply bdiv_g_irr in Hab; eauto.
+  - introv Hdis' Heq' Hstep'.
+    rewrite padd_assoc in Heq'.
+    rewrites* pdisj_padd_expand in Hdis'; eauto.
+    destruct Hdis'.
+    inverts Hstep'.
+    + forwards* (h'' & Hdis'' & Heq'' & ?): (>>Hstep (phplus_pheap H0)).
+      simpl in *.
+      assert (Hdis''F : pdisj h'' hF) by eauto using pdisjE1.
+      exists (phplus_pheap Hdis''F); splits.
+      * simpl; applys* pdisj_padd_expand.
+      * simpl; rewrites* padd_assoc.
+      * applys* IHn.
+    + forwards*: Hskip.
+      assert (Hdis''F : pdisj h hF) by eauto using pdisjE1.
+      exists (phplus_pheap Hdis''F); splits.
+      * simpl; applys* pdisj_padd_expand.
+      * simpl; rewrites* padd_assoc.
+      * destruct n; simpl; eauto; splits.
+        -- intros _; exists (as_gheap hF) (as_gheap h); splits; jauto.
+           unfold Assn in *; sep_split; sep_split_in H1; eauto.
+           unfold has_no_vars, Bdiv.indeP in HQvar; simpl in HQvar.
+           rewrite HQvar; eauto.
+           applys* as_gheap_pdisj.
+           rewrites (>>phplus_gheap_comm); simpl.
+           rewrite phplus_comm; eauto.
+        -- introv ? ? Hc; inverts Hc.
+        -- introv ? ? Hc; inverts Hc.
+           Grab Existential Variables.
+           apply pdisjC; eauto.
+Qed.
+
 Lemma rule_invk (G : FC) (fn : string) (nt nb : nat) (es : list exp)
       (vs : list val)
       fs ent ntrd enb nblk
       Rpre Ppre Epre
-      Rpst Ppst
+      Q
       RF R E (P : Prop) :
   fc_ok G
   -> fs_tag fs = Kfun
   -> In (fn, fs) G
   -> length es = length (fs_params fs)
-  -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) (Assn Rpst Ppst nil)
+  -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) Q
+  -> has_no_vars Q
   -> evalExpseq E (enb :: ent :: es) (Zn nblk :: Zn ntrd :: vs)
   -> ntrd <> 0 -> nblk <> 0
   -> (P -> subst_env Epre (Var "nblk" :: Var "ntrd" :: fs_params fs) (Zn nblk :: Zn ntrd :: vs))
@@ -679,9 +736,9 @@ Lemma rule_invk (G : FC) (fn : string) (nt nb : nat) (es : list exp)
   -> CSLh G
             (Assn R P E)
             (host_invoke fn ent enb es)
-            (Assn (Rpst *** RF) (P /\ Ppst) E).
+            (Assn RF P E ** Q).
 Proof.
-  intros Hfcok Htag Hinfn Harg Hinst Heval Hntrd Hnblk Hsubst Hp Hr n HFC s h Hsat.
+  intros Hfcok Htag Hinfn Harg Hinst HQvar Heval Hntrd Hnblk Hsubst Hp Hr n HFC s h Hsat.
   forwards*: (fc_ok_func_disp).
   rewrite Htag in H; destruct H as (xs & body & Hdisp & Hxsps).
   rewrite <-Hxsps, map_length in *.
@@ -742,11 +799,8 @@ Proof.
     rewrite <-as_gheap_pdisj in Hdis12.
     asserts_rewrite (h = phplus_pheap Hdis12).
     { destruct h; apply pheap_eq; eauto. }
-    applys* safe_nh_frame.
-    applys* (>>safe_nh_exec_ker (@nil entry)).
-    applys* (>>safe_ng_conseq Hsafe).
-    applys* Assn_imply.
-    unfold incl; eauto.
+    applys* safe_nh_frame'; eauto.
+    
 Qed.
 
 Lemma rule_host_skip G P : CSLh G P host_skip P.
