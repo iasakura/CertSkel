@@ -677,7 +677,7 @@ Proof.
   Qed.
   apply hasDefval_aTypDenote.
   intros vs1.
-
+  
   remember (S (log2 ntrd)).
   unfold arr_res.
   destruct eval_arr_ok.

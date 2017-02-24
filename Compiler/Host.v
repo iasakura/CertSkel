@@ -726,7 +726,7 @@ Lemma rule_invk (G : FC) (fn : string) (nt nb : nat) (es : list exp)
   -> fs_tag fs = Kfun
   -> In (fn, fs) G
   -> length es = length (fs_params fs)
-  -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) Q
+  -> (P -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) Q)
   -> has_no_vars Q
   -> evalExpseq E (enb :: ent :: es) (Zn nblk :: Zn ntrd :: vs)
   -> ntrd <> 0 -> nblk <> 0
@@ -763,7 +763,9 @@ Proof.
     simpl in HFC; rewrite <-minus_n_O in HFC.
     unfold interp_FC_n, interp_f_n in HFC; rewrite Forall_forall in HFC.
     forwards* Hfn: (>>HFC Hinfn); rewrite Hdisp in Hfn.
-    forwards* Hfn': (>>interp_fs_inst Hfn Hinst); simpl in Hfn'.
+    forwards* Hfn': (>>interp_fs_inst Hfn Hinst).
+    { unfold sat, Assn in Hsat; sep_split_in Hsat; eauto. }
+    simpl in Hfn'.
     unfold CSLkfun_n_simp in Hfn'; simpl in Hfn'.
     inverts Hstep as Hent' Henb' Heval' Hdisp' Hinit Hbnd; simpl in *.
     rewrite Hdisp in Hdisp'; inverts Hdisp'; simpl in *.

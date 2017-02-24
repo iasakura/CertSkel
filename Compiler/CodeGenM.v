@@ -1370,7 +1370,7 @@ Lemma rule_invokeKernel kerID fs ntrd nblk args G R (P : Prop) E Epre Rpre RF Pp
   In (kerID, fs) G
   -> fs_tag fs = Kfun
   -> length args = length (fs_params fs)
-  -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) Q
+  -> (P -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) Q)
   -> has_no_vars Q
   -> evalExpseq E (enb :: ent :: args) (Zn nblk :: Zn ntrd :: vs)
   -> ntrd <> 0 -> nblk <> 0
@@ -1397,6 +1397,17 @@ Proof.
   Axiom fv_assn_novars : forall P, has_no_vars P -> fv_assn P nil.
   applys* fv_assn_novars.
   simpl; intros; tauto.
+  Lemma CSLh_pure_prem M G R (P : Prop) E ss Q :
+    (P -> CSLh M G (Assn R P E) ss Q)
+    -> CSLh M G (Assn R P E) ss Q.
+  Proof.
+    intros H.
+    intros n Hctx s h Hsat.
+    unfold sat, Assn in Hsat; sep_split_in Hsat.
+    apply H; eauto.
+    unfold sat, Assn; sep_split; eauto.
+  Qed.
+  apply CSLh_pure_prem; intros Hp.
   eapply rule_host_seq.
   applys (>>rule_invk H2 H4); jauto.
   apply rule_host_skip.
