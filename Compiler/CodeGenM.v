@@ -1366,11 +1366,12 @@ Proof.
   apply (rule_ret _ _ (fun _ => ys) (fun _ => fns) (fun _ => P) (G ++ (fn, fs) :: nil)); eauto.
 Qed.
 
-Lemma rule_invokeKernel kerID fs ntrd nblk args G R (P : Prop) E Epre Rpre Rpst RF Ppst Ppre ys fns vs enb ent :
+Lemma rule_invokeKernel kerID fs ntrd nblk args G R (P : Prop) E Epre Rpre RF Ppre Q ys fns vs enb ent :
   In (kerID, fs) G
   -> fs_tag fs = Kfun
   -> length args = length (fs_params fs)
-  -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) (Assn Rpst Ppst nil)
+  -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) Q
+  -> has_no_vars Q
   -> evalExpseq E (enb :: ent :: args) (Zn nblk :: Zn ntrd :: vs)
   -> ntrd <> 0 -> nblk <> 0
   -> (P -> subst_env Epre (Var "nblk" :: Var "ntrd" :: fs_params fs) (Zn nblk :: Zn ntrd :: vs))
@@ -1378,16 +1379,22 @@ Lemma rule_invokeKernel kerID fs ntrd nblk args G R (P : Prop) E Epre Rpre Rpst 
   -> (P -> R |=R Rpre *** RF)
   -> ST_ok (preST ys fns (Assn R P E) G)
            (invokeKernel kerID ent enb args)
-           (fun r => postST (K ys r) (K fns r) (Assn R P E) (K (Assn (Rpst *** RF) (P /\ Ppst) E) r) G (K G r)).
+           (fun r => postST (K ys r) (K fns r) (Assn R P E) (K (Assn RF P E ** Q) r) G (K G r)).
 Proof.
   unfold ST_ok, preST, postST.
   intros.
-  inverts H10.
+  inverts H11.
   rewrite !app_nil_r.
   splits; [..|splits]; jauto.
-  destruct H9 as ((xs' & ? & ? & ?) & _); exists xs'; splits; jauto.
+  destruct H10 as ((xs' & ? & ? & ?) & _); exists xs'; splits; jauto.
   unfold K.
+  
+  Axiom fv_assn_sep : forall P Q xs ys, fv_assn (P ** Q) (xs ++ ys) <-> fv_assn P xs /\ fv_assn Q ys.
+  cutrewrite (xs' = xs' ++ nil); [|rewrite app_nil_r; eauto].
+  apply fv_assn_sep; splits; eauto.
   rewrites* fv_assn_base in *.
+  Axiom fv_assn_novars : forall P, has_no_vars P -> fv_assn P nil.
+  applys* fv_assn_novars.
   eapply rule_host_seq.
   applys (>>rule_invk H1 H4); jauto.
   apply rule_host_skip.
