@@ -1389,13 +1389,15 @@ Proof.
   destruct H10 as ((xs' & ? & ? & ?) & _); exists xs'; splits; jauto.
   unfold K.
   
-  Axiom fv_assn_sep : forall P Q xs ys, fv_assn (P ** Q) (xs ++ ys) <-> fv_assn P xs /\ fv_assn Q ys.
-  cutrewrite (xs' = xs' ++ nil); [|rewrite app_nil_r; eauto].
-  apply fv_assn_sep; splits; eauto.
+  Axiom fv_assn_sep : forall P Q xs, fv_assn (P ** Q) xs <-> exists ys zs, fv_assn P ys /\ fv_assn Q zs /\ (forall x, In x xs <-> In x ys \/ In x zs).
+  apply fv_assn_sep.
+  exists xs' (nil : list var).
+  splits; jauto.
   rewrites* fv_assn_base in *.
   Axiom fv_assn_novars : forall P, has_no_vars P -> fv_assn P nil.
   applys* fv_assn_novars.
+  simpl; intros; tauto.
   eapply rule_host_seq.
-  applys (>>rule_invk H1 H4); jauto.
+  applys (>>rule_invk H2 H4); jauto.
   apply rule_host_skip.
 Qed.
