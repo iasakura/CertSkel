@@ -1,5 +1,5 @@
 Require Import Nat LibTactics assertion_lemmas GPUCSL TypedTerm Monad
-        Host DepList CUDALib CSLLemma CSLTactics CodeGen Compiler Skel_lemma mkMap mkReduce
+        Grid Host DepList CUDALib CSLLemma CSLTactics CodeGen Compiler Skel_lemma mkMap mkReduce
         Correctness CodeGenM SeqCompilerProof Program Psatz.
 
 Definition main_spec GA :=
@@ -369,6 +369,45 @@ Proof.
   eapply rule_host_skip.
 Qed.
 
+Lemma has_no_vars_kernelInv' GA (aeenv : AEvalEnv GA) apenv res P q :
+  has_no_vars (kernelInv' apenv aeenv res P q).
+Proof.
+  apply has_no_vars_assn.
+Qed.
+
+Require Import SetoidClass.
+Lemma kernelInv'_combine GA R P E (avenv : AVarEnv GA) apenv aeenv R' P' p : 
+  (Assn R P (E ++ arrInvVar avenv apenv aeenv) ** kernelInv' apenv aeenv R' P' p) ==
+  kernelInv avenv apenv aeenv (R *** R') (P /\ P') E p.
+Proof.
+  unfold kernelInv', kernelInv.
+  rewrite Assn_combine.
+  split; revert s h; prove_imp.
+  simpl in *; tauto.
+Qed.
+Lemma ls_app_cons A l (x : A) l' :
+  l ++ x :: l' = (l ++ x :: nil) ++ l'.
+Proof. rewrite <-app_assoc; eauto. Qed.
+
+Lemma rule_equiv_mono_pre T xs fns xs' fns' (P P' : assn) (Q : T -> assn) Gp G (m : CUDAM T) :
+  P' |= P
+  -> (forall xs, fv_assn P' xs -> fv_assn P xs)
+  -> ST_ok (preST xs fns P Gp) m (fun x => postST (xs' x) (fns' x) P (Q x) Gp (G x))
+  -> ST_ok (preST xs fns P' Gp) m (fun x => postST (xs' x) (fns' x) P' (Q x) Gp (G x)).
+Proof.
+  unfold ST_ok, preST, postST; intros.
+  forwards*: H1.
+  splits; [..|splits]; jauto.
+  splits; [..|splits]; jauto.
+  Lemma rule_host_forward GM G P P' Q C :
+    CSLh GM G P C Q -> P' |= P -> CSLh GM G P' C Q.
+  Proof.
+    intros ? ? ? ? ? ? ?.
+    apply H; eauto.
+  Qed.
+  eapply rule_host_forward; jauto.
+Qed.
+
 Lemma compile_map_ok GA dom cod ntrd nblk
       (avenv : AVarEnv GA) (apenv : APtrEnv GA) (aeenv : AEvalEnv GA)
       (f : Skel.Func GA (Skel.Fun1 dom cod))
@@ -424,6 +463,7 @@ Proof.
       do 2 f_equal.
       rewrite flatten_aenv_avars_length; eauto.
     - repeat econstructor.
+    - apply has_no_vars_kernelInv'.
     - do 3 (apply evalExpseq_cons; [evalExp|]).
       simpl; rewrite map_app; apply evalExpseq_app.
       apply evalExpseq_app1.
@@ -461,24 +501,36 @@ Proof.
       repeat sep_cancel'.
       eauto. }
   introv; simpl.
-  
+
+  eapply rule_equiv_mono_pre.
+  { rewrite ls_app_cons.
+    unfold K; introv; rewrite kernelInv'_combine; eauto. }
+  { unfold K; intros.
+    apply fv_assn_base.
+    apply fv_assn_sep in H as (? & ? & ? & ? & ?).
+    apply fv_assn_base in H.
+    unfold incl in *; simpl in *; introv.
+    rewrite <-app_assoc; simpl.
+    firstorder. }
+
   unfold K.
   eapply rule_backward.
   apply rule_ret_ignore; eauto.
   introv.
   applys* postST_imp.
   prove_imp.
-  rewrite <-res_assoc in *; repeat sep_cancel'.
-  apply incl_appl; eauto.
-  introv; rewrite fv_assn_base; intros.
+
+  unfold incl; introv; simpl; rewrite !in_app_iff; simpl; try tauto.
+
+  introv; unfold kernelInv; rewrite fv_assn_base; intros.
   do 2 (apply fv_assn_Ex; intros); unfold kernelInv; rewrite fv_assn_base.
   eapply incl_tran in H; eauto.
   simpl; rewrite !map_app.
-  unfold incl; introv; simpl; rewrite !in_app_iff; simpl; try tauto.
-  intros.
-  rewrite map_flatTup in *.
-  tauto.
   
+  unfold incl; intros.
+  simpl in *; repeat rewrite in_app_iff in *.
+  rewrite map_flatTup in *.
+  simpl; tauto.
 
   Grab Existential Variables.
   rewrite <-Heq1 in Heval'; apply Heval'.
