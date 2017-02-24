@@ -602,6 +602,16 @@ Proof.
       apply (IS_all (Skel.aTypDenote typ) result).
       apply (IS_all _ Heval).
       repeat econstructor.
+    - Lemma has_no_vars_Ex T (P : T -> assn) :
+        (forall x, has_no_vars (P x))
+        -> has_no_vars (Ex x, P x).
+      Proof.
+        unfold has_no_vars, Bdiv.indeP; simpl.
+        intros.
+        split; intros [x ?]; exists x; [apply <-H|apply ->H]; eauto.
+      Qed.
+      apply has_no_vars_Ex; intros.
+      apply has_no_vars_kernelInv'.
     - do 2 (apply evalExpseq_cons; [evalExp|]).
       simpl; rewrite map_app.
       apply evalExpseq_cons; [evalExp|].
@@ -639,6 +649,34 @@ Proof.
     - intros; rewrite <-res_assoc.
       repeat sep_cancel'; eauto. }
   introv.
+
+  eapply rule_equiv_mono_pre.
+  { introv; unfold K.
+    rewrite ex_lift_l.
+    intros [? ?].
+    simpl in H.
+    rewrite ls_app_cons in H.
+    fold_sat_in H.
+    rewrite kernelInv'_combine in H.
+    unfold sat in H.
+    ex_intro x0 H; simpl in H.
+    apply H. }
+  { unfold K; introv H.
+    apply fv_assn_sep in H as (ys & zs & Hys & Hzs & Heq).
+    rewrite fv_assn_base in Hys.
+    rewrite fv_assn_Ex in *.
+    intros v; specialize (Hzs v).
+    apply fv_assn_base in Hzs; simpl in Hzs.
+    apply fv_assn_base; simpl in *.
+    rewrite <-app_assoc; simpl.
+    unfold incl; firstorder. }
+  apply rule_code_ex.
+  Lemma hasDefval_aTypDenote typ : hasDefval (Skel.aTypDenote typ).
+  Proof.
+    induction typ; simpl; constructor; try now (apply nil).
+  Qed.
+  apply hasDefval_aTypDenote.
+  intros vs1.
 
   remember (S (log2 ntrd)).
   unfold arr_res.
