@@ -415,11 +415,11 @@ Lemma compile_map_ok GA dom cod ntrd nblk
       xs fns Gp :
   ntrd <> 0 -> nblk <> 0
   -> Skel.skelDenote GA cod (Skel.Map GA dom cod f arr) aeenv = Some result
-  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv Emp True nil 1) Gp)
+  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv T True nil 1) Gp)
            (compile_map ntrd nblk avenv f arr)
-           (fun res => postST xs fns (kernelInv avenv apenv aeenv Emp True nil 1)
+           (fun res => postST xs fns (kernelInv avenv apenv aeenv T True nil 1)
                               (Ex ps len, kernelInv avenv apenv aeenv
-                                                    (arrays (val2gl ps) (arr2CUDA result) 1%Qc)
+                                                    (arrays (val2gl ps) (arr2CUDA result) 1%Qc *** T)
                                                     True
                                                     (fst res |-> len :: snd res |=> ps) 1%Qc) Gp Gp).
 Proof.
@@ -546,11 +546,11 @@ Lemma compile_reduce_ok GA typ ntrd nblk
   -> (forall x y : Skel.typDenote typ, f_tot x y = f_tot y x)
   -> (forall x y z : Skel.typDenote typ, f_tot (f_tot x y) z = f_tot x (f_tot y z))
   -> Skel.skelDenote GA typ (Skel.Reduce GA typ f arr) aeenv = Some result
-  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv Emp True nil 1) Gp)
+  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv T True nil 1) Gp)
            (compile_reduce ntrd nblk avenv f arr)
-           (fun res => postST xs fns (kernelInv avenv apenv aeenv Emp True nil 1)
+           (fun res => postST xs fns (kernelInv avenv apenv aeenv T True nil 1)
                               (Ex ps len, kernelInv avenv apenv aeenv
-                                                    (arrays (val2gl ps) (arr2CUDA result) 1%Qc)
+                                                    (arrays (val2gl ps) (arr2CUDA result) 1%Qc *** T)
                                                     True
                                                     (fst res |-> len :: snd res |=> ps) 1%Qc) Gp Gp).
 Proof.
@@ -884,41 +884,40 @@ Proof.
       rewrite shift_func_GA_ok; eauto.
     - intros (? & [? ?] & ?).
       introv; rewrite <-!res_assoc; revert s h.
-       simpl; repeat sep_auto.
-       rewrite res_CA.
-       sep_cancel'.
-       unfold arrInvRes in *; simpl.
-       rewrite <-res_assoc, res_CA.
-       sep_cancel'.
-       Require Import SetoidClass.
-       Lemma arrays_split n ty (ps : locs ty) (arr : list (vals ty)) p :
-         arrays ps arr p == (arrays ps (firstn n arr) p *** arrays (locs_off ps (Zn n)) (skipn n arr) p).
-       Proof.
-         revert ps arr; induction n; introv; simpl.
-         - rewrite emp_unit_l_res, locs_off0; reflexivity.
-         - destruct arr.
-           + rewrite emp_unit_l_res; reflexivity.
-           + simpl; rewrite <-res_assoc, IHn.
-             rewrite Zpos_P_of_succ_nat.
-             rewrite <-locs_offS; reflexivity.
-       Qed.
-       rewrite emp_unit_l_res in H6.
-       rewrite (arrays_split (min
+      simpl; repeat sep_auto.
+      rewrite res_CA.
+      sep_cancel'.
+      unfold arrInvRes in *; simpl.
+      rewrite <-res_assoc, res_CA.
+      sep_cancel'.
+      Require Import SetoidClass.
+      Lemma arrays_split n ty (ps : locs ty) (arr : list (vals ty)) p :
+        arrays ps arr p == (arrays ps (firstn n arr) p *** arrays (locs_off ps (Zn n)) (skipn n arr) p).
+      Proof.
+        revert ps arr; induction n; introv; simpl.
+        - rewrite emp_unit_l_res, locs_off0; reflexivity.
+        - destruct arr.
+          + rewrite emp_unit_l_res; reflexivity.
+          + simpl; rewrite <-res_assoc, IHn.
+            rewrite Zpos_P_of_succ_nat.
+            rewrite <-locs_offS; reflexivity.
+      Qed.
+      rewrite (arrays_split (min
                 ((Datatypes.length
                     (arr_res typ GA aeenv arr f result Heval) + ntrd - 1) /
                  ntrd) nblk)) in H6; eauto.
-       unfold arr2CUDA in *.
-       Lemma firstn_map A B (f : A -> B) xs n :
-         firstn n (map f xs) = map f (firstn n xs).
-       Proof.
-         revert xs; induction n; intros [|? ?]; simpl; congruence.
-       Qed.
-       rewrite firstn_map in H6.
-       sep_cancel'.
-       assert (arr_res typ GA aeenv arr f result Heval = inp).
-       { unfold arr_res; destruct eval_arr_ok; congruence. }
-       subst inp; eauto.
-       apply H6.
+      unfold arr2CUDA in *.
+      Lemma firstn_map A B (f : A -> B) xs n :
+        firstn n (map f xs) = map f (firstn n xs).
+      Proof.
+        revert xs; induction n; intros [|? ?]; simpl; congruence.
+      Qed.
+      rewrite firstn_map in H6.
+      sep_cancel'.
+      assert (arr_res typ GA aeenv arr f result Heval = inp).
+      { unfold arr_res; destruct eval_arr_ok; congruence. }
+      subst inp; eauto.
+      apply H6.
     - intros s h Hsat.
       rewrite ex_lift_l in Hsat; destruct Hsat as [res Hsat].
       fold_sat_in Hsat.
@@ -928,7 +927,7 @@ Proof.
       
       instantiate (1 :=
         kernelInv avenv apenv aeenv
-                  (arrays (val2gl ps') (arr2CUDA result) 1)
+                  (arrays (val2gl ps') (arr2CUDA result) 1 *** T)
                   True
                   (outLen |-> 1 :: outs |=> ps') 1).
       unfold kernelInv.
@@ -936,7 +935,7 @@ Proof.
       revert s h Hsat; prove_imp.
       unfold arrInvRes in *; simpl in *.
       rewrite <-!res_assoc in H4.
-      repeat sep_cancel'.
+      do 2 sep_cancel'; [|eauto].
 
       assert (length result = 1).
       { unfold SkelLib.reduceM in Heq2.
@@ -974,7 +973,6 @@ Proof.
       apply Nat.div_le_lower_bound; eauto.
       rewrite Nat.mul_1_r.
       omega.
-      skip. 
     - unfold kernelInv; introv; rewrite !fv_assn_base; simpl.
       repeat (simpl; rewrite map_app).
       intros Hincl v Hin; apply Hincl.

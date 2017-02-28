@@ -524,14 +524,12 @@ Proof.
   intros ->; reflexivity.
 Qed.
 
-Lemma precise_bot :
-  precise_res Bot.
-Proof.
-  unfold precise_res, sat_res; simpl; intros.
-  destruct H.
-Qed.
-
-Hint Resolve precise_bot.
+(* Lemma precise_bot : *)
+(*   precise_res Bot. *)
+(* Proof. *)
+(*   unfold precise_res, sat_res; simpl; intros. *)
+(*   destruct H. *)
+(* Qed. *)
 
 Lemma precise_mpss ty (ls : locs ty) vs p :
   precise_res (ls |=>p (p, vs)).
@@ -551,13 +549,13 @@ Proof.
   revert ls; induction vs as [|[?|] ?]; simpl; intros; eauto using precise_mpss.
 Qed.
 
-Lemma bot_bot :
-  (Bot *** Bot) == Bot.
-Proof.
-  split; intros.
-  destruct H as (? & ? & [] & ?).
-  destruct H.
-Qed.
+(* Lemma bot_bot : *)
+(*   (Bot *** Bot) == Bot. *)
+(* Proof. *)
+(*   split; intros. *)
+(*   destruct H as (? & ? & [] & ?). *)
+(*   destruct H. *)
+(* Qed. *)
 
 Lemma mpss_p_star ty (ls : locs ty) vs p1 p2 :
   (0 < p1)%Qc ->

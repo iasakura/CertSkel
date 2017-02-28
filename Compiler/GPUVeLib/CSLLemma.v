@@ -52,14 +52,14 @@ Inductive res :=
 | Emp : res
 | Mps : loc -> Qc -> val -> res
 | Star : res -> res -> res
-| Bot : res.
+| T : res.
 
 Fixpoint res_denote m :=
   match m with
   | Emp => emp
   | Mps cod p dom => cod -->p (p, dom)
   | Star r1 r2 => res_denote r1 ** res_denote r2
-  | Bot => FalseP
+  | T => TrueP
   end.
 
 Definition sat_res s h m := sat s h (res_denote m).
