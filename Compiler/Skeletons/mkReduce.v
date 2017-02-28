@@ -1876,12 +1876,11 @@ Lemma mkReduce_ok M G (GA : list Skel.Typ) (typ : Skel.Typ) (ntrd : nat)
                                       (length (arr_res typ GA aeval_env arr func result eval_reduce_ok)) ::
                                       outArr typ |=> outp) 1)
                            (Ex vs, kernelInv' aptr_env aeval_env
-                                              (arrays (val2gl outp)
-                                                      (arr2CUDA vs) 1)
+                                              (arrays (val2gl outp) (arr2CUDA vs) 1)
                                               (reduceM (fun x y => Some (f_tot x y))
                                                        (firstn (min (((length (arr_res typ GA aeval_env arr func result eval_reduce_ok) ) + ntrd - 1) / ntrd) nblk) vs) =
                                                reduceM (fun x y => Some (f_tot x y))
-                                                       (arr_res typ GA aeval_env arr func result eval_reduce_ok)) 1
+                                                       (arr_res typ GA aeval_env arr func result eval_reduce_ok) /\ length vs = nblk) 1
                  ))).
 Proof.
   intros Havok e_b n Hctx; unfold interp_kfun_n_simp.

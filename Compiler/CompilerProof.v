@@ -1,5 +1,5 @@
-Require Import Nat LibTactics assertion_lemmas GPUCSL TypedTerm Monad
-        Grid Host DepList CUDALib CSLLemma CSLTactics CodeGen Compiler Skel_lemma mkMap mkReduce
+Require Import Nat LibTactics assertion_lemmas GPUCSL TypedTerm Monad Grid.
+Require Import Grid Host DepList CUDALib CSLLemma CSLTactics CodeGen Compiler Skel_lemma mkMap mkReduce 
         Correctness CodeGenM SeqCompilerProof Program Psatz.
 
 Definition main_spec GA :=
@@ -682,21 +682,12 @@ Proof.
   unfold arr_res.
   destruct eval_arr_ok.
   assert (x0 = inp) by congruence; subst x0.
-  assert (Skel.skelDenote (typ :: GA) typ
+  assert (SkelLib.reduceM (fun x0 y : Skel.typDenote typ => Some (f_tot x0 y))
+                          (firstn (min ((Datatypes.length inp + ntrd - 1) / ntrd) nblk) vs1) =
+          SkelLib.reduceM (fun x0 y : Skel.typDenote typ => Some (f_tot x0 y)) inp ->
+          Skel.skelDenote (typ :: GA) typ
                           (Skel.Reduce (typ :: GA) typ (shift_func_GA typ f) (Skel.VArr _ _ HFirst))
-                          ((scan_lib.ls_init 0 (min ((length (arr_res typ GA aeenv arr f result Heval) + ntrd - 1) / ntrd) nblk)
-                                             (fun j : nat =>
-                                                f_sim typ n f_tot
-                                                      (scan_lib.ls_init 0 ntrd
-                                                                        (fun i : nat =>
-                                                                           vi typ ntrd nblk GA aeenv arr f f_tot result
-                                                                              Heval
-                                                                              (fun x0 : nat =>
-                                                                                 gets'
-                                                                                   (arr_res typ GA aeenv arr f result
-                                                                                            Heval) x0) j i))
-                                                      (min
-                                                         (Datatypes.length inp - j * ntrd) ntrd) n 0)) ::: aeenv) =
+                          ((firstn (min ((Datatypes.length inp + ntrd - 1) / ntrd) nblk) vs1) ::: aeenv) =
           Some result).
   { simpl; unfold bind; simpl.
     Lemma shift_func_GA_ok GA typ typ' f arr aeenv :
@@ -714,45 +705,46 @@ Proof.
       try (now (rewrite IHs1; f_equal; extensionality l; rewrite IHs2; f_equal; extensionality l';
                 rewrite IHs3; eauto)).
     Qed.
-    rewrite shift_func_GA_ok.
+    rewrite shift_func_GA_ok; eauto; simpl.
     assert (Hfeq : Skel.funcDenote GA _ f aeenv = fun x y => Some (f_tot x y)) by
-        (extensionality l; extensionality l'; eauto).
-    rewrite Hfeq in *.
-    Lemma sum_of_f_opt_reduceM T (f : T -> T -> T) s len g :
-      SkelLib.reduceM (fun x y => Some (f x y)) (scan_lib.ls_init s len g) =
-      match sum_of_f_opt _ f s len g with
-      | None => None
-      | Some x => Some (x :: nil)
-      end.
-    Proof.
-      unfold SkelLib.reduceM; revert s; induction len; simpl; eauto.
-      introv.
-      specialize (IHlen (S s)).
-      destruct fold_right eqn:Heq1; destruct sum_of_f_opt eqn:Heq2; inverts IHlen; eauto.
-    Qed.
-    rewrite sum_of_f_opt_reduceM.
-    rewrite <-Heq2.
-    Lemma ls_init_nth_aux' T (xs : list T) d n s :
-      length xs = n 
-      -> scan_lib.ls_init s n (fun i => nth (i - s) xs d) = xs.
-    Proof.
-      intros.
-      applys (>>eq_from_nth d); autorewrite with pure; eauto.
-      intros.
-      autorewrite with pure; destruct lt_dec; f_equal; lia.
-    Qed.
-    Lemma ls_init_nth' T (xs : list T) d n :
-      length xs = n 
-      -> scan_lib.ls_init 0 n (fun i => nth i xs d) = xs.
-    Proof.
-      intros; forwards*: (>>ls_init_nth_aux' d n 0); eauto.
-      erewrite scan_lib.ls_init_eq0; eauto.
-      intros; simpl; rewrite* <-minus_n_O.
-    Qed.
-    rewrite <-(ls_init_nth' _ inp defval' (length inp)); eauto.
-    rewrite sum_of_f_opt_reduceM.
-    rewrites* <-(>>fn_ok ntrd nblk (S (log2 ntrd))).
-  }
+        (extensionality l; extensionality l'; eauto); eauto.
+    rewrite Hfeq; eauto. 
+    congruence. }
+  (*   Lemma sum_of_f_opt_reduceM T (f : T -> T -> T) s len g : *)
+  (*     SkelLib.reduceM (fun x y => Some (f x y)) (scan_lib.ls_init s len g) = *)
+  (*     match sum_of_f_opt _ f s len g with *)
+  (*     | None => None *)
+  (*     | Some x => Some (x :: nil) *)
+  (*     end. *)
+  (*   Proof. *)
+  (*     unfold SkelLib.reduceM; revert s; induction len; simpl; eauto. *)
+  (*     introv. *)
+  (*     specialize (IHlen (S s)). *)
+  (*     destruct fold_right eqn:Heq1; destruct sum_of_f_opt eqn:Heq2; inverts IHlen; eauto. *)
+  (*   Qed. *)
+  (*   rewrite sum_of_f_opt_reduceM. *)
+  (*   rewrite <-Heq2. *)
+  (*   Lemma ls_init_nth_aux' T (xs : list T) d n s : *)
+  (*     length xs = n  *)
+  (*     -> scan_lib.ls_init s n (fun i => nth (i - s) xs d) = xs. *)
+  (*   Proof. *)
+  (*     intros. *)
+  (*     applys (>>eq_from_nth d); autorewrite with pure; eauto. *)
+  (*     intros. *)
+  (*     autorewrite with pure; destruct lt_dec; f_equal; lia. *)
+  (*   Qed. *)
+  (*   Lemma ls_init_nth' T (xs : list T) d n : *)
+  (*     length xs = n  *)
+  (*     -> scan_lib.ls_init 0 n (fun i => nth i xs d) = xs. *)
+  (*   Proof. *)
+  (*     intros; forwards*: (>>ls_init_nth_aux' d n 0); eauto. *)
+  (*     erewrite scan_lib.ls_init_eq0; eauto. *)
+  (*     intros; simpl; rewrite* <-minus_n_O. *)
+  (*   Qed. *)
+  (*   rewrite <-(ls_init_nth' _ inp defval' (length inp)); eauto. *)
+  (*   rewrite sum_of_f_opt_reduceM. *)
+  (*   rewrites* <-(>>fn_ok ntrd nblk (S (log2 ntrd))). *)
+  (* } *)
 
   eapply rule_bind'.
   { apply rule_gen_kernel.
@@ -785,10 +777,17 @@ Proof.
   intros vs'.
   apply rule_ret_back.
   eapply rule_bind'.
-  { eapply rule_invokeKernel.
-    - unfold K; rewrite !in_app_iff; substs; eauto.
-      right.
-      apply in_eq.
+  { applys (>>rule_setI (@nil var)); [unfold K; simpl; introv _| |eauto using incl_nil_l].
+    apply CSLh_pure_prem; intros Hpure.
+    destruct Hpure as (? & ? & Hres & Hlen).
+    eapply rule_host_backward. 
+    eapply rule_invk.
+    apply 0.
+    apply 0.
+    3: unfold K; rewrite !in_app_iff; substs; eauto.
+    3: right.
+    3: apply in_eq.
+    - skip.
     - simpl; eauto.
     - simpl. rewrite !map_app, !app_length, !map_length.
       simpl; rewrite !app_length; rewrite !flatTup_length.
@@ -809,11 +808,14 @@ Proof.
       Qed.
       apply flatten_gen_params_length.
       Opaque gen_params.
-    - do 6 econstructor.
+    - intros _; do 6 econstructor.
       apply (IS_all (Skel.aTypDenote typ) result).
-      apply (IS_all _ H).
+      eapply (IS_all _ (H Hres)).
       repeat econstructor.
-    - do 2 (apply evalExpseq_cons; [evalExp|]).
+    - apply has_no_vars_Ex; intros.
+      apply has_no_vars_kernelInv'.
+    - instantiate (3 := 1).
+      do 2 (apply evalExpseq_cons; [evalExp|]).
       simpl; rewrite map_app; simpl; rewrite map_app.
       apply evalExpseq_cons; [evalExp|].
       apply evalExpseq_app.
@@ -823,8 +825,9 @@ Proof.
       apply evalExpseq_app.
       { apply evalExpseq_flatTupxs.
         apply incl_appr, incl_tl, incl_tl.
+        apply incl_appl; eauto. 
         apply incl_appl; eauto. }
-      apply evalExpseq_app2, evalExpseq_cons2, evalExpseq_cons2, evalExpseq_app2, evalExpseq_cons2, evalExpseq_arrInv.
+      apply evalExpseq_app2, evalExpseq_cons2, evalExpseq_cons2, evalExpseq_app2, evalExpseq_arrInv.    
     - eauto.
     - eauto.
     - simpl.
@@ -836,13 +839,14 @@ Proof.
         destruct eval_arr_ok.
         simpl in e0.
         inverts e0.
-        rewrite scan_lib.init_length.
-        destruct eval_arr_ok.
-        assert (inp = x0) by congruence; subst x0.
-        rewrite Nat2Z.inj_min.
-        rewrite div_Zdiv; eauto.
-        do 3 f_equal.
-        zify; omega.
+        rewrite firstn_length'.
+        destruct H1 as (vslen & _).
+        destruct le_dec.
+        * rewrite Nat2Z.inj_min.
+          rewrite div_Zdiv; eauto.
+          do 3 f_equal.
+          zify; omega.
+        * rewrite Hlen in *; false; eauto using Nat.le_min_r.
       + rewrite subst_env_app; split.
         * unfold outArr.
           repeat (apply subst_env_cons2; [rewrite map_flatTup; apply locals_not_in; simpl; eauto|]).  
@@ -856,39 +860,27 @@ Proof.
           rewrite map_length, !flatTup_length; eauto.
           apply out_name_arrInvVar.
           instantiate (1 := ps ::: apenv).
-          lets: (subst_env_params (typ :: GA) (ps ::: apenv) (scan_lib.ls_init 0
-          (min
-             ((Datatypes.length (arr_res typ GA aeenv arr f result Heval) +
-               ntrd - 1) / ntrd) nblk)
-          (fun j : nat =>
-           f_sim typ n f_tot
-             (scan_lib.ls_init 0 ntrd
-                (fun i : nat =>
-                 vi typ ntrd nblk GA aeenv arr f f_tot result Heval
-                   (fun x0 : nat =>
-                    gets' (arr_res typ GA aeenv arr f result Heval) x0) j
-                   i)) (min (Datatypes.length inp - j * ntrd) ntrd) n 0)
-        ::: aeenv)).
-          simpl in H4.
+          lets: (subst_env_params (typ :: GA) (ps ::: apenv) 
+                                  (firstn (min ((Datatypes.length inp + ntrd - 1) / ntrd) nblk) vs1 ::: aeenv)).
+          simpl in H6.
           Transparent flatten_aeenv.
-          simpl in H4.
-          unfold SkelLib.len in H4; rewrite scan_lib.init_length in H4.
-          rewrite Nat2Z.inj_min in H4.
-          cutrewrite (arr_res typ GA aeenv arr f result Heval = inp) in H4.
-          cutrewrite (arr_res typ GA aeenv arr f result Heval = inp).
-          rewrite div_Zdiv in H4; eauto.
-          cutrewrite (Zn (length inp + ntrd - 1) = Zn (length inp) + (Zn ntrd - 1))%Z in H4; [|zify; omega].
-          apply H4.
-          unfold arr_res; destruct eval_arr_ok; congruence.
-          unfold arr_res; destruct eval_arr_ok; congruence.
-    - intros (? & [? ?] & ?).
+          simpl in H6.
+          unfold SkelLib.len in H6; rewrite firstn_length' in H6.
+          destruct le_dec.
+          2: rewrite Hlen in *; false; eauto using Nat.le_min_r.
+          rewrite Nat2Z.inj_min in H6.
+          rewrite div_Zdiv in H6; eauto.
+          cutrewrite (Zn (length inp + ntrd - 1) = Zn (length inp) + (Zn ntrd - 1))%Z in H6; [|zify; omega].
+          apply H6.
+    - intros (? & [? ?] & ? & ?).
       instantiate (1 := vs').
       instantiate (1 := f_tot).
       splits; [..|splits]; jauto; try (zify; omega).
-      simpl; forwards*: (log2_spec nblk); simpl; (zify; omega).
+      simpl; forwards*: (log2_spec (length vs1)); simpl; (zify; omega).
       applys* compile_AE_ok.
-      applys* compile_func_ok.
-      admit.
+      applys* (>>compile_func_ok (Skel.Fun2 typ typ typ)).
+      introv.
+      rewrite shift_func_GA_ok; eauto.
     - intros (? & [? ?] & ?).
       introv; rewrite <-!res_assoc; revert s h.
        simpl; repeat sep_auto.
@@ -909,25 +901,35 @@ Proof.
              rewrite Zpos_P_of_succ_nat.
              rewrite <-locs_offS; reflexivity.
        Qed.
-       rewrite emp_unit_r_res in H4.
+       rewrite emp_unit_l_res in H6.
        rewrite (arrays_split (min
                 ((Datatypes.length
                     (arr_res typ GA aeenv arr f result Heval) + ntrd - 1) /
-                 ntrd) nblk)) in H4; eauto.
+                 ntrd) nblk)) in H6; eauto.
        unfold arr2CUDA in *.
        Lemma firstn_map A B (f : A -> B) xs n :
          firstn n (map f xs) = map f (firstn n xs).
        Proof.
          revert xs; induction n; intros [|? ?]; simpl; congruence.
        Qed.
-       rewrite firstn_map in H4.
-       rewrite scan_lib.firstn_init in H4.
-       rewrite Nat.min_l in H4.
+       rewrite firstn_map in H6.
+       sep_cancel'.
        assert (arr_res typ GA aeenv arr f result Heval = inp).
        { unfold arr_res; destruct eval_arr_ok; congruence. }
-       subst inp.
-       apply H4.
-       apply Min.le_min_r. }
+       subst inp; eauto.
+       apply H6.
+    - intros s h Hsat.
+      rewrite ex_lift_l in Hsat; destruct Hsat as [res Hsat].
+      fold_sat_in Hsat.
+      unfold kernelInv' in Hsat.
+      rewrite Assn_combine in Hsat.
+      rewrite Hlen in Hsat.
+      
+      instantiate (1 :=
+        kernelInv ((tempLen, temps) ::: avenv) (ps ::: apenv)
+                  (firstn (min ((Datatypes.length inp + ntrd - 1) / ntrd) nblk) vs1 ::: aeenv)
+        (arrays (val2gl ps') (arr2CUDA res) 1) ()
+                  
   introv; eapply rule_backward.
   apply rule_ret_ignore; eauto.
   introv.
