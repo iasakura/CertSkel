@@ -937,28 +937,49 @@ Proof.
       unfold arrInvRes in *; simpl in *.
       rewrite <-!res_assoc in H4.
       repeat sep_cancel'.
-      
-      simpl in H4; rewrite in_app_iff in H4.
-      destruct H4 as [? | [? | ?]]; eauto 10.
-      rewrite firstn_length' in H4.
-      destruct le_dec.
-      * rewrite Nat2Z.inj_min in H4.
-        rewrite div_Zdiv in H4; eauto.
-        substs; left; right; right; left.
-        f_equal.
-        do 3 f_equal.
-        clear H H2 H3; zify; omega.
-      * false; eauto using Nat.le_min_r.
-      * skip.
-      * skip.
-    - introv; unfold kernelInv; rewrite !fv_assn_base.
-      unfold incl; intros; simpl in *.
-      apply H0.
-      unfold arrInvVar in *; simpl in *.
-      repeat (rewrite !map_app in *; simpl in *).
-      repeat (rewrite in_app_iff in *; simpl in *).
-      rewrite !map_flatTup in *.
-      destruct H1 as [? | [? | [? | [? | ?]]]]; eauto 10. }
+
+      assert (length result = 1).
+      { unfold SkelLib.reduceM in Heq2.
+        destruct fold_right; simpl in *; inverts Heq2; eauto. }
+      unfold arr_res in H7.
+      destruct eval_arr_ok.
+      simpl in e0; inverts e0.
+      rewrite Hres in H7.
+      Lemma firstn_same A n (ls : list A) :
+        length ls <= n -> firstn n ls = ls.
+      Proof.
+        revert n; induction ls; intros [|n]; intros; simpl in *; try omega; eauto.
+        rewrite IHls; eauto; omega.
+      Qed.
+      destruct res as [|r1 [|? ?]]; simpl in *; try omega.
+      rewrite firstn_same in H7.
+      simpl in Heq2.
+      cutrewrite (Skel.funcDenote GA _ f aeenv = fun x y => Some (f_tot x y)) in Heq2;
+        [|extensionality l1; extensionality l2; eauto].
+      assert (Some result = SkelLib.reduceM (fun x y : Skel.typDenote typ => Some (f_tot x y)) (r1 :: nil)) by congruence.
+      unfold SkelLib.reduceM in H11; simpl in *.
+      inverts H11; eauto.
+      simpl.
+      apply Min.min_glb; eauto.
+      rewrite firstn_length'.
+      apply Nat.div_le_lower_bound; eauto.
+      rewrite Nat.mul_1_r.
+      assert (1 <= length inp).
+      { destruct inp as [|? [|? ?]]; simpl in *; try omega.
+        cbv in Heq2; congruence. }
+      rewrite Hlen.
+      destruct le_dec; [|false; eauto using Nat.le_min_r].
+      cut (1 <= min ((length inp + ntrd - 1) / ntrd) nblk); [intros; omega|].
+      apply Nat.min_glb; [|omega].
+      apply Nat.div_le_lower_bound; eauto.
+      rewrite Nat.mul_1_r.
+      omega.
+      skip. 
+    - unfold kernelInv; introv; rewrite !fv_assn_base; simpl.
+      repeat (simpl; rewrite map_app).
+      intros Hincl v Hin; apply Hincl.
+      repeat (simpl in *; rewrite in_app_iff in *).
+      destruct Hin as [? | [? | ?]]; eauto. }
 
   introv.
   unfold K in *.
@@ -967,25 +988,18 @@ Proof.
   introv.
   applys* postST_imp; simpl.
   prove_imp.
-  remember (scan_lib.ls_init 0 1).
-  remember (S (log2 nblk)).
-  unfold arrInvRes in *.
-  simpl in H1.
-  rewrite <-!res_assoc in *; repeat sep_cancel'.
-  admit.
-  admit.
   unfold K.
   unfold incl; introv; rewrite !in_app_iff; eauto.
-  unfold K; introv; repeat rewrite fv_assn_base.
+  unfold K, kernelInv; introv; repeat rewrite fv_assn_base.
   intros.
   do 2 (apply fv_assn_Ex; intro).
   apply fv_assn_base.
-  intros a; specialize (H0 a).
+  intros a ?; apply H0.
   rewrite !map_app, !in_app_iff in *; simpl in *.
-  rewrite !map_app, !in_app_iff in *; simpl in *.
-  intros; apply H0.
   rewrite map_flatTup in *.
-  tauto.
+  destruct H1 as [[? | ?] | ?]; eauto.
+  rewrite remove_xs_disj; eauto.
+  rewrite remove_xs_disj; eauto.
 Qed.
 
 Theorem compile_AS_ok GA ty ntrd nblk (p : Skel.AS GA ty) :
