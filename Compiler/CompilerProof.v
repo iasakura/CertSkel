@@ -779,6 +779,7 @@ Proof.
   eapply rule_bind'.
   { applys (>>rule_setI (@nil var)); [unfold K; simpl; introv _| |eauto using incl_nil_l].
     apply CSLh_pure_prem; intros Hpure.
+
     destruct Hpure as (? & ? & Hres & Hlen).
     eapply rule_host_backward. 
     eapply rule_invk.
@@ -926,14 +927,45 @@ Proof.
       rewrite Hlen in Hsat.
       
       instantiate (1 :=
-        kernelInv ((tempLen, temps) ::: avenv) (ps ::: apenv)
-                  (firstn (min ((Datatypes.length inp + ntrd - 1) / ntrd) nblk) vs1 ::: aeenv)
-        (arrays (val2gl ps') (arr2CUDA res) 1) ()
-                  
-  introv; eapply rule_backward.
+        kernelInv avenv apenv aeenv
+                  (arrays (val2gl ps') (arr2CUDA result) 1)
+                  True
+                  (outLen |-> 1 :: outs |=> ps') 1).
+      unfold kernelInv.
+      simpl in *.
+      revert s h Hsat; prove_imp.
+      unfold arrInvRes in *; simpl in *.
+      rewrite <-!res_assoc in H4.
+      repeat sep_cancel'.
+      
+      simpl in H4; rewrite in_app_iff in H4.
+      destruct H4 as [? | [? | ?]]; eauto 10.
+      rewrite firstn_length' in H4.
+      destruct le_dec.
+      * rewrite Nat2Z.inj_min in H4.
+        rewrite div_Zdiv in H4; eauto.
+        substs; left; right; right; left.
+        f_equal.
+        do 3 f_equal.
+        clear H H2 H3; zify; omega.
+      * false; eauto using Nat.le_min_r.
+      * skip.
+      * skip.
+    - introv; unfold kernelInv; rewrite !fv_assn_base.
+      unfold incl; intros; simpl in *.
+      apply H0.
+      unfold arrInvVar in *; simpl in *.
+      repeat (rewrite !map_app in *; simpl in *).
+      repeat (rewrite in_app_iff in *; simpl in *).
+      rewrite !map_flatTup in *.
+      destruct H1 as [? | [? | [? | [? | ?]]]]; eauto 10. }
+
+  introv.
+  unfold K in *.
+  eapply rule_backward.
   apply rule_ret_ignore; eauto.
   introv.
-  applys* postST_imp.
+  applys* postST_imp; simpl.
   prove_imp.
   remember (scan_lib.ls_init 0 1).
   remember (S (log2 nblk)).
