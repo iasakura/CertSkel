@@ -102,10 +102,10 @@ Module Skel.
       sexpDenote _ _ _ e sa (HCons y (HCons x HNil))
     end.
 
-  Inductive LExp : list Typ -> Typ -> Type := 
-  | LNum GA (n : Z) : LExp GA TZ
-  | LLen GA t : member t GA -> LExp GA TZ
-  | LMin GA : LExp GA TZ -> LExp GA TZ -> LExp GA TZ.
+  Inductive LExp (GA : list Typ) : Typ -> Type := 
+  | LNum (n : Z) : LExp GA TZ
+  | LLen t : member t GA -> LExp GA TZ
+  | LMin : LExp GA TZ -> LExp GA TZ -> LExp GA TZ.
 
   Fixpoint lexpDenote GA t (le : LExp GA t) :
     hlist aTypDenote GA -> typDenote t :=
@@ -149,8 +149,9 @@ Module Skel.
     | Reduce _ _ f e => fun sa =>
       do! arr <- aeDenote _ _ e sa in
       reduceM (funcDenote _ _ f sa) arr
-    | Seq _ start len => fun sa => 
-      ret (seq (lexpDenote _ _ start sa) (lexpDenote _ _ len sa))
+    | Seq _ start len => fun sa =>
+      let l := (lexpDenote _ _ len sa) in
+      if Z_le_dec 0 l then ret (seq (lexpDenote _ _ start sa) l) else None
     | Zip _ _ _ a1 a2 => fun sa =>
       do! a1 <- aeDenote _ _ a1 sa in
       do! a2 <- aeDenote _ _ a2 sa in

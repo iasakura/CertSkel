@@ -405,7 +405,7 @@ Section Compiler.
     end.
 
   Fixpoint compile_lexp {GA ty} (le : Skel.LExp GA ty) : AVarEnv GA -> exp :=
-    match le in Skel.LExp GA ty return AVarEnv GA -> exp with
+    match le in Skel.LExp _ ty return AVarEnv GA -> exp with
     | Skel.LNum _ n => fun _ => n
     | Skel.LLen _ _ a => fun aenv => (fst (hget aenv a))
     | Skel.LMin _ e1 e2 => fun aenv => Emin (compile_lexp e1 aenv) (compile_lexp e2 aenv) 
@@ -689,6 +689,13 @@ Section Compiler.
   Variable sorry : forall T, T.
   Arguments sorry {T}.
 
+  Fixpoint lexp2sexp GA typ (le : Skel.LExp GA typ) : forall GS, Skel.SExp GA GS typ :=
+    match le in Skel.LExp _ typ' return forall GS, Skel.SExp GA GS typ' with
+    | Skel.LNum _ n => fun GS => Skel.ENum GA GS n
+    | Skel.LLen _ t m => fun GS => Skel.ELen _ _ _ m
+    | Skel.LMin _ e1 e2 => fun GS => Skel.EBin _ _ _ _ _ Skel.Emin (lexp2sexp _ _ e1 GS) (lexp2sexp _ _ e2 GS)
+    end.
+
   Definition compile_Skel {GA typ} ntrd nblk 
              (skel : Skel.SkelE GA typ) : AVarEnv GA -> CUDAM (var * vars typ) :=
     match skel in Skel.SkelE GA typ return AVarEnv GA -> _ with
@@ -698,7 +705,9 @@ Section Compiler.
       compile_reduce ntrd nblk aenv f arr
     | Skel.Seq GA start len => fun aenv =>
       let f := Skel.F1 GA Skel.TZ Skel.TZ (Skel.EVar _ _ _ HFirst) in
-      let g := Skel.DArr GA _ (Skel.F1 GA Skel.TZ Skel.TZ (Skel.EVar _ _ _ HFirst)) len in
+      let g := Skel.DArr GA _ (Skel.F1 GA Skel.TZ Skel.TZ (Skel.EBin GA _ _ _ _ Skel.Eplus
+                                                                     (lexp2sexp _ _ start _)
+                                                                     (Skel.EVar _ _ _ HFirst))) len in
       compile_map ntrd nblk aenv f g
     | Skel.Zip _ typ1 typ2 arr1 arr2 => fun aenv =>
       let f := Skel.F1 _ (Skel.TTup typ1 typ2) (Skel.TTup typ1 typ2) (Skel.EVar _ _ _ HFirst) in

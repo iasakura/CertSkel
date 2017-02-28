@@ -1000,6 +1000,130 @@ Proof.
   rewrite remove_xs_disj; eauto.
 Qed.
 
+Inductive skelE_wf GA (aeenv : AEvalEnv GA) : forall fty, Skel.SkelE GA fty -> Prop := 
+| wf_Map dom cod (f : Skel.Func GA (Skel.Fun1 dom cod)) ae :
+    skelE_wf GA aeenv cod (Skel.Map _ _ _ f ae)
+| wf_Reduce typ (f : Skel.Func GA (Skel.Fun2 typ typ typ)) ae f_tot :
+    (forall x y : Skel.typDenote typ, Skel.funcDenote GA (Skel.Fun2 typ typ typ) f aeenv x y = Some (f_tot x y))
+    -> (forall x y : Skel.typDenote typ, f_tot x y = f_tot y x)
+    -> (forall x y z : Skel.typDenote typ, f_tot (f_tot x y) z = f_tot x (f_tot y z))
+    -> skelE_wf GA aeenv typ (Skel.Reduce _ _ f ae)
+| wf_Seq start l : skelE_wf GA aeenv Skel.TZ (Skel.Seq GA start l)
+| wf_Zip t1 t2 ae1 ae2 : skelE_wf GA aeenv (Skel.TTup t1 t2) (Skel.Zip _ t1 t2 ae1 ae2).
+
+Lemma mapM_total A B (f : A -> B) (l : list A) : SkelLib.mapM (fun i => Some (f i)) l = Some (map f l).
+Proof.
+  induction l; simpl; eauto.
+  unfold SkelLib.mapM in *; simpl.
+  unfold bind; simpl in *; unfold Monad.bind_opt in *.
+  rewrite IHl; eauto.
+Qed.
+Lemma mapM_eq A B (f g : A -> option B) (l : list A) :
+  (forall x, f x = g x) -> SkelLib.mapM f l = SkelLib.mapM g l.
+Proof.
+  induction l; simpl; intros; eauto.
+  unfold SkelLib.mapM in *; simpl.
+  unfold bind; simpl in *; unfold Monad.bind_opt in *.
+  rewrite IHl, H; eauto.
+Qed.
+
+Lemma lexp2sexp_ok GA typ le GS aeenv seenv :
+  Skel.sexpDenote GA GS typ (lexp2sexp GA typ le GS) aeenv seenv = Some (Skel.lexpDenote GA typ le aeenv).
+Proof.
+  dependent induction le; simpl; eauto.
+  rewrite IHle1.
+  unfold bind; simpl; unfold Monad.bind_opt; simpl.
+  rewrite IHle2; eauto.
+Qed.
+
+Lemma compile_skel_ok GA ntrd nblk typ
+      (avenv : AVarEnv GA) (apenv : APtrEnv GA) (aeenv : AEvalEnv GA)
+      (result : Skel.aTypDenote typ)
+      xs fns Gp skelE :
+  ntrd <> 0 -> nblk <> 0
+  -> skelE_wf GA aeenv _ skelE 
+  -> Skel.skelDenote GA typ skelE aeenv = Some result
+  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv T True nil 1) Gp)
+           (compile_Skel ntrd nblk skelE avenv)
+           (fun res => postST xs fns (kernelInv avenv apenv aeenv T True nil 1)
+                              (Ex ps len, kernelInv avenv apenv aeenv
+                                                    (arrays (val2gl ps) (arr2CUDA result) 1%Qc *** T)
+                                                    True
+                                                    (fst res |-> len :: snd res |=> ps) 1%Qc) Gp Gp).
+Proof.
+  destruct skelE; simpl; eauto using compile_map_ok, compile_reduce_ok.
+  - intros.
+    inverts H1.
+    intros; applys* compile_reduce_ok.
+  - intros; applys* compile_map_ok.
+    inverts H2; simpl.
+    destruct Z_le_dec; eauto.
+    erewrite mapM_eq.
+    Focus 2. {
+      intros.
+      rewrite lexp2sexp_ok.
+      unfold bind; simpl; unfold Monad.bind_opt; simpl.
+      reflexivity. } Unfocus.
+    rewrite !mapM_total.
+    unfold bind; simpl.
+    rewrite !mapM_total.
+    rewrite !map_id.
+    unfold ret; simpl; f_equal.
+    applys* (>>eq_from_nth 0%Z).
+    rewrite map_length, !seq_length; eauto.
+    introv; rewrite map_length, !seq_length; intros.
+    rewrite (nth_map 0%Z).
+    2: rewrite seq_length; eauto.
+    rewrite !seq_nth.
+    destruct lt_dec; omega.
+  - intros; applys* compile_map_ok.
+    simpl in *.
+    Lemma zip_AE_ok GA typ1 typ2 (arr1 : Skel.AE GA typ1) (arr2 : Skel.AE GA typ2) aeenv :
+      Skel.aeDenote _ _ (zip_AE arr1 arr2) aeenv =
+      (do! a1 <- Skel.aeDenote _ _ arr1 aeenv in
+       do! a2 <- Skel.aeDenote _ _ arr2 aeenv in
+       ret (SkelLib.zip a1 a2)).
+    Proof.
+      unfold zip_AE.
+      Lemma darr_of_arr_ok GA typ (arr : Skel.AE GA typ) f len :
+        darr_of_arr arr = (f, len)
+        -> Skel.aeDenote _ _ arr = Skel.aeDenote _ _ (Skel.DArr _ _ (Skel.F1 _ _ _ f) len).
+      Proof.
+        destruct arr; intros H; inverts H; simpl.
+        - extensionality l.
+          destruct Z_le_dec; [|false; forwards*: Zle_0_nat].
+
+          Lemma mapM_ex_some A B (f : A -> option B) l :
+            Forall (fun x => exists t, x = Some t) (map f l) 
+            -> exists t, mapM f l = Some t.
+          Proof.
+            induction l; simpl; intros H; inverts H.
+            - eexists; reflexivity.
+            - destruct H2.
+              destruct IHl; eauto.
+              exists (x :: x0).
+              unfold mapM; simpl.
+              unfold bind; simpl; unfold Monad.bind_opt.
+              rewrite H.
+              unfold mapM in H0; rewrite H0; eauto.
+          Qed.
+          forwards*: (>>mapM_ex_some
+                        (fun i : val => do! v <- ret i in SkelLib.nth_error (hget l m) v)
+                        (SkelLib.seq 0 (G.Zn (Datatypes.length (hget l m))))).
+          rewrite Forall_forall; intros.
+          rewrite in_map_iff in H; destruct H as (? & ? & ?).
+          unfold SkelLib.seq in H0.
+          
+          
+
+          revert l0; generalize 0%Z.
+          induction (hget l m); simpl; eauto.
+          intros.
+          rewrite Zpos_P_of_succ_nat in l0.
+
+          
+        
+    
 Theorem compile_AS_ok GA ty ntrd nblk (p : Skel.AS GA ty) :
   let M := compile_prog ntrd nblk p in
   sat_FC M nil (("__main", main_spec GA) :: nil).
