@@ -777,9 +777,9 @@ Proof.
   intros vs'.
   apply rule_ret_back.
   eapply rule_bind'.
-  { applys (>>rule_setI (@nil var)); [unfold K; simpl; introv _| |eauto using incl_nil_l].
+  { applys (>>rule_setI (@nil var)); [unfold K; simpl| |eauto using incl_nil_l].
+    introv Hfc _.
     apply CSLh_pure_prem; intros Hpure.
-
     destruct Hpure as (? & ? & Hres & Hlen).
     eapply rule_host_backward. 
     eapply rule_invk.
@@ -788,7 +788,7 @@ Proof.
     3: unfold K; rewrite !in_app_iff; substs; eauto.
     3: right.
     3: apply in_eq.
-    - skip.
+    - eauto.
     - simpl; eauto.
     - simpl. rewrite !map_app, !app_length, !map_length.
       simpl; rewrite !app_length; rewrite !flatTup_length.

@@ -419,7 +419,7 @@ Proof.
 Qed.
 
 Lemma rule_setI G P Q ss ys xs' fns  :
-  (forall GM, sat_FC GM G G -> CSLh GM G P ss Q)
+  (forall GM, fc_ok GM G -> sat_FC GM G G -> CSLh GM G P ss Q)
   -> (forall xs, fv_assn P xs -> fv_assn Q (xs' ++ xs))
   -> incl xs' ys
   -> ST_ok (preST ys fns P G)
