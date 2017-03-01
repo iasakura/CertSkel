@@ -721,8 +721,10 @@ Section Compiler.
     | Skel.ALet _ tskel tyres skel res => fun aenv => 
       do! outs <- compile_Skel ntrd nblk skel aenv in
       compile_AS ntrd nblk res (outs ::: aenv)
-    | Skel.ARet _ _ x => fun aenv =>
-      ret (hget aenv x)
+    | Skel.ARet _ t x => fun aenv =>
+      let f := Skel.F1 _ t t (Skel.EVar _ _ _ HFirst) in
+      let arr := Skel.VArr _ _ x in
+      compile_map ntrd nblk aenv f arr
     end%list.
 
   Definition env_of_list {A B : Type} `{eq_type A} (xs : list (A * B)) : Env A (option B) _ :=
