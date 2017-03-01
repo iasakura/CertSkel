@@ -1036,6 +1036,87 @@ Proof.
   rewrite IHle2; eauto.
 Qed.
 
+Lemma zip_AE_ok GA typ1 typ2 (arr1 : Skel.AE GA typ1) (arr2 : Skel.AE GA typ2) aeenv :
+  Skel.aeDenote _ _ (zip_AE arr1 arr2) aeenv =
+  (do! a1 <- Skel.aeDenote _ _ arr1 aeenv in
+   do! a2 <- Skel.aeDenote _ _ arr2 aeenv in
+   ret (SkelLib.zip a1 a2)).
+Proof.
+  unfold zip_AE.
+  Lemma darr_of_arr_ok GA typ (arr : Skel.AE GA typ) f len :
+    darr_of_arr arr = (f, len)
+    -> Skel.aeDenote _ _ arr = Skel.aeDenote _ _ (Skel.DArr _ _ (Skel.F1 _ _ _ f) len).
+  Proof.
+    destruct arr; intros H; inverts H; simpl.
+    - extensionality l.
+      destruct Z_le_dec; [|false; forwards*: Zle_0_nat].
+
+      Lemma mapM_ex_some A B (f : A -> option B) l :
+        Forall (fun x => exists t, x = Some t) (map f l) 
+        -> exists t, SkelLib.mapM f l = Some t.
+      Proof.
+        induction l; simpl; intros H; inverts H.
+        - eexists; reflexivity.
+        - destruct H2.
+          destruct IHl; eauto.
+          exists (x :: x0).
+          unfold SkelLib.mapM; simpl.
+          unfold bind; simpl; unfold Monad.bind_opt.
+          rewrite H.
+          unfold SkelLib.mapM in H0; rewrite H0; eauto.
+      Qed.
+      forwards* (res & Hres): (>>mapM_ex_some
+                                 (fun i : val => do! v <- ret i in SkelLib.nth_error (hget l m) v)
+                                 (SkelLib.seq 0 (G.Zn (Datatypes.length (hget l m))))).
+      rewrite Forall_forall; intros.
+      rewrite in_map_iff in H; destruct H as (? & ? & ?).
+      unfold SkelLib.seq in H0.
+      Lemma option_ret_LI A B (v : A) (f : A -> option B) :
+        (do! x <- ret v in f x) = f v.
+      Proof.
+        unfold ret, bind; simpl; eauto.
+      Qed.
+      rewrite option_ret_LI in H.
+      Lemma seq'_In i s n :
+        In i (SkelLib.seq' s n) -> (s <= i < s + Zn n)%Z.
+      Proof.
+        revert s; induction n; simpl; try tauto.
+        intros.
+        rewrite Zpos_P_of_succ_nat.
+        destruct H; [substs; nia|].
+        apply IHn in H.
+        omega.
+      Qed.
+      apply seq'_In in H0.
+      forwards*: (>>nth_error_some' (hget l m) x0 (@defval' t)).
+      rewrite Nat2Z.id in *.
+      omega.
+      substs; eexists; eauto.
+      rewrite Hres.
+      unfold ret; simpl; f_equal.
+      forwards*: SkelLib.mapM_length.
+      rewrite seq_length, Nat2Z.id in H.
+      apply (@eq_from_nth _ defval'); eauto.
+      intros.
+      forwards*: (>>SkelLib.mapM_some i (0%Z) (@defval' t) Hres).
+      rewrite seq_length, Nat2Z.id, option_ret_LI, SkelLib.seq_nth, Nat2Z.id in H1.
+      destruct lt_dec; [|omega].
+      rewrites (>>SkelLib.nth_error_some' (@defval' t)) in H1; [omega|].
+      inverts H1; eauto.
+      rewrite Z.add_0_l, Nat2Z.id in H3; eauto.
+    - dependent destruction f0; inverts H1; simpl.
+      extensionality x; simpl.
+      eauto.
+  Qed.
+  destruct (darr_of_arr arr1) as [body1 len1] eqn:Heq1.
+  destruct (darr_of_arr arr2) as [body2 len2] eqn:Heq2.
+  rewrites* (>>darr_of_arr_ok Heq1).
+  rewrites* (>>darr_of_arr_ok Heq2).
+  simpl.
+  repeat (destruct Z_le_dec; try rewrite Z.min_glb_iff in *; try lia); simpl; eauto.
+  2: destruct SkelLib.mapM; simpl; eauto.
+Abort.
+
 Lemma compile_skel_ok GA ntrd nblk typ
       (avenv : AVarEnv GA) (apenv : APtrEnv GA) (aeenv : AEvalEnv GA)
       (result : Skel.aTypDenote typ)
@@ -1078,52 +1159,94 @@ Proof.
     destruct lt_dec; omega.
   - intros; applys* compile_map_ok.
     simpl in *.
-    Lemma zip_AE_ok GA typ1 typ2 (arr1 : Skel.AE GA typ1) (arr2 : Skel.AE GA typ2) aeenv :
-      Skel.aeDenote _ _ (zip_AE arr1 arr2) aeenv =
-      (do! a1 <- Skel.aeDenote _ _ arr1 aeenv in
-       do! a2 <- Skel.aeDenote _ _ arr2 aeenv in
-       ret (SkelLib.zip a1 a2)).
-    Proof.
-      unfold zip_AE.
-      Lemma darr_of_arr_ok GA typ (arr : Skel.AE GA typ) f len :
-        darr_of_arr arr = (f, len)
-        -> Skel.aeDenote _ _ arr = Skel.aeDenote _ _ (Skel.DArr _ _ (Skel.F1 _ _ _ f) len).
-      Proof.
-        destruct arr; intros H; inverts H; simpl.
-        - extensionality l.
-          destruct Z_le_dec; [|false; forwards*: Zle_0_nat].
-
-          Lemma mapM_ex_some A B (f : A -> option B) l :
-            Forall (fun x => exists t, x = Some t) (map f l) 
-            -> exists t, mapM f l = Some t.
-          Proof.
-            induction l; simpl; intros H; inverts H.
-            - eexists; reflexivity.
-            - destruct H2.
-              destruct IHl; eauto.
-              exists (x :: x0).
-              unfold mapM; simpl.
-              unfold bind; simpl; unfold Monad.bind_opt.
-              rewrite H.
-              unfold mapM in H0; rewrite H0; eauto.
-          Qed.
-          forwards*: (>>mapM_ex_some
-                        (fun i : val => do! v <- ret i in SkelLib.nth_error (hget l m) v)
-                        (SkelLib.seq 0 (G.Zn (Datatypes.length (hget l m))))).
-          rewrite Forall_forall; intros.
-          rewrite in_map_iff in H; destruct H as (? & ? & ?).
-          unfold SkelLib.seq in H0.
-          
-          
-
-          revert l0; generalize 0%Z.
-          induction (hget l m); simpl; eauto.
-          intros.
-          rewrite Zpos_P_of_succ_nat in l0.
-
-          
-        
+    unfold zip_AE; simpl.
+    destruct (darr_of_arr a) as [body1 len1] eqn:Heq1.
+    destruct (darr_of_arr a0) as [body2 len2] eqn:Heq2.
+    simpl.
+    rewrites* (>>darr_of_arr_ok Heq1) in H2.
+    rewrites* (>>darr_of_arr_ok Heq2) in H2.
+    simpl in *.
+    destruct Z_le_dec.
     
+    repeat (destruct Z_le_dec; try rewrite Z.min_glb_iff in *; try lia); simpl; eauto.
+    2: destruct SkelLib.mapM; unfold bind in *; simpl in *; eauto.
+    2: destruct SkelLib.mapM; unfold bind in *; simpl in *; try congruence.
+    destruct (SkelLib.mapM _ (SkelLib.seq _ _)) eqn:Hmap1; [|unfold bind in H2; simpl in *; congruence].
+    destruct (SkelLib.mapM _ (SkelLib.seq 0 (Skel.lexpDenote GA Skel.TZ len2 aeenv))) eqn:Hmap2;
+      unfold bind in H2; simpl in *; [|congruence].
+    inverts H2.
+    destruct (SkelLib.mapM _ (SkelLib.seq _ (Z.min _ _))) eqn:Hmap3; unfold bind, ret; simpl.
+    + rewrite mapM_total, map_id.
+      f_equal.
+      forwards* Hlen1: (>>SkelLib.mapM_length Hmap1); rewrite SkelLib.seq_length in Hlen1.
+      forwards* Hlen2: (>>SkelLib.mapM_length Hmap2); rewrite SkelLib.seq_length in Hlen2.
+      forwards* Hlen3: (>>SkelLib.mapM_length Hmap3); rewrite SkelLib.seq_length in Hlen3.
+      rewrite Z2Nat.inj_min in Hlen3.
+      unfold SkelLib.zip.
+      apply (@eq_from_nth _ (@defval' (Skel.TTup t1 t2))).
+      { simpl; rewrite (combine_length l2 l3); nia. }
+      { intros.
+        Lemma nth_combine A B (l1 : list A) (l2 : list B) i d :
+          nth i (combine l1 l2) d =
+          if Sumbool.sumbool_and _ _ _ _ (lt_dec i (length l1)) (lt_dec i (length l2))
+          then (nth i l1 (fst d), nth i l2 (snd d)) 
+          else d.
+        Proof.
+          revert i l2; induction l1; intros [|i] [|? l2]; simpl; eauto; destruct lt_dec; eauto.
+          specialize (IHl1 i l2); simpl in *; destruct Sumbool.sumbool_and, lt_dec; eauto; try omega.
+          specialize (IHl1 i l2); simpl in *; destruct Sumbool.sumbool_and, lt_dec; eauto; try omega.
+        Qed.          
+
+        rewrite (nth_combine _ _ l2 l3); destruct Sumbool.sumbool_and; try nia.
+        2: simpl in *; rewrite Hlen3, Nat.min_glb_lt_iff in H2; omega.
+        simpl.
+        forwards*Hmap1': (>>SkelLib.mapM_some i (0%Z) (@defval' t1) Hmap1).
+        rewrite !SkelLib.seq_length in Hmap1'; destruct lt_dec; try omega.
+        rewrite seq_nth in Hmap1'; destruct lt_dec; try omega; simpl in *; rewrite Z.add_0_l in Hmap1'.
+        forwards*Hmap2': (>>SkelLib.mapM_some i (0%Z) (@defval' t2) Hmap2).
+        rewrite !SkelLib.seq_length in Hmap2'; destruct lt_dec; try omega.
+        rewrite seq_nth in Hmap2'; destruct lt_dec; try omega; simpl in *; rewrite Z.add_0_l in Hmap2'.
+        forwards*Hmap3': (>>SkelLib.mapM_some i (0%Z) (@defval' t1, @defval' t2) Hmap3).
+        rewrite !SkelLib.seq_length in Hmap3'; destruct lt_dec; try omega.
+        * rewrite seq_nth in Hmap3'; destruct lt_dec; try omega; simpl in *; rewrite Z.add_0_l in Hmap3'.
+          rewrite <-Hmap1' in Hmap3'; unfold bind in Hmap3'; simpl in Hmap3'.
+          unfold Monad.bind_opt in Hmap3'; simpl in Hmap3.
+          rewrite <-Hmap2' in Hmap3'; simpl in Hmap3'.
+          inverts Hmap3'; eauto.
+        * rewrite Z2Nat.inj_min, Nat.min_glb_lt_iff in *; omega. }
+    + Lemma mapM_none A B (f : A -> option B) (l : list A) d :
+        SkelLib.mapM f l = None
+        -> exists i, f (nth i l d) = None /\ i < length l.
+      Proof.
+        unfold SkelLib.mapM; induction l; unfold ret, bind; simpl; eauto.
+        - unfold ret, bind; simpl; congruence.
+        - destruct (f a) eqn:Heq.
+          2: intros; exists 0; splits; eauto; omega.
+          unfold bind; simpl; unfold Monad.bind_opt.
+          destruct sequence; eauto.
+          + unfold ret; simpl; congruence.
+          + destruct IHl; eauto.
+            intros; exists (S x); simpl; splits; jauto.
+            omega.
+      Qed.
+      forwards*: (>>mapM_none 0%Z).
+      destruct H2 as [i [Heq3 Hleni]].
+      rewrite seq_length, Z2Nat.inj_min, Nat.min_glb_lt_iff in Hleni.
+      forwards*Hmap1': (>>SkelLib.mapM_some i (0%Z) (@defval' t1) Hmap1).
+      rewrite !SkelLib.seq_length in Hmap1'; destruct lt_dec; try omega.
+      rewrite seq_nth in Hmap1'; destruct lt_dec; try omega; simpl in *; rewrite Z.add_0_l in Hmap1'.
+      forwards*Hmap2': (>>SkelLib.mapM_some i (0%Z) (@defval' t2) Hmap2).
+      rewrite !SkelLib.seq_length in Hmap2'; destruct lt_dec; try omega.
+      rewrite seq_nth in Hmap2'; destruct lt_dec; try omega; simpl in *; rewrite Z.add_0_l in Hmap2'.
+      rewrite seq_nth in Heq3; destruct lt_dec; rewrite Z2Nat.inj_min in *; simpl; try omega.
+      2: rewrite Nat.min_glb_lt_iff in *; omega.
+      rewrite Z.add_0_l in Heq3.
+      unfold bind in Heq3; simpl in Heq3; unfold Monad.bind_opt in Heq3.
+      rewrite <-Hmap1' in Heq3.
+      rewrite <-Hmap2' in Heq3.
+      unfold ret in Heq3; simpl in Heq3; congruence.
+Qed.            
+        
 Theorem compile_AS_ok GA ty ntrd nblk (p : Skel.AS GA ty) :
   let M := compile_prog ntrd nblk p in
   sat_FC M nil (("__main", main_spec GA) :: nil).
