@@ -32,7 +32,7 @@ Inductive stmt :=
 Record hostfun := Hf {
   host_params : list (var * CTyp);
   host_stmt : stmt;
-  host_res : list var
+  host_res : var
 }.
 
 Inductive fd :=

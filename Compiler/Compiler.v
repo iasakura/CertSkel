@@ -715,16 +715,33 @@ Section Compiler.
       compile_map ntrd nblk aenv f arr
     end.
 
+  Definition compile_res {GA typ} ntrd nblk
+             (host_var_env : AVarEnv GA)
+             (arr : Skel.AE GA typ) (outArr : vars typ)
+    : CUDAM var :=
+    let arr_vars := gen_params GA in
+
+    let g := compile_AE arr (remove_typeinfo arr_vars) in
+    let outlen := compile_AE_len arr host_var_env in
+    let f := Skel.F1 _ typ typ (Skel.EVar _ _ _ HFirst) in
+    let f := compile_func f (remove_typeinfo arr_vars) in
+    
+    do! kerID <- gen_kernel (mkMap GA typ typ g f)  in
+    do! outlenVar <- fLet outlen in
+    let args_in := flatten_aenv host_var_env in
+    let args_out := outlenVar :: (flatTup outArr) in
+    do! t <- invokeKernel kerID (Zn ntrd) (Zn nblk) (List.map Evar (args_out ++ args_in)) in
+    ret outlenVar.
+
   Fixpoint compile_AS {GA typ} ntrd nblk 
-           (p : Skel.AS GA typ) : AVarEnv GA -> CUDAM (var * vars typ) :=
+           (p : Skel.AS GA typ) : vars typ -> AVarEnv GA -> CUDAM var :=
     match p with
-    | Skel.ALet _ tskel tyres skel res => fun aenv => 
+    | Skel.ALet _ tskel tyres skel res => fun outArr aenv => 
       do! outs <- compile_Skel ntrd nblk skel aenv in
-      compile_AS ntrd nblk res (outs ::: aenv)
-    | Skel.ARet _ t x => fun aenv =>
-      let f := Skel.F1 _ t t (Skel.EVar _ _ _ HFirst) in
+      compile_AS ntrd nblk res outArr (outs ::: aenv) 
+    | Skel.ARet _ t x => fun outArr aenv =>
       let arr := Skel.VArr _ _ x in
-      compile_map ntrd nblk aenv f arr
+      compile_res ntrd nblk aenv arr outArr
     end%list.
 
   Definition env_of_list {A B : Type} `{eq_type A} (xs : list (A * B)) : Env A (option B) _ :=
@@ -755,8 +772,8 @@ Section Compiler.
   Definition compile_prog {GA ty} ntrd nblk (p : Skel.AS GA ty) : Host.GModule :=
     let ps := gen_params GA in 
     let aenv := remove_typeinfo ps in
-    let '(res, (_, instrs, kers)) := compile_AS ntrd nblk p aenv 0 0 in
-    let res := (fst res :: flatTup (snd res)) in
+    let outs := outArr ty in
+    let '(res, (_, instrs, kers)) := compile_AS ntrd nblk p outs aenv 0 0 in
     let pars := flatten_avars (hmap (fun ty x => ((fst (fst x), Int), toPtr (snd x))) ps) in
-    (kers ++ ("__main", Host (Hf pars (seqs instrs) res)) :: nil).
+    (("__main", Host (Hf pars (seqs instrs) res)) :: kers).
 End Compiler.
