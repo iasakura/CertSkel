@@ -1397,7 +1397,7 @@ Lemma mkReduce_ok' M G (GA : list Skel.Typ) (typ : Skel.Typ) (ntrd : nat)
                                       ("nblk" |-> Zn nblk :: "ntrd" |-> Zn ntrd :: inp_len_name |-> Zn
                                       (length (arr_res typ GA aeval_env arr func result eval_reduce_ok)) ::
                                       outArr typ |=> outp) 1)
-                           (kernelInv' aptr_env aeval_env
+                           (fun _ => kernelInv' aptr_env aeval_env
                                        (arrays (val2gl outp)
                                                (arr2CUDA
                                                   (scan_lib.ls_init 0 nblk
@@ -1875,7 +1875,7 @@ Lemma mkReduce_ok M G (GA : list Skel.Typ) (typ : Skel.Typ) (ntrd : nat)
                                       ("nblk" |-> Zn nblk :: "ntrd" |-> Zn ntrd :: inp_len_name |-> Zn
                                       (length (arr_res typ GA aeval_env arr func result eval_reduce_ok)) ::
                                       outArr typ |=> outp) 1)
-                           (Ex vs, kernelInv' aptr_env aeval_env
+                           (fun _ => Ex vs, kernelInv' aptr_env aeval_env
                                               (arrays (val2gl outp) (arr2CUDA vs) 1)
                                               (reduceM (fun x y => Some (f_tot x y))
                                                        (firstn (min (((length (arr_res typ GA aeval_env arr func result eval_reduce_ok) ) + ntrd - 1) / ntrd) nblk) vs) =

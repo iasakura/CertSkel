@@ -579,6 +579,20 @@ Proof.
     { applys* stmt_exec_weaken. }
 Qed.
 
+Lemma safe_nhfun_weaken GM GM' n s h st ret Q :
+  disjoint_list (map fst GM')
+  -> safe_nhfun GM n s h st ret Q
+  -> incl GM GM' 
+  -> safe_nhfun GM' n s h st ret Q.
+Proof.
+  revert s h st; induction n; simpl; eauto.
+  introv HdisGM' (Hskip & Hsafe & Hstep) Hincl; splits; jauto.
+  - introv Hdisj Heq Hc; applys* Hsafe.
+    applys* aborts_h_weaken.
+  - introv Hdis Heq Hstep'; forwards* (h'' & ? & ? & ?): (>>Hstep).
+    { applys* stmt_exec_weaken. }
+Qed.
+
 Lemma CSLh_n_weaken GM G GM' G' P st Q :
   disjoint_list (map fst GM')
   -> CSLh GM G P st Q
@@ -1276,7 +1290,7 @@ Proof.
     destruct fs' as [tag' params' tri'].
     revert Hnin Hdis Hctx H; clear; induction tri'; simpl; eauto; intros ? ? ?.
     unfold CSLhfun_n_simp; intros Hsat; intros.
-    eapply safe_nh_weaken; eauto.
+    eapply safe_nhfun_weaken; eauto.
     2: unfold incl; intros; rewrite in_app_iff; simpl; eauto.
     rewrite map_app; simpl.
     apply disjoint_list_app; simpl; eauto.
@@ -1371,7 +1385,7 @@ Lemma rule_invokeKernel kerID fs ntrd nblk args G R (P : Prop) E Epre Rpre RF Pp
   -> fs_tag fs = Kfun
   -> length args = length (fs_params fs)
   -> (P -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) Q)
-  -> has_no_vars Q
+  -> has_no_vars (Q 0%Z)
   -> evalExpseq E (enb :: ent :: args) (Zn nblk :: Zn ntrd :: vs)
   -> ntrd <> 0 -> nblk <> 0
   -> (P -> subst_env Epre (Var "nblk" :: Var "ntrd" :: fs_params fs) (Zn nblk :: Zn ntrd :: vs))
@@ -1379,7 +1393,7 @@ Lemma rule_invokeKernel kerID fs ntrd nblk args G R (P : Prop) E Epre Rpre RF Pp
   -> (P -> R |=R Rpre *** RF)
   -> ST_ok (preST ys fns (Assn R P E) G)
            (invokeKernel kerID ent enb args)
-           (fun r => postST (K ys r) (K fns r) (Assn R P E) (K (Assn RF P E ** Q) r) G (K G r)).
+           (fun r => postST (K ys r) (K fns r) (Assn R P E) (K (Assn RF P E ** Q 0%Z) r) G (K G r)).
 Proof.
   unfold ST_ok, preST, postST.
   intros.

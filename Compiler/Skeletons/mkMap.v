@@ -424,7 +424,7 @@ Lemma mkMap_ok M G GA dom cod arr_c (f_c : vars dom -> cmd * vars cod) pars tag 
                                    (ntrd <> 0 /\ nblk <> 0 /\ ae_ok avar_env arr arr_c /\ func_ok avar_env f f_c /\ Datatypes.length outs = Datatypes.length result)
                                    ("nblk" |-> Zn nblk :: "ntrd" |-> Zn ntrd :: inp_len_name |-> Zn
                                            (Datatypes.length (arr_res GA aeval_env dom cod arr f result eval_map_ok)) :: outArr cod |=> outp) 1)
-                        (kernelInv' aptr_env aeval_env (arrays (val2gl outp) (arr2CUDA result) 1) True 1)))%nat.
+                        (fun _ => kernelInv' aptr_env aeval_env (arrays (val2gl outp) (arr2CUDA result) 1) True 1)))%nat.
 Proof.
   intros Havok n Hctx; unfold interp_kfun_n_simp; simpl.
   intros ntrd nblk aptr_env aeval_env arr f result eval_map_ok outp outs.
