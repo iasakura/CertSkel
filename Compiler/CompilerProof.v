@@ -1477,16 +1477,20 @@ Proof.
     applys* compile_res_ok.
 Qed.
 
-Theorem compile_prog_ok GA typ ntrd nblk aeenv (p : Skel.AS GA typ) result :
+Theorem compile_prog_ok GA typ ntrd nblk (p : Skel.AS GA typ) :
   ntrd <> 0 -> nblk <> 0 ->
-  skel_as_wf GA aeenv typ p ->
-  Skel.asDenote GA typ p aeenv = Some result ->
-  interp_f (compile_prog ntrd nblk p) nil "__main"  (main_spec GA).
+  interp_f (compile_prog ntrd nblk p) nil "__main"
+    {| fs_tag := Hfun;
+       fs_params := nil;
+       fs_tri := 
+    (All aeenv apenv result outp vs,
+     FDbl (kernelInv (remove_typeinfo (gen_params GA)) apenv aeenv
+                     (T *** arrays (val2gl outp) vs 1)
+                     (Skel.asDenote GA typ p aeenv = Some result /\
+                      skel_as_wf GA aeenv typ p)
+                     (outArr typ |=> outp) 1)
+          (fun l => kernelInv (remove_typeinfo (gen_params GA)) apenv aeenv
+                              (T *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
+                              (l = Zn (length result))
+                              (outArr typ |=> outp) 1%Qc)) |}.
 Proof.
-  intros; unfold compile_prog.
-  destruct compile_AS as [? [[? ?] ?]] eqn:Heq. 
-  eapply rule_fun.
-  simpl; eauto.
-  intros ? _.
-  simpl; simpl.
-  unfold main_spec; simpl.
