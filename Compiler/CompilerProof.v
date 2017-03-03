@@ -1502,18 +1502,141 @@ Proof.
   forwards*: fn_ok_In.
 Qed.
 
-Theorem compile_prog_ok GA typ ntrd nblk (p : Skel.AS GA typ) aeenv apenv outp result vs :
+Definition CSLfd_simp M P fd Q n := 
+  match fd with
+  | Host f => CSLhfun_n_simp M P f Q n
+  | Kern k => CSLkfun_n_simp P k (Q 0%Z) n
+  end.
+
+Definition CSLf_simp M P f Q n :=
+  match func_disp M f with
+  | None => False
+  | Some fd => CSLfd_simp M P fd Q n
+  end.
+
+Definition CSLfd M G P fd Q := with_ctx M G (fun n => CSLfd_simp M P fd Q n).
+Definition CSLf M G P f Q := with_ctx M G (fun n => CSLf_simp M P f Q n).
+
+Inductive ftri_inhabitant : FTri -> Prop :=
+| FAll_inhabitant T (f : T -> FTri) :
+    hasDefval T ->
+    (forall x, ftri_inhabitant (f x)) ->
+    ftri_inhabitant (FAll T f)
+| FDbl_inhabitant P Q : ftri_inhabitant (FDbl P Q).
+
+Lemma CSLf_interp_f M G f tag params ftri :
+  ftri_inhabitant ftri
+  -> interp_ftri ftri (fun P Q => CSLf M G P f Q)
+  -> interp_f M G f (FS tag params ftri).
+Proof.
+  unfold interp_f, CSLf, with_ctx, interp_f_n, CSLf_simp, interp_fd_simp, CSLfd_simp,
+  interp_hfun_n_simp, interp_kfun_n_simp.
+  induction 1; simpl in *; intros. 
+  - destruct func_disp as [[? | ?]|]; [intros x; forwards*: (>>H x)..|].
+    specialize (H1 default); eauto.
+  - apply H; eauto.
+Qed.
+
+Global Instance hlist_hasDefval A f (G : list A) : (forall (x : A), hasDefval (f x)) -> hasDefval (hlist f G).
+Proof.
+  constructor.
+  induction G.
+  - apply HNil.
+  - apply (default ::: IHG).
+Qed.
+
+Lemma ST_ok_exec T xs fns P Q Gp G (gen : CUDAM T) res ss Mp M n m n' m' :
+  (exists fvs, fv_assn P fvs /\ forall x m, In x fvs -> x <> hvar m)
+  -> (forall fn m, In fn (map fst Mp) -> fn <> kname m)
+  -> sat_FC Mp Gp Gp
+  -> fc_ok Mp Gp
+  -> disjoint_list (map fst Mp)
+  -> ST_ok (preST nil nil P Gp) gen (fun x => postST (xs x) (fns x) P (Q x) Gp (G x))
+  -> (res, ((n', m'), ss, M)) = gen n m
+  -> fc_ok (Mp ++ M) (G res) /\
+     disjoint_list (map fst Mp ++ map fst M) /\
+     fnOk' (map fst M) m' /\
+     sat_FC (Mp ++ M) nil (G res) /\
+     CSLh (Mp ++ M) (G res) P (seqs ss) (Q res).
+Proof.
+  unfold ST_ok, preST, postST.
+  intros Hfv Hfn Hsat Hfc Hdisj Hok Heq.
+  forwards*: (>>Hok ss Mp M).
+  Hint Constructors Forall.
+  splits; [..|splits]; simpl; try now (unfold fnOk, fvOk; jauto).
+  { destruct Hfv as (? & ? & ?); eexists; splits; jauto.
+    unfold fvOk; rewrite Forall_forall; intros.
+    forwards*: (>>H0 H2). }
+  constructor.
+  { unfold fnOk; rewrite Forall_forall; intros.
+    forwards*: (>>Hfn H0). }
+  rewrite map_app in *.
+  splits; jauto.
+  
+  apply rule_module_rec; jauto.
+Qed.
+
+Lemma CSLh_CSLhfun M G params body ret v P Q' Q :
+  CSLh M G P body Q'
+  -> (forall s h, sat s h Q' -> s ret = v)  
+  -> Q' |= Q v
+  -> CSLhfun M G P (Hf params body ret) Q.
+Proof.
+  unfold CSLh, CSLhfun, with_ctx, CSLh_n_simp, CSLhfun_n_simp; intros; simpl.
+  forwards*: H.
+  
+  Lemma safe_nh_safe_nhfun M n s h body ret Q' Q v :
+    safe_nh M n s h body Q'
+    -> (forall s h, Q' s h -> s ret = v)
+    -> Q' |= Q v
+    -> safe_nhfun M n s h body ret Q.
+  Proof.
+    revert s h body; induction n; simpl; eauto.
+    introv (Hskip & Hsafe & Hstep) Hret HQ; splits; jauto.
+    - intros; forwards*: Hskip.
+      erewrite Hret; eauto.
+      applys* HQ.
+    - introv Hdis Htoh Hexec; forwards*(h'' & ? & ? & ?): Hstep.
+  Qed.
+
+  eapply safe_nh_safe_nhfun; eauto.
+Qed.
+
+Lemma CSLhfun_pure_prem M G R (P : Prop) E hf Q :
+  (P -> CSLhfun M G (Assn R P E) hf Q)
+  -> CSLhfun M G (Assn R P E) hf Q.
+Proof.
+  intros H.
+  intros n Hctx vs s h Hbind Hsat.
+  unfold sat, Assn in Hsat; sep_split_in Hsat.
+  unfold CSLhfun, with_ctx, CSLhfun_n_simp in H.
+  applys (>>H vs); eauto.
+  unfold sat, Assn; sep_split; eauto.
+Qed.
+
+Lemma CSLfd_host M G P hf Q:
+  CSLhfun M G P hf Q -> CSLfd M G P (Host hf) Q.
+Proof.
+  eauto.
+Qed.
+
+Lemma fnOk'_In fn fns m :
+  fnOk' fns m -> In fn fns -> exists n, fn = kname n /\ n < m.
+Proof.
+  unfold fnOk'; rewrite Forall_forall; eauto.
+Qed.
+
+Theorem compile_prog_ok GA typ ntrd nblk (p : Skel.AS GA typ) :
   ntrd <> 0 -> nblk <> 0
   -> skel_as_wf GA typ p 
-  -> Skel.asDenote GA typ p aeenv = Some result
-  -> length result <= length vs
   -> interp_f (compile_prog ntrd nblk p) nil "__main"
     {| fs_tag := Hfun;
        fs_params := map fst (flatten_avars (gen_params GA));
        fs_tri := 
+         All aeenv apenv outp result vs,
          FDbl (kernelInv (remove_typeinfo (gen_params GA)) apenv aeenv
                          (T *** arrays (val2gl outp) vs 1)
-                         True
+                         (Skel.asDenote GA typ p aeenv = Some result /\ length result <= length vs)
                          (outArr typ |=> outp) 1)
               (fun l => kernelInv (remove_typeinfo (gen_params GA)) apenv aeenv
                                   (T *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
@@ -1521,39 +1644,24 @@ Theorem compile_prog_ok GA typ ntrd nblk (p : Skel.AS GA typ) aeenv apenv outp r
                                   (outArr typ |=> outp) 1%Qc) |}.
 Proof.
   intros.
-  unfold compile_prog.
-  Lemma ST_ok_exec T xs fns P Q Gp G (gen : CUDAM T) res ss Mp M n m n' m' :
-    (exists fvs, fv_assn P fvs /\ forall x m, In x fvs -> x <> hvar m)
-    -> (forall fn m, In fn (map fst Mp) -> fn <> kname m)
-    -> sat_FC Mp Gp Gp
-    -> fc_ok Mp Gp
-    -> disjoint_list (map fst Mp)
-    -> ST_ok (preST nil nil P Gp) gen (fun x => postST (xs x) (fns x) P (Q x) Gp (G x))
-    -> (res, ((n', m'), ss, M)) = gen n m
-    -> fc_ok (Mp ++ M) (G res) /\
-       disjoint_list (map fst Mp ++ map fst M) /\
-       fnOk' (map fst M) m' /\
-       sat_FC (Mp ++ M) nil (G res) /\
-       CSLh (Mp ++ M) (G res) P (seqs ss) (Q res).
-  Proof.
-    unfold ST_ok, preST, postST.
-    intros Hfv Hfn Hsat Hfc Hdisj Hok Heq.
-    forwards*: (>>Hok ss Mp M).
-    Hint Constructors Forall.
-    splits; [..|splits]; simpl; try now (unfold fnOk, fvOk; jauto).
-    { destruct Hfv as (? & ? & ?); eexists; splits; jauto.
-      unfold fvOk; rewrite Forall_forall; intros.
-      forwards*: (>>H0 H2). }
-    constructor.
-    { unfold fnOk; rewrite Forall_forall; intros.
-      forwards*: (>>Hfn H0). }
-    rewrite map_app in *.
-    splits; jauto.
-    
-    apply rule_module_rec; jauto.
-  Qed.
+  apply CSLf_interp_f.
+  repeat constructor.
+  { apply hlist_hasDefval; intros.
+    constructor; apply nil. }
+  { apply hlist_hasDefval; intros.
+    constructor; apply defval. }
+  { apply defval. }
+  simpl.
+  intros aeenv apenv outp result vs.
 
+  intros.
+  unfold compile_prog.
   destruct compile_AS as [res [[[n m] ss] kers]] eqn:Heq.
+
+  apply CSLfd_host.
+
+  apply CSLhfun_pure_prem; intros [? ?].
+
   forwards Hok: (>>compile_AS_ok ntrd nblk (remove_typeinfo (gen_params GA)) apenv aeenv (outArr typ) outp);
     [eauto | eauto | ..]; eauto.
   forwards* (Hfc_ok & Hdisj & Hfn & Hsat & Hcsl): (>>ST_ok_exec
@@ -1571,71 +1679,16 @@ Proof.
       apply genenv_ok. }
   simpl in *.
 
-  eapply rule_fun; simpl; eauto.
-
-  Lemma interp_fd_host M G hf params ftri :
-    interp_hfun M G hf (FS Hfun params ftri)
-    -> interp_fd M G (Host hf) (FS Hfun params ftri).
-  Proof.
-    unfold interp_fd, interp_hfun, interp_fd_simp; eauto.
-  Qed.
-
-  apply interp_fd_host.
-
-  Lemma interp_hfun_tri M G hf params ftri :
-    interp_ftri ftri (fun P Q => CSLhfun M G P hf Q)
-    -> interp_hfun M G hf (FS Hfun params ftri).
-  Proof.
-    unfold interp_hfun, interp_hfun_n_simp, CSLhfun, with_ctx; simpl; eauto; intros.
-    induction ftri; simpl in *; eauto.
-  Qed.
-
-  apply interp_hfun_tri; simpl.
-  
-  Lemma CSLh_CSLhfun M G params body ret v P Q' Q :
-    CSLh M G P body Q'
-    -> (forall s h, sat s h Q' -> s ret = v)  
-    -> Q' |= Q v
-    -> CSLhfun M G P (Hf params body ret) Q.
-  Proof.
-    unfold CSLh, CSLhfun, with_ctx, CSLh_n_simp, CSLhfun_n_simp; intros; simpl.
-    forwards*: H.
-    
-    Lemma safe_nh_safe_nhfun M n s h body ret Q' Q v :
-      safe_nh M n s h body Q'
-      -> (forall s h, Q' s h -> s ret = v)
-      -> Q' |= Q v
-      -> safe_nhfun M n s h body ret Q.
-    Proof.
-      revert s h body; induction n; simpl; eauto.
-      introv (Hskip & Hsafe & Hstep) Hret HQ; splits; jauto.
-      - intros; forwards*: Hskip.
-        erewrite Hret; eauto.
-        applys* HQ.
-      - introv Hdis Htoh Hexec; forwards*(h'' & ? & ? & ?): Hstep.
-    Qed.
-
-    eapply safe_nh_safe_nhfun; eauto.
-  Qed.
-
   eapply CSLh_CSLhfun.
-  applys* (>>CSLh_n_weaken kers).
-  2: applys* incl_tl.
-  simpl.
-
-  split; jauto.
-  Lemma fnOk'_In fn fns m :
-    fnOk' fns m -> In fn fns -> exists n, fn = kname n /\ n < m.
-  Proof.
-    unfold fnOk'; rewrite Forall_forall; eauto.
-  Qed.
-  
-  intros Hin; forwards*(? & Hfn' & _): fnOk'_In.
-  unfold kname in Hfn'; cbv in Hfn'; congruence.
-  introv Hsat'.
-  unfold sat, kernelInv, Assn in Hsat'; sep_split_in Hsat'.
-  simpl in HP0; destruct HP0.
-  unfold_conn_in H4; simpl in H4; eauto.
-
-  unfold kernelInv; prove_imp.
+  applys* (>>CSLh_n_weaken kers); simpl; eauto.
+  - split; jauto.
+    intros Hin; forwards*(? & Hfn' & _): fnOk'_In.
+    unfold kname in Hfn'; cbv in Hfn'; congruence.    
+  - eapply rule_host_forward; [apply Hcsl|..]; unfold kernelInv; prove_imp.
+  - applys* incl_tl.
+  - introv Hsat'.
+    unfold sat, kernelInv, Assn in Hsat'; sep_split_in Hsat'.
+    simpl in HP0; destruct HP0.
+    unfold_conn_in H4; simpl in H4; eauto.
+  - unfold kernelInv; prove_imp.
 Qed.
