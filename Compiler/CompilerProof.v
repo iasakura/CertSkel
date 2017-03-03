@@ -1003,16 +1003,16 @@ Proof.
   rewrite remove_xs_disj; eauto.
 Qed.
 
-Inductive skelE_wf GA (aeenv : AEvalEnv GA) : forall fty, Skel.SkelE GA fty -> Prop := 
+Inductive skelE_wf GA : forall fty, Skel.SkelE GA fty -> Prop := 
 | wf_Map dom cod (f : Skel.Func GA (Skel.Fun1 dom cod)) ae :
-    skelE_wf GA aeenv cod (Skel.Map _ _ _ f ae)
+    skelE_wf GA cod (Skel.Map _ _ _ f ae)
 | wf_Reduce typ (f : Skel.Func GA (Skel.Fun2 typ typ typ)) ae f_tot :
-    (forall x y : Skel.typDenote typ, Skel.funcDenote GA (Skel.Fun2 typ typ typ) f aeenv x y = Some (f_tot x y))
+    (forall aeenv (x y : Skel.typDenote typ), Skel.funcDenote GA (Skel.Fun2 typ typ typ) f aeenv x y = Some (f_tot x y))
     -> (forall x y : Skel.typDenote typ, f_tot x y = f_tot y x)
     -> (forall x y z : Skel.typDenote typ, f_tot (f_tot x y) z = f_tot x (f_tot y z))
-    -> skelE_wf GA aeenv typ (Skel.Reduce _ _ f ae)
-| wf_Seq start l : skelE_wf GA aeenv Skel.TZ (Skel.Seq GA start l)
-| wf_Zip t1 t2 ae1 ae2 : skelE_wf GA aeenv (Skel.TTup t1 t2) (Skel.Zip _ t1 t2 ae1 ae2).
+    -> skelE_wf GA typ (Skel.Reduce _ _ f ae)
+| wf_Seq start l : skelE_wf GA Skel.TZ (Skel.Seq GA start l)
+| wf_Zip t1 t2 ae1 ae2 : skelE_wf GA (Skel.TTup t1 t2) (Skel.Zip _ t1 t2 ae1 ae2).
 
 Lemma mapM_total A B (f : A -> B) (l : list A) : SkelLib.mapM (fun i => Some (f i)) l = Some (map f l).
 Proof.
@@ -1125,7 +1125,7 @@ Lemma compile_skel_ok GA ntrd nblk typ
       (result : Skel.aTypDenote typ)
       xs fns Gp skelE R P E:
   ntrd <> 0 -> nblk <> 0
-  -> skelE_wf GA aeenv _ skelE 
+  -> skelE_wf GA _ skelE 
   -> Skel.skelDenote GA typ skelE aeenv = Some result
   -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv (T *** R) P E 1) Gp)
            (compile_Skel ntrd nblk skelE avenv)
@@ -1250,12 +1250,12 @@ Proof.
       unfold ret in Heq3; simpl in Heq3; congruence.
 Qed.            
 
-Inductive skel_as_wf GA (aeenv : AEvalEnv GA) : forall fty, Skel.AS GA fty -> Prop :=
+Inductive skel_as_wf GA : forall fty, Skel.AS GA fty -> Prop :=
 | wf_ALet t1 t2 (skel : Skel.SkelE GA t1) (skel_as : Skel.AS (t1 :: GA) t2) :
-    skelE_wf GA aeenv _ skel
-    -> (forall v, Skel.skelDenote _ _ skel aeenv = Some v -> skel_as_wf (t1 :: GA) (v ::: aeenv) _ skel_as)
-    -> skel_as_wf GA aeenv _ (Skel.ALet _ _ _ skel skel_as)
-| wf_ARet t m : skel_as_wf GA aeenv t (Skel.ARet _ _ m).
+    skelE_wf GA _ skel
+    -> (skel_as_wf (t1 :: GA) _ skel_as)
+    -> skel_as_wf GA _ (Skel.ALet _ _ _ skel skel_as)
+| wf_ARet t m : skel_as_wf GA t (Skel.ARet _ _ m).
 
 Lemma compile_res_ok GA typ ntrd nblk
       (avenv : AVarEnv GA) (apenv : APtrEnv GA) (aeenv : AEvalEnv GA)
@@ -1405,10 +1405,11 @@ Theorem compile_AS_ok GA ntrd nblk typ
       (result : Skel.aTypDenote typ)
       xs fns Gp skel_as (outs : vars typ) outp vs :
   ntrd <> 0 -> nblk <> 0
-  -> length result <= length vs
-  -> skel_as_wf GA aeenv _ skel_as 
-  -> Skel.asDenote GA typ skel_as aeenv = Some result
-  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv (T *** arrays (val2gl outp) vs 1) True (outs |=> outp) 1) Gp)
+  -> skel_as_wf GA _ skel_as 
+  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv 
+                                    (T *** arrays (val2gl outp) vs 1)
+                                    (length result <= length vs /\ Skel.asDenote GA typ skel_as aeenv = Some result)
+                                    (outs |=> outp) 1) Gp)
            (compile_AS ntrd nblk skel_as outs avenv)
            (fun res => postST xs fns (kernelInv avenv apenv aeenv (T *** arrays (val2gl outp) vs 1) True (outs |=> outp) 1)
                               (kernelInv avenv apenv aeenv
@@ -1477,8 +1478,28 @@ Proof.
     applys* compile_res_ok.
 Qed.
 
+Lemma fc_ok_M_app2 M1 M2 G :
+  disjoint (map fst M1) (map fst M2)
+  -> fc_ok M2 G -> fc_ok (M1 ++ M2) G.
+Proof.
+  induction G as [|[? ?] ?]; simpl; eauto.
+  intros; split; jauto.
+  apply fn_ok_ignore; jauto.
+  intros Hin.
+  forwards*: (>>disjoint_not_in_r H); simpl; eauto.
+  Lemma fn_ok_In M fn fs :
+    Host.fn_ok M fn fs -> In fn (map fst M).
+  Proof.
+    unfold Host.fn_ok.
+    intros; destruct func_disp eqn:Heq; try tauto.
+    intros; forwards*: (func_disp_in').
+  Qed.
+  forwards*: fn_ok_In.
+Qed.
+
 Theorem compile_prog_ok GA typ ntrd nblk (p : Skel.AS GA typ) :
   ntrd <> 0 -> nblk <> 0 ->
+  skel_as_wf GA typ p ->
   interp_f (compile_prog ntrd nblk p) nil "__main"
     {| fs_tag := Hfun;
        fs_params := nil;
@@ -1486,11 +1507,41 @@ Theorem compile_prog_ok GA typ ntrd nblk (p : Skel.AS GA typ) :
     (All aeenv apenv result outp vs,
      FDbl (kernelInv (remove_typeinfo (gen_params GA)) apenv aeenv
                      (T *** arrays (val2gl outp) vs 1)
-                     (Skel.asDenote GA typ p aeenv = Some result /\
-                      skel_as_wf GA aeenv typ p)
+                     (Skel.asDenote GA typ p aeenv = Some result)
                      (outArr typ |=> outp) 1)
           (fun l => kernelInv (remove_typeinfo (gen_params GA)) apenv aeenv
                               (T *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
                               (l = Zn (length result))
                               (outArr typ |=> outp) 1%Qc)) |}.
 Proof.
+  intros.
+  unfold compile_prog.
+  Lemma ST_ok_exec T xs fns P Q Gp G (gen : CUDAM T) res ss Mp M n m :
+    (exists fvs, fv_assn P fvs /\ forall x m, In x fvs -> x <> hvar m)
+    -> (forall fn m, In fn (map fst Mp) -> fn <> kname m)
+    -> sat_FC Mp Gp Gp
+    -> fc_ok Mp Gp
+    -> disjoint_list (map fst Mp)
+    -> ST_ok (preST nil nil P Gp) gen (fun x => postST (xs x) (fns x) P (Q x) Gp (G x))
+    -> (res, ((n, m), ss, M)) = gen n m
+    -> fc_ok (Mp ++ M) (G res) /\
+       sat_FC (Mp ++ M) nil (G res) /\
+       CSLh (Mp ++ M) (G res) P (seqs ss) (Q res).
+  Proof.
+    unfold ST_ok, preST, postST.
+    intros Hfv Hfn Hsat Hfc Hdisj Hok Heq.
+    forwards*: (>>Hok ss Mp M).
+    Hint Constructors Forall.
+    splits; [..|splits]; simpl; try now (unfold fnOk, fvOk; jauto).
+    { destruct Hfv as (? & ? & ?); eexists; splits; jauto.
+      unfold fvOk; rewrite Forall_forall; intros.
+      forwards*: (>>H0 H2). }
+    { unfold fnOk; rewrite Forall_forall; intros.
+      forwards*: (>>Hfn H0). }
+    splits; jauto.
+    apply rule_module_rec; jauto.
+  Qed.
+
+  forwards*: compile_AS_ok.
+    
+  eapply rule_fun; eauto.
