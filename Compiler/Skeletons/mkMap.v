@@ -161,7 +161,7 @@ Proof.
             i mod (ntrd * nblk) <> nf tid + nf bid * ntrd).
     { intros; apply (mod_between j); eauto with pure_lemma. }
     
-    (* Time t. *) admit. }
+    Time t. }
 Qed.
 
 Lemma before_loop_ok (varr vout : list (vals cod)) :
@@ -177,7 +177,7 @@ Proof.
     repeat autorewrite with pure; simpl in *.
     assert (i < nf tid + nf bid * ntrd -> (i mod (ntrd * nblk)) <> nf tid + nf bid * ntrd).
     { intros; rewrite Nat.mod_small; eauto; try lia. }
-  (* Time t. *) admit. }
+    Time t. }
 Qed.
 
 Lemma after_loop_ok (varr vout : list (vals cod)) vs i :
@@ -189,7 +189,7 @@ Proof.
   intros; substs; eapply (@eq_from_nth _ None).
   { t. }
   intros i'; repeat autorewrite with pure; simpl; intros ?.
-  (* Time t. *) admit.
+  Time t.
 Qed.
 
 Hint Resolve loop_inv_ok before_loop_ok after_loop_ok : pure_lemma.

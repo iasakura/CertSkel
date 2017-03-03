@@ -1610,7 +1610,8 @@ Lemma feb_ok' ds len g :
 Proof.
   intros.
   forwards*: (>>feb_ok ntrd nblk e_b g len).
-  admit.
+  (* TODO: Fix feb_ok lemma not to rely on tid *)
+  { destruct ntrd; try omega; apply Fin.F1. }
   destruct len; try omega; simpl in *.
   destruct sum_of_vs eqn:Heq; eauto.
 Qed.
