@@ -1,7 +1,7 @@
 Set Implicit Arguments.
 Unset Strict Implicit.
 
-Require Import NPeano.
+Require Import PeanoNat.
 Require Import Arith.
 Require Import List MyList.
 Import ListNotations.

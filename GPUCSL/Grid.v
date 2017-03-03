@@ -1,5 +1,5 @@
 Require Export CSL.
-Require Import array_dist Bdiv MyList MyVector NPeano.
+Require Import array_dist Bdiv MyList MyVector PeanoNat.
 Import PHeap Lang assertion_lemmas.
 Require Import TLC.LibTactics.
 Import ZArith.

@@ -1,4 +1,4 @@
-Require Import LibTactics Psatz.
+Require Import PeanoNat Nat LibTactics Psatz.
 Require Import GPUCSL SkelLib scan_lib CSLTactics.
 Require Import CUDALib TypedTerm.
 Require Import Host.
@@ -1920,7 +1920,7 @@ Proof.
   intros.
   exists ((ls_init 0 nblk0
                    (fun j : nat =>
-                      f_sim typ (S (NPeano.Nat.log2 ntrd0)) f_tot
+                      f_sim typ (S (log2 ntrd0)) f_tot
                             (ls_init 0 ntrd0
                                      (fun i : nat =>
                                         vi typ ntrd0 nblk0 GA aeval_env arr f f_tot
@@ -1933,7 +1933,7 @@ Proof.
                                (Datatypes.length
                                   (arr_res typ GA aeval_env arr f result
                                            eval_map_ok) - j * ntrd0) ntrd0)
-                            (S (NPeano.Nat.log2 ntrd0)) 0))).
+                            (S (log2 ntrd0)) 0))).
   unfold kernelInv' in *; revert s h H; prove_imp.
   Lemma sum_of_f_opt_reduceM T d (f : T -> T -> T) (g : list T) :
     SkelLib.reduceM (fun x y => Some (f x y)) g =

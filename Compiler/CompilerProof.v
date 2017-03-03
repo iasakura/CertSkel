@@ -638,7 +638,7 @@ Proof.
           apply out_name_arrInvVar.          
           apply subst_env_params.
     - intros [? ?]; splits; [..|splits]; eauto.
-      forwards*: (log2_spec ntrd); simpl; omega.
+      forwards*: (Nat.log2_spec ntrd); simpl; omega.
       applys* compile_AE_ok.
       applys* (>>compile_func_ok (Skel.Fun2 typ typ typ)).
       instantiate (1 := vs); omega.
@@ -876,7 +876,7 @@ Proof.
       instantiate (1 := vs').
       instantiate (1 := f_tot).
       splits; [..|splits]; jauto; try (zify; omega).
-      simpl; forwards*: (log2_spec (length vs1)); simpl; (zify; omega).
+      simpl; forwards*: (Nat.log2_spec (length vs1)); simpl; (zify; omega).
       applys* compile_AE_ok.
       applys* (>>compile_func_ok (Skel.Fun2 typ typ typ)).
       introv.
