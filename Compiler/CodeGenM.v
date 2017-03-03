@@ -98,7 +98,7 @@ Definition STPre : Type := nat -> nat -> GModule -> Prop.
 Definition STPost : Type := 
   nat -> nat (* pre state *)
   -> nat -> nat (* post state *)
-  -> GModule -> stmt (* generated code *)
+  -> GModule -> GModule -> stmt (* generated funs, previous funs ++ generated funs, generated code *)
   -> Prop.
 (* Definition assnStmt : Type := GModule -> stmt -> Prop. *)
 
@@ -106,7 +106,7 @@ Definition ST_ok {T} (P : STPre) (gen : CUDAM T) (Q : T -> STPost) :=
   forall (n m n' m' : nat) st GMp GM v,
     P n m GMp
     -> gen n m = (v, (n', m', st, GM))
-    -> Q v n m n' m' (GMp ++ GM) (seqs st).
+    -> Q v n m n' m' GM (GMp ++ GM) (seqs st).
 
 Parameter fv_assn : assn -> list var -> Prop.
 Axiom fv_assn_ok : forall P xs ys,
@@ -123,29 +123,46 @@ Definition fvOk xs n : Prop :=
   List.Forall (fun x => forall m, x = hvar m -> m < n) xs.
 Definition fnOk fns n : Prop :=
   List.Forall (fun fn => forall m, fn = kname m -> m < n) fns.
+Definition fnOk' fns n : Prop :=
+  List.Forall (fun fn => exists m, fn = kname m /\ m < n) fns.
 
 Definition preST ys fns P Gp : STPre := fun n m M =>
   (exists xs, fv_assn P xs /\ fvOk xs n /\ disjoint ys xs) /\
-  fnOk fns m /\ fvOk ys n /\ disjoint fns (map fst M) /\
+  fnOk' fns m /\ fvOk ys n /\ disjoint fns (map fst M) /\
   disjoint_list ys /\
   disjoint_list fns /\
   sat_FC M Gp Gp /\ disjoint_list (map fst M) /\
   fc_ok M Gp /\
   fnOk (map fst M) m.
 
-Definition postST ys fns (P Q : assn) (Gp G : FC) : STPost := fun n m n' m' M st =>
+Definition postST ys fns (P Q : assn) (Gp G : FC) : STPost := fun n m n' m' Mc M st =>
   n <= n' /\ m <= m' /\
   
   (exists xs, fv_assn Q xs /\ fvOk xs n' /\ disjoint ys xs) /\
-  fnOk fns m' /\ fvOk ys n' /\ disjoint fns (map fst M) /\
+  fnOk' fns m' /\ fvOk ys n' /\ disjoint fns (map fst M) /\
   disjoint_list ys /\
   disjoint_list fns  /\
   disjoint_list (map fst M) /\
+  fnOk' (map fst Mc) m' /\
   fnOk (map fst M) m' /\
   fc_ok M G /\
   sat_FC M G G /\
   CSLh M G P st Q.
 
+Lemma kname_inj m n : kname m = kname n -> m = n.
+Proof.
+  unfold kname; intros H.
+  inverts H.
+  forwards*: (>>nat_to_string_inj H1).
+Qed.
+
+Lemma fnOk'_fnOk fns n :
+  fnOk' fns n -> fnOk fns n.
+Proof.
+  induction 1; constructor; eauto.
+  destruct H as (? & ? & ?); intros; substs; jauto.
+  apply kname_inj in H2; substs; jauto.
+Qed.
 (* Definition code_ok G P Q : assnST :=  *)
 (*   fun _ c gm => CSLh_n gm G P c Q. *)
 (* Definition usable_vars xs : assnST := fun n _ _ => usable_vars_pure xs n. *)
@@ -321,6 +338,7 @@ Proof.
     + applys (>>fvOk_weaken HysOk); omega.
   - simpl; splits; jauto.
     eapply fvOk_ge; eauto.
+  - constructor.
   - repeat rewrite app_nil_r.
     apply rule_host_skip.
 Qed.
@@ -439,6 +457,7 @@ Proof.
   - applys (>>fvOk_incl HysOk).
     apply remove_xs_incl.
   - applys* disjoint_list_removed.
+  - constructor.
   - eapply rule_host_seq; [jauto|apply rule_host_skip].
 Qed.  
 
@@ -628,7 +647,16 @@ Qed.
 (*   rewrite fn_ok_in; simpl; eauto. *)
 (* Qed. *)
 
-Definition ExStmt {T} (f : T -> STPost) := fun n m n' m' gm st => exists x, f x n m n' m' gm st.
+Definition ExStmt {T} (f : T -> STPost) := fun n m n' m' Mc M st => exists x, f x n m n' m' Mc M st.
+
+Lemma fnOk'_weaken fn n m :
+  n <= m
+  -> fnOk' fn n 
+  -> fnOk' fn m.
+Proof.
+  unfold fnOk'; rewrite !Forall_forall; intros.
+  forwards* (x' & ? & ?): H0; exists x'; splits; eauto; omega.
+Qed.
 
 Lemma rule_bind T1 T2
       ys fns 
@@ -660,6 +688,8 @@ Proof.
   repeat rewrite map_app in *.
   repeat rewrite <-app_assoc in *.
   Time splits; [..|splits]; jauto; try omega.
+  apply Forall_app; unfold fnOk' in *; jauto.
+  applys* (>>fnOk'_weaken m').
   eapply rule_app_seqs; jauto.
   applys* (>>CSLh_n_weaken (M0 ++ M') (G v) ); try rewrite !map_app;
     (try now (rewrite app_assoc; apply incl_appl; apply incl_refl)); jauto.
@@ -672,7 +702,7 @@ Proof.
 Qed.
 
 Lemma rule_backward T (P : STPre) (Q Q' : T -> STPost) gen :
-  ST_ok P gen Q -> (forall v n m n' m' M st, Q v n m n' m' M st -> Q' v n m n' m' M st) -> ST_ok P gen Q'.
+  ST_ok P gen Q -> (forall v n m n' m' Mc M st, Q v n m n' m' Mc M st -> Q' v n m n' m' Mc M st) -> ST_ok P gen Q'.
 Proof.
   unfold ST_ok; eauto.
 Qed.
@@ -717,6 +747,7 @@ Proof.
   unfold ST_ok, preST, postST; intros.
   inverts H0.
   splits; [..|splits]; try rewrite !app_nil_r; try omega; jauto.
+  constructor.
   apply rule_host_skip.
 Qed.
 
@@ -884,12 +915,13 @@ Proof.
       n <= n' /\
       m <= m' /\
       (exists xs, fv_assn (q v) xs /\ fvOk xs n' /\ disjoint (ys v) xs) /\
-      fnOk (fns v) m' /\
+      fnOk' (fns v) m' /\
       fvOk (ys v) n' /\
       disjoint (fns v) (map fst (GMp ++ GM)) /\
       disjoint_list (ys v) /\
       disjoint_list (fns v) /\
       disjoint_list (map fst (GMp ++ GM)) /\
+      fnOk' (map fst GM) m' /\
       fnOk (map fst (GMp ++ GM)) m' /\
       fc_ok (GMp ++ GM) (G v) /\
       sat_FC (GMp ++ GM) (G v) (G v) /\
@@ -992,6 +1024,7 @@ Proof.
                (fun x => postST (ys x) (fns x) P (Q x) Gp Gp).
     Proof.
       intros; unfold ST_ok, preST, postST; intros; splits; [..|splits]; inverts H2; repeat rewrite app_nil_r; jauto.
+      constructor.
       eapply rule_host_backward; [apply rule_host_skip|eauto].
     Qed.
     intros xs2; simpl; unfold K.
@@ -1078,19 +1111,19 @@ Lemma postST_imp P Q Q' Gp G G' ys ys' fns fns':
   incl fns' fns ->
   (disjoint_list fns -> disjoint_list fns') ->
   (disjoint_list ys -> disjoint_list ys') ->
-  forall n m n' m' M st,
-    postST ys fns P Q Gp G n m n' m' M st ->
-    postST ys' fns' P Q' Gp G' n m n' m' M st.
+  forall n m n' m' Mc M st,
+    postST ys fns P Q Gp G n m n' m' Mc M st ->
+    postST ys' fns' P Q' Gp G' n m n' m' Mc M st.
 Proof.
   unfold postST; intros.
   destruct H6 as (? & ? & (? & ? & ? & ?) & ? & ? & ? & ? & ? & ? & ? & ?); splits; [..|splits]; jauto;
-  unfold fnOk, fvOk, incl in *; repeat rewrite Forall_forall in *;
+  unfold fnOk, fnOk', fvOk, incl in *; repeat rewrite Forall_forall in *;
   intros; intuition.
   exists x; splits; eauto.
   rewrite Forall_forall; eauto.
   eapply disjoint_incl_l; eauto.
   forwards*: H10.
-  forwards*: H12.
+  forwards*: H13.
   eapply disjoint_incl_l; [|eapply disjoint_incl]; eauto.
   (* eapply disjoint_incl_l; [|eapply disjoint_incl]; eauto. *)
   Lemma sat_FC_strong M Gp G : sat_FC M nil G -> sat_FC M Gp G.
@@ -1132,9 +1165,9 @@ Proof.
   apply sat_FC_strong; eauto.
 
   eapply rule_host_backward; [|eauto..].
-  intros ? ?; forwards*: H21.
-  apply rule_module_rec in H18; eauto.
-  apply H18; constructor.
+  intros ? ?; forwards*: H22.
+  apply rule_module_rec in H20; eauto.
+  apply H20; constructor.
 Qed.
 
 Lemma rule_fAllocs typ Gp R P E ys fns size l :
@@ -1172,19 +1205,20 @@ Proof.
   unfold fnOk; rewrite !Forall_forall; intros.
   forwards*: H0; omega.
 Qed.
-  
-Lemma kname_inj m n : kname m = kname n -> m = n.
-Proof.
-  unfold kname; intros H.
-  inverts H.
-  forwards*: (>>nat_to_string_inj H1).
-Qed.
 
 Lemma fnOk_ge n m xs :
   fnOk xs n -> n <= m -> ~ In (kname m) xs.
 Proof.
   unfold fnOk; rewrite Forall_forall; intros H ? Hc.
   forwards*: H; omega.
+Qed.
+  
+Lemma fnOk'_ge n m xs :
+  fnOk' xs n -> n <= m -> ~ In (kname m) xs.
+Proof.
+  unfold fnOk'; rewrite Forall_forall; intros H ? Hc.
+  forwards*(? & ? & ?): H.
+  apply kname_inj in H1; substs; omega.
 Qed.
 
 Lemma rule_freshF G P ys fns :
@@ -1197,12 +1231,13 @@ Proof.
   inverts Heq.
   splits; [..|splits]; repeat rewrite app_nil_r; jauto; try omega.
   - constructor.
-    + intros ? Heq; apply kname_inj in Heq; subst; omega.
-    + applys (>>fnOk_weaken HfnsOk); omega.
+    + exists m; splits; eauto.
+    + applys (>>fnOk'_weaken HfnsOk); omega.
   - split; eauto.
     eapply fnOk_ge; jauto.
   - split; jauto.
-    eapply fnOk_ge; eauto.
+    eapply fnOk'_ge; eauto.
+  - constructor.
   - eapply fnOk_weaken; [|jauto]; omega.
   - repeat rewrite app_nil_r.
     apply rule_host_skip.
@@ -1359,7 +1394,9 @@ Proof.
     simpl; eauto.
     introv ? [Hc | []]; substs; jauto.
     unfold fnOk in HfnsOk; inverts HfnsOk.
+    constructor; eauto.
     apply Forall_app; jauto.
+    apply fnOk'_fnOk; inverts HfnsOk; constructor; eauto.
     apply fc_ok_app; simpl.
     applys* fc_ok_weaken.
     splits; eauto; applys* fn_ok_ignore.
@@ -1421,6 +1458,7 @@ Proof.
     apply H; eauto.
     unfold sat, Assn; sep_split; eauto.
   Qed.
+  constructor.
   apply CSLh_pure_prem; intros Hp.
   eapply rule_host_seq.
   applys (>>rule_invk H2 H4); jauto.
