@@ -1405,10 +1405,11 @@ Theorem compile_AS_ok GA ntrd nblk typ
       (result : Skel.aTypDenote typ)
       xs fns Gp skel_as (outs : vars typ) outp vs :
   ntrd <> 0 -> nblk <> 0
-  -> length result <= length vs
   -> skel_as_wf GA _ skel_as 
-  -> Skel.asDenote GA typ skel_as aeenv = Some result
-  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv (T *** arrays (val2gl outp) vs 1) True (outs |=> outp) 1) Gp)
+  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv 
+                                    (T *** arrays (val2gl outp) vs 1)
+                                    (length result <= length vs /\ Skel.asDenote GA typ skel_as aeenv = Some result)
+                                    (outs |=> outp) 1) Gp)
            (compile_AS ntrd nblk skel_as outs avenv)
            (fun res => postST xs fns (kernelInv avenv apenv aeenv (T *** arrays (val2gl outp) vs 1) True (outs |=> outp) 1)
                               (kernelInv avenv apenv aeenv
@@ -1477,6 +1478,25 @@ Proof.
     applys* compile_res_ok.
 Qed.
 
+Lemma fc_ok_M_app2 M1 M2 G :
+  disjoint (map fst M1) (map fst M2)
+  -> fc_ok M2 G -> fc_ok (M1 ++ M2) G.
+Proof.
+  induction G as [|[? ?] ?]; simpl; eauto.
+  intros; split; jauto.
+  apply fn_ok_ignore; jauto.
+  intros Hin.
+  forwards*: (>>disjoint_not_in_r H); simpl; eauto.
+  Lemma fn_ok_In M fn fs :
+    Host.fn_ok M fn fs -> In fn (map fst M).
+  Proof.
+    unfold Host.fn_ok.
+    intros; destruct func_disp eqn:Heq; try tauto.
+    intros; forwards*: (func_disp_in').
+  Qed.
+  forwards*: fn_ok_In.
+Qed.
+
 Theorem compile_prog_ok GA typ ntrd nblk (p : Skel.AS GA typ) :
   ntrd <> 0 -> nblk <> 0 ->
   skel_as_wf GA typ p ->
@@ -1494,3 +1514,34 @@ Theorem compile_prog_ok GA typ ntrd nblk (p : Skel.AS GA typ) :
                               (l = Zn (length result))
                               (outArr typ |=> outp) 1%Qc)) |}.
 Proof.
+  intros.
+  unfold compile_prog.
+  Lemma ST_ok_exec T xs fns P Q Gp G (gen : CUDAM T) res ss Mp M n m :
+    (exists fvs, fv_assn P fvs /\ forall x m, In x fvs -> x <> hvar m)
+    -> (forall fn m, In fn (map fst Mp) -> fn <> kname m)
+    -> sat_FC Mp Gp Gp
+    -> fc_ok Mp Gp
+    -> disjoint_list (map fst Mp)
+    -> ST_ok (preST nil nil P Gp) gen (fun x => postST (xs x) (fns x) P (Q x) Gp (G x))
+    -> (res, ((n, m), ss, M)) = gen n m
+    -> fc_ok (Mp ++ M) (G res) /\
+       sat_FC (Mp ++ M) nil (G res) /\
+       CSLh (Mp ++ M) (G res) P (seqs ss) (Q res).
+  Proof.
+    unfold ST_ok, preST, postST.
+    intros Hfv Hfn Hsat Hfc Hdisj Hok Heq.
+    forwards*: (>>Hok ss Mp M).
+    Hint Constructors Forall.
+    splits; [..|splits]; simpl; try now (unfold fnOk, fvOk; jauto).
+    { destruct Hfv as (? & ? & ?); eexists; splits; jauto.
+      unfold fvOk; rewrite Forall_forall; intros.
+      forwards*: (>>H0 H2). }
+    { unfold fnOk; rewrite Forall_forall; intros.
+      forwards*: (>>Hfn H0). }
+    splits; jauto.
+    apply rule_module_rec; jauto.
+  Qed.
+
+  forwards*: compile_AS_ok.
+    
+  eapply rule_fun; eauto.
