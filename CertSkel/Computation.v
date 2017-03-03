@@ -20,7 +20,7 @@ Qed.
 Lemma let_bind {A B : Type} (t : list A) (f : list A -> comp B) : (let x := t in f x) = (do! x <- ret t in f x).
 Proof. eauto. Qed.
 
-Lemma let_lift1 {A B : Type} (f : list A -> comp B) (xs : list A) : f xs = do! t <- ret xs in f t.
+Lemma let_lift1 {A B : Type} (f : A -> comp B) (xs : A) : f xs = do! t <- ret xs in f t.
 Proof. eauto. Qed.
 
 Definition skels := (tt, @reduceM, @zip, seq).
@@ -539,35 +539,47 @@ Ltac transform prog k :=
   let t := constr:(fun (_ : unit ) => prog) in
   transform0 (@nil Skel.Typ) t ltac:(fun res => k res).
 
-Goal False.
-  let t := constr:(
-  fun (x : list Z) =>
-    do! idx <- ret (seq 0 (len x)) in
-    do! arrIdx <- ret (zip x idx) in
-    do! res <- reduceM (fun x y : Z * Z => if fst x <? fst y then ret x else ret y) arrIdx in
-    ret res : comp _) in
-  transform t ltac:(fun res => pose res as prog).
+Lemma let_ret T (app : comp T) : (do! x <- app in ret x) = app.
+Proof. unfold bind; simpl; unfold bind_opt; destruct app; eauto. Qed.
 
-  let t := constr:(fun (p : unit * list Z) (i : Z) => do! x1 <- nth_error (mysnd p) i in ret (x1, i)) in
-  scalarFunc (Skel.TZ :: nil) t ltac:(fun res => pose res as p).
-  let t := constr:(fun (p : unit * list Z) => 
-          gen (fun i : Z => do! x1 <- nth_error (mysnd p) i in ret (x1, i))
-               (len (mysnd p))) in
-  reifyAE (Skel.TZ :: nil) t ltac:(fun res => pose res as p').
+Ltac let_intro_pure f T ans :=
+  lazymatch f with
+  | fun x => x => constr:(fun (k : T -> ans) x => k (f x))
+  | fun x => seq (@?n x) (@?m x) =>
+    constr:(fun (k : list Z -> ans) x => do! t <- ret (seq (n x) (m x)) in k t)
+  | fun x => zip (@?arg1 x) (@?arg2 x) =>
+    let arg1' := let_intro_pure arg1 T ans in
+    let arg2' := let_intro_pure arg2 T ans in
+    constr:(fun k x => 
+                 arg1' (fun t1 => 
+                 arg2' (fun t2 => 
+                 do! t3 <- ret (zip t1 t2) in k t3) x) x)
+  | fun x => reduceM (@?op x) (@?arg1 x) =>
+    let arg1' := let_intro_pure arg1 T ans in
+    constr:(fun k x => arg1' (fun t1 => do! t2 <- (reduceM (op x) t1) in k t2) x)
+  end.
 
-  let t := constr:((fun x0 : list Z =>
-      do! x1 <- (do! t <- gen (fun i : Z => do! x1 <- nth_error x0 i in ret (x1, i))
-               (len x0)
-          in reduceM
-               (fun x1 y : Z * Z =>
-                if fst x1 <? fst y then ret x1 else ret y) t) in 
-      ret x1)) in
-  transform t ltac:(fun res => pose res as p'').
-  Eval simpl in Skel.asDenote (Skel.TZ :: nil) _ prog.
-Abort.  
+Ltac let_intro := lazymatch goal with
+| [|- forall x, _ x = @?prog x] =>
+  let x := fresh "x" in
+  idtac prog;
+  intros x;
+  let T := match type of prog with ?T -> _ => T end in
+  let ans := match type of prog with _ -> ?ans => ans end in
+  let t := let_intro_pure prog T ans in 
+  idtac t;
+  let t' := constr:(t ret x) in
+  let t' := eval cbv beta in t' in 
+  lazymatch goal with
+    [|- _ = ?prog] =>
+    cutrewrite (prog = t');
+      [reflexivity|repeat first [rewrite <-let_lift1 | rewrite let_ret]; eauto]
+  end
+end.
 
-Arguments ret : simpl never.
-Arguments bind : simpl never.
+Lemma if_app (A B : Type) (f : A -> B) (b : bool) x y :
+  (f (if b then x else y)) = (if b then f x else f y).
+Proof. destruct b; eauto. Qed.
 
 Require Import CUDALib CSLLemma CSLTactics CodeGen.
 
@@ -631,3 +643,86 @@ Lemma ext_fun {T U : Skel.Typ} (p : Skel.AS (T :: nil) U) f g :
 Proof.
   unfold equivGI1; intros Heq; intros; rewrite <-Heq; eauto.
 Qed.
+
+Ltac prove_equiv1 :=
+  unfold equivGI1; simpl; intros; auto;
+  repeat (destruct Z_le_dec; try omega);
+  repeat first [rewrite <-let_lift1 | rewrite let_ret];
+  repeat
+    (match goal with _ => idtac end;
+      lazymatch goal with
+      | [|- context [do! _ <- ret ?skel in _]] =>  rewrite <-(let_lift1 _ skel)
+      | [|- context [do! x <- ?skel in ret x]] =>  rewrite (let_ret _ skel)
+      end);
+    repeat rewrite let_ret;
+  repeat f_equal;
+  repeat (let l := fresh in extensionality l; intros);
+  repeat (match goal with _ => idtac end;
+      lazymatch goal with
+      | [|- context [do! _ <- ret ?skel in _]] =>  rewrite <-(let_lift1 _ skel)
+      | [|- context [do! x <- ?skel in ret x]] =>  rewrite (let_ret _ skel)
+      | [|- context [ret (if _ then _ else _)]] =>  rewrite (if_app _ _ ret)
+      end); eauto.
+
+Require Import CompilerProof.
+
+Definition compileOk dom cod (p : Skel.AS (dom :: nil) cod) :
+  skel_as_wf _ _ p
+  -> equivIC1 p (Compiler.compile_prog 1024 24 p).
+Proof.
+  unfold equivIC1.
+  intros; applys (>>compile_prog_ok (dom :: nil) cod); eauto.
+Qed.  
+
+Lemma equiv_trans' (dom cod : Skel.Typ)
+  (p_g : list (Skel.typDenote dom) -> comp (list (Skel.typDenote cod))) (p_i : {p_i | equivGI1 p_g p_i}) :
+  {M | equivIC1 (proj1_sig p_i) M} ->
+  {M | equivGC1 p_g M}.
+Proof.
+  intros M.
+  destruct p_i as [p_i ?]; simpl in *.
+  destruct M as [M ?].
+  eexists; eapply equiv_trans; eauto.
+Qed.
+
+Ltac reifyFunc := 
+  eexists;
+  eapply equiv_trans;
+  [eapply ext_fun;
+    [simpl in *; let_intro|
+     lazymatch goal with
+     | [|- equivGI1 ?prog _ ] =>
+       transform prog ltac:(fun res => instantiate (1 := res))
+     end]; prove_equiv1|].
+
+
+Goal False.
+  let t := constr:(
+  fun (x : list Z) =>
+    do! idx <- ret (seq 0 (len x)) in
+    do! arrIdx <- ret (zip x idx) in
+    do! res <- reduceM (fun x y : Z * Z => if fst x <? fst y then ret x else ret y) arrIdx in
+    ret res : comp _) in
+  transform t ltac:(fun res => pose res as prog).
+
+  let t := constr:(fun (p : unit * list Z) (i : Z) => do! x1 <- nth_error (mysnd p) i in ret (x1, i)) in
+  scalarFunc (Skel.TZ :: nil) t ltac:(fun res => pose res as p).
+  let t := constr:(fun (p : unit * list Z) => 
+          gen (fun i : Z => do! x1 <- nth_error (mysnd p) i in ret (x1, i))
+               (len (mysnd p))) in
+  reifyAE (Skel.TZ :: nil) t ltac:(fun res => pose res as p').
+
+  let t := constr:((fun x0 : list Z =>
+      do! x1 <- (do! t <- gen (fun i : Z => do! x1 <- nth_error x0 i in ret (x1, i))
+               (len x0)
+          in reduceM
+               (fun x1 y : Z * Z =>
+                if fst x1 <? fst y then ret x1 else ret y) t) in 
+      ret x1)) in
+  transform t ltac:(fun res => pose res as p'').
+  Eval simpl in Skel.asDenote (Skel.TZ :: nil) _ prog.
+Abort.  
+
+Arguments ret : simpl never.
+Arguments bind : simpl never.
+
