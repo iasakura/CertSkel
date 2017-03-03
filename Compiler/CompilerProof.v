@@ -1638,10 +1638,9 @@ Theorem compile_prog_ok GA typ ntrd nblk (p : Skel.AS GA typ) :
                          (T *** arrays (val2gl outp) vs 1)
                          (Skel.asDenote GA typ p aeenv = Some result /\ length result <= length vs)
                          (outArr typ |=> outp) 1)
-              (fun l => kernelInv (remove_typeinfo (gen_params GA)) apenv aeenv
-                                  (T *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
-                                  (l = Zn (length result))
-                                  (outArr typ |=> outp) 1%Qc) |}.
+              (fun l => kernelInv' apenv aeenv
+                                   (T *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
+                                   (l = Zn (length result)) 1%Qc) |}.
 Proof.
   intros.
   apply CSLf_interp_f.
@@ -1690,5 +1689,5 @@ Proof.
     unfold sat, kernelInv, Assn in Hsat'; sep_split_in Hsat'.
     simpl in HP0; destruct HP0.
     unfold_conn_in H4; simpl in H4; eauto.
-  - unfold kernelInv; prove_imp.
+  - unfold kernelInv, kernelInv'; prove_imp; try tauto.
 Qed.
