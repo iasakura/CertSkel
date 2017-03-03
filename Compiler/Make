@@ -1,3 +1,4 @@
+CompilerProof.v
 CodeGenM.v
 Correctness.v 
 CUDALib.v
