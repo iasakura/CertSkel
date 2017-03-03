@@ -357,6 +357,7 @@ Proof.
   destruct H as (? & ? & ? & ?).
   rewrite !app_nil_r.
   splits; [..|splits]; jauto.
+  constructor.
   eapply rule_host_backward; eauto.
   eapply rule_host_skip.
 Qed.
@@ -1264,7 +1265,9 @@ Lemma compile_res_ok GA typ ntrd nblk
   ntrd <> 0 -> nblk <> 0
   -> length result <= length vs
   -> Skel.aeDenote GA typ arr aeenv = Some result
-  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv (T *** arrays (val2gl outp) vs 1) True (outs |=> outp) 1) Gp)
+  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv (T *** arrays (val2gl outp) vs 1)
+                                    True
+                                    (outs |=> outp) 1) Gp)
            (compile_res ntrd nblk avenv arr outs)
            (fun res => postST xs fns (kernelInv avenv apenv aeenv (T *** arrays (val2gl outp) vs 1) True (outs |=> outp) 1)
                               (kernelInv avenv apenv aeenv
@@ -1405,10 +1408,12 @@ Theorem compile_AS_ok GA ntrd nblk typ
       (result : Skel.aTypDenote typ)
       xs fns Gp skel_as (outs : vars typ) outp vs :
   ntrd <> 0 -> nblk <> 0
-  -> skel_as_wf GA _ skel_as 
+  -> length result <= length vs
+  -> skel_as_wf GA _ skel_as
+  -> Skel.asDenote GA typ skel_as aeenv = Some result
   -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv 
                                     (T *** arrays (val2gl outp) vs 1)
-                                    (length result <= length vs /\ Skel.asDenote GA typ skel_as aeenv = Some result)
+                                    True
                                     (outs |=> outp) 1) Gp)
            (compile_AS ntrd nblk skel_as outs avenv)
            (fun res => postST xs fns (kernelInv avenv apenv aeenv (T *** arrays (val2gl outp) vs 1) True (outs |=> outp) 1)
@@ -1497,34 +1502,37 @@ Proof.
   forwards*: fn_ok_In.
 Qed.
 
-Theorem compile_prog_ok GA typ ntrd nblk (p : Skel.AS GA typ) :
-  ntrd <> 0 -> nblk <> 0 ->
-  skel_as_wf GA typ p ->
-  interp_f (compile_prog ntrd nblk p) nil "__main"
+Theorem compile_prog_ok GA typ ntrd nblk (p : Skel.AS GA typ) aeenv apenv outp result vs :
+  ntrd <> 0 -> nblk <> 0
+  -> skel_as_wf GA typ p 
+  -> Skel.asDenote GA typ p aeenv = Some result
+  -> length result <= length vs
+  -> interp_f (compile_prog ntrd nblk p) nil "__main"
     {| fs_tag := Hfun;
-       fs_params := nil;
+       fs_params := map fst (flatten_avars (gen_params GA));
        fs_tri := 
-    (All aeenv apenv result outp vs,
-     FDbl (kernelInv (remove_typeinfo (gen_params GA)) apenv aeenv
-                     (T *** arrays (val2gl outp) vs 1)
-                     (Skel.asDenote GA typ p aeenv = Some result)
-                     (outArr typ |=> outp) 1)
-          (fun l => kernelInv (remove_typeinfo (gen_params GA)) apenv aeenv
-                              (T *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
-                              (l = Zn (length result))
-                              (outArr typ |=> outp) 1%Qc)) |}.
+         FDbl (kernelInv (remove_typeinfo (gen_params GA)) apenv aeenv
+                         (T *** arrays (val2gl outp) vs 1)
+                         True
+                         (outArr typ |=> outp) 1)
+              (fun l => kernelInv (remove_typeinfo (gen_params GA)) apenv aeenv
+                                  (T *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
+                                  (l = Zn (length result))
+                                  (outArr typ |=> outp) 1%Qc) |}.
 Proof.
   intros.
   unfold compile_prog.
-  Lemma ST_ok_exec T xs fns P Q Gp G (gen : CUDAM T) res ss Mp M n m :
+  Lemma ST_ok_exec T xs fns P Q Gp G (gen : CUDAM T) res ss Mp M n m n' m' :
     (exists fvs, fv_assn P fvs /\ forall x m, In x fvs -> x <> hvar m)
     -> (forall fn m, In fn (map fst Mp) -> fn <> kname m)
     -> sat_FC Mp Gp Gp
     -> fc_ok Mp Gp
     -> disjoint_list (map fst Mp)
     -> ST_ok (preST nil nil P Gp) gen (fun x => postST (xs x) (fns x) P (Q x) Gp (G x))
-    -> (res, ((n, m), ss, M)) = gen n m
+    -> (res, ((n', m'), ss, M)) = gen n m
     -> fc_ok (Mp ++ M) (G res) /\
+       disjoint_list (map fst Mp ++ map fst M) /\
+       fnOk' (map fst M) m' /\
        sat_FC (Mp ++ M) nil (G res) /\
        CSLh (Mp ++ M) (G res) P (seqs ss) (Q res).
   Proof.
@@ -1536,12 +1544,98 @@ Proof.
     { destruct Hfv as (? & ? & ?); eexists; splits; jauto.
       unfold fvOk; rewrite Forall_forall; intros.
       forwards*: (>>H0 H2). }
+    constructor.
     { unfold fnOk; rewrite Forall_forall; intros.
       forwards*: (>>Hfn H0). }
+    rewrite map_app in *.
     splits; jauto.
+    
     apply rule_module_rec; jauto.
   Qed.
 
-  forwards*: compile_AS_ok.
+  destruct compile_AS as [res [[[n m] ss] kers]] eqn:Heq.
+  forwards Hok: (>>compile_AS_ok ntrd nblk (remove_typeinfo (gen_params GA)) apenv aeenv (outArr typ) outp);
+    [eauto | eauto | ..]; eauto.
+  forwards* (Hfc_ok & Hdisj & Hfn & Hsat & Hcsl): (>>ST_ok_exec
+                                                     (fun _ : var => @nil var)
+                                                     (fun _ : var => @nil string)
+                                                     (fun _ : var => @nil (string * FSpec))
+                                                     (@nil fdecl) Hok); try now constructor.
+  { eexists; unfold kernelInv; rewrite fv_assn_base.
+    splits; eauto.
+    introv; rewrite map_app, in_app_iff, map_flatTup.
+    intros [Hin | Hin] Hc; substs.
+    - unfold outArr in Hin.
+      apply locals_not_in in Hin; eauto.
+    - forwards*: (>>arrInvVar_nin Hin).
+      apply genenv_ok. }
+  simpl in *.
+
+  eapply rule_fun; simpl; eauto.
+
+  Lemma interp_fd_host M G hf params ftri :
+    interp_hfun M G hf (FS Hfun params ftri)
+    -> interp_fd M G (Host hf) (FS Hfun params ftri).
+  Proof.
+    unfold interp_fd, interp_hfun, interp_fd_simp; eauto.
+  Qed.
+
+  apply interp_fd_host.
+
+  Lemma interp_hfun_tri M G hf params ftri :
+    interp_ftri ftri (fun P Q => CSLhfun M G P hf Q)
+    -> interp_hfun M G hf (FS Hfun params ftri).
+  Proof.
+    unfold interp_hfun, interp_hfun_n_simp, CSLhfun, with_ctx; simpl; eauto; intros.
+    induction ftri; simpl in *; eauto.
+  Qed.
+
+  apply interp_hfun_tri; simpl.
+  
+  Lemma CSLh_CSLhfun M G params body ret v P Q' Q :
+    CSLh M G P body Q'
+    -> (forall s h, sat s h Q' -> s ret = v)  
+    -> Q' |= Q v
+    -> CSLhfun M G P (Hf params body ret) Q.
+  Proof.
+    unfold CSLh, CSLhfun, with_ctx, CSLh_n_simp, CSLhfun_n_simp; intros; simpl.
+    forwards*: H.
     
-  eapply rule_fun; eauto.
+    Lemma safe_nh_safe_nhfun M n s h body ret Q' Q v :
+      safe_nh M n s h body Q'
+      -> (forall s h, Q' s h -> s ret = v)
+      -> Q' |= Q v
+      -> safe_nhfun M n s h body ret Q.
+    Proof.
+      revert s h body; induction n; simpl; eauto.
+      introv (Hskip & Hsafe & Hstep) Hret HQ; splits; jauto.
+      - intros; forwards*: Hskip.
+        erewrite Hret; eauto.
+        applys* HQ.
+      - introv Hdis Htoh Hexec; forwards*(h'' & ? & ? & ?): Hstep.
+    Qed.
+
+    eapply safe_nh_safe_nhfun; eauto.
+  Qed.
+
+  eapply CSLh_CSLhfun.
+  applys* (>>CSLh_n_weaken kers).
+  2: applys* incl_tl.
+  simpl.
+
+  split; jauto.
+  Lemma fnOk'_In fn fns m :
+    fnOk' fns m -> In fn fns -> exists n, fn = kname n /\ n < m.
+  Proof.
+    unfold fnOk'; rewrite Forall_forall; eauto.
+  Qed.
+  
+  intros Hin; forwards*(? & Hfn' & _): fnOk'_In.
+  unfold kname in Hfn'; cbv in Hfn'; congruence.
+  introv Hsat'.
+  unfold sat, kernelInv, Assn in Hsat'; sep_split_in Hsat'.
+  simpl in HP0; destruct HP0.
+  unfold_conn_in H4; simpl in H4; eauto.
+
+  unfold kernelInv; prove_imp.
+Qed.
