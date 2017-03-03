@@ -41,7 +41,7 @@ end.
 
 Ltac reifyFunc' :=
   lazymatch goal with
-  | [|- { x : Skel.AS _ _  | equiv1 x ?prog } ] =>
+  | [|- { x : Skel.AS _ _  | equivGI1 ?prog x } ] =>
     transform prog ltac:(fun res => exists res)
   end.
 
@@ -52,7 +52,8 @@ Lemma if_app (A B : Type) (f : A -> B) (b : bool) x y :
 Proof. destruct b; eauto. Qed.
 
 Ltac prove_equiv1 :=
-  unfold equiv1; simpl; intros; auto;
+  unfold equivGI1; simpl; intros; auto;
+  repeat (destruct Z_le_dec; try omega);
   repeat first [rewrite <-let_lift1 | rewrite let_ret];
   repeat
     (match goal with _ => idtac end;
@@ -73,7 +74,7 @@ Ltac prove_equiv1 :=
 Ltac reifyFunc :=
   let H := fresh in
   lazymatch goal with
-  | [|- {_ | equiv1 _ _}] =>
+  | [|- {_ | equivGI1 _ _}] =>
     eapply change_spec;
       [intros ? H; eapply ext_fun;
        [simpl in *; let_intro| apply H]| cbv beta; reifyFunc'; prove_equiv1 ]
@@ -81,33 +82,67 @@ Ltac reifyFunc :=
 
 Definition min_idx (arr : list Z) : comp (list (Z * Z))
   := reduceM
-       (fun x y => if (fst x) <? (fst y)
-                   then ret x else ret y)
+       (fun x y => if (fst x) <? (fst y) then ret x
+                   else if (fst y) <? (fst x) then ret y
+                   else if (snd x) <? (snd y) then ret x
+                   else if (snd y) <? (snd x) then ret y
+                   else ret x)
        (zip arr (seq 0 (len arr))).
 
-Require Import Compiler Ext Extract.
+Require Import Compiler Ext Extract Host CompilerProof LibTactics.
 
-Definition equivIG {GA T} (f_IR : Skel.AS GA T) (p : Host.GModule) := True.
-Definition equivCG {GA T} (f_IR : Skel.AS GA T) (p : Host.GModule) := True.
-
-Definition compileOk GA T (x : Skel.AS GA T) : equivIG x (Compiler.compile_prog 1024 24 x).
+Definition compileOk dom cod (p : Skel.AS (dom :: nil) cod) :
+  skel_as_wf _ _ p
+  -> equivIC1 p (Compiler.compile_prog 1024 24 p).
 Proof.
-  unfold equivIG; eauto.
+  unfold equivIC1.
+  intros; applys (>>compile_prog_ok (dom :: nil) cod); eauto.
 Qed.  
 
-Lemma equiv_trans GA T f' p :
-  equiv1 f f'
-  -> equivIG f' p
-  -> equivCG f p.
-
-Definition min_idx_IR:
-  {p : Skel.AS (Skel.TZ :: nil) (Skel.TTup Skel.TZ Skel.TZ) | equiv1 p (min_idx)}.
+Lemma equiv_trans' (dom cod : Skel.Typ)
+  (p_g : list (Skel.typDenote dom) -> comp (list (Skel.typDenote cod))) (p_i : {p_i | equivGI1 p_g p_i}) :
+  {M | equivIC1 (` p_i) M} ->
+  {M | equivGC1 p_g M}.
 Proof.
-  unfold min_idx.
-  reifyFunc.
+  intros M.
+  destruct p_i as [p_i ?]; simpl in *.
+  destruct M as [M ?].
+  eexists; eapply equiv_trans; eauto.
+Qed.
+
+
+Tactic Notation "tassert" "(" ident(H) ":" lconstr(type) ")" :=
+  refine (match (_ : type) with H => _ end).
+  
+Definition min_idx_GPGPU :
+  {p : GModule | equivGC1 (min_idx : list (Skel.typDenote Skel.TZ) ->
+                                     comp (list (Skel.typDenote (Skel.TTup Skel.TZ Skel.TZ))))
+                          p}.
+Proof.
+  unfold min_idx; simpl.
+  eexists.
+  eapply equiv_trans.
+  eapply ext_fun;
+    [simpl in *; let_intro|
+     lazymatch goal with
+     | [|- equivGI1 ?prog _ ] =>
+       transform prog ltac:(fun res => instantiate (1 := res))
+     end]; prove_equiv1.
+  apply compileOk.
+  repeat econstructor; simpl.
+  - introv; repeat lazymatch goal with
+            | [|- context [(?X <? ?Y)%Z]] => destruct (Z.ltb_spec0 X Y)
+            end; eauto; try omega.
+    destruct x, y; simpl in *; f_equal; try omega.
+  - introv; repeat lazymatch goal with
+            | [|- context [(?X <? ?Y)%Z]] =>
+              let H := fresh in
+              destruct (Z.ltb_spec0 X Y) as [H | H];
+              revert H
+            end; eauto; intros; try omega.
 Defined.
 
-Definition res := save_to_file min_idx_IR "min_idx.cu".
+Definition res := save_to_file (`min_idx_GPGPU) "min_idx.cu".
 
 Cd "extracted".
 

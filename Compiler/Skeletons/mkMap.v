@@ -64,8 +64,6 @@ Proof.
   unfold f_res; destruct eval_f_ok; simpl; eauto.
 Qed.
 
-Definition outArr ty := locals "_arrOut" ty 0.
-
 Notation out := (outArr cod).
 Notation len := inp_len_name.
 Notation t := (locals "t" dom 0).

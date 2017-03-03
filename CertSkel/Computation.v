@@ -4,6 +4,7 @@ Require Import GPUCSL.
 Require Import Monad.
 Require Import LibTactics.
 Require Import TypedTerm.
+Require Import Correctness Host.
 Open Scope list_scope.
 
 Open Scope Z_scope.
@@ -568,14 +569,65 @@ Abort.
 Arguments ret : simpl never.
 Arguments bind : simpl never.
 
-Definition equiv1 {T U : Skel.Typ}
-           (p_i : Skel.AS (T :: nil) U)
-           (p_g : list (Skel.typDenote T) -> comp (list (Skel.typDenote U))) :=
+Require Import CUDALib CSLLemma CSLTactics CodeGen.
+
+Definition equivGC1 {dom cod : Skel.Typ}
+           (p_g : list (Skel.typDenote dom) -> comp (list (Skel.typDenote cod)))
+           (M : GModule) :=
+  interp_f M nil "__main"
+           {| fs_tag := Hfun;
+              fs_params := flatTup (outArr dom) ++ map fst (flatten_avars (gen_params (dom :: nil)));
+              fs_tri := 
+                All inp apenv outp result vs,
+                FDbl (kernelInv
+                        (remove_typeinfo (gen_params (dom :: nil))) apenv (inp ::: HNil)
+                        (T *** arrays (val2gl outp) vs 1)
+                        (p_g inp = Some result /\ length result <= length vs)%nat
+                        (outArr cod |=> outp) 1)
+                     (fun l => kernelInv'
+                                 apenv (inp ::: HNil)
+                                 (T *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
+                                 (l = Zn (length result)) 1%Qc) |}.
+
+Definition equivGI1 {T U : Skel.Typ}
+           (p_g : list (Skel.typDenote T) -> comp (list (Skel.typDenote U)))
+           (p_i : Skel.AS (T :: nil) U) :=
   forall (x : list (Skel.typDenote T)),
     p_g x =  Skel.asDenote _ _ (p_i) (HCons x HNil).
 
-Lemma ext_fun {T U : Skel.Typ} (p : Skel.AS (T :: nil) U) f g :
-  (forall x, f x = g x) -> equiv1 p f -> equiv1 p g.
+Definition equivIC1 {dom cod : Skel.Typ} (p_i : Skel.AS (dom :: nil) cod) (M : GModule) :=
+  interp_f M nil "__main"
+           {| fs_tag := Hfun;
+              fs_params := flatTup (outArr dom) ++ map fst (flatten_avars (gen_params (dom :: nil)));
+              fs_tri := 
+                All aeenv apenv outp result vs,
+                FDbl (kernelInv
+                        (remove_typeinfo (gen_params (dom :: nil))) apenv aeenv
+                        (T *** arrays (val2gl outp) vs 1)
+                        (Skel.asDenote (dom :: nil) cod p_i aeenv = Some result /\ length result <= length vs)%nat
+                        (outArr cod |=> outp) 1)
+                     (fun l => kernelInv'
+                                 apenv aeenv
+                                 (T *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
+                                 (l = Zn (length result)) 1%Qc) |}.
+
+Lemma equiv_trans dom cod
+      (p_g : list (Skel.typDenote dom) -> comp (list (Skel.typDenote cod)))
+      (p_i : Skel.AS (dom :: nil) cod)
+      (M : GModule) :
+  equivGI1 p_g p_i -> equivIC1 p_i M -> equivGC1 p_g M .
 Proof.
-  unfold equiv1; intros Heq; intros; rewrite <-Heq; eauto.
+  unfold equivGI1, equivIC1, equivGC1.
+  intros Heq1.
+  unfold interp_f, with_ctx, interp_f_n, interp_fd_simp, interp_hfun_n_simp, interp_kfun_n_simp.
+  destruct func_disp; simpl; eauto.
+  intros Hsat ? ?; forwards*Hsat': Hsat.
+  destruct f; intros inp apenv outp result vs; forwards* Hsat'': (>>Hsat' (inp ::: HNil) apenv outp result vs);
+  rewrite Heq1; eauto.
+Qed.  
+
+Lemma ext_fun {T U : Skel.Typ} (p : Skel.AS (T :: nil) U) f g :
+  (forall x, f x = g x) -> equivGI1 f p -> equivGI1 g p.
+Proof.
+  unfold equivGI1; intros Heq; intros; rewrite <-Heq; eauto.
 Qed.

@@ -230,7 +230,6 @@ Variable outs : list (vals typ).
 Hypothesis outs_length : length (outs) = nblk + 0.
 Notation sarr := (locals "_sarr" typ 0).
 
-Definition outArr ty := locals "_arrOut" ty 0.
 Notation out := (outArr typ).
 Notation len := inp_len_name.
 Definition dist_outs i := i * ntrd.

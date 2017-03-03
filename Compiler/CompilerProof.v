@@ -149,7 +149,7 @@ Proof.
 Qed.
 
 Lemma out_name_locals typ :
-  map fst (flatTup (out_name typ)) = flatTup (mkMap.outArr typ).
+  map fst (flatTup (out_name typ)) = flatTup (outArr typ).
 Proof.
   rewrite <-flatTup_map, out_name_fst; eauto.
 Qed.
@@ -472,7 +472,7 @@ Proof.
         destruct mkMap.eval_arr_ok.
         rewrite Heq1 in e; inverts e; eauto.
       + rewrite subst_env_app; split.
-        * unfold mkMap.outArr.
+        * unfold outArr.
           repeat (apply subst_env_cons2; [rewrite map_flatTup; apply locals_not_in; simpl; eauto|]).  
           apply subst_env_app1.
           rewrite out_name_locals.
@@ -1336,7 +1336,7 @@ Proof.
         destruct mkMap.eval_arr_ok.
         rewrite Heq1 in e; inverts e; eauto.
       + rewrite subst_env_app; split.
-        * unfold mkMap.outArr.
+        * unfold outArr.
           repeat (apply subst_env_cons2; [rewrite map_flatTup; apply locals_not_in; simpl; eauto|]).  
           apply subst_env_app1.
           rewrite out_name_locals.
@@ -1631,7 +1631,7 @@ Theorem compile_prog_ok GA typ ntrd nblk (p : Skel.AS GA typ) :
   -> skel_as_wf GA typ p 
   -> interp_f (compile_prog ntrd nblk p) nil "__main"
     {| fs_tag := Hfun;
-       fs_params := map fst (flatten_avars (gen_params GA));
+       fs_params := flatTup (outArr typ) ++ map fst (flatten_avars (gen_params GA));
        fs_tri := 
          All aeenv apenv outp result vs,
          FDbl (kernelInv (remove_typeinfo (gen_params GA)) apenv aeenv

@@ -95,7 +95,7 @@ Proof.
   end.
 
   unfold equiv1; simpl; intros; auto.
-  unfold ret, bind; simpl.
+  unfold ret, bind; simpl; unfold bind_opt.
   f_equal. f_equal.
   repeat (let t := fresh "t" in extensionality t).
   f_equal.
