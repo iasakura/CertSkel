@@ -18,7 +18,7 @@ Fixpoint skip_sum (skip : nat) (s len : nat) (f : nat -> Z) (i : nat) :=
 Eval compute in skip_sum 3 0 10 (fun i => Z.of_nat i) 3.
 Eval compute in skip_sum 3 4 10 (fun i => Z.of_nat i) 3.
 
-Notation " p '>>1'" := (Ediv2 p) (at level 40, left associativity) : exp_scope.
+Notation " e1 '/C' e2 " := (Ediv e1 e2) (at level 40, left associativity) : exp_scope.
 
 Definition dbl s := if Nat.eq_dec s 0 then 1 else s * 2.
 
@@ -211,15 +211,14 @@ Proof.
   rewrite IHlen; auto.
 Qed.
 
-
 Lemma div_mult (n m : nat) : m <> 0 -> n / m * m <= n.
 Proof.
   intros Hm0.
   destruct n.
   rewrite Nat.div_0_l; simpl; omega.
   unfold "/"; destruct m; [omega|].
-  destruct (divmod (S n) m 0 m) eqn:Heq; simpl.
-  pose proof (divmod_spec (S n) m 0 m (le_n m)); rewrite Heq in *.
+  destruct (Nat.divmod (S n) m 0 m) eqn:Heq; simpl.
+  pose proof (Nat.divmod_spec (S n) m 0 m (le_n m)); rewrite Heq in *.
   rewrite mult_0_r, minus_diag, <-!plus_n_O in H.
   destruct H; rewrite mult_comm; omega.
 Qed.
@@ -367,7 +366,7 @@ Proof.
   unfold_conn; split; intros.
   - destruct H as (? & ? & ? & ? & ? & ?).
     apply phplus_emp in H2 as [? ?]; subst; tauto.
-  - exists (emp_ph loc) (emp_ph loc); repeat split; tauto.
+  - exists (emp_ph loc), (emp_ph loc); repeat split; tauto.
 Qed.      
 
 Lemma pure_star (P Q : assn) : forall s, s ||= !(P ** Q) <=> !(P) ** !(Q).
@@ -526,7 +525,6 @@ Proof.
   [erewrite ls_init_eq'; [apply H|];
    intros; simpl in *;
    try rewrite <-!minus_n_O in *; auto..].
-  simpl; rewrite <-!minus_n_O; auto.
 Qed.
 
 Lemma ls_pure {n : nat} (P : nat -> assn) :  forall b s,
@@ -661,7 +659,7 @@ Lemma low_assn_star G P Q :
 Proof.
   intros HP HQ; unfold "**"; intros s1 s2 h Hl; simpl.
   specialize (HP s1 s2); specialize (HQ s1 s2); simpl in *.
-  split; intros (ph1 & ph2 & H); exists ph1 ph2.
+  split; intros (ph1 & ph2 & H); exists ph1, ph2.
   rewrite HP, HQ in H; [exact H|auto..].
   rewrite HP, HQ; [exact H|auto..].
 Qed.
@@ -800,8 +798,8 @@ Fixpoint has_no_vars_E (e : exp) :=
   match e with
     | Evar _ => False
     | Enum _ => True
-    | Emin e1 e2 | Eeq e1 e2 | Elt e1 e2 | (e1 +C e2) | (e1 *C e2) | (e1 -C e2) => has_no_vars_E e1 /\ has_no_vars_E e2
-    | (e1 >>1) => has_no_vars_E e1
+    | Emin e1 e2 | Eeq e1 e2 | Elt e1 e2 | (e1 +C e2) | (e1 *C e2) | (e1 -C e2) | e1 /C e2 =>
+      has_no_vars_E e1 /\ has_no_vars_E e2
   end.
 
 Lemma has_no_vars_E_correct (e : exp) s1 s2 :
@@ -810,7 +808,6 @@ Lemma has_no_vars_E_correct (e : exp) s1 s2 :
 Proof.
   induction e; simpl; try tauto; 
   try now (destruct 1; intros; erewrite IHe1, IHe2; eauto).
-  intros; erewrite IHe; eauto.
 Qed.
 
 Fixpoint has_no_vars_lE (e : loc_exp) :=
@@ -845,7 +842,7 @@ Lemma has_no_vars_star P Q :
 Proof.
   intros HP HQ; unfold "**"; intros s1 s2 h Hl; simpl.
   specialize (HP s1 s2); specialize (HQ s1 s2); simpl in *.
-  split; intros (ph1 & ph2 & H); exists ph1 ph2.
+  split; intros (ph1 & ph2 & H); exists ph1, ph2.
   rewrite HP, HQ in H; [exact H|auto..].
   rewrite HP, HQ; [exact H|auto..].
 Qed.
@@ -1308,7 +1305,7 @@ Proof.
        rewrite !Qred_correct.
        reflexivity. }
      rewrite Qcmult_plus_distr_l, Qcmult_1_l; eauto.
-     rewrite is_array_p_star, IHnt; [|subst nt'; unfold injZ in *; injZ_simplify; Qc_to_Q; eauto; pose proof (inject_Z_n_ge0 nt); try lra..].
+     rewrite is_array_p_star, IHnt; [|clear IHnt; subst nt'; unfold injZ in *; injZ_simplify; Qc_to_Q; eauto; pose proof (inject_Z_n_ge0 nt); try lra..].
      split; intros; repeat sep_cancel; eauto.
      sep_cancel; eauto.
      assert (0 <= inject_Z (Zn nt) * this)%Q by (apply Qmult_le_0_compat; lra).
@@ -1383,7 +1380,7 @@ Proof.
   intros s Hix0 Hix1 stc.
   revert ix Hix0 s Hix1; induction n; [intros; simpl; try omega|]; intros ix Hix0 s Hix1.
   cutrewrite (S n - ix - 1 = n - ix); [|omega].
-  assert (i < nt) by (subst; apply mod_bound_pos; omega).
+  assert (i < nt) by (subst; apply Nat.mod_bound_pos; omega).
   simpl; rewrite nth_add_nth; [|rewrite distribute_length; eauto..].
   destruct (beq_nat _ _) eqn:Heq;
     [rewrite beq_nat_true_iff in Heq | rewrite beq_nat_false_iff in Heq].

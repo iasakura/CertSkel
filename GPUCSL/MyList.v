@@ -1,7 +1,7 @@
 Set Implicit Arguments.
 Unset Strict Implicit.
 
-Require Import NPeano.
+Require Import PeanoNat.
 Require Import Arith.
 Require Import List.
 Import ListNotations.
@@ -181,7 +181,7 @@ Definition conj_xs : list assn -> assn := fold_right Astar emp.
 Require Import SetoidClass.
 Require Import Lang.
 Definition equiv_sep (s : stack) (P Q : assn) := (forall h, P s h <-> Q s h).
-Notation "s ||= P <=> Q" := (equiv_sep s P Q) (at level 86, next at level 87).
+Notation "s ||= P <=> Q" := (equiv_sep s P Q) (at level 86).
 
 Lemma equiv_from_nth :
   forall (x0 : assn) (s1 s2 : list assn),

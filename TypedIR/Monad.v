@@ -30,4 +30,4 @@ Fixpoint sequence {m a} `{Monad m} (xs : list (m a)) : m (list a) :=
                ret (y :: ys)
   end.
 
-Notation "'do!' x := e1 'in' e2" := (bind e1 (fun x => e2)) (at level 200, x ident, e1 at level 100, e2 at level 200).
+Notation "'do!' x <- e1 'in' e2" := (bind e1 (fun x => e2)) (at level 200, x ident, e1 at level 100, e2 at level 200).

@@ -36,7 +36,7 @@ Definition Z_to_nat_error (n : Z) : comp nat :=
   else None.
 
 Definition nth_error {A : Type} (l : list A) (n : Z) : comp A :=
-  do! n := Z_to_nat_error n in
+  do! n <- Z_to_nat_error n in
   nth_error l n.
 
 Fixpoint seq' s l := 

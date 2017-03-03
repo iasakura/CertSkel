@@ -1,2 +1,2 @@
--I .
+-R . Top
 -R ../tlc/src TLC

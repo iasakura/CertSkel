@@ -1,8 +1,6 @@
+-R ../Compiler Top
 -R ../tlc/src TLC
--I ../CertSkel
--I ../GPUCSL
--I ../Compiler
--I ../Compiler/Skeletons
--I ../Compiler/GPUVeLib
--I ../TypedIR
+-R ../CertSkel Top
+-R ../GPUCSL Top
+-R ../TypedIR Top
 -R ../repo/src Cpdt

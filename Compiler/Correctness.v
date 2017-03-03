@@ -135,7 +135,8 @@ Fixpoint defval' {ty} :=
 
 Lemma defval_sc2CUDA ty : (@defval ty) = sc2CUDA (@defval' ty). 
 Proof.
-  induction ty; simpl; congruence.
+  induction ty; simpl; try congruence.
+  rewrite IHty1, IHty2; eauto.
 Qed.
 
 Notation gets' arr i := (nth i arr defval').

@@ -24,10 +24,10 @@ Qed.
 
 Lemma zip_seq (arr : list Z) :
   ret (zip arr (seq 0 (len arr))) =
-  gen (fun i => do! x := nth_error arr i in ret (x, i)) (len arr).
+  gen (fun i => do! x <- nth_error arr i in ret (x, i)) (len arr).
 Proof.
   unfold gen, ret, zip; simpl.
-  forwards* (? & ?): (>> mapM_evaltoSome (fun i : Z => do!x := nth_error arr i in Some (x, i)) (seq 0 (len arr))).
+  forwards* (? & ?): (>> mapM_evaltoSome (fun i : Z => do!x <- nth_error arr i in Some (x, i)) (seq 0 (len arr))).
   intros; simpl.
   rewrites (>>nth_error_some' d).
   unfold len; rewrite seq_nth, Nat2Z.id; destruct lt_dec.
@@ -62,26 +62,26 @@ Proof.
   simpl in *.
   rewrite (let_lift1 _ (zip _ _)).
   lazymatch goal with
-  | [|- _ = do! t := ?ae in @?res t] => pose ae
+  | [|- _ = do! t <- ?ae in @?res t] => pose ae
   end.
   rewrite (zip_seq x0).
   (* cutrewrite (ret (zip x0 (seq 0 (len x0))) = *)
-  (*             (do! t := ret (seq 0 (len x0)) in ret (zip x0 t) : comp _)); [|eauto]. *)
+  (*             (do! t <- ret (seq 0 (len x0)) in ret (zip x0 t) : comp _)); [|eauto]. *)
 
   (* repeat lazymatch goal with *)
-  (* | [|- context [do! t := do! u := ret ?ae in @?f u in @?g t]] =>  *)
-  (*   let t := eval cbv beta in (do! t := do! u := ret ae in f u in g t) in  *)
-  (*   cutrewrite (t = (do! u := ret ae in do! t := f u in g t)); [|eauto] *)
+  (* | [|- context [do! t <- do! u <- ret ?ae in @?f u in @?g t]] =>  *)
+  (*   let t := eval cbv beta in (do! t <- do! u <- ret ae in f u in g t) in  *)
+  (*   cutrewrite (t = (do! u <- ret ae in do! t <- f u in g t)); [|eauto] *)
   (* end. *)
 
-  Lemma ret_id (A : Type) (t : comp A) : t = (do! x := t in ret x).
+  Lemma ret_id (A : Type) (t : comp A) : t = (do! x <- t in ret x).
   Proof.
     cbv; destruct t; eauto.
   Qed.
 
   lazymatch goal with
   | [|- _ = ?term ] =>
-    cutrewrite (term = do! x := term in ret x); [|apply ret_id]
+    cutrewrite (term = do! x <- term in ret x); [|apply ret_id]
   end.
   
   reflexivity.
@@ -95,7 +95,7 @@ Proof.
   end.
 
   unfold equiv1; simpl; intros; auto.
-  unfold ret, bind; simpl.
+  unfold ret, bind; simpl; unfold bind_opt.
   f_equal. f_equal.
   repeat (let t := fresh "t" in extensionality t).
   f_equal.
@@ -105,9 +105,9 @@ Defined.
 
 Require Import Compiler Ext Extract.
 
-Definition min_idx_CUDA : Host.Prog :=
+Definition min_idx_CUDA : Host.GModule :=
   match min_idx_IR with
-  | exist ir _ =>
+  | exist _ ir _ =>
     Compiler.compile_prog 1024 24 ir
   end.
 

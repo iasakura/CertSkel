@@ -1,4 +1,4 @@
-Require Import GPUCSL scan_lib LibTactics Skel_lemma Psatz Classical GCSL.
+Require Import GPUCSL scan_lib LibTactics Skel_lemma Psatz Classical.
 
 Notation val := Z.
 Arguments Z.add _ _ : simpl never.
@@ -52,14 +52,14 @@ Inductive res :=
 | Emp : res
 | Mps : loc -> Qc -> val -> res
 | Star : res -> res -> res
-| Bot : res.
+| T : res.
 
 Fixpoint res_denote m :=
   match m with
   | Emp => emp
   | Mps cod p dom => cod -->p (p, dom)
   | Star r1 r2 => res_denote r1 ** res_denote r2
-  | Bot => FalseP
+  | T => TrueP
   end.
 
 Definition sat_res s h m := sat s h (res_denote m).
@@ -126,9 +126,9 @@ Inductive evalExp : list entry -> exp -> val -> Prop :=
 | SEval_sub env e1 v1 e2 v2 :
     evalExp env e1 v1 -> evalExp env e2 v2 ->
     evalExp env (e1 -C e2) (v1 - v2)%Z
-| SEval_div2 env e1 v1 :
-    evalExp env e1 v1 -> 
-    evalExp env (e1 >>1) (v1 / 2)%Z
+| SEval_div2 env e1 e2 v1 v2 :
+    evalExp env e1 v1 -> evalExp env e2 v2 ->
+    evalExp env (e1 /C e2) (v1 / v2)%Z
 | SEval_var env e v : In (Ent e v) env -> evalExp env e v.
 
 Lemma env_denote_in Env e v:
@@ -149,8 +149,7 @@ Proof.
   try forwards*: IHevalExp;
   unfold_conn_all; simpl in *; try congruence;
   substs; auto.
-  - rewrite Zdiv2_div; eauto.
-  - applys* env_denote_in.
+  applys* env_denote_in.
 Qed.
 
 Definition loc_off l i := 
@@ -399,7 +398,7 @@ Qed.
 Lemma QcplusQ p q : (this (p + q)%Qc == this p + this q)%Q.
 Proof.
   unfold "+"%Qc.
-  unfold "!!"%Qc.
+  unfold Q2Qc.
   rewrite this_id.
   apply Qred_correct.
 Qed.
@@ -657,7 +656,7 @@ Proof.
   Focus 2.
   { intros Hp s h Hres.
     apply H1 in Hres.
-    fold_sat_in Hres; rewrites* (array_unfold i arr) in Hres; simpl in Hres.
+    rewrites* (array_unfold i arr) in Hres; simpl in Hres.
     repeat rewrite <-res_assoc in *.
     subst; unfold sat in *; sep_cancel; eauto.
     rewrite res_CA in Hres.
@@ -1495,7 +1494,7 @@ Ltac injZ_simplify :=
 Lemma QcmultQ p q : (this (p * q)%Qc == this p * this q)%Q.
 Proof.
   unfold "*"%Qc.
-  unfold "!!"%Qc.
+  unfold Q2Qc.
   rewrite this_id.
   apply Qred_correct.
 Qed.
@@ -1532,7 +1531,7 @@ Ltac Qc_to_Q :=
     repeat (try rewrite this_inv in *; try rewrite Qred_correct in *)
   end.
 
-     rewrite array_p_star, IHnt; [|subst nt'; unfold injZ in *; injZ_simplify; Qc_to_Q; eauto; pose proof (inject_Z_n_ge0 nt); try lra..|].
+     rewrite array_p_star, IHnt; [|clear IHnt; subst nt'; unfold injZ in *; injZ_simplify; Qc_to_Q; eauto; pose proof (inject_Z_n_ge0 nt); try lra..|].
      rewrite res_comm; reflexivity.
      assert (0 <= inject_Z (Zn nt) * this)%Q by (apply Qmult_le_0_compat; lra_Qc).
      lra.

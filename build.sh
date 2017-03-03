@@ -6,6 +6,6 @@ for d in $dirs;
 do
     pushd $d;
     coq_makefile -f _CoqProject -f Make -o Makefile
-    make; 
+    make -j8 || exit 1; 
     popd
 done

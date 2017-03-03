@@ -1,4 +1,4 @@
-Require Import LibTactics Psatz.
+Require Import PeanoNat Nat LibTactics Psatz.
 Require Import GPUCSL SkelLib scan_lib CSLTactics.
 Require Import CUDALib TypedTerm.
 Require Import Host.
@@ -6,137 +6,6 @@ Require Import Skel_lemma CodeGen CUDALib Correctness Grid CSLTactics CSLLemma.
 
 Notation fin_star n f :=
   (istar (ls_init 0 n f)).
-
-Section mkReduce.
-
-Variable typ : Skel.Typ.
-
-Variable ntrd nblk : nat.
-Variable e_b : nat.
-
-Hypothesis ntrd_neq_0: ntrd <> 0.
-Hypothesis nblk_neq_0: nblk <> 0.
-
-Hypothesis max_th_size : ntrd <= 2 ^ e_b.
-Hypothesis eb_neq_0 : e_b <> 0.
-
-Variable GA : list Skel.Typ.
-Variable avar_env : AVarEnv GA.
-Variable aptr_env : APtrEnv GA.
-Variable aeval_env : AEvalEnv GA.
-Notation kinv R P E p := (kernelInv avar_env aptr_env aeval_env R P E p).
-Hypothesis Haok : aenv_ok avar_env.
-Notation p := (RP (ntrd * nblk)).
-
-Variable arr : Skel.AE GA typ.
-Variable arr_c : var -> (cmd * vars typ).
-Hypothesis arr_ok : ae_ok avar_env arr arr_c.
-
-Variable func : Skel.Func GA (Skel.Fun2 typ typ typ).
-Variable func_c : vars typ -> vars typ -> (cmd * vars typ).
-Hypothesis f_ok : func_ok avar_env func func_c.
-
-Variable f_tot : Skel.typDenote typ -> Skel.typDenote typ -> Skel.typDenote typ.
-Infix "\op" := f_tot (at level 50, left associativity).
-
-Hypothesis f_total :
-  forall x y, Skel.funcDenote _ _ func aeval_env x y = Some (x \op y).
-
-Hypothesis f_comm : 
-  forall x y, x \op y = y \op x.
-Hypothesis f_assoc :
-  forall x y z, x \op y \op z = x \op (y \op z).
-
-Variable result : Skel.aTypDenote typ.
-Hypothesis eval_reduce_ok :
-  Skel.skelDenote _ _ (Skel.Reduce _ _ func arr) aeval_env = Some result.
-
-Variable outp : vals typ.
-Variable outs : list (vals typ).
-Hypothesis outs_length : length (outs) = nblk + 0.
-Notation sarr := (locals "_sarr" typ 0).
-
-Definition outArr ty := locals "_arrOut" ty 0.
-Notation out := (outArr typ).
-Notation len := inp_len_name.
-Definition dist_outs i := i * ntrd.
-
-Lemma eval_arr_ok :
-  { arr_res | Skel.aeDenote _ _ arr aeval_env = Some arr_res}.
-Proof.
-  simpl in *; unfold Monad.bind_opt in *.
-  destruct Skel.aeDenote; simpl in *; inverts eval_reduce_ok; eexists; eauto.
-Qed.
-
-Definition arr_res : Skel.aTypDenote typ := let (a, _) := eval_arr_ok in a.
-
-Definition eval_arr_ok' : Skel.aeDenote _ _ arr aeval_env = Some arr_res.
-Proof.
-  unfold arr_res; destruct eval_arr_ok; eauto.
-Qed.
-
-Hint Resolve eval_arr_ok' : pure_lemma.
-
-Notation xs := (locals "xs" typ 0).
-Notation ys := (locals "ys" typ 0).
-Notation zs := (locals "zs" typ 0).
-Notation t := (locals "t" typ 0).
-
-Notation g := (fun x => gets' arr_res x).
-
-Definition reduce_body n s :=
-  (Cbarrier (n - 1) ;;
-   Cif (Band ("tid" +C Zn s <C "slen") ("tid" <C Zn s)) (
-     reads xs (ty2ctys typ) (v2sh sarr +os ("tid" +C Zn s)) ;;
-     assigns_call2 zs func_c ys xs ;;
-     assigns ys (ty2ctys typ) (v2e zs) ;;
-     writes (v2sh sarr +os "tid") (v2e ys)
-   ) Cskip
-  )%exp.
-
-Definition st n := 2 ^ (e_b - n).
-
-Fixpoint reduce_aux t m :=
-  match m with
-  | O => Cskip    
-  | S m =>
-    reduce_body t (st t) ;; reduce_aux (S t) m 
-  end.
-
-Definition reduceBlock := reduce_aux 1 e_b.
-
-Definition seq_reduce inv :=
-  assigns ys (ty2ctys typ) (vals2es defval) ;;
-  writes (v2sh sarr +os "tid") (vals2es defval) ;;
-  "ix" :T Int ::= ("tid" +C "bid" *C Zn ntrd) ;;
-  Cif ("ix" <C len) (
-    assigns_get ys arr_c "ix" ;;
-    "ix" ::= "ix" +C Zn ntrd *C Zn nblk ;;
-    WhileI inv ("ix" < len) (
-      assigns_get xs arr_c "ix" ;;
-      assigns_call2 zs func_c ys xs ;;
-      assigns ys (ty2ctys typ) (v2e zs) ;;
-      "ix" ::= "ix" +C Zn ntrd *C Zn nblk
-    );;
-    writes (v2sh sarr +os "tid") (v2e ys)
-  ) Cskip.
-
-Definition setToLen :=
-  Cif (len <C "bid" *C Zn ntrd) (
-    "slen" :T Int ::= 0%Z 
-  ) (Cif (len <C ("bid" +C 1%Z) *C Zn ntrd) (
-    "slen" :T Int ::= len -C "bid" *C Zn ntrd 
-  ) (
-    "slen" :T Int ::= Zn ntrd
-  )).
-
-Definition mkReduce_cmd :=
-  seq_reduce FalseP ;;
-  setToLen ;;
-  reduceBlock ;;
-  Cif ("tid" == 0%Z) (
-    writes (v2gl out +os "bid") (v2e ys) 
-  ) Cskip.
 
 Section Sum_of.
   Variable T : Type.
@@ -312,6 +181,136 @@ Section Sum_of.
   Qed.
 End Sum_of.
 
+Section mkReduce.
+
+Variable typ : Skel.Typ.
+
+Variable ntrd nblk : nat.
+Variable e_b : nat.
+
+Hypothesis ntrd_neq_0: ntrd <> 0.
+Hypothesis nblk_neq_0: nblk <> 0.
+
+Hypothesis max_th_size : ntrd <= 2 ^ e_b.
+Hypothesis eb_neq_0 : e_b <> 0.
+
+Variable GA : list Skel.Typ.
+Variable avar_env : AVarEnv GA.
+Variable aptr_env : APtrEnv GA.
+Variable aeval_env : AEvalEnv GA.
+Notation kinv R P E p := (kernelInv avar_env aptr_env aeval_env R P E p).
+Hypothesis Haok : aenv_ok avar_env.
+Notation p := (RP (ntrd * nblk)).
+
+Variable arr : Skel.AE GA typ.
+Variable arr_c : var -> (cmd * vars typ).
+Hypothesis arr_ok : ae_ok avar_env arr arr_c.
+
+Variable func : Skel.Func GA (Skel.Fun2 typ typ typ).
+Variable func_c : vars typ -> vars typ -> (cmd * vars typ).
+Hypothesis f_ok : func_ok avar_env func func_c.
+
+Variable f_tot : Skel.typDenote typ -> Skel.typDenote typ -> Skel.typDenote typ.
+Infix "\op" := f_tot (at level 50, left associativity).
+
+Hypothesis f_total :
+  forall x y, Skel.funcDenote _ _ func aeval_env x y = Some (x \op y).
+
+Hypothesis f_comm : 
+  forall x y, x \op y = y \op x.
+Hypothesis f_assoc :
+  forall x y z, x \op y \op z = x \op (y \op z).
+
+Variable result : Skel.aTypDenote typ.
+Hypothesis eval_reduce_ok :
+  Skel.skelDenote _ _ (Skel.Reduce _ _ func arr) aeval_env = Some result.
+
+Variable outp : vals typ.
+Variable outs : list (vals typ).
+Hypothesis outs_length : length (outs) = nblk + 0.
+Notation sarr := (locals "_sarr" typ 0).
+
+Notation out := (outArr typ).
+Notation len := inp_len_name.
+Definition dist_outs i := i * ntrd.
+
+Lemma eval_arr_ok :
+  { arr_res | Skel.aeDenote _ _ arr aeval_env = Some arr_res}.
+Proof.
+  simpl in *; unfold Monad.bind_opt in *.
+  destruct Skel.aeDenote; simpl in *; inverts eval_reduce_ok; eexists; eauto.
+Qed.
+
+Definition arr_res : Skel.aTypDenote typ := let (a, _) := eval_arr_ok in a.
+
+Definition eval_arr_ok' : Skel.aeDenote _ _ arr aeval_env = Some arr_res.
+Proof.
+  unfold arr_res; destruct eval_arr_ok; eauto.
+Qed.
+
+Hint Resolve eval_arr_ok' : pure_lemma.
+
+Notation xs := (locals "xs" typ 0).
+Notation ys := (locals "ys" typ 0).
+Notation zs := (locals "zs" typ 0).
+Notation t := (locals "t" typ 0).
+
+Notation g := (fun x => gets' arr_res x).
+
+Definition reduce_body n s :=
+  (Cbarrier (n - 1) ;;
+   Cif (Band ("tid" +C Zn s <C "slen") ("tid" <C Zn s)) (
+     reads xs (ty2ctys typ) (v2sh sarr +os ("tid" +C Zn s)) ;;
+     assigns_call2 zs func_c ys xs ;;
+     assigns ys (ty2ctys typ) (v2e zs) ;;
+     writes (v2sh sarr +os "tid") (v2e ys)
+   ) Cskip
+  )%exp.
+
+Definition st n := 2 ^ (e_b - n).
+
+Fixpoint reduce_aux t m :=
+  match m with
+  | O => Cskip    
+  | S m =>
+    reduce_body t (st t) ;; reduce_aux (S t) m 
+  end.
+
+Definition reduceBlock := reduce_aux 1 e_b.
+
+Definition seq_reduce inv :=
+  assigns ys (ty2ctys typ) (vals2es defval) ;;
+  writes (v2sh sarr +os "tid") (vals2es defval) ;;
+  "ix" :T Int ::= ("tid" +C "bid" *C "ntrd") ;;
+  Cif ("ix" <C len) (
+    assigns_get ys arr_c "ix" ;;
+    "ix" ::= "ix" +C "ntrd" *C "nblk" ;;
+    WhileI inv ("ix" < len) (
+      assigns_get xs arr_c "ix" ;;
+      assigns_call2 zs func_c ys xs ;;
+      assigns ys (ty2ctys typ) (v2e zs) ;;
+      "ix" ::= "ix" +C "ntrd" *C "nblk"
+    );;
+    writes (v2sh sarr +os "tid") (v2e ys)
+  ) Cskip.
+
+Definition setToLen :=
+  Cif (len <C "bid" *C "ntrd") (
+    "slen" :T Int ::= 0%Z 
+  ) (Cif (len <C ("bid" +C 1%Z) *C "ntrd") (
+    "slen" :T Int ::= len -C "bid" *C "ntrd"
+  ) (
+    "slen" :T Int ::= "ntrd"
+  )).
+
+Definition mkReduce_cmd :=
+  seq_reduce FalseP ;;
+  setToLen ;;
+  reduceBlock ;;
+  Cif ("tid" == 0%Z) (
+    writes (v2gl out +os "bid") (v2e ys) 
+  ) Cskip.
+
 Section blockReduce.
 Variable tid : Fin.t ntrd.
 Variable bid : Fin.t nblk.
@@ -371,6 +370,8 @@ Lemma reduce_body_ok n :
          True
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           "slen" |-> Zn l :: 
           len |-> Zn (length arr_res) ::
           out |=> outp ++
@@ -382,6 +383,8 @@ Lemma reduce_body_ok n :
         True
         ("tid" |-> Zn (nf tid) ::
          "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
          "slen" |-> Zn l :: 
          len |-> Zn (length arr_res) ::
          out |=> outp ++
@@ -450,6 +453,8 @@ Lemma reduce_aux_ok n m :
          True
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           "slen" |-> Zn l :: 
           len |-> Zn (length arr_res) ::
           out |=> outp ++
@@ -460,12 +465,14 @@ Lemma reduce_aux_ok n m :
         (BSpre (n + m) (nf tid) *** arrays' (val2gl outp) (ith_vals dist_outs outs gid 0) 1)
         True
         ("tid" |-> Zn (nf tid) ::
-        "bid" |-> Zn (nf bid) ::
-        "slen" |-> Zn l :: 
-        len |-> Zn (length arr_res) ::
-        out |=> outp ++
-        sarr |=> inpp ++
-        ys |=> sc2CUDA (f_sim (n + m) (nf tid))) p).
+         "bid" |-> Zn (nf bid) ::
+         "nblk" |-> Zn nblk ::
+         "ntrd" |-> Zn ntrd ::
+         "slen" |-> Zn l :: 
+         len |-> Zn (length arr_res) ::
+         out |=> outp ++
+         sarr |=> inpp ++
+         ys |=> sc2CUDA (f_sim (n + m) (nf tid))) p).
 Proof.
   revert n; induction m; simpl; introv.
   - rewrite <-plus_n_O; hoare_forward; eauto.
@@ -482,6 +489,8 @@ Lemma reduceBlock_ok :
          True
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           "slen" |-> Zn l :: 
           len |-> Zn (length arr_res) ::
           out |=> outp ++
@@ -493,6 +502,8 @@ Lemma reduceBlock_ok :
         True
         ("tid" |-> Zn (nf tid) ::
          "bid" |-> Zn (nf bid) ::
+         "nblk" |-> Zn nblk ::
+         "ntrd" |-> Zn ntrd ::
          "slen" |-> Zn l :: 
          len |-> Zn (length arr_res) ::
          out |=> outp ++
@@ -504,6 +515,7 @@ Qed.
 
 Lemma sn_double n : S n <= e_b -> st (S n) + st (S n) = st n.
 Proof.
+  clear outs outs_length.
   intros Hsneb. unfold st.
   assert (Heq : e_b - n = S (e_b - S n)) by omega; rewrite Heq; simpl; eauto.
 Qed.
@@ -515,6 +527,7 @@ Lemma f_inv n :
   S n <= e_b ->
   sum_of_vs 0 (min l (st (S n))) (f_sim (S n)) = sum_of_vs 0 (min l (st n)) (f_sim n).
 Proof.
+  clear outs outs_length.
   intros Hsneb.
   simpl.
   lets Hsn : (>>sn_double n ___); try omega.
@@ -573,6 +586,7 @@ Lemma fn_ok n :
   n <= e_b ->
   sum_of_vs 0 (min l (st n)) (f_sim n) = sum_of_vs 0 l (fun x => gets' inp x).
 Proof.
+  clear outs outs_length.
   induction n; simpl.
   - unfold st; rewrite <-minus_n_O, min_l; try omega.
     intros; apply sum_of_eq; intros; eauto.
@@ -582,6 +596,7 @@ Qed.
 
 Lemma feb_ok : match sum_of_vs 0 l (fun x => gets' inp x) with None => l = 0 | Some v => v = f_sim e_b 0 end.
 Proof.
+  clear outs outs_length.
   rewrite <-(fn_ok e_b); eauto.
   unfold st; rewrite minus_diag; simpl.
   assert (l = 0 \/ l > 0) as [|] by omega; subst; simpl; eauto.
@@ -613,6 +628,8 @@ Definition seqInv (inpp : vals typ) :=
           i = nl * (ntrd * nblk) + (nf tid + nf bid * ntrd))
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           len |-> Zn (length arr_res) ::
           "ix" |-> Zn i ::
           out |=> outp ++
@@ -637,6 +654,8 @@ Lemma seq_reduce_ok BS inpp inp :
          True
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           len |-> Zn (length arr_res) ::
           out |=> outp ++
           sarr |=> inpp) p)
@@ -647,6 +666,8 @@ Lemma seq_reduce_ok BS inpp inp :
          True
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           len |-> Zn (length arr_res) ::
           out |=> outp ++
           sarr |=> inpp ++ 
@@ -748,6 +769,8 @@ Lemma setToLen_ok BS R (tid : Fin.t ntrd) (bid : Fin.t nblk) inpp y:
          R True
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           len |-> Zn (length arr_res) ::
           out |=> outp ++
           sarr |=> inpp ++ ys |=> y) p)
@@ -756,6 +779,8 @@ Lemma setToLen_ok BS R (tid : Fin.t ntrd) (bid : Fin.t nblk) inpp y:
          R True
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           len |-> Zn (length arr_res) ::
           "slen" |-> Zn (min (length arr_res - nf bid * ntrd) ntrd) ::
           out |=> outp ++
@@ -810,6 +835,8 @@ Lemma mkReduce_cmd_ok :
        True
        ("tid" |-> Zn (nf tid) ::
         "bid" |-> Zn (nf bid) ::
+        "nblk" |-> Zn nblk ::
+        "ntrd" |-> Zn ntrd ::
         len |-> Zn (length arr_res) ::
         out |=> outp ++
         sarr |=> inpp) p)  
@@ -887,6 +914,8 @@ Definition ith_pre (tid : Fin.t ntrd) :=
         arrays' (val2gl outp) (ith_vals dist_outs outs (nf tid + nf bid * ntrd) 0) 1)
        True
        ("bid" |-> Zn (nf bid) ::
+        "nblk" |-> Zn nblk ::
+        "ntrd" |-> Zn ntrd ::
         len |-> Zn (length arr_res) ::
         out |=> outp ++
         sarr |=> inpp) p).
@@ -907,6 +936,8 @@ Notation fin_star n f :=
 Definition E (x : var) :=
   if prefix "_" (str_of_var x) then Lo
   else if var_eq_dec "bid" x then Lo
+  else if var_eq_dec "ntrd" x then Lo
+  else if var_eq_dec "nblk" x then Lo
   else Hi.
 
 Definition shvals_last : list (Skel.typDenote typ) :=
@@ -943,6 +974,8 @@ Lemma mkReduce_cmd_ok_b :
         fin_star ntrd (fun i => arrays' (val2gl outp) (ith_vals dist_outs outs (i + nf bid * ntrd) 0) 1))
        True
        ("bid" |-> Zn (nf bid) ::
+        "nblk" |-> Zn nblk ::
+        "ntrd" |-> Zn ntrd ::
         len |-> Zn (length arr_res) ::
         out |=> outp ++
         sarr |=> inpp) (p * injZ (Zn ntrd)))
@@ -1032,7 +1065,9 @@ Definition jth_pre (bid : Fin.t nblk) :=
   (kinv
        (fin_star ntrd (fun i => arrays' (val2gl outp) (ith_vals dist_outs outs (i + nf bid * ntrd) 0) 1))
        True
-       (len |-> Zn (length arr_res) ::
+       ("nblk" |-> Zn nblk ::
+        "ntrd" |-> Zn ntrd ::
+        len |-> Zn (length arr_res) ::
         out |=> outp) (p * injZ (Zn ntrd))).
 
 Definition jth_post (bid : Fin.t nblk) :=
@@ -1203,12 +1238,60 @@ Lemma sh_decl_length n ty pref st:
   length (sh_decl n ty pref st) = nleaf ty.
 Proof. unfold sh_decl; apply sh_decl_length_aux. Qed.
 
-Theorem mkReduce_ok :
+Fixpoint to_shvals {ty} :=
+  match ty return list (vals ty) -> list (list val) with
+  | Skel.TZ | Skel.TBool => fun vals => vals :: nil
+  | Skel.TTup t1 t2 => fun vals => to_shvals (map fst vals) ++ to_shvals (map snd vals)
+  end.
+
+Lemma to_shvals_length ty (vs : list (vals ty)) :
+  length (to_shvals vs) = nleaf ty.
+Proof.
+  induction ty; simpl; eauto.
+  rewrite app_length; congruence.
+Qed.
+
+Lemma sh_spec_res_tup' n ty pref st (locs : vals ty) (vals : list (vals ty)):
+  sh_spec_res (sh_decl n ty pref st) (flatTup locs) (to_shvals vals) ==
+  arrays (val2sh locs) vals 1.
+Proof.
+  unfold sh_decl; revert st; induction ty; simpl; intros.
+  - rewrite arrays_TB, emp_unit_r_res; reflexivity.
+  - rewrite arrays_TZ, emp_unit_r_res; reflexivity.
+  - rewrite sh_spec_res_app.
+    rewrite IHty1.
+    rewrite IHty2.
+    rewrite arrays_TTup; reflexivity.
+    autorewrite with pure; rewrite to_shvals_length; eauto.
+    autorewrite with pure; eauto.
+Qed.
+      
+Lemma sh_spec_pure_tup' n ty pref st (vs : list (vals ty)) :
+  length vs = n
+  -> sh_spec_pure (sh_decl n ty pref st) (to_shvals vs).
+Proof.
+  revert st; unfold sh_decl; induction ty; simpl; eauto.
+  intros.
+  rewrite sh_spec_pure_app.
+  2: autorewrite with pure; rewrite to_shvals_length; eauto.
+  split; [apply IHty1|apply IHty2]; rewrite map_length; eauto.
+Qed.
+
+Lemma sh_decl_map n ty pref st:
+  map SD_var (sh_decl n ty pref st) = flatTup (locals pref ty st).
+Proof.
+  revert st; unfold sh_decl; induction ty; simpl; eauto.
+  introv; rewrite map_app; congruence.
+Qed.      
+
+Theorem mkReduce_prog_ok :
   CSLg ntrd nblk
     (kinv
        (arrays (val2gl outp) outs 1)
        True
-       (len |-> Zn (length arr_res) ::
+       ("nblk" |-> Zn nblk ::
+        "ntrd" |-> Zn ntrd ::
+        len |-> Zn (length arr_res) ::
         out |=> outp) 1)
     mkReduce_prog
     (kernelInv' aptr_env aeval_env
@@ -1243,57 +1326,20 @@ Proof.
     applys (>>mkReduce_cmd_ok_b bid (convertSvals ntrd vals')); try (intros s h; rewrite Assn_combine in *; eauto).
     { autorewrite with pure; eauto. }
     + unfold kernelInv; prove_istar_imp; substs; eauto.
-      rewrite sh_spec_env_tup; eauto.
+      rewrite sh_spec_env_tup; eauto 10.
       rewrite Heq; repeat rewrite <-res_assoc in *.
       sep_cancel'.
       rewrites* sh_spec_res_tup in H4.
       repeat sep_cancel'.
-    + Fixpoint to_shvals {ty} :=
-        match ty return list (vals ty) -> list (list val) with
-        | Skel.TZ | Skel.TBool => fun vals => vals :: nil
-        | Skel.TTup t1 t2 => fun vals => to_shvals (map fst vals) ++ to_shvals (map snd vals)
-        end.
-      exists (to_shvals (arr2CUDA (shvals_last bid))).
-      Lemma to_shvals_length ty (vs : list (vals ty)) :
-        length (to_shvals vs) = nleaf ty.
-      Proof.
-        induction ty; simpl; eauto.
-        rewrite app_length; congruence.
-      Qed.
-      
+    + exists (to_shvals (arr2CUDA (shvals_last bid))).
       split; [unfold arr2CUDA, shvals_last; rewrite !to_shvals_length; autorewrite with pure|].
       rewrite sh_decl_length; unfold Apure; eauto.
       fold_sat; revert s h H1; prove_imp.
       rewrite Heq in *; repeat rewrite <-res_assoc in *.
       repeat sep_cancel'.
       
-      Lemma sh_spec_res_tup' n ty pref st (locs : vals ty) (vals : list (vals ty)):
-        sh_spec_res (sh_decl n ty pref st) (flatTup locs) (to_shvals vals) ==
-        arrays (val2sh locs) vals 1.
-      Proof.
-        unfold sh_decl; revert st; induction ty; simpl; intros.
-        - rewrite arrays_TB, emp_unit_r_res; reflexivity.
-        - rewrite arrays_TZ, emp_unit_r_res; reflexivity.
-        - rewrite sh_spec_res_app.
-          rewrite IHty1.
-          rewrite IHty2.
-          rewrite arrays_TTup; reflexivity.
-          autorewrite with pure; rewrite to_shvals_length; eauto.
-          autorewrite with pure; eauto.
-      Qed.
-      
       rewrite sh_spec_res_tup'; eauto.
       
-      Lemma sh_spec_pure_tup' n ty pref st (vs : list (vals ty)) :
-        length vs = n
-        -> sh_spec_pure (sh_decl n ty pref st) (to_shvals vs).
-      Proof.
-        revert st; unfold sh_decl; induction ty; simpl; eauto.
-        intros.
-        rewrite sh_spec_pure_app.
-        2: autorewrite with pure; rewrite to_shvals_length; eauto.
-        split; [apply IHty1|apply IHty2]; rewrite map_length; eauto.
-      Qed.
       apply sh_spec_pure_tup'.
       unfold arr2CUDA, shvals_last; rewrite map_length; autorewrite with pure; eauto.
   - intros s h H; rewrite Heq'; revert s h H.
@@ -1315,14 +1361,621 @@ Proof.
   - intros; rewrite MyVector.init_spec; unfold kernelInv. 
     apply has_no_vars_assn.
   - unfold E.
-    Lemma sh_decl_map n ty pref st:
-      map SD_var (sh_decl n ty pref st) = flatTup (locals pref ty st).
-    Proof.
-      revert st; unfold sh_decl; induction ty; simpl; eauto.
-      introv; rewrite map_app; congruence.
-    Qed.      
     intros ? Hin; rewrite sh_decl_map in Hin; apply locals_pref in Hin as (? & ? & ?);
     substs; simpl; eauto.
   - rewrite sh_decl_map; apply locals_disjoint_ls.
-Qed.    
+Qed.
 End mkReduce.
+
+Definition mkReduce GA typ ntrd g f : kernel :=
+  let arr_vars := gen_params GA in
+  let params_in := flatten_avars arr_vars in
+  let params_out := (inp_len_name, Int) :: flatTup (out_name typ) in
+  {| params_of := params_out ++ params_in;
+     body_of := mkReduce_prog typ ntrd (S (log2 ntrd)) g f |}.
+
+Open Scope nat_scope.
+
+Lemma mkReduce_ok' M G (GA : list Skel.Typ) (typ : Skel.Typ) (ntrd : nat)
+      (arr_c : var -> cmd * vars typ) (func_c : vars typ -> vars typ -> cmd * vars typ)
+      pars tag avar_env :
+  aenv_ok avar_env
+  -> let e_b := S (log2 ntrd) in
+     interp_kfun M G (mkReduce GA typ ntrd arr_c func_c)
+                 (FS pars tag 
+                     (All nblk aptr_env aeval_env arr (func : Skel.Func GA (Skel.Fun2 typ typ typ)) f_tot
+                          result eval_reduce_ok outp outs,
+                      FDbl (kernelInv avar_env aptr_env aeval_env (arrays (val2gl outp) outs 1)
+                                      (ntrd <> 0 /\ nblk <> 0 /\ ntrd <= 2 ^ e_b /\ e_b <> 0 /\
+                                       ae_ok avar_env arr arr_c /\ func_ok avar_env func func_c /\
+                                       (forall x y, Skel.funcDenote GA (Skel.Fun2 typ typ typ) func aeval_env x y =
+                                                    Some (f_tot x y)) /\
+                                       (forall x y : Skel.typDenote typ, f_tot x y = f_tot y x) /\
+                                       (forall x y z, f_tot (f_tot x y) z = f_tot x (f_tot y z)) /\
+                                       Datatypes.length outs = nblk + 0)
+                                      ("nblk" |-> Zn nblk :: "ntrd" |-> Zn ntrd :: inp_len_name |-> Zn
+                                      (length (arr_res typ GA aeval_env arr func result eval_reduce_ok)) ::
+                                      outArr typ |=> outp) 1)
+                           (fun _ => kernelInv' aptr_env aeval_env
+                                       (arrays (val2gl outp)
+                                               (arr2CUDA
+                                                  (scan_lib.ls_init 0 nblk
+                                                     (fun j : nat =>
+                                                        f_sim typ e_b f_tot
+                                                              (scan_lib.ls_init 0 ntrd
+                                                                (fun i : nat =>
+                                                                   vi typ ntrd nblk GA aeval_env arr func f_tot result
+                                                                      eval_reduce_ok
+                                                                      (fun x : nat =>
+                                                                         gets'
+                                                                           (arr_res typ GA aeval_env arr func result
+                                                                                    eval_reduce_ok) x) j i))
+                                                              (min
+                                                                 (Datatypes.length
+                                                                    (arr_res typ GA aeval_env arr func result
+                                                                             eval_reduce_ok) - j * ntrd) ntrd) e_b 0))) 1) True 1))).
+Proof.
+  intros Havok e_b n Hctx; unfold interp_kfun_n_simp.
+  subst e_b.
+  intros nblk aptr_env aeval_env arr f f_tot result eval_map_ok outp outs.
+
+  eapply (CSLkfun_threads_vars ntrd nblk (fun n m => _) (fun n m => _) (fun n m => _)).
+  { unfold kernelInv, Assn; simpl; unfold sat.
+    introv H; sep_split_in H; unfold_conn_all; simpl in *; jauto. }
+  introv.
+  intros ? ?.
+  apply CSLkfun_body.
+  apply CSLg_float; intros Hprem; apply CSLg_weaken_pure.
+  clear Hctx; revert n.
+  applys* mkReduce_prog_ok.
+Qed.
+
+Lemma sum_of_f_opt_eq T s n f g g' :
+  (forall i, s <= i < n + s -> g i = g' i) 
+  -> sum_of_f_opt T f s n g = sum_of_f_opt T f s n g'.
+Proof.
+  revert s; induction n; simpl; eauto.
+  introv Heq.
+  rewrite IHn; [|intros; forwards*: Heq; omega].
+  destruct sum_of_f_opt; rewrite Heq; eauto; omega.
+Qed.
+
+Lemma sum_of_f_opt_off T f s s' n g  :
+  s >= s' -> sum_of_f_opt T f s n g = sum_of_f_opt T f s' n (fun i => g ((s - s') + i)).
+Proof.
+  revert s s'; induction n; simpl; intros; eauto.
+  rewrite (IHn (S s) (S s')); try omega.
+  erewrite sum_of_eq.
+  Focus 2. {
+    intros; cutrewrite (S s - S s' + i = s - s' + i); [|omega].
+    reflexivity. } Unfocus.
+  destruct (sum_of_f_opt _ _ _); simpl; try omega.
+  cutrewrite (s - s' + s' = s); [|omega]; eauto.
+  cutrewrite (s - s' + s' = s); [|omega]; eauto.
+Qed.
+
+Lemma sum_of_f_opt_off0 T s n f g :
+  sum_of_f_opt T f s n g = sum_of_f_opt T f 0 n (fun i => g (s + i)).
+Proof.
+  rewrite (sum_of_f_opt_off _ _ s 0); try omega.
+  erewrite sum_of_eq; eauto.
+  intros; simpl; f_equal; omega.
+Qed.
+
+Lemma sum_of_f_opt_nested T f s g d nt nb :
+  nt <> 0 ->
+  (forall x y z, f (f x y) z = f x (f y z)) ->
+  sum_of_f_opt T f s nb (fun j => maybe (sum_of_f_opt T f 0 nt (fun i => g (i + j * nt))) d) =
+  sum_of_f_opt T f (s * nt) (nt * nb) g.
+Proof.
+  intros.
+  revert s; induction nb; intros; simpl.
+  - rewrite mult_0_r; auto.
+  - cutrewrite (nt * S nb = nt + nt * nb); [|ring].
+    rewrite sum_of_concat; eauto; unfold op', maybe.
+    rewrite IHnb.
+    cutrewrite (S s * nt = nt + s * nt); [|ring].
+    destruct (sum_of_f_opt _ _ (nt + s * nt) (nt * nb)); simpl.
+    rewrite (sum_of_f_opt_off0 _ (s * nt)).
+    erewrite sum_of_eq.
+    2: intros; rewrite plus_comm; reflexivity.
+    destruct (sum_of_f_opt _ _ _ _ _) eqn:Heq; eauto; simpl in *.
+    destruct nt; simpl in *; try congruence.
+    destruct (sum_of_f_opt _ _ _ _); simpl in *; try congruence.
+    rewrite (sum_of_f_opt_off0 _ (s * nt)).
+    erewrite sum_of_eq.
+    2: intros; rewrite plus_comm; reflexivity.
+    destruct (sum_of_f_opt _ _ _) eqn:Heq; eauto; simpl in *.
+    destruct nt as [|nt]; simpl in *; try congruence.
+    destruct (sum_of_f_opt _ _ _); try congruence.
+Qed.
+
+Section CorrectnessOfResult.
+
+Variable typ : Skel.Typ.
+Variable f_tot : Skel.typDenote typ -> Skel.typDenote typ -> Skel.typDenote typ.
+Infix "\op" := f_tot (at level 50, left associativity).
+
+Hypothesis f_comm : 
+  forall x y, x \op y = y \op x.
+Hypothesis f_assoc :
+  forall x y z, x \op y \op z = x \op (y \op z).
+
+Notation sum_of_vs := (sum_of_f_opt (Skel.typDenote typ) f_tot).
+Variable e_b : nat.
+Variable ntrd nblk l : nat.
+
+Definition f_seq g j i := maybe (skip_sum_of_opt _ f_tot (ntrd * nblk) 0 l g (i + j * ntrd)) defval'.
+
+Hypothesis ntrd_neq_0: ntrd <> 0.
+Hypothesis nblk_neq_0: nblk <> 0.
+
+Hypothesis max_th_size : ntrd <= 2 ^ e_b.
+Hypothesis eb_neq_0 : e_b <> 0.
+
+Lemma sum_of_split s n f g :
+  sum_of_vs s n (fun i => (f i) \op (g i)) = op' _ f_tot (sum_of_vs s n f) (sum_of_vs s n g).
+Proof.
+  revert s; induction n; simpl; eauto.
+  intros s; rewrites* IHn.
+  unfold op'; 
+    repeat lazymatch goal with
+      | [|- context [sum_of_vs ?X ?Y ?Z]] => destruct (sum_of_vs X Y Z)
+      end; eauto.
+  rewrite !f_assoc; do 2 f_equal.
+  rewrite <-f_assoc, (f_comm (g s) t), f_assoc; eauto.
+  rewrite f_assoc, (f_comm (g s) t), <-f_assoc; eauto.
+  rewrite f_assoc, (f_comm (g s) t), <-f_assoc; eauto.
+Qed.
+
+Lemma skip_sum_of_sum_of n s d f none:
+  d <> 0 -> 
+  sum_of_vs 0 (min n d) (fun x => maybe (skip_sum_of_opt _ f_tot d (s * d) n f x) none) =
+  sum_of_vs (s * d) n f.
+Proof.
+  intros Hd0; rewrite (Nat.div_mod n d); eauto.
+  generalize (n / d); intros n0.
+  revert n d Hd0 s; induction n0; simpl; intros n d Hd0 s.
+  - cutrewrite (d * 0 = 0); [|ring]; simpl.
+    rewrite Nat.min_l; [|lets: (Nat.mod_upper_bound n d); zify; omega].
+    rewrite (sum_of_f_opt_off _ _ (s * d) 0); try (zify; omega).
+    simpl; erewrite sum_of_eq; eauto; intros; unfold maybe.
+    rewrites (>>skip_sum_opt_sum d i s 1); eauto; try (lets:(Nat.mod_upper_bound n d); zify; omega).
+    simpl.
+    f_equal; zify; omega.
+  - rewrite Nat.min_r.
+    2: rewrite <-mult_n_Sm; simpl; generalize (d * n0); intros; omega.
+    erewrite sum_of_eq.
+    Focus 2. {
+      simpl; intros.
+      rewrite skip_sum_opt_unfold; eauto; try omega.
+      2: rewrite <-mult_n_Sm; simpl; generalize (d * n0); intros; omega.
+      cutrewrite (d * S n0 + n mod d - d = d * n0 + n mod d); [|].
+      2: rewrite <-mult_n_Sm; simpl; generalize (d * n0); intros; omega.
+      unfold op'.
+      instantiate (1 := fun i =>
+                          if lt_dec i (d * n0 + n mod d)
+                          then maybe (skip_sum_of_opt _ f_tot d (S s * d) (d * n0 + n mod d) f i) none \op f (i + s * d)
+                          else f (i + s * d)); simpl.
+      unfold maybe.
+      destruct lt_dec, (skip_sum_of_opt _ _ _ _ _ _ _) eqn:Heq'; eauto.
+      + assert (Heq'' : d + s * d = S s * d) by (simpl; ring); rewrite Heq'' in Heq'; clear Heq''.
+        rewrite skip_sum_opt_unfold in Heq'; simpl in Heq'; eauto; try omega.
+        unfold op' in Heq'; destruct (skip_sum_of_opt _ _ _ _ _ _ _); congruence.
+      + rewrites* (>>skip_sum_opt_nil (d * n0 + n mod d)) in Heq'.
+        intros.
+        cutrewrite (d + s * d + j = j + S s * d); [|ring]; rewrite Nat.mod_add; eauto.
+        rewrite Nat.mod_small; zify; omega.
+        rewrite minus_diag in Heq'; simpl in *; congruence. } Unfocus.
+    assert (d <= d * n0 + n mod d \/ d * n0 + n mod d < d) as [H | H] by omega.
+    + erewrite sum_of_eq; [|intros; destruct lt_dec; try omega; reflexivity].
+      rewrite sum_of_split.
+      forwards* Ht: (>>IHn0 n d (S s)); rewrite Nat.min_r in *; eauto.
+      rewrite Ht; clear Ht.
+      cutrewrite (d * S n0 + n mod d = d + (d * n0 + n mod d)); [|ring].
+      rewrites (>>sum_of_concat d (d * n0 + n mod d)); eauto.
+      rewrite opopt_comm; f_equal; eauto.
+      rewrite (sum_of_f_opt_off0 _ (s * d)); erewrite sum_of_eq; eauto.
+      simpl; intros; f_equal; ring.
+    + rewrite sum_of_f_split; eauto; try (zify; omega).
+      rewrite <-!minus_n_O.
+      rewrite sum_of_split.
+      erewrite sum_of_eq.
+      Focus 2.
+      { intros.
+        rewrites (>>skip_sum_opt_sum d i 1); eauto; try (zify; omega).
+        simpl; reflexivity. } Unfocus.
+      cutrewrite (d * S n0 + n mod d = (d * n0 + n mod d) + (d - (d * n0 + n mod d)) +
+                                       (d * n0 + n mod d)); [|rewrite <-mult_n_Sm; simpl; omega].
+      remember (d * n0 + n mod d).
+      rewrite !sum_of_concat; eauto.
+      rewrite (sum_of_f_opt_off0 _ (s * d)), (sum_of_f_opt_off0 _ (n1 + s * d)),
+      (sum_of_f_opt_off0 _ (n1 + (d - n1) + s * d)), (sum_of_f_opt_off0 _ n1).
+      assert (forall x y z, op' _ f_tot (op' _ f_tot x y) z =
+                            op' _ f_tot (op' _ f_tot y z) x).
+      { intros. rewrite opopt_assoc, opopt_comm; eauto. }
+      rewrite H0; [f_equal; [f_equal|]].
+      * erewrite sum_of_eq; eauto.
+        simpl; intros; f_equal; ring.
+      * erewrite sum_of_eq; eauto.
+        simpl; intros; f_equal; ring.
+      * erewrite sum_of_eq; eauto.
+        simpl; intros; f_equal; (zify; omega).
+Qed.
+
+Lemma feb_ok' ds len g :
+  0 < len -> len <= ntrd ->
+  length g = ntrd ->
+  f_sim typ e_b f_tot g len e_b 0 = maybe (sum_of_vs 0 len (fun i => gets' g i)) ds.
+Proof.
+  intros.
+  forwards*: (>>feb_ok ntrd nblk e_b g len).
+  (* TODO: Fix feb_ok lemma not to rely on tid *)
+  { destruct ntrd; try omega; apply Fin.F1. }
+  destruct len; try omega; simpl in *.
+  destruct sum_of_vs eqn:Heq; eauto.
+Qed.
+
+Lemma reduce_res_ok g :
+  sum_of_f_opt _ f_tot 0 (min ((l + ntrd - 1) / ntrd) nblk)
+               (fun j => f_sim _ e_b f_tot
+                               (scan_lib.ls_init 0 ntrd (fun i => f_seq g j i))
+                               (min (l - j * ntrd) ntrd) e_b 0) = 
+  sum_of_f_opt _ f_tot 0 l g.
+Proof.
+  assert (ntrd * nblk <= l \/ l < ntrd * nblk) as [Hntl | Hntl] by omega.
+  - assert (Hl0 : 0 < l) by abstract nia.
+    rewrite Nat.min_r.
+    Focus 2.
+    { lets: (>>Nat.div_mod (l + ntrd - 1) ntrd __); eauto.
+      lets: (>>Nat.mod_upper_bound (l + ntrd - 1) ntrd __); eauto.
+      abstract nia. } Unfocus.
+    erewrite sum_of_eq.
+    Focus 2.
+    { simpl; intros.
+      rewrite Nat.min_r; try (abstract nia).
+      rewrites (>>feb_ok' (@defval' typ)); try omega.
+      rewrite init_length; eauto.
+
+      rewrites (>>sum_of_f_opt_eq).
+      { introv Hi.
+        rewrite ls_init_spec; destruct lt_dec; simpl; try omega.
+        reflexivity. }
+      
+      reflexivity. } Unfocus.
+    unfold f_seq.
+    rewrite (sum_of_f_opt_nested _ _ 0 (fun x =>
+       maybe (skip_sum_of_opt _ _ (ntrd * nblk) 0 l g x) defval') defval' ntrd nblk); eauto.
+    simpl.
+    
+    assert (Heq : ntrd * nblk = min l (ntrd * nblk)) by (rewrite Nat.min_r; zify; omega); rewrite Heq at 1; clear Heq.
+    assert (Heq : 0 = 0 * (ntrd * nblk)) by (auto).
+    erewrite sum_of_eq; [|intros; rewrite Heq; reflexivity].
+    rewrite skip_sum_of_sum_of; eauto.
+    apply Nat.neq_mul_0; eauto.
+  - rewrite Nat.min_l.
+    Lemma reduce_res_ok1 : l < ntrd * nblk -> (l + ntrd - 1) / ntrd <= nblk.
+    Proof.
+      lets: (>>Nat.div_mod (l + ntrd - 1) ntrd __); eauto.
+      lets: (>>Nat.mod_upper_bound (l + ntrd - 1) ntrd __); eauto.
+      lets: (>>Nat.div_mod l ntrd __); eauto.
+      lets: (>>Nat.mod_upper_bound l ntrd __); eauto.
+      nia.
+    Qed.
+    2: applys* reduce_res_ok1.
+    assert (l = 0 \/ l > 0) as [Hl0|Hl0] by omega.
+    { (* case l = 0 *)
+      subst; simpl.
+      rewrite Nat.div_small; [|omega]; eauto. }
+    erewrite sum_of_eq.
+    Focus 2. {
+      intros.
+      rewrite (feb_ok' defval').
+      2: apply Nat.min_glb_lt_iff.
+      Lemma reduce_res_ok2 i :
+        l > 0 -> 0 <= i < (l + ntrd - 1) / ntrd ->
+        0 < l - i * ntrd /\ 0 < ntrd.
+      Proof.
+        intros; splits; try omega.
+        lets: (>>Nat.div_mod (l + ntrd - 1) ntrd __); eauto.
+        lets: (>>Nat.mod_upper_bound (l + ntrd - 1) ntrd __); eauto.
+        lets: (>>Nat.div_mod l ntrd __); eauto.
+        lets: (>>Nat.mod_upper_bound l ntrd __); eauto.
+        nia.
+      Qed.
+      2: applys* reduce_res_ok2.
+      2: apply Nat.le_min_r.
+      2: rewrite init_length; auto.
+      unfold f_seq.
+      erewrite sum_of_eq.
+      Focus 2. {
+        simpl in *; intros.
+        rewrite Nat.min_glb_lt_iff in H0.
+        rewrite ls_init_spec; destruct lt_dec; [|omega].
+        rewrites (>>skip_sum_sum0 1); [eauto|..].
+        Lemma reduce_res_ok3 i i0 :
+          l < ntrd * nblk ->
+          l > 0 ->
+          0 <= i < (l + ntrd - 1) / ntrd ->
+          0 <= i0 /\ i0 < l - i * ntrd /\ i0 < ntrd ->
+          i0 < ntrd ->
+          0 + i0 + i * ntrd < ntrd * nblk.
+        Proof. nia. Qed.
+        Lemma reduce_res_ok4 (i i0 : nat) :
+          l < ntrd * nblk ->
+          l > 0 ->
+          0 <= i < (l + ntrd - 1) / ntrd ->
+          0 <= i0 /\ i0 < l - i * ntrd /\ i0 < ntrd ->
+          i0 < ntrd ->
+          ntrd * nblk * 1 + (0 + i0 + i * ntrd) < l + ntrd * nblk <=
+          ntrd * nblk * 2 + (0 + i0 + i * ntrd).
+        Proof. nia. Qed.
+        applys* reduce_res_ok3.
+        applys* reduce_res_ok4.
+        simpl; rewrite <-plus_n_O; reflexivity. } Unfocus.
+      reflexivity. } Unfocus.
+    assert ((l + ntrd - 1) / ntrd = l / ntrd \/
+            (l + ntrd - 1) / ntrd = l / ntrd + 1) as [H'|H']; [|rewrite H'..].
+    { assert ((l + ntrd - 1)  mod ntrd = 0 \/
+              (l + ntrd - 1)  mod ntrd > 0) as [|] by omega.
+      Lemma reduce_res_ok5 :
+        l < ntrd * nblk ->
+        l > 0 ->
+        (l + ntrd - 1) / ntrd = l / ntrd \/ (l + ntrd - 1) / ntrd = l / ntrd + 1.
+      Proof.
+        lets: (>>Nat.div_mod (l + ntrd - 1) ntrd __); eauto.
+        lets: (>>Nat.mod_upper_bound (l + ntrd - 1) ntrd __); eauto.
+        lets: (>>Nat.div_mod l ntrd __); eauto.
+        lets: (>>Nat.mod_upper_bound l ntrd __); eauto.
+        nia.
+      Qed.
+      applys* reduce_res_ok5.
+      Lemma reduce_res_ok6 :
+        l < ntrd * nblk ->
+        l > 0 ->
+        (l + ntrd - 1) / ntrd = l / ntrd \/ (l + ntrd - 1) / ntrd = l / ntrd + 1.
+      Proof.
+        lets: (>>Nat.div_mod (l + ntrd - 1) ntrd __); eauto.
+        lets: (>>Nat.mod_upper_bound (l + ntrd - 1) ntrd __); eauto.
+        lets: (>>Nat.div_mod l ntrd __); eauto.
+        lets: (>>Nat.mod_upper_bound l ntrd __); eauto.
+        nia.
+      Qed.
+      applys* reduce_res_ok6. } 
+    + erewrite sum_of_eq.
+      Focus 2. { 
+        intros.
+        rewrite Nat.min_r; [|].
+        Lemma reduce_res_ok7 i :
+          l < ntrd * nblk ->
+          l > 0 ->
+          (l + ntrd - 1) / ntrd = l / ntrd ->
+          0 <= i < 0 + l / ntrd ->
+          ntrd <= l - i * ntrd.
+        Proof. 
+          lets: (>>Nat.div_mod (l + ntrd - 1) ntrd __); eauto.
+          lets: (>>Nat.mod_upper_bound (l + ntrd - 1) ntrd __); eauto.
+          lets: (>>Nat.div_mod l ntrd __); eauto.
+          lets: (>>Nat.mod_upper_bound l ntrd __); eauto.
+          nia.
+        Qed.
+        2: applys* reduce_res_ok7.
+        reflexivity. } Unfocus.
+      rewrite sum_of_f_opt_nested; eauto; simpl.
+      cutrewrite (ntrd * (l / ntrd) = l); eauto.
+      Lemma reduce_res_ok8 :
+        l < ntrd * nblk ->
+        l > 0 ->
+        (l + ntrd - 1) / ntrd = l / ntrd ->
+        ntrd * (l / ntrd) = l.
+      Proof. 
+        lets: (>>Nat.div_mod (l + ntrd - 1) ntrd __); eauto.
+        lets: (>>Nat.mod_upper_bound (l + ntrd - 1) ntrd __); eauto.
+        lets: (>>Nat.div_mod l ntrd __); eauto.
+        lets: (>>Nat.mod_upper_bound l ntrd __); eauto.
+        nia.
+      Qed.
+      applys* reduce_res_ok8.
+    + rewrite sum_of_concat; eauto; simpl.
+      erewrite sum_of_eq.
+      Focus 2. {
+        intros.
+        rewrite Nat.min_r; [|].
+        reflexivity.
+        Lemma reduce_res_ok9 i :
+          l < ntrd * nblk ->
+          l > 0 ->
+          (l + ntrd - 1) / ntrd = l / ntrd + 1 ->
+          0 <= i < 0 + l / ntrd ->
+          ntrd <= l - i * ntrd.
+        Proof.
+          lets: (>>Nat.div_mod (l + ntrd - 1) ntrd __); eauto.
+          lets: (>>Nat.mod_upper_bound (l + ntrd - 1) ntrd __); eauto.
+          lets: (>>Nat.div_mod l ntrd __); eauto.
+          lets: (>>Nat.mod_upper_bound l ntrd __); eauto.
+          nia.
+        Qed.
+        applys* reduce_res_ok9.
+      } Unfocus.
+      rewrite sum_of_f_opt_nested; eauto; simpl.
+      rewrite Nat.min_l; [|].
+      Lemma reduce_res_ok10 :
+        l < ntrd * nblk ->
+        l > 0 ->
+        (l + ntrd - 1) / ntrd = l / ntrd + 1 ->
+        l - (l / ntrd + 0) * ntrd <= ntrd.
+      Proof.
+        lets: (>>Nat.div_mod (l + ntrd - 1) ntrd __); eauto.
+        lets: (>>Nat.mod_upper_bound (l + ntrd - 1) ntrd __); eauto.
+        lets: (>>Nat.div_mod l ntrd __); eauto.
+        lets: (>>Nat.mod_upper_bound l ntrd __); eauto.
+        nia.
+      Qed.
+      2: applys* reduce_res_ok10.
+      rewrite <-!plus_n_O.
+      cutrewrite (l - l / ntrd * ntrd = l mod ntrd).
+      Lemma reduce_res_ok11 :
+        l < ntrd * nblk ->
+        l > 0 ->
+        (l + ntrd - 1) / ntrd = l / ntrd + 1 ->
+        l - l / ntrd * ntrd = l mod ntrd.
+      Proof.
+        lets: (>>Nat.div_mod (l + ntrd - 1) ntrd __); eauto.
+        lets: (>>Nat.mod_upper_bound (l + ntrd - 1) ntrd __); eauto.
+        lets: (>>Nat.div_mod l ntrd __); eauto.
+        lets: (>>Nat.mod_upper_bound l ntrd __); eauto.
+        nia.
+      Qed.
+      2: applys* reduce_res_ok11.
+      lets: (>>Nat.div_mod l ntrd).
+      rewrite H at 3; eauto; rewrite sum_of_concat; eauto.
+      f_equal.
+      unfold maybe.
+      rewrite <-plus_n_O, (sum_of_f_opt_off0 _ (ntrd * (l / ntrd))).
+      erewrite sum_of_eq; [|intros;
+                             cutrewrite (i + l / ntrd * ntrd = ntrd * (l / ntrd) + i); [|ring];
+                             reflexivity].
+      destruct (sum_of_vs _ _ _) eqn:Heq; eauto.
+      destruct (l mod ntrd) eqn:Heq'; simpl in *; [|destruct (sum_of_vs _ _ _); congruence].
+      Lemma reduce_res_ok12 :
+        l < ntrd * nblk ->
+        l > 0 ->
+        (l + ntrd - 1) / ntrd = l / ntrd + 1 ->
+        l mod ntrd = 0 ->
+        ntrd <> 0 -> l = ntrd * (l / ntrd) + 0 ->
+        False.
+      Proof.
+        lets: (>>Nat.div_mod (l + ntrd - 1) ntrd __); eauto.
+        lets: (>>Nat.mod_upper_bound (l + ntrd - 1) ntrd __); eauto.
+        lets: (>>Nat.div_mod l ntrd __); eauto.
+        lets: (>>Nat.mod_upper_bound l ntrd __); eauto.
+        nia.
+      Qed.
+      forwards*: reduce_res_ok12.
+Qed.
+End CorrectnessOfResult.
+
+Lemma mkReduce_ok M G (GA : list Skel.Typ) (typ : Skel.Typ) (ntrd : nat)
+      (arr_c : var -> cmd * vars typ) (func_c : vars typ -> vars typ -> cmd * vars typ)
+      pars tag avar_env :
+  aenv_ok avar_env
+  -> let e_b := S (log2 ntrd) in
+     interp_kfun M G (mkReduce GA typ ntrd arr_c func_c)
+                 (FS pars tag 
+                     (All nblk aptr_env aeval_env arr (func : Skel.Func GA (Skel.Fun2 typ typ typ)) f_tot
+                          result eval_reduce_ok outp outs,
+                      FDbl (kernelInv avar_env aptr_env aeval_env (arrays (val2gl outp) outs 1)
+                                      (ntrd <> 0 /\ nblk <> 0 /\ ntrd <= 2 ^ e_b /\ e_b <> 0 /\
+                                       ae_ok avar_env arr arr_c /\ func_ok avar_env func func_c /\
+                                       (forall x y, Skel.funcDenote GA (Skel.Fun2 typ typ typ) func aeval_env x y =
+                                                    Some (f_tot x y)) /\
+                                       (forall x y : Skel.typDenote typ, f_tot x y = f_tot y x) /\
+                                       (forall x y z, f_tot (f_tot x y) z = f_tot x (f_tot y z)) /\
+                                       Datatypes.length outs = nblk + 0)
+                                      ("nblk" |-> Zn nblk :: "ntrd" |-> Zn ntrd :: inp_len_name |-> Zn
+                                      (length (arr_res typ GA aeval_env arr func result eval_reduce_ok)) ::
+                                      outArr typ |=> outp) 1)
+                           (fun _ => Ex vs, kernelInv' aptr_env aeval_env
+                                              (arrays (val2gl outp) (arr2CUDA vs) 1)
+                                              (reduceM (fun x y => Some (f_tot x y))
+                                                       (firstn (min (((length (arr_res typ GA aeval_env arr func result eval_reduce_ok) ) + ntrd - 1) / ntrd) nblk) vs) =
+                                               reduceM (fun x y => Some (f_tot x y))
+                                                       (arr_res typ GA aeval_env arr func result eval_reduce_ok) /\ length vs = nblk) 1
+                 ))).
+Proof.
+  intros Havok e_b n Hctx; unfold interp_kfun_n_simp.
+  subst e_b.
+  intros nblk aptr_env aeval_env arr f f_tot result eval_map_ok outp outs.
+
+  eapply (CSLkfun_threads_vars ntrd nblk (fun n m => _) (fun n m => _) (fun n m => _)).
+  { unfold kernelInv, Assn; simpl; unfold sat.
+    introv H; sep_split_in H; unfold_conn_all; simpl in *; jauto. }
+  introv.
+  intros ? ?.
+  apply CSLkfun_body.
+  apply CSLg_float; intros Hprem; apply CSLg_weaken_pure.
+  clear Hctx.
+  
+  Lemma CSLg_n_backward ntrd nblk P p Q Q' n :
+    Q |= Q' ->
+    CSLg_n ntrd nblk P p Q n ->
+    CSLg_n ntrd nblk P p Q' n.
+  Proof.
+    Lemma safe_ng_backward ntrd nblk n gs shs h Q Q' :
+      Q |= Q' ->
+      safe_ng ntrd nblk n gs shs h Q ->
+      safe_ng ntrd nblk n gs shs h Q'.
+    Proof.
+      revert gs shs h; induction n; simpl; eauto.
+      intros; splits; jauto.
+      - intros; apply H; jauto.
+      - destruct H0 as (? & ? & ? & H').
+        intros; forwards* (? & ? & ? & ?): H'.
+    Qed.
+    intros.
+    intros ? ? ? ? ? ?.
+    forwards*: H0.
+    applys* safe_ng_backward.
+  Qed.
+  eapply CSLg_n_backward; [|applys* mkReduce_prog_ok].
+  intros.
+  exists ((ls_init 0 nblk0
+                   (fun j : nat =>
+                      f_sim typ (S (log2 ntrd0)) f_tot
+                            (ls_init 0 ntrd0
+                                     (fun i : nat =>
+                                        vi typ ntrd0 nblk0 GA aeval_env arr f f_tot
+                                           result eval_map_ok
+                                           (fun x : nat =>
+                                              gets'
+                                                (arr_res typ GA aeval_env arr f result
+                                                         eval_map_ok) x) j i))
+                            (Init.Nat.min
+                               (Datatypes.length
+                                  (arr_res typ GA aeval_env arr f result
+                                           eval_map_ok) - j * ntrd0) ntrd0)
+                            (S (log2 ntrd0)) 0))).
+  unfold kernelInv' in *; revert s h H; prove_imp.
+  Lemma sum_of_f_opt_reduceM T d (f : T -> T -> T) (g : list T) :
+    SkelLib.reduceM (fun x y => Some (f x y)) g =
+    match sum_of_f_opt _ f 0 (length g) (fun i => nth i g d) with
+    | None => None
+    | Some x => Some (x :: nil)
+    end.
+  Proof.
+    unfold SkelLib.reduceM; induction g; [simpl; eauto|].
+    introv; simpl.
+    rewrite sum_of_f_opt_off0.
+    erewrite sum_of_eq.
+    Focus 2. {
+      intros; simpl; reflexivity.
+    } Unfocus.
+    destruct fold_right eqn:Heq1;
+    destruct (sum_of_f_opt T f 0 (length g) (fun i => nth i g d)) eqn:Heq2; eauto;
+    inverts IHg; eauto.
+  Qed.
+  repeat rewrite (sum_of_f_opt_reduceM _ defval').
+  Lemma firstn_length' T i (arr : list T) :
+    length (firstn i arr) = if le_dec i (length arr) then i else length arr.
+  Proof.
+    revert i; induction arr; intros [|i]; simpl; eauto.
+    rewrite IHarr; simpl.
+    destruct (le_dec i (length arr)); destruct (le_dec (S i) (S (length arr))); try omega.
+  Qed.
+  rewrite firstn_length', init_length.
+  destruct le_dec.
+  2: destruct n0; eauto using Nat.le_min_r.
+  erewrite sum_of_eq.
+  Focus 2.
+  { introv.
+    rewrite nth_firstn; destruct lt_dec; try omega.
+    rewrite Nat.min_glb_lt_iff in l0.
+    rewrite ls_init_spec; destruct lt_dec; try omega.
+    rewrite !Nat.add_0_l.
+    
+    reflexivity. } Unfocus.
+  lets*: (>>reduce_res_ok f_tot (S (log2 ntrd0)) ntrd0 nblk0 (length (arr_res typ GA aeval_env arr f result eval_map_ok))
+           (fun x : nat => gets' (arr_res typ GA aeval_env arr f result eval_map_ok) x)).
+  unfold f_seq, vi in *.
+  rewrite H; eauto.
+Qed.

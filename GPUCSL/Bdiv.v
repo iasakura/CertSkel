@@ -296,7 +296,7 @@ Section Barrier.
     - exists [].
       simpl; repeat split; eauto; inversion 0.
     - destruct (vinvS pres) as [pr [pres' Hpr]], (vinvS posts) as [ps [posts' Hps]]; subst.
-      destruct bwf0 as [bwf1 bwf2]. (*inversion bwf1; subst; inversion bwf2; subst.
+      destruct bwf as [bwf1 bwf2]. (*inversion bwf1; subst; inversion bwf2; subst.
       apply inj_pair2 in H1; apply inj_pair2 in H4; subst.
       rename H2 into hpr, H5 into hps, H6 into hposts, H3 into hpres.*)
 (*      inversion hsat; subst.

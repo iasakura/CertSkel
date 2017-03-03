@@ -64,19 +64,17 @@ Proof.
   unfold f_res; destruct eval_f_ok; simpl; eauto.
 Qed.
 
-Definition outArr ty := locals "_arrOut" ty 0.
-
 Notation out := (outArr cod).
 Notation len := inp_len_name.
 Notation t := (locals "t" dom 0).
 
 Definition mkMap_cmd inv :=
-  "i" :T Int ::= "tid" +C "bid" *C Zn ntrd ;;
+  "i" :T Int ::= "tid" +C "bid" *C "ntrd" ;;
   WhileI inv ("i" <C len) (
     assigns_get t arr_c "i" ;;
     fst (f_c t) ;;
     writes (v2gl out +os "i") (v2e (snd (f_c t))) ;;
-    "i" ::= Zn ntrd *C Zn nblk +C "i"
+    "i" ::= "ntrd" *C "nblk" +C "i"
   )%exp.
 
 Definition mkMap_prog :=
@@ -123,6 +121,8 @@ Definition inv'  :=
               i < length arr_res + ntrd * nblk)
              (len |-> Zn (length arr_res) ::
               "i" |-> Zn i ::
+              "nblk" |-> Zn nblk ::
+              "ntrd" |-> Zn ntrd ::
               out |=> outp) p).
 
 Ltac t :=
@@ -177,7 +177,7 @@ Proof.
     repeat autorewrite with pure; simpl in *.
     assert (i < nf tid + nf bid * ntrd -> (i mod (ntrd * nblk)) <> nf tid + nf bid * ntrd).
     { intros; rewrite Nat.mod_small; eauto; try lia. }
-  Time t. }
+    Time t. }
 Qed.
 
 Lemma after_loop_ok (varr vout : list (vals cod)) vs i :
@@ -202,7 +202,7 @@ Proof.
   rewrite Heq; intros.
   forwards*: (>>mapM_some i (@defval' dom)).
   forwards*: mapM_length; eauto.
-  destruct lt_dec; try lia.
+  destruct lt_dec; [|clear H1; lia].
   rewrite H in H1; eauto.
   inverts H1.
   eauto.
@@ -216,6 +216,8 @@ Lemma mkMap_cmd_ok BS :
          True
          ("tid" |-> Zn (nf tid) ::
           "bid" |-> Zn (nf bid) ::
+          "nblk" |-> Zn nblk ::
+          "ntrd" |-> Zn ntrd ::
           len |-> Zn (length arr_res) ::
           out |=> outp) p)
       (mkMap_cmd inv')
@@ -268,6 +270,8 @@ Definition ith_pre (tid : Fin.t ntrd) :=
      (arrays' (val2gl outp) (skip outs (ntrd * nblk) (nf tid + nf bid * ntrd)) 1)
      True
      ("bid" |-> Zn (nf bid) ::
+      "nblk" |-> Zn nblk ::
+      "ntrd" |-> Zn ntrd ::
       len |-> Zn (length arr_res) ::
       out |=> outp) p).
 
@@ -283,7 +287,9 @@ Definition jth_pre : assn :=
     avar_env aptr_env aeval_env 
     (fin_star ntrd (fun i => arrays' (val2gl outp) (skip outs (ntrd * nblk) (i + (nf bid) * ntrd)) 1))
     True
-    (len |-> Zn (length arr_res) ::
+    ("nblk" |-> Zn nblk ::
+     "ntrd" |-> Zn ntrd ::
+     len |-> Zn (length arr_res) ::
      out |=> outp) (p * injZ (Zn ntrd)).
 
 Definition jth_post : assn :=
@@ -295,6 +301,8 @@ Definition jth_post : assn :=
 Definition E := fun x : var =>
   if prefix "_" (str_of_var x) then Lo
   else if var_eq_dec "bid" x then Lo
+  else if var_eq_dec "ntrd" x then Lo
+  else if var_eq_dec "nblk" x then Lo
   else Hi.
 
 Definition BS (n : nat) := default ntrd.
@@ -344,7 +352,10 @@ Lemma mkMap_prog_ok :
        (kernelInv avar_env aptr_env aeval_env
                   (arrays (val2gl outp) outs 1)
                   True
-                  (len |-> Zn (length arr_res) :: out |=> outp) 1)
+                  ("nblk" |-> Zn nblk ::
+                   "ntrd" |-> Zn ntrd ::
+                   len |-> Zn (length arr_res) :: 
+                   out |=> outp) 1)
        mkMap_prog
        (kernelInv' aptr_env aeval_env 
                   (arrays (val2gl outp) result' 1)
@@ -401,3 +412,28 @@ Proof.
   - simpl; tauto.
 Qed.
 End mkMap.
+ 
+Lemma mkMap_ok M G GA dom cod arr_c (f_c : vars dom -> cmd * vars cod) pars tag avar_env :
+  aenv_ok avar_env
+  -> interp_kfun M G (mkMap GA dom cod arr_c f_c)
+              (FS pars tag
+                  (All ntrd nblk aptr_env aeval_env arr (f : Skel.Func GA (Skel.Fun1 dom cod)) result eval_map_ok outp outs,
+                   FDbl (kernelInv avar_env aptr_env aeval_env (arrays (val2gl outp) outs 1)
+                                   (ntrd <> 0 /\ nblk <> 0 /\ ae_ok avar_env arr arr_c /\ func_ok avar_env f f_c /\ Datatypes.length outs = Datatypes.length result)
+                                   ("nblk" |-> Zn nblk :: "ntrd" |-> Zn ntrd :: inp_len_name |-> Zn
+                                           (Datatypes.length (arr_res GA aeval_env dom cod arr f result eval_map_ok)) :: outArr cod |=> outp) 1)
+                        (fun _ => kernelInv' aptr_env aeval_env (arrays (val2gl outp) (arr2CUDA result) 1) True 1)))%nat.
+Proof.
+  intros Havok n Hctx; unfold interp_kfun_n_simp; simpl.
+  intros ntrd nblk aptr_env aeval_env arr f result eval_map_ok outp outs.
+  eapply (CSLkfun_threads_vars ntrd nblk (fun n m => _) (fun n m => _) (fun n m => _)).
+  unfold kernelInv, Assn; simpl; unfold sat.
+  { introv H; sep_split_in H; unfold_conn_all; simpl in *; jauto. }
+  introv.
+  
+  intros ? ?.
+  apply CSLkfun_body; simpl.
+
+  apply CSLg_float; intros Hprem; apply CSLg_weaken_pure.
+  applys* mkMap_prog_ok.
+Qed.

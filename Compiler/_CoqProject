@@ -1,8 +1,8 @@
--I .
 -R ../tlc/src TLC
 -R ../repo/src Cpdt
--I ../CertSkel
--I ../GPUCSL
--I ../TypedIR
--I Skeletons
--I GPUVeLib
+-R ../CertSkel Top
+-R ../GPUCSL Top
+-R ../TypedIR Top
+-R Skeletons Top
+-R GPUVeLib Top
+-R . Top
