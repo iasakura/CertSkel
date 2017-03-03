@@ -48,14 +48,14 @@ Fixpoint locals pref ty i : vars ty :=
   end.
 
 Definition arr_params' pref ty i := locals pref ty i.
-Fixpoint with_CTyp {ty} : vars ty -> vartys ty :=
+Fixpoint with_PTyp {ty} : vars ty -> vartys ty :=
   match ty return vars ty -> vartys ty with
-  | Skel.TBool => fun x => (x, Bool)
-  | Skel.TZ => fun x => (x, Int)
-  | Skel.TTup t1 t2 => fun xs => (with_CTyp (fst xs), with_CTyp (snd xs))
+  | Skel.TBool => fun x => (x, Ptr Bool)
+  | Skel.TZ => fun x => (x, Ptr Int)
+  | Skel.TTup t1 t2 => fun xs => (with_PTyp (fst xs), with_PTyp (snd xs))
   end.
 
-Definition arr_params pref ty i := with_CTyp (arr_params' pref ty i).
+Definition arr_params pref ty i := with_PTyp (arr_params' pref ty i).
 
 Definition arr_name n (ty : Skel.Typ) :=
   arr_params ("_arrIn" ++ nat2str n) ty 0.

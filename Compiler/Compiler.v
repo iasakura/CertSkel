@@ -774,6 +774,6 @@ Section Compiler.
     let aenv := remove_typeinfo ps in
     let outs := outArr ty in
     let '(res, (_, instrs, kers)) := compile_AS ntrd nblk p outs aenv 0 0 in
-    let pars := flatten_avars (hmap (fun ty x => ((fst (fst x), Int), toPtr (snd x))) ps) in
+    let pars := flatten_avars ps in
     (("__main", Host (Hf pars (seqs instrs) res)) :: kers).
 End Compiler.
