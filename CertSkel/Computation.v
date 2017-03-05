@@ -174,6 +174,8 @@ Ltac binOp op k :=
   | Z.mul => k Skel.Emult
   | Z.sub => k Skel.Eminus
   | Z.min => k Skel.Emin
+  | Z.div => k Skel.Ediv
+  | Z.modulo => k Skel.Emod
   | Z.ltb => k Skel.Blt
   | Z.eqb => k Skel.BEq
   end.
@@ -498,6 +500,7 @@ Ltac transform' GA prog k :=
   | (fun (x : ?T) => ret (@?c x)) =>
     idtac "match res case";
     let m := member GA c in
+    idtac "member = " m;
     k (Skel.ARet _ _ m)
   end.
 
@@ -548,25 +551,31 @@ Require Import CUDALib CSLLemma CSLTactics CodeGen.
 Fixpoint typCTDenote (GA : list Skel.Typ) T :=
   match GA with
   | nil => T
-  | dom :: GA => list (Skel.typDenote dom) -> (typCTDenote GA T)
-  end.
-
-Fixpoint curry_aeenv_k GA : forall T, (AEvalEnv GA -> T) -> typCTDenote GA T :=
-  match GA return forall T, (AEvalEnv GA -> T) -> typCTDenote GA T with
-  | nil => fun T k => k HNil
-  | dom :: GA => fun T k xs => curry_aeenv_k GA T (fun env => k (xs ::: env))
-  end.
-
-Fixpoint uncurry_aeenv {GA T} (aeenv : AEvalEnv GA) : typCTDenote GA T -> T :=
-  match aeenv in hlist _ GA return typCTDenote GA T -> T with
-  | HNil => fun f => f
-  | xs ::: aeenv => fun f => (uncurry_aeenv aeenv) (f xs)
+  | dom :: GA =>  (typCTDenote GA (list (Skel.typDenote dom) -> T))
   end.
 
 Definition funTypDenote GA cod := typCTDenote GA (comp (list (Skel.typDenote cod))).
 
-Definition funcDenote {GA : list Skel.Typ} {cod : Skel.Typ} (f : Skel.AS GA cod) : funTypDenote GA cod :=
-  curry_aeenv_k GA _ (fun aeenv => Skel.asDenote _ _ f aeenv).
+(* Fixpoint curry_aeenv_k GA : forall T, (AEvalEnv GA -> T) -> typCTDenote GA T := *)
+(*   match GA return forall T, (AEvalEnv GA -> T) -> typCTDenote GA T with *)
+(*   | nil => fun T k => k HNil *)
+(*   | dom :: GA => fun T k xs => curry_aeenv_k GA T (fun env => k (xs ::: env)) *)
+(*   end. *)
+
+Eval simpl in typCTDenote (Skel.TZ :: Skel.TTup Skel.TZ Skel.TZ :: nil).
+
+Fixpoint uncurry_aeenv {GA T} (aeenv : AEvalEnv GA) : typCTDenote GA T ->  T.
+  refine(
+  match aeenv in hlist _ GA return typCTDenote GA T -> T with
+  | HNil => fun f => f
+  | xs ::: aeenv => fun f => _
+  end).
+  simpl in f.
+  forwards*: (uncurry_aeenv _ _ aeenv f).
+Defined.
+
+(* Definition funcDenote {GA : list Skel.Typ} {cod : Skel.Typ} (f : Skel.AS GA cod) : funTypDenote GA cod := *)
+(*   curry_aeenv_k GA _ (fun aeenv => Skel.asDenote _ _ f aeenv). *)
 
 Definition equivGC {GA : list Skel.Typ} {cod : Skel.Typ}
            (p_g : funTypDenote GA cod)
@@ -690,6 +699,19 @@ Ltac uncurry_func func k :=
     k func
   end.  
 
+Ltac curry_func func k :=
+  idtac "uncurry func = " func;
+  lazymatch func with
+  | (fun (x : ?T1 * ?T2) => @?f x) =>
+    idtac "match inductive";
+    let t := eval cbv beta in (fun (x1 : T1) (x2 : T2) => f (x1, x2)) in
+    curry_func t k
+  | (fun (x : ?T) => @?f x) =>
+    idtac "match base";
+    let func' := eval unfold myfst, mysnd in func in
+    k func'
+  end.  
+
 Ltac let_intro_pure f T ans :=
   lazymatch f with
   | fun x => seq (@?n x) (@?m x) =>
@@ -733,10 +755,11 @@ Ltac let_intro := lazymatch goal with
   idtac t;
   let t' := constr:(t ret) in
   let t' := eval cbv beta in t' in 
+  curry_func t' ltac:(fun t' =>
   cutrewrite (func = t');
     [reflexivity|
-     let l := fresh "l" in
-     extensionality l; repeat first [rewrite <-let_lift1 | rewrite let_ret]; eauto])
+     repeat (let l := fresh "l" in extensionality l);
+       repeat first [rewrite <-let_lift1 | rewrite let_ret]; eauto]))
 end.
 
 Lemma if_app (A B : Type) (f : A -> B) (b : bool) x y :
@@ -750,7 +773,7 @@ Ltac reifyFunc :=
     [simpl in *; intros; let_intro|
      lazymatch goal with
      | [|- equivGI ?prog _ ] =>
-       transform prog ltac:(fun res => instantiate (1 := res))
+       transform prog ltac:(fun res => idtac "return from transform, res = " res; instantiate (1 := res))
      end]; prove_equiv1|].
 
 Goal False.
