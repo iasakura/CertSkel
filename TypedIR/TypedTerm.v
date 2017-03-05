@@ -17,6 +17,8 @@ Module Skel.
   | Emult : BinOp TZ TZ TZ
   | Eminus : BinOp TZ TZ TZ
   | Emin : BinOp TZ TZ TZ
+  | Ediv : BinOp TZ TZ TZ
+  | Emod : BinOp TZ TZ TZ
   | BEq : BinOp TZ TZ TBool
   | Blt : BinOp TZ TZ TBool.
 
@@ -27,6 +29,8 @@ Module Skel.
     | Eminus => Z.sub
     | Emult => Z.mul
     | Emin  => Z.min
+    | Ediv => Z.div
+    | Emod => Z.modulo
     | BEq   => Z.eqb
     | Blt   => Z.ltb
     end.

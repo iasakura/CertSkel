@@ -129,6 +129,10 @@ Section compiler.
       fun e1 e2 => do! x <- freshes Skel.TZ in ret (assigns x (ty2ctys _) (e1 *C e2), x)
     | Skel.Eminus =>
       fun e1 e2 => do! x <- freshes Skel.TZ in ret (assigns x (ty2ctys _) (e1 -C e2), x)
+    | Skel.Ediv =>
+      fun e1 e2 => do! x <- freshes Skel.TZ in ret (assigns x (ty2ctys _) (e1 /C e2), x)
+    | Skel.Emod =>
+      fun e1 e2 => do! x <- freshes Skel.TZ in ret (assigns x (ty2ctys _) (e1 %C e2), x)
     | Skel.Emin =>
       fun e1 e2 => do! x <- freshes Skel.TZ in ret (assigns x (ty2ctys _) (minC e1 e2), x)
     | Skel.BEq =>
