@@ -980,9 +980,7 @@ Proof.
     destruct (freshes _ _) as [? ?] eqn:Hfreq; inverts Hcompile.
     simpl in Heval; unfold Monad.bind_opt in Heval.
     destruct (Skel.sexpDenote  _ _ _ se1 _ _)  as [?|] eqn:Heval1; [|inverts Heval].
-    destruct (Skel.sexpDenote  _ _ _ se2 _ _)  as [?|] eqn:Heval2; [|inverts Heval].
-    destruct (Skel.sexpDenote  _ _ _ se3 _ _)  as [?|] eqn:Heval3; [|inverts Heval];
-    inverts Heval.
+    (* inverts Heval. *)
     forwards*: (>>compile_don't_decrease Hceq1).
     forwards*: (>>compile_don't_decrease Hceq2).
     forwards*: (>>compile_don't_decrease Hceq3).
@@ -991,7 +989,11 @@ Proof.
     hoare_forward.
     Transparent EEq_tup.
     simpl; eauto.
-    + eapply rule_seq.
+    + apply CSL_prop_prem; intros [_ Heq'].
+      assert (Heq : t0 = true) by (destruct t0; eauto; omega).
+      rewrite Heq in *.
+      destruct (Skel.sexpDenote  _ _ _ se2 _ _)  as [?|] eqn:Heval2; inverts Heval.
+      eapply rule_seq.
       applys* IHse2; eauto using senv_ok_ge, resEnv_ok_ge.
       apply resEnv_ok_app; eauto using resEnv_ok_ge.
       applys* compile_gen_resEnv_ok.
@@ -1004,7 +1006,11 @@ Proof.
       omega.
       applys* freshes_disjoint. 
       apply evalExps_vars; rewrite <-app_assoc; apply incl_app_iff; eauto.
-    + eapply rule_seq.
+    + apply CSL_prop_prem; intros [_ Heq'].
+      assert (Heq : t0 = false) by (destruct t0; eauto; omega).
+      rewrite Heq in *.
+      destruct (Skel.sexpDenote  _ _ _ se3 _ _)  as [?|] eqn:Heval3; inverts Heval.
+      eapply rule_seq.
       applys* IHse3; eauto using senv_ok_ge, resEnv_ok_ge.
       apply resEnv_ok_app; eauto using resEnv_ok_ge.
       applys* compile_gen_resEnv_ok.
@@ -1025,7 +1031,7 @@ Proof.
       applys* (>>compile_gen_resEnv_ok Hceq2); eauto using senv_ok_ge.
       applys* (>>compile_gen_resEnv_ok Hceq1); eauto using senv_ok_ge; omega.
       applys* (>>compile_gen_resEnv_ok Hceq3); eauto using senv_ok_ge; omega.
-      prove_imp; simpl; destruct H3; destruct t0; try omega; eauto.
+      prove_imp; simpl; destruct H3; destruct t0; inverts Heval; try omega; eauto.
   - destruct (compile_sexp se1 _ _ _) as [[? ?] ?] eqn:Hceq1.
     destruct (compile_sexp se2 _ _ _) as [[? ?] ?] eqn:Hceq2; inverts Hcompile.
     simpl in Heval; unfold Monad.bind_opt in *.
