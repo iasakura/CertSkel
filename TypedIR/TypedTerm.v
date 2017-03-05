@@ -15,6 +15,7 @@ Module Skel.
   Inductive BinOp : Typ -> Typ -> Typ -> Type :=
   | Eplus : BinOp TZ TZ TZ
   | Emult : BinOp TZ TZ TZ
+  | Eminus : BinOp TZ TZ TZ
   | Emin : BinOp TZ TZ TZ
   | BEq : BinOp TZ TZ TBool
   | Blt : BinOp TZ TZ TBool.
@@ -23,6 +24,7 @@ Module Skel.
     typDenote t1 -> typDenote t2 -> typDenote t3 :=
     match op with
     | Eplus => Z.add
+    | Eminus => Z.sub
     | Emult => Z.mul
     | Emin  => Z.min
     | BEq   => Z.eqb
@@ -61,9 +63,7 @@ Module Skel.
       ret (Z.of_nat (length arr))
     | EIf _ _ _ t1 t2 t3 => fun sa se =>
       do! b <- sexpDenote _ _ _ t1 sa se in
-      do! th <- sexpDenote _ _ _ t2 sa se in
-      do! el <- sexpDenote _ _ _ t3 sa se in
-      ret (if b then th else el)
+      if b then sexpDenote _ _ _ t2 sa se else sexpDenote _ _ _ t3 sa se
     | ECons _ _ _ _ t1 t2 => fun sa se =>
       do! v1 <- sexpDenote _ _ _ t1 sa se in
       do! v2 <- sexpDenote _ _ _ t2 sa se in

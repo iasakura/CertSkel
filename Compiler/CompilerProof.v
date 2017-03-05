@@ -423,7 +423,7 @@ Proof.
   unfold bind in Heval; simpl in Heval.
   destruct (Skel.aeDenote _ _ _ _) as [inp|] eqn:Heq1; [|inverts Heval].
   simpl in Heval.
-  destruct (SkelLib.mapM _ inp) as [out|] eqn:Heq2; inverts Heval.
+  destruct (mapM _ inp) as [out|] eqn:Heq2; inverts Heval.
 
   unfold compile_map; simpl.
   eapply rule_bind'.
@@ -1015,18 +1015,18 @@ Inductive skelE_wf GA : forall fty, Skel.SkelE GA fty -> Prop :=
 | wf_Seq start l : skelE_wf GA Skel.TZ (Skel.Seq GA start l)
 | wf_Zip t1 t2 ae1 ae2 : skelE_wf GA (Skel.TTup t1 t2) (Skel.Zip _ t1 t2 ae1 ae2).
 
-Lemma mapM_total A B (f : A -> B) (l : list A) : SkelLib.mapM (fun i => Some (f i)) l = Some (map f l).
+Lemma mapM_total A B (f : A -> B) (l : list A) : mapM (fun i => Some (f i)) l = Some (map f l).
 Proof.
   induction l; simpl; eauto.
-  unfold SkelLib.mapM in *; simpl.
+  unfold mapM in *; simpl.
   unfold bind; simpl in *; unfold Monad.bind_opt in *.
   rewrite IHl; eauto.
 Qed.
 Lemma mapM_eq A B (f g : A -> option B) (l : list A) :
-  (forall x, f x = g x) -> SkelLib.mapM f l = SkelLib.mapM g l.
+  (forall x, f x = g x) -> mapM f l = mapM g l.
 Proof.
   induction l; simpl; intros; eauto.
-  unfold SkelLib.mapM in *; simpl.
+  unfold mapM in *; simpl.
   unfold bind; simpl in *; unfold Monad.bind_opt in *.
   rewrite IHl, H; eauto.
 Qed.
@@ -1057,17 +1057,17 @@ Proof.
 
       Lemma mapM_ex_some A B (f : A -> option B) l :
         Forall (fun x => exists t, x = Some t) (map f l) 
-        -> exists t, SkelLib.mapM f l = Some t.
+        -> exists t, mapM f l = Some t.
       Proof.
         induction l; simpl; intros H; inverts H.
         - eexists; reflexivity.
         - destruct H2.
           destruct IHl; eauto.
           exists (x :: x0).
-          unfold SkelLib.mapM; simpl.
+          unfold mapM; simpl.
           unfold bind; simpl; unfold Monad.bind_opt.
           rewrite H.
-          unfold SkelLib.mapM in H0; rewrite H0; eauto.
+          unfold mapM in H0; rewrite H0; eauto.
       Qed.
       forwards* (res & Hres): (>>mapM_ex_some
                                  (fun i : val => do! v <- ret i in SkelLib.nth_error (hget l m) v)
@@ -1096,6 +1096,7 @@ Proof.
       rewrite Nat2Z.id in *.
       omega.
       substs; eexists; eauto.
+      unfold SkelLib.comp in *.
       rewrite Hres.
       unfold ret; simpl; f_equal.
       forwards*: SkelLib.mapM_length.
@@ -1118,7 +1119,7 @@ Proof.
   rewrites* (>>darr_of_arr_ok Heq2).
   simpl.
   repeat (destruct Z_le_dec; try rewrite Z.min_glb_iff in *; try lia); simpl; eauto.
-  2: destruct SkelLib.mapM; simpl; eauto.
+  2: destruct mapM; simpl; eauto.
 Abort.
 
 Lemma compile_skel_ok GA ntrd nblk typ
@@ -1173,13 +1174,13 @@ Proof.
     destruct Z_le_dec.
     
     repeat (destruct Z_le_dec; try rewrite Z.min_glb_iff in *; try lia); simpl; eauto.
-    2: destruct SkelLib.mapM; unfold bind in *; simpl in *; eauto.
-    2: destruct SkelLib.mapM; unfold bind in *; simpl in *; try congruence.
-    destruct (SkelLib.mapM _ (SkelLib.seq _ _)) eqn:Hmap1; [|unfold bind in H2; simpl in *; congruence].
-    destruct (SkelLib.mapM _ (SkelLib.seq 0 (Skel.lexpDenote GA Skel.TZ len2 aeenv))) eqn:Hmap2;
+    2: destruct mapM; unfold bind in *; simpl in *; eauto.
+    2: destruct mapM; unfold bind in *; simpl in *; try congruence.
+    destruct (mapM _ (SkelLib.seq _ _)) eqn:Hmap1; [|unfold bind in H2; simpl in *; congruence].
+    destruct (mapM _ (SkelLib.seq 0 (Skel.lexpDenote GA Skel.TZ len2 aeenv))) eqn:Hmap2;
       unfold bind in H2; simpl in *; [|congruence].
     inverts H2.
-    destruct (SkelLib.mapM _ (SkelLib.seq _ (Z.min _ _))) eqn:Hmap3; unfold bind, ret; simpl.
+    destruct (mapM _ (SkelLib.seq _ (Z.min _ _))) eqn:Hmap3; unfold bind, ret; simpl.
     + rewrite mapM_total, map_id.
       f_equal.
       forwards* Hlen1: (>>SkelLib.mapM_length Hmap1); rewrite SkelLib.seq_length in Hlen1.
@@ -1219,10 +1220,10 @@ Proof.
           inverts Hmap3'; eauto.
         * rewrite Z2Nat.inj_min, Nat.min_glb_lt_iff in *; omega. }
     + Lemma mapM_none A B (f : A -> option B) (l : list A) d :
-        SkelLib.mapM f l = None
+        mapM f l = None
         -> exists i, f (nth i l d) = None /\ i < length l.
       Proof.
-        unfold SkelLib.mapM; induction l; unfold ret, bind; simpl; eauto.
+        unfold mapM; induction l; unfold ret, bind; simpl; eauto.
         - unfold ret, bind; simpl; congruence.
         - destruct (f a) eqn:Heq.
           2: intros; exists 0; splits; eauto; omega.

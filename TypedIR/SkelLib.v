@@ -7,7 +7,6 @@ Require Import LibTactics.
 
 Definition comp := option.
 Instance Monad_comp : Monad comp := option_monad.
-Definition mapM {A B : Type} (f : A -> comp B) (xs : list A) := sequence (List.map f xs).
 
 Definition lift_op {A : Type} (f : A -> A -> comp A) : comp A -> comp A -> comp A :=
   fun x y => match x, y with

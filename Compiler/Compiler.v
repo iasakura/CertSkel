@@ -127,6 +127,8 @@ Section compiler.
       fun e1 e2 => do! x <- freshes Skel.TZ in ret (assigns x (ty2ctys _) (e1 +C e2), x)
     | Skel.Emult =>
       fun e1 e2 => do! x <- freshes Skel.TZ in ret (assigns x (ty2ctys _) (e1 *C e2), x)
+    | Skel.Eminus =>
+      fun e1 e2 => do! x <- freshes Skel.TZ in ret (assigns x (ty2ctys _) (e1 -C e2), x)
     | Skel.Emin =>
       fun e1 e2 => do! x <- freshes Skel.TZ in ret (assigns x (ty2ctys _) (Emin e1 e2), x)
     | Skel.BEq =>
@@ -513,9 +515,6 @@ Section Compiler.
     do! id <- freshF in
     do! _ <- setGM ((id, Kern ker) :: nil) in
     ret id.
-
-  Definition mapM {B A M} `{Monad M} (f : A -> M B) (xs : list A) : M (list B) :=
-    sequence (map f xs).
 
   Fixpoint mapMtyp {typ B A M} `{Monad M} (f : A -> M B) : typ2Coq A typ -> M (typ2Coq B typ) :=
     match typ return typ2Coq A typ -> M (typ2Coq B typ) with

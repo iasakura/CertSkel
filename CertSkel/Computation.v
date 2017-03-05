@@ -172,6 +172,7 @@ Ltac binOp op k :=
   match op with
   | Z.add => k Skel.Eplus
   | Z.mul => k Skel.Emult
+  | Z.sub => k Skel.Eminus
   | Z.min => k Skel.Emin
   | Z.ltb => k Skel.Blt
   | Z.eqb => k Skel.BEq
@@ -249,7 +250,7 @@ Ltac scalarExpr GA GS f k :=
   match f with
   | (fun a _ => ?c) =>
     idtac "scalarExpr: matched to constant case";
-    lazymatch type of c with Z => k (Skel.ENum GA GS c) end
+    lazymatch type of c with Z => k (@Skel.ENum GA GS c) end
   | (fun a (x : ?T) => let y := @?t1 a x in @?t2 a x y) =>
     idtac "scalarExpr: matched to let case";
     lazymatch type of t1 with
@@ -554,6 +555,9 @@ Ltac let_intro_pure f T ans :=
                  arg1' (fun t1 => 
                  arg2' (fun t2 => 
                  do! t3 <- ret (zip t1 t2) in k t3) x) x)
+  | fun x => mapM (@?f x) (@?arg1 x) =>
+    let arg1' := let_intro_pure arg1 T ans in
+    constr:(fun k x => arg1' (fun t1 => do! t2 <- (@mapM _ _ comp _ (f x) t1) in k t2) x)
   | fun x => reduceM (@?op x) (@?arg1 x) =>
     let arg1' := let_intro_pure arg1 T ans in
     constr:(fun k x => arg1' (fun t1 => do! t2 <- (reduceM (op x) t1) in k t2) x)
@@ -576,7 +580,7 @@ Ltac let_intro := lazymatch goal with
       [reflexivity|repeat first [rewrite <-let_lift1 | rewrite let_ret]; eauto]
   end
 end.
-
+  
 Lemma if_app (A B : Type) (f : A -> B) (b : bool) x y :
   (f (if b then x else y)) = (if b then f x else f y).
 Proof. destruct b; eauto. Qed.
