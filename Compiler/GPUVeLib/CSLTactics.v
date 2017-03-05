@@ -48,25 +48,46 @@ Ltac lift_ex :=
     apply rule_ex; intros j
   end.
 
-Ltac evalExp := 
+Ltac evalExp' := 
   repeat match goal with
   | [|- evalExp _ _ _] => constructor
   end;
   simpl; repeat rewrite in_app_iff; simpl; repeat rewrite <-app_assoc; eauto 20.
 
-Ltac evalBExp := 
+Ltac evalExp :=
+  let t := fresh "tmp" in
+  evar (t : val);
+    lazymatch goal with
+    | [|- evalExp _ _ ?x] => cutrewrite (x = t); [unfold t; evalExp'|unfold t; simpl; eauto]
+    end.
+
+Ltac evalBExp' := 
   repeat match goal with
          | [|- evalBExp _ _ _] => constructor
-         | [|- _] => evalExp
+         | [|- _] => evalExp'
   end;
   simpl; eauto 20.
 
-Ltac evalLExp := 
+Ltac evalBExp :=
+  let t := fresh "tmp" in
+  evar (t : Prop);
+    lazymatch goal with
+    | [|- evalBExp _ _ ?x] => cutrewrite (x = t); [unfold t; evalBExp'|unfold t; simpl; eauto]
+    end.
+
+Ltac evalLExp' := 
   repeat match goal with
          | [|- evalLExp _ _ _] => constructor
-         | [|- _] => evalExp
+         | [|- _] => evalExp'
   end;
   simpl; eauto 20.
+
+Ltac evalLExp :=
+  let t := fresh "tmp" in
+  evar (t : loc);
+    lazymatch goal with
+    | [|- evalLExp _ _ ?x] => cutrewrite (x = t); [unfold t; evalLExp'|unfold t; simpl; eauto]
+    end.
 
 Ltac elim_remove env x := simpl.
 
@@ -1606,7 +1627,7 @@ Ltac hoare_forward_prim' :=
         evar (l : locs ty); assert (Hle : evalLExps Env le l) by (unfold l; evalLExps); unfold l in *;
 
         let Hv := fresh "Hv" in let v := fresh "v" in
-        evar (v : val); assert (Hv : evalExp Env ix v) by (unfold v; evalLExp); unfold v in *;
+        evar (v : val); assert (Hv : evalExp Env ix v) by (unfold v; evalExp); unfold v in *;
 
         let Hn := fresh "Hn" in let n := fresh "n" in
         evar (n : nat); assert (Hn : v = Zn n) by (unfold v, n; solve_zn); unfold n in *;
@@ -2161,8 +2182,7 @@ Ltac prove_typing_exp :=
   lazymatch goal with
   | |- typing_exp ?E (Evar ?v) _ => apply ty_var'; simpl; eauto
   | |- typing_exp ?E (Enum _) _ => apply (ty_num _ _ Lo)
-  | |- typing_exp ?E (_ ?e1 ?e2) _ => constructor; prove_typing_exp
-  | |- typing_exp ?E (_ ?e) _ => constructor; prove_typing_exp
+  | |- typing_exp ?E (Ebinop _ ?e1 ?e2) _ => constructor; prove_typing_exp
   end.
 
 Ltac prove_typing_lexp :=
@@ -2182,14 +2202,12 @@ Ltac prove_typing_lexp :=
 Ltac prove_typing_bexp :=
   match goal with |- ?g => idtac g end;
   lazymatch goal with
-  | |- typing_bexp _ (Beq _ _) _ =>
+  | |- typing_bexp _ (Bcomp _ _ _) _ =>
     constructor; prove_typing_exp; simpl
-  | |- typing_bexp _ (_ <C _) _ =>
-    constructor; prove_typing_exp; simpl
-  | |- typing_bexp _ (Bnot _) _ =>
+  | |- typing_bexp _ (Bunary _ _) _ =>
     idtac "A";
     constructor; prove_typing_bexp
-  | |- typing_lexp _ (Band _ _) _ =>
+  | |- typing_lexp _ (Bbool _ _ _) _ =>
     idtac "B";
     constructor; [prove_typing_bexp | prove_typing_bexp]; simpl
   end.

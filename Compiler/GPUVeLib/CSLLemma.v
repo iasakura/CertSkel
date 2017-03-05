@@ -108,27 +108,9 @@ Definition Assn (Res : res) (P : Prop) (Env : list entry) :=
 
 Inductive evalExp : list entry -> exp -> val -> Prop :=
 | SEval_num env n : evalExp env (Enum n) n
-| SEval_plus env e1 v1 e2 v2 :
+| SEval_Ebinop env op e1 v1 e2 v2 :
     evalExp env e1 v1 -> evalExp env e2 v2 ->
-    evalExp env (e1 +C e2) (v1 + v2)%Z
-| SEval_min env e1 v1 e2 v2 :
-    evalExp env e1 v1 -> evalExp env e2 v2 ->
-    evalExp env (Emin e1 e2) (Z.min v1 v2)%Z
-| SEval_lt env e1 v1 e2 v2 :
-    evalExp env e1 v1 -> evalExp env e2 v2 ->
-    evalExp env (Elt e1 e2) (if Z_lt_dec v1 v2 then 1 else 0)%Z
-| SEval_eq env e1 v1 e2 v2 :
-    evalExp env e1 v1 -> evalExp env e2 v2 ->
-    evalExp env (Eeq e1 e2) (if eq_dec v1 v2 then 1 else 0)%Z
-| SEval_mul env e1 v1 e2 v2 :
-    evalExp env e1 v1 -> evalExp env e2 v2 ->
-    evalExp env (e1 *C e2) (v1 * v2)%Z
-| SEval_sub env e1 v1 e2 v2 :
-    evalExp env e1 v1 -> evalExp env e2 v2 ->
-    evalExp env (e1 -C e2) (v1 - v2)%Z
-| SEval_div2 env e1 e2 v1 v2 :
-    evalExp env e1 v1 -> evalExp env e2 v2 ->
-    evalExp env (e1 /C e2) (v1 / v2)%Z
+    evalExp env (Ebinop op e1 e2) (binop_exp_denot op v1 v2)%Z
 | SEval_var env e v : In (Ent e v) env -> evalExp env e v.
 
 Lemma env_denote_in Env e v:
@@ -183,22 +165,35 @@ Proof.
     eauto.
 Qed.
 
+Definition binop_comp_denot_prop (op : binop_comp) :=
+  match op with
+  | OP_beq => fun x y => x = y
+  | OP_blt => fun x y => x < y
+  end%Z.
+
+Definition binop_bool_denot_prop (op : binop_bool) :=
+  match op with
+  | OP_and => fun x y => x /\ y
+  | OP_or => fun x y => x \/ y
+  end%Z.
+
+Definition unop_bool_denot_prop (op : unop_bool) :=
+  match op with
+  | OP_not => fun x => ~ x
+  end%Z.
+
 Inductive evalBExp : list entry -> bexp -> Prop -> Prop :=
-| SEval_beq env e1 e2 v1 v2 : 
+| SEval_comp env op e1 e2 v1 v2 : 
     evalExp env e1 v1 ->
     evalExp env e2 v2 ->
-    evalBExp env (e1 == e2) (v1 = v2)
-| SEval_blt env e1 e2 v1 v2 : 
-    evalExp env e1 v1 ->
-    evalExp env e2 v2 ->
-    evalBExp env (e1 <C e2) (v1 < v2)%Z
-| Seval_band env b1 b2 p1 p2 :
+    evalBExp env (Bcomp op e1 e2) (binop_comp_denot_prop op v1 v2)
+| Seval_bool env op b1 b2 p1 p2 :
     evalBExp env b1 p1 ->
     evalBExp env b2 p2 ->
-    evalBExp env (Band b1 b2) (p1 /\ p2)
-| Seval_bnot env b1 p1 :
+    evalBExp env (Bbool op b1 b2) (binop_bool_denot_prop op p1 p2)
+| Seval_unop env op b1 p1 :
     evalBExp env b1 p1 ->
-    evalBExp env (Bnot b1) (~p1).
+    evalBExp env (Bunary op b1) (unop_bool_denot_prop op p1).
 
 Lemma evalBExp_ok (Env : list entry) (e : bexp) (p : Prop) :
   forall s h, 
@@ -210,17 +205,19 @@ Proof.
   induction 1; unfold_conn; intros; simpl.
   - forwards*: (>>evalExp_ok e1); unfold_conn_all; simpl in *; substs.
     forwards*: (>>evalExp_ok e2); unfold_conn_all; simpl in *; substs.
-    destruct eq_dec; split; intros; try congruence.
-  - forwards*: (>>evalExp_ok e1); unfold_conn_all; simpl in *; substs.
-    forwards*: (>>evalExp_ok e2); unfold_conn_all; simpl in *; substs.
-    destruct Z_lt_dec; split; intros; try congruence.
-  - rewrites* <-(>>IHevalBExp1); rewrites*<-(>>IHevalBExp2).
-    unfold bexp_to_assn.
+    destruct op; split; simpl; lazymatch goal with [|- context [if ?b then _ else _]] => destruct b end; try congruence.
+  - destruct op; simpl;
+    rewrites* <-(>>IHevalBExp1); rewrites*<-(>>IHevalBExp2);
+    unfold bexp_to_assn;
     destruct (bdenot b1 s), (bdenot b2 s); split; intros;
-    try lazymatch goal with [H : _ /\ _ |- _] => destruct H end;
+    try lazymatch goal with
+      | [H : _ /\ _ |- _] => destruct H
+      | [H : _ \/ _ |- _] => destruct H
+      end;
     simpl in *; try congruence; eauto.
-  - rewrites* <-(>>IHevalBExp).
-    unfold bexp_to_assn.
+  - destruct op; simpl.
+    rewrites* <-(>>IHevalBExp).
+    unfold_conn.
     destruct (bdenot b1 s); simpl; split; intros; try congruence.
 Qed.
 

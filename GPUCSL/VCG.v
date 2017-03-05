@@ -481,7 +481,7 @@ Ltac frame_analysis P :=
 
 Lemma rule_if_disj (ntrd : nat) (bspec : Bdiv.barrier_spec ntrd) (tid : Fin.t ntrd) (P Q1 Q2 : assn)
       (b : bexp) (C1 C2 : cmd) :
-  CSL bspec tid (P ** !(b)) C1 Q1 -> CSL bspec tid (P ** !(Bnot b)) C2 Q2 ->
+  CSL bspec tid (P ** !(b)) C1 Q1 -> CSL bspec tid (P ** !(Bunary OP_not b)) C2 Q2 ->
   CSL bspec tid (P) (Cif b C1 C2) (Q1 \\// Q2).
 Proof.
   intros.

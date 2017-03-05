@@ -305,7 +305,7 @@ Section SeqCSL.
   
   Lemma rule_if (C1 C2 : cmd) (B : bexp) (P Q : assn) :
     CSL (Aconj P (B)) C1 Q ->
-    CSL (Aconj P ((Bnot B))) C2 Q ->
+    CSL (Aconj P ((Bunary OP_not B))) C2 Q ->
     CSL P (Cif B C1 C2) Q.
   Proof.
     unfold CSL, safe_nt; intuition; destruct n; [simpl; eauto|]; simpl in *; eauto; intros;
@@ -322,7 +322,7 @@ Section SeqCSL.
 
   Lemma safe_while :
     forall P (B : bexp) C (OK: CSL (P ** !(B)) C P) s h (SAT_P: sat (s, h) P) n,
-      safe_nt n (Cwhile B C) s h (P ** !((Bnot B))).
+      safe_nt n (Cwhile B C) s h (P ** !((Bunary OP_not B))).
   Proof.
     unfold safe_nt.
     intros; revert s h SAT_P. 
@@ -350,7 +350,7 @@ Section SeqCSL.
 
   Lemma rule_while P (B : bexp) C :
     CSL (P ** !(B)) C P ->
-    CSL P (Cwhile B C) (P ** !((Bnot B))).  
+    CSL P (Cwhile B C) (P ** !((Bunary OP_not B))).  
   Proof.
     unfold CSL, safe_nt; intros; intuition; eapply safe_while; unfold CSL; eauto.
   Qed.

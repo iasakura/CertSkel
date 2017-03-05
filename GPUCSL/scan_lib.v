@@ -18,8 +18,6 @@ Fixpoint skip_sum (skip : nat) (s len : nat) (f : nat -> Z) (i : nat) :=
 Eval compute in skip_sum 3 0 10 (fun i => Z.of_nat i) 3.
 Eval compute in skip_sum 3 4 10 (fun i => Z.of_nat i) 3.
 
-Notation " e1 '/C' e2 " := (Ediv e1 e2) (at level 40, left associativity) : exp_scope.
-
 Definition dbl s := if Nat.eq_dec s 0 then 1 else s * 2.
 
 Definition ceil2 n := if Nat.eq_dec n 0 then 1 else n.
@@ -798,7 +796,7 @@ Fixpoint has_no_vars_E (e : exp) :=
   match e with
     | Evar _ => False
     | Enum _ => True
-    | Emin e1 e2 | Eeq e1 e2 | Elt e1 e2 | (e1 +C e2) | (e1 *C e2) | (e1 -C e2) | e1 /C e2 =>
+    | Ebinop op e1 e2 =>
       has_no_vars_E e1 /\ has_no_vars_E e2
   end.
 

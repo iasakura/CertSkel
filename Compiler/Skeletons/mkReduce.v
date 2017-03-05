@@ -259,7 +259,7 @@ Notation g := (fun x => gets' arr_res x).
 
 Definition reduce_body n s :=
   (Cbarrier (n - 1) ;;
-   Cif (Band ("tid" +C Zn s <C "slen") ("tid" <C Zn s)) (
+   Cif (("tid" +C Zn s <C "slen") &&C ("tid" <C Zn s)) (
      reads xs (ty2ctys typ) (v2sh sarr +os ("tid" +C Zn s)) ;;
      assigns_call2 zs func_c ys xs ;;
      assigns ys (ty2ctys typ) (v2e zs) ;;
@@ -285,7 +285,7 @@ Definition seq_reduce inv :=
   Cif ("ix" <C len) (
     assigns_get ys arr_c "ix" ;;
     "ix" ::= "ix" +C "ntrd" *C "nblk" ;;
-    WhileI inv ("ix" < len) (
+    WhileI inv ("ix" <C len) (
       assigns_get xs arr_c "ix" ;;
       assigns_call2 zs func_c ys xs ;;
       assigns ys (ty2ctys typ) (v2e zs) ;;
@@ -307,7 +307,7 @@ Definition mkReduce_cmd :=
   seq_reduce FalseP ;;
   setToLen ;;
   reduceBlock ;;
-  Cif ("tid" == 0%Z) (
+  Cif ("tid" ==C 0%Z) (
     writes (v2gl out +os "bid") (v2e ys) 
   ) Cskip.
 

@@ -15,9 +15,9 @@ Close Scope Q_scope.
 Bind Scope exp_scope with exp.
 Bind Scope bexp_scope with bexp.
 
-Global Infix "+" := (Eplus) : exp_scope.
-Global Infix "<" := (Blt) : bexp_scope.
-Global Infix "==" := (Beq) : bexp_scope.
+Global Infix "+" := (Ebinop OP_plus) : exp_scope.
+Global Infix "<" := (Ebinop OP_lt) : bexp_scope.
+Global Infix "==" := (Ebinop OP_eq) : bexp_scope.
 
 Notation nosimpl t := (let tt := tt in t).
 

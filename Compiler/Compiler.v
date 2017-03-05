@@ -130,11 +130,11 @@ Section compiler.
     | Skel.Eminus =>
       fun e1 e2 => do! x <- freshes Skel.TZ in ret (assigns x (ty2ctys _) (e1 -C e2), x)
     | Skel.Emin =>
-      fun e1 e2 => do! x <- freshes Skel.TZ in ret (assigns x (ty2ctys _) (Emin e1 e2), x)
+      fun e1 e2 => do! x <- freshes Skel.TZ in ret (assigns x (ty2ctys _) (minC e1 e2), x)
     | Skel.BEq =>
-      fun e1 e2 => do! x <- freshes Skel.TBool in ret (assigns x (ty2ctys _) (Eeq e1 e2), x)
+      fun e1 e2 => do! x <- freshes Skel.TBool in ret (assigns x (ty2ctys _) (Ebinop OP_eq e1 e2), x)
     | Skel.Blt => 
-      fun e1 e2 => do! x <- freshes Skel.TBool in ret (assigns x (ty2ctys _) (Elt e1 e2), x)
+      fun e1 e2 => do! x <- freshes Skel.TBool in ret (assigns x (ty2ctys _) (Ebinop OP_lt e1 e2), x)
     end.
 
   Fixpoint ctyps_of_typ (ty : Skel.Typ) :=
@@ -211,7 +211,7 @@ Section compiler.
       compile_sexp e3 avenv env >>= fun ces3 =>
       let (c3, e3) := ces3 in
       freshes ty >>= fun xs =>
-      ret (c1;; Cif (Bnot (Beq e1 0%Z)) (c2 ;; assigns xs (ty2ctys ty) (v2e e2)) (c3 ;; assigns xs (ty2ctys ty) (v2e e3)), xs)
+      ret (c1;; Cif (Bunary OP_not (e1 ==C 0%Z)) (c2 ;; assigns xs (ty2ctys ty) (v2e e2)) (c3 ;; assigns xs (ty2ctys ty) (v2e e3)), xs)
     end%list.
 End compiler.
 
@@ -410,7 +410,7 @@ Section Compiler.
     match le in Skel.LExp _ ty return AVarEnv GA -> exp with
     | Skel.LNum _ n => fun _ => n
     | Skel.LLen _ _ a => fun aenv => (fst (hget aenv a))
-    | Skel.LMin _ e1 e2 => fun aenv => Emin (compile_lexp e1 aenv) (compile_lexp e2 aenv) 
+    | Skel.LMin _ e1 e2 => fun aenv => minC (compile_lexp e1 aenv) (compile_lexp e2 aenv) 
     end.
 
   Definition accessor_of_array {GA tyxa} aenv (arr : member tyxa GA) :=
@@ -654,7 +654,7 @@ Section Compiler.
     let func := compile_func (shift_func_GA typ f) (remove_typeinfo arr_vars) in
     do! kerID2 <- gen_kernel (mkReduce GA typ nblk get func) in
     (* (Nat.min ((l + ntrd - 1) / ntrd) nblk ) *)
-    do! lenVar <- fLet (Emin ((outlen +C (Z.of_nat ntrd - 1)%Z) /C (Z.of_nat ntrd))
+    do! lenVar <- fLet (minC ((outlen +C (Z.of_nat ntrd - 1)%Z) /C (Z.of_nat ntrd))
                             (Z.of_nat nblk)) in
     (* do! lenVar <- fLet (Const (Z.of_nat nblk)) in *)
     do! outlenVar <- fLet 1%Z in

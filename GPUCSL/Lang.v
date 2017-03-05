@@ -43,22 +43,27 @@ Notation pheap := (gen_pheap loc).
 Definition state := (stack * heap)%type.
 Arguments eq_dec _ _ _ _ : simpl never.
 
+Inductive binop_exp :=
+| OP_plus | OP_min | OP_lt | OP_eq | OP_mult | OP_sub | OP_div | OP_mod.
+
 Inductive exp := 
 | Evar (x : var)
 | Enum (n : Z)
-| Eplus (e1: exp) (e2: exp)
-| Emin (e1: exp) (e2: exp)
-| Elt (e1: exp) (e2: exp)
-| Eeq (e1: exp) (e2: exp)
-| Emult (e1 : exp) (e2 : exp)
-| Esub (e1 : exp) (e2 : exp)
-| Ediv (e1 e2 : exp).
+| Ebinop (op : binop_exp) (e1 e2 : exp).
+
+Inductive binop_comp :=
+| OP_beq | OP_blt.
+
+Inductive binop_bool :=
+| OP_and | OP_or.
+
+Inductive unop_bool :=
+| OP_not.
 
 Inductive bexp :=
-| Beq (e1: exp) (e2: exp)
-| Blt (e1 : exp) (e2 : exp)
-| Band (b1: bexp) (b2: bexp)
-| Bnot (b: bexp).
+| Bcomp (op : binop_comp) (e1 e2 : exp)
+| Bbool (op : binop_bool) (b1 b2 : bexp)
+| Bunary (op : unop_bool) (b : bexp).
 
 Inductive loc_exp :=
 | Addr : PL -> exp -> loc_exp
@@ -101,18 +106,23 @@ Fixpoint wait (c : cmd) : option (nat * cmd) :=
       end
   end.
 
+Fixpoint binop_exp_denot op :=
+  match op with
+  | OP_plus => Z.add
+  | OP_min => Z.min
+  | OP_lt => fun x y => if Z_lt_dec x y then 1 else 0
+  | OP_eq => fun x y => if eq_dec x y then 1 else 0
+  | OP_mult => Z.mul
+  | OP_sub => Z.sub
+  | OP_div => Z.div
+  | OP_mod => Z.modulo
+  end%Z.
+
 Fixpoint edenot e s :=
   match e with
     | Evar v => s v
     | Enum n => n
-    | Eplus e1 e2 => edenot e1 s + edenot e2 s
-    | Emin e1 e2 => Z.min (edenot e1 s) (edenot e2 s)
-    | Elt e1 e2 => if Z_lt_dec (edenot e1 s) (edenot e2 s) then 1 else 0
-    | Eeq e1 e2 => if eq_dec (edenot e1 s) (edenot e2 s) then 1 else 0 
-    | Emult e1 e2 => edenot e1 s * edenot e2 s
-    | Esub e1 e2 => edenot e1 s - edenot e2 s
-    (* TODO: treating 0 division behavior *)
-    | Ediv e1 e2 => Z.div (edenot e1 s) (edenot e2 s)
+    | Ebinop op e1 e2 => binop_exp_denot op (edenot e1 s) (edenot e2 s)
   end%Z.
 
 Fixpoint ledenot e s :=
@@ -124,12 +134,28 @@ Fixpoint ledenot e s :=
       end
   end%Z.
 
+Fixpoint binop_comp_denot op :=
+  match op with 
+  | OP_beq => fun x y => if eq_dec x y then true else false
+  | OP_blt => fun x y => if Z_lt_dec x y then true else false
+  end.
+
+Fixpoint binop_bool_denot op :=
+  match op with
+  | OP_and => andb
+  | OP_or => orb
+  end.
+
+Fixpoint unop_bool_denot op :=
+  match op with
+  | OP_not => negb
+  end.
+
 Fixpoint bdenot b s : bool := 
   match b with
-    | Beq e1 e2 => if eq_dec (edenot e1 s) (edenot e2 s) then true else false
-    | Band b1 b2 => bdenot b1 s && bdenot b2 s
-    | Bnot b => negb (bdenot b s)
-    | Blt e1 e2 => if Z_lt_dec (edenot e1 s) (edenot e2 s) then true else false
+  | Bcomp op e1 e2 => binop_comp_denot op (edenot e1 s) (edenot e2 s)
+  | Bbool op b1 b2 => binop_bool_denot op (bdenot b1 s) (bdenot b2 s)
+  | Bunary op b => unop_bool_denot op (bdenot b s)
   end.
 
 Lemma var_eq_dec (x y : var) : {x = y} + {x <> y}.
@@ -728,39 +754,19 @@ Section NonInter.
   Inductive typing_exp : exp -> type -> Prop := 
   | ty_var : forall (v : var) (ty : type), le_type (g v) ty = true -> typing_exp (Evar v) ty
   | ty_num : forall (n : Z) (ty : type), typing_exp (Enum n) ty
-  | ty_min : forall (e1 e2 : exp) (ty1 ty2 : type), 
+  | ty_binop : forall (op : binop_exp) (e1 e2 : exp) (ty1 ty2 : type), 
                 typing_exp e1 ty1 -> typing_exp e2 ty2 ->
-                typing_exp (Emin e1 e2) (join ty1 ty2)
-  | ty_plus : forall (e1 e2 : exp) (ty1 ty2 : type), 
-                typing_exp e1 ty1 -> typing_exp e2 ty2 ->
-                typing_exp (Eplus e1 e2) (join ty1 ty2)
-  | ty_mult : forall (e1 e2 : exp) (ty1 ty2 : type), 
-                typing_exp e1 ty1 -> typing_exp e2 ty2 ->
-                typing_exp (Emult e1 e2) (join ty1 ty2)
-  | ty_eeq : forall (e1 e2 : exp) (ty1 ty2 : type), 
-                typing_exp e1 ty1 -> typing_exp e2 ty2 ->
-                typing_exp (Eeq e1 e2) (join ty1 ty2)
-  | ty_elt : forall (e1 e2 : exp) (ty1 ty2 : type), 
-                typing_exp e1 ty1 -> typing_exp e2 ty2 ->
-                typing_exp (Elt e1 e2) (join ty1 ty2)
-  | ty_sub : forall (e1 e2 : exp) (ty1 ty2 : type), 
-                typing_exp e1 ty1 -> typing_exp e2 ty2 ->
-                typing_exp (Esub e1 e2) (join ty1 ty2)
-  | ty_div : forall (e1 e2 : exp) (ty1 ty2 : type),
-                typing_exp e1 ty1 -> typing_exp e2 ty2 -> typing_exp (Ediv e1 e2) (join ty1 ty2).
+                typing_exp (Ebinop op e1 e2) (join ty1 ty2).
 
   Inductive typing_bexp : bexp -> type -> Prop := 
-  | ty_eq : forall (e1 e2 : exp) (ty1 ty2 : type), 
-              typing_exp e1 ty1 -> typing_exp e2 ty2 ->
-              typing_bexp (Beq e1 e2) (join ty1 ty2)
-  | ty_and : forall (b1 b2 : bexp) (ty1 ty2 : type), 
-               typing_bexp b1 ty1 -> typing_bexp b2 ty2 ->
-               typing_bexp (Band b1 b2) (join ty1 ty2)
-  | ty_not : forall (b : bexp) (ty : type), 
-               typing_bexp b ty -> typing_bexp (Bnot b) ty
-  | ty_lt : forall (e1 e2 : exp) (ty1 ty2 : type), 
-              typing_exp e1 ty1 -> typing_exp e2 ty2 ->
-              typing_bexp (Blt e1 e2) (join ty1 ty2).
+  | ty_comp : forall op (e1 e2 : exp) (ty1 ty2 : type),
+      typing_exp e1 ty1 -> typing_exp e2 ty2 ->
+      typing_bexp (Bcomp op e1 e2) (join ty1 ty2)
+  | ty_bool : forall op (e1 e2 : bexp) (ty1 ty2 : type),
+      typing_bexp e1 ty1 -> typing_bexp e2 ty2 ->
+      typing_bexp (Bbool op e1 e2) (join ty1 ty2)
+  | ty_unary : forall op (e : bexp) (ty : type),
+      typing_bexp e ty -> typing_bexp (Bunary op e) ty.
 
   Inductive typing_lexp : loc_exp -> type -> Prop :=
   | ty_sloc : forall e ty, typing_exp e ty -> typing_lexp (Sh e) ty
@@ -822,17 +828,14 @@ Section NonInter.
     low_eq s1 s2 -> typing_bexp be Lo -> bdenot be s1 = bdenot be s2.
   Proof.
     intros heq hty; induction be; simpl; eauto.
-    - inversion hty.
-      destruct ty1, ty2; inversion H1.
+    - inversion hty; subst.
+      destruct ty1, ty2; inversion H3.
       cutrewrite (edenot e1 s1 = edenot e1 s2); [ | eapply low_eq_eq_exp; eauto].
       cutrewrite (edenot e2 s1 = edenot e2 s2); [ | eapply low_eq_eq_exp; eauto].
       eauto.
     - inversion hty.
-      destruct ty1, ty2; inversion H1.
-      cutrewrite (edenot e1 s1 = edenot e1 s2); [ | eapply low_eq_eq_exp; eauto].
-      cutrewrite (edenot e2 s1 = edenot e2 s2); [ | eapply low_eq_eq_exp; eauto].
-      eauto.
-    - inversion hty; destruct ty1, ty2; inversion H1; rewrite IHbe1, IHbe2; eauto.
+      destruct ty1, ty2; inversion H3.
+      rewrite IHbe1, IHbe2; eauto.
     - inversion hty.
       rewrite (IHbe H0); eauto.
   Qed.
@@ -1065,13 +1068,7 @@ Section Substitution.
     match e0 with 
       | Evar y => (if var_eq_dec x y then e else Evar y)
       | Enum n => Enum n
-      | Emin e1 e2 => Emin (subE x e e1) (subE x e e2)
-      | Eeq e1 e2 => Eeq (subE x e e1) (subE x e e2)
-      | Elt e1 e2 => Elt (subE x e e1) (subE x e e2)
-      | Eplus e1 e2 => Eplus (subE x e e1) (subE x e e2)
-      | Emult e1 e2 => Emult (subE x e e1) (subE x e e2)
-      | Esub e1 e2 => Esub (subE x e e1) (subE x e e2)
-      | Ediv e1 e2 => Ediv (subE x e e1) (subE x e e2)
+      | Ebinop op e1 e2 => Ebinop op (subE x e e1) (subE x e e2)
     end.
   Fixpoint sublE x e e0 := 
     match e0 with 
@@ -1082,10 +1079,9 @@ Section Substitution.
   (* b[x/e]*)
   Fixpoint subB x e b :=
     match b with
-      | Beq e1 e2 => Beq (subE x e e1) (subE x e e2)
-      | Band b1 b2 => Band (subB x e b1) (subB x e b2)
-      | Bnot b => Bnot (subB x e b)
-      | Blt e1 e2 => Blt (subE x e e1) (subE x e e2)
+    | Bcomp op e1 e2 => Bcomp op (subE x e e1) (subE x e e2)
+    | Bbool op b1 b2 => Bbool op (subB x e b1) (subB x e b2)
+    | Bunary op b1 => Bunary op (subB x e b1)
     end.
 
   Lemma subE_assign : forall (x : var) (e e' : exp) (s : stack),

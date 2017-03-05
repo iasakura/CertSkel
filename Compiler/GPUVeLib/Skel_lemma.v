@@ -10,13 +10,7 @@ Fixpoint fv_E (e : exp) :=
   match e with
     | Evar v => v :: nil
     | Enum n => nil
-    | Emin e1 e2
-    | Eeq e1 e2
-    | Elt e1 e2
-    | e1 +C e2 
-    | e1 *C e2
-    | e1 -C e2 
-    | e1 /C e2 => fv_E e1 ++ fv_E e2
+    | Ebinop op e1 e2 => fv_E e1 ++ fv_E e2
   end%exp.
 
 Fixpoint fv_lE (e : loc_exp) :=
@@ -28,10 +22,9 @@ Fixpoint fv_lE (e : loc_exp) :=
 
 Fixpoint fv_B (e : bexp) :=
   match e with
-   | e1 == e2
-   | e1 <C e2 => fv_E e1 ++ fv_E e2
-   | Band e1 e2 => fv_B e1 ++ fv_B e2
-   | Bnot e1 => fv_B e1
+  | Bcomp op e1 e2 => fv_E e1 ++ fv_E e2
+  | Bbool op b1 b2 => fv_B b1 ++ fv_B b2
+  | Bunary op b => fv_B b
   end.
 
 Lemma fv_subE var v e :
