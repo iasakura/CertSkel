@@ -698,9 +698,11 @@ Proof.
       clear x y.
       introv; induction s; simpl; eauto;
       try (now (rewrite IHs1; f_equal; extensionality l; rewrite IHs2; eauto));
-      try (now (rewrite IHs; f_equal; eauto));
-      try (now (rewrite IHs1; f_equal; extensionality l; rewrite IHs2; f_equal; extensionality l';
-                rewrite IHs3; eauto)).
+      try (now (rewrite IHs; f_equal; eauto)).
+      unfold bind, ret; simpl; unfold Monad.bind_opt.
+      rewrite IHs1.
+      destruct (Skel.sexpDenote _ _ _ s1 _ _); eauto.
+      destruct t0; eauto.
     Qed.
     rewrite shift_func_GA_ok; eauto; simpl.
     assert (Hfeq : Skel.funcDenote GA _ f aeenv = fun x y => Some (f_tot x y)) by
