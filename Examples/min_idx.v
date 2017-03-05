@@ -20,11 +20,14 @@ Proof.
   reifyFunc.
   apply compileOk.
   repeat econstructor; simpl.
-  - introv; repeat lazymatch goal with
+  - unfold bind, ret; simpl.
+    intros.
+    do 4 rewrite <-if_app; reflexivity.
+  - introv; simpl; repeat lazymatch goal with
             | [|- context [(?X <? ?Y)%Z]] => destruct (Z.ltb_spec0 X Y)
             end; eauto; try omega.
     destruct x, y; simpl in *; f_equal; try omega.
-  - introv; repeat lazymatch goal with
+  - introv; simpl; repeat lazymatch goal with
             | [|- context [(?X <? ?Y)%Z]] =>
               let H := fresh in
               destruct (Z.ltb_spec0 X Y) as [H | H];

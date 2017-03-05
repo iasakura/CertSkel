@@ -649,24 +649,26 @@ Proof.
 Qed.
 
 Ltac prove_equiv1 :=
-  unfold equivGI1; simpl; intros; auto;
-  repeat (destruct Z_le_dec; try omega);
-  repeat first [rewrite <-let_lift1 | rewrite let_ret];
-  repeat
-    (match goal with _ => idtac end;
-      lazymatch goal with
-      | [|- context [do! _ <- ret ?skel in _]] =>  rewrite <-(let_lift1 _ skel)
-      | [|- context [do! x <- ?skel in ret x]] =>  rewrite (let_ret _ skel)
-      end);
-    repeat rewrite let_ret;
-  repeat f_equal;
-  repeat (let l := fresh in extensionality l; intros);
-  repeat (match goal with _ => idtac end;
-      lazymatch goal with
-      | [|- context [do! _ <- ret ?skel in _]] =>  rewrite <-(let_lift1 _ skel)
-      | [|- context [do! x <- ?skel in ret x]] =>  rewrite (let_ret _ skel)
-      | [|- context [ret (if _ then _ else _)]] =>  rewrite (if_app _ _ ret)
-      end); eauto.
+  unfold equivGI1; simpl; intros; unfold len; destruct Z_le_dec; try omega; eauto.
+
+  (* unfold equivGI1; simpl; intros; auto; *)
+  (* repeat (destruct Z_le_dec; try omega); *)
+  (* repeat first [rewrite <-let_lift1 | rewrite let_ret]; *)
+  (* repeat *)
+  (*   (match goal with _ => idtac end; *)
+  (*     lazymatch goal with *)
+  (*     | [|- context [do! _ <- ret ?skel in _]] =>  rewrite <-(let_lift1 _ skel) *)
+  (*     | [|- context [do! x <- ?skel in ret x]] =>  rewrite (let_ret _ skel) *)
+  (*     end); *)
+  (*   repeat rewrite let_ret; *)
+  (* repeat f_equal; *)
+  (* repeat (let l := fresh in extensionality l; intros); *)
+  (* repeat (match goal with _ => idtac end; *)
+  (*     lazymatch goal with *)
+  (*     | [|- context [do! _ <- ret ?skel in _]] =>  rewrite <-(let_lift1 _ skel) *)
+  (*     | [|- context [do! x <- ?skel in ret x]] =>  rewrite (let_ret _ skel) *)
+  (*     | [|- context [ret (if _ then _ else _)]] =>  rewrite (if_app _ _ ret) *)
+  (*     end); eauto. *)
 
 Require Import CompilerProof.
 
