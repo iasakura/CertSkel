@@ -1,4 +1,4 @@
-Require Import DepList.
+Require Import Program DepList.
 Require Import GPUCSL.
 (* Require Import Host SimplSkel Compiler. *)
 Require Import Monad.
@@ -543,113 +543,100 @@ Ltac transform prog k :=
 Lemma let_ret T (app : comp T) : (do! x <- app in ret x) = app.
 Proof. unfold bind; simpl; unfold bind_opt; destruct app; eauto. Qed.
 
-Ltac let_intro_pure f T ans :=
-  lazymatch f with
-  | fun x => x => constr:(fun (k : T -> ans) x => k (f x))
-  | fun x => seq (@?n x) (@?m x) =>
-    constr:(fun (k : list Z -> ans) x => do! t <- ret (seq (n x) (m x)) in k t)
-  | fun x => zip (@?arg1 x) (@?arg2 x) =>
-    let arg1' := let_intro_pure arg1 T ans in
-    let arg2' := let_intro_pure arg2 T ans in
-    constr:(fun k x => 
-                 arg1' (fun t1 => 
-                 arg2' (fun t2 => 
-                 do! t3 <- ret (zip t1 t2) in k t3) x) x)
-  | fun x => mapM (@?f x) (@?arg1 x) =>
-    let arg1' := let_intro_pure arg1 T ans in
-    constr:(fun k x => arg1' (fun t1 => do! t2 <- (@mapM _ _ comp _ (f x) t1) in k t2) x)
-  | fun x => reduceM (@?op x) (@?arg1 x) =>
-    let arg1' := let_intro_pure arg1 T ans in
-    constr:(fun k x => arg1' (fun t1 => do! t2 <- (reduceM (op x) t1) in k t2) x)
-  end.
-
-Ltac let_intro := lazymatch goal with
-| [|- forall x, _ x = @?prog x] =>
-  let x := fresh "x" in
-  idtac prog;
-  intros x;
-  let T := match type of prog with ?T -> _ => T end in
-  let ans := match type of prog with _ -> ?ans => ans end in
-  let t := let_intro_pure prog T ans in 
-  idtac t;
-  let t' := constr:(t ret x) in
-  let t' := eval cbv beta in t' in 
-  lazymatch goal with
-    [|- _ = ?prog] =>
-    cutrewrite (prog = t');
-      [reflexivity|repeat first [rewrite <-let_lift1 | rewrite let_ret]; eauto]
-  end
-end.
-  
-Lemma if_app (A B : Type) (f : A -> B) (b : bool) x y :
-  (f (if b then x else y)) = (if b then f x else f y).
-Proof. destruct b; eauto. Qed.
-
 Require Import CUDALib CSLLemma CSLTactics CodeGen.
 
-Definition equivGC1 {dom cod : Skel.Typ}
-           (p_g : list (Skel.typDenote dom) -> comp (list (Skel.typDenote cod)))
+Fixpoint typCTDenote (GA : list Skel.Typ) T :=
+  match GA with
+  | nil => T
+  | dom :: GA => list (Skel.typDenote dom) -> (typCTDenote GA T)
+  end.
+
+Fixpoint curry_aeenv_k GA : forall T, (AEvalEnv GA -> T) -> typCTDenote GA T :=
+  match GA return forall T, (AEvalEnv GA -> T) -> typCTDenote GA T with
+  | nil => fun T k => k HNil
+  | dom :: GA => fun T k xs => curry_aeenv_k GA T (fun env => k (xs ::: env))
+  end.
+
+Fixpoint uncurry_aeenv {GA T} (aeenv : AEvalEnv GA) : typCTDenote GA T -> T :=
+  match aeenv in hlist _ GA return typCTDenote GA T -> T with
+  | HNil => fun f => f
+  | xs ::: aeenv => fun f => (uncurry_aeenv aeenv) (f xs)
+  end.
+
+Definition funTypDenote GA cod := typCTDenote GA (comp (list (Skel.typDenote cod))).
+
+Definition funcDenote {GA : list Skel.Typ} {cod : Skel.Typ} (f : Skel.AS GA cod) : funTypDenote GA cod :=
+  curry_aeenv_k GA _ (fun aeenv => Skel.asDenote _ _ f aeenv).
+
+Definition equivGC {GA : list Skel.Typ} {cod : Skel.Typ}
+           (p_g : funTypDenote GA cod)
            (M : GModule) :=
   interp_f M nil "__main"
            {| fs_tag := Hfun;
-              fs_params := flatTup (outArr dom) ++ map fst (flatten_avars (gen_params (dom :: nil)));
-              fs_tri := 
-                All inp apenv outp result vs,
-                FDbl (kernelInv
-                        (remove_typeinfo (gen_params (dom :: nil))) apenv (inp ::: HNil)
-                        (T *** arrays (val2gl outp) vs 1)
-                        (p_g inp = Some result /\ length result <= length vs)%nat
-                        (outArr cod |=> outp) 1)
-                     (fun l => kernelInv'
-                                 apenv (inp ::: HNil)
-                                 (T *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
-                                 (l = Zn (length result)) 1%Qc) |}.
-
-Definition equivGI1 {T U : Skel.Typ}
-           (p_g : list (Skel.typDenote T) -> comp (list (Skel.typDenote U)))
-           (p_i : Skel.AS (T :: nil) U) :=
-  forall (x : list (Skel.typDenote T)),
-    p_g x =  Skel.asDenote _ _ (p_i) (HCons x HNil).
-
-Definition equivIC1 {dom cod : Skel.Typ} (p_i : Skel.AS (dom :: nil) cod) (M : GModule) :=
-  interp_f M nil "__main"
-           {| fs_tag := Hfun;
-              fs_params := flatTup (outArr dom) ++ map fst (flatten_avars (gen_params (dom :: nil)));
+              fs_params := flatTup (outArr cod) ++ map fst (flatten_avars (gen_params GA));
               fs_tri := 
                 All aeenv apenv outp result vs,
                 FDbl (kernelInv
-                        (remove_typeinfo (gen_params (dom :: nil))) apenv aeenv
+                        (remove_typeinfo (gen_params GA)) apenv aeenv
                         (T *** arrays (val2gl outp) vs 1)
-                        (Skel.asDenote (dom :: nil) cod p_i aeenv = Some result /\ length result <= length vs)%nat
+                        (uncurry_aeenv aeenv p_g = Some result /\ length result <= length vs)%nat
                         (outArr cod |=> outp) 1)
                      (fun l => kernelInv'
                                  apenv aeenv
                                  (T *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
                                  (l = Zn (length result)) 1%Qc) |}.
 
-Lemma equiv_trans dom cod
-      (p_g : list (Skel.typDenote dom) -> comp (list (Skel.typDenote cod)))
-      (p_i : Skel.AS (dom :: nil) cod)
+Definition equivGI {GA : list Skel.Typ} {cod : Skel.Typ}
+           (p_g : funTypDenote GA cod)
+           (p_i : Skel.AS GA cod) :=
+  forall (aeenv : AEvalEnv GA),
+    uncurry_aeenv aeenv p_g =  Skel.asDenote _ _ (p_i) aeenv.
+
+Definition equivIC {GA : list Skel.Typ} {cod : Skel.Typ} (p_i : Skel.AS GA cod) (M : GModule) :=
+  interp_f M nil "__main"
+           {| fs_tag := Hfun;
+              fs_params := flatTup (outArr cod) ++ map fst (flatten_avars (gen_params GA));
+              fs_tri := 
+                All aeenv apenv outp result vs,
+                FDbl (kernelInv
+                        (remove_typeinfo (gen_params GA)) apenv aeenv
+                        (T *** arrays (val2gl outp) vs 1)
+                        (Skel.asDenote GA cod p_i aeenv = Some result /\ length result <= length vs)%nat
+                        (outArr cod |=> outp) 1)
+                     (fun l => kernelInv'
+                                 apenv aeenv
+                                 (T *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
+                                 (l = Zn (length result)) 1%Qc) |}.
+
+Lemma equiv_trans GA cod
+      (p_g : funTypDenote GA cod)
+      (p_i : Skel.AS GA cod)
       (M : GModule) :
-  equivGI1 p_g p_i -> equivIC1 p_i M -> equivGC1 p_g M .
+  equivGI p_g p_i -> equivIC p_i M -> equivGC p_g M .
 Proof.
-  unfold equivGI1, equivIC1, equivGC1.
+  unfold equivGI, equivIC, equivGC.
   intros Heq1.
   unfold interp_f, with_ctx, interp_f_n, interp_fd_simp, interp_hfun_n_simp, interp_kfun_n_simp.
   destruct func_disp; simpl; eauto.
   intros Hsat ? ?; forwards*Hsat': Hsat.
-  destruct f; intros inp apenv outp result vs; forwards* Hsat'': (>>Hsat' (inp ::: HNil) apenv outp result vs);
+  destruct f; intros aeenv apenv outp result vs.
+  forwards* Hsat'': (>>Hsat' aeenv apenv outp result vs).
+  rewrite Heq1; eauto.
   rewrite Heq1; eauto.
 Qed.  
 
-Lemma ext_fun {T U : Skel.Typ} (p : Skel.AS (T :: nil) U) f g :
-  (forall x, f x = g x) -> equivGI1 f p -> equivGI1 g p.
+Lemma ext_fun {GA : list (Skel.Typ)} {cod : Skel.Typ} (p : Skel.AS GA cod) f g :
+  (forall x, uncurry_aeenv x f = uncurry_aeenv x g) -> equivGI f p -> equivGI g p.
 Proof.
-  unfold equivGI1; intros Heq; intros; rewrite <-Heq; eauto.
+  unfold equivGI; intros Heq; intros; rewrite <-Heq; eauto.
 Qed.
 
 Ltac prove_equiv1 :=
-  unfold equivGI1; simpl; intros; unfold len; destruct Z_le_dec; try omega; eauto.
+  unfold equivGI; simpl; intros;
+  repeat (lazymatch goal with
+           | [x : DepList.hlist _ _ |- _] => dependent destruction x
+           end);
+  simpl; unfold len; destruct Z_le_dec; try omega; eauto.
 
   (* unfold equivGI1; simpl; intros; auto; *)
   (* repeat (destruct Z_le_dec; try omega); *)
@@ -672,18 +659,18 @@ Ltac prove_equiv1 :=
 
 Require Import CompilerProof.
 
-Definition compileOk dom cod (p : Skel.AS (dom :: nil) cod) :
+Definition compileOk GA cod (p : Skel.AS GA cod) :
   skel_as_wf _ _ p
-  -> equivIC1 p (Compiler.compile_prog 1024 24 p).
+  -> equivIC p (Compiler.compile_prog 1024 24 p).
 Proof.
-  unfold equivIC1.
-  intros; applys (>>compile_prog_ok (dom :: nil) cod); eauto.
+  unfold equivIC.
+  intros; applys (>>compile_prog_ok GA cod); eauto.
 Qed.  
 
-Lemma equiv_trans' (dom cod : Skel.Typ)
-  (p_g : list (Skel.typDenote dom) -> comp (list (Skel.typDenote cod))) (p_i : {p_i | equivGI1 p_g p_i}) :
-  {M | equivIC1 (proj1_sig p_i) M} ->
-  {M | equivGC1 p_g M}.
+Lemma equiv_trans' GA (cod : Skel.Typ)
+  (p_g : funTypDenote GA cod) (p_i : {p_i | equivGI p_g p_i}) :
+  {M | equivIC (proj1_sig p_i) M} ->
+  {M | equivGC p_g M}.
 Proof.
   intros M.
   destruct p_i as [p_i ?]; simpl in *.
@@ -691,16 +678,80 @@ Proof.
   eexists; eapply equiv_trans; eauto.
 Qed.
 
+Ltac uncurry_func func k :=
+  idtac "uncurry func = " func;
+  lazymatch func with
+  | (fun (x : ?T1) (y : ?T2) => @?f x y) =>
+    idtac "match inductive";
+    let t := eval cbv beta in (fun (p : T1 * T2) => f (myfst p) (mysnd p)) in
+    uncurry_func t k
+  | (fun (x : ?T) => @?f x) =>
+    idtac "match base";
+    k func
+  end.  
+
+Ltac let_intro_pure f T ans :=
+  lazymatch f with
+  | fun x => seq (@?n x) (@?m x) =>
+    constr:(fun (k : list Z -> ans) x => do! t <- ret (seq (n x) (m x)) in k t)
+  | fun x => zip (@?arg1 x) (@?arg2 x) =>
+    let arg1' := let_intro_pure arg1 T ans in
+    let arg2' := let_intro_pure arg2 T ans in
+    constr:(fun k x => 
+                 arg1' (fun t1 => 
+                 arg2' (fun t2 => 
+                 do! t3 <- ret (zip t1 t2) in k t3) x) x)
+  | fun x => mapM (@?f x) (@?arg1 x) =>
+    let arg1' := let_intro_pure arg1 T ans in
+    constr:(fun k x => arg1' (fun t1 => do! t2 <- (@mapM _ _ comp _ (f x) t1) in k t2) x)
+  | fun x => reduceM (@?op x) (@?arg1 x) =>
+    let arg1' := let_intro_pure arg1 T ans in
+    constr:(fun k x => arg1' (fun t1 => do! t2 <- (reduceM (op x) t1) in k t2) x)
+  | fun x => @?func x => constr:(fun (k : T -> ans) x => k (f x))
+  end.
+
+Goal False.
+  let f := constr:(fun arr => reduceM
+       (fun x y => if (fst x) <? (fst y) then ret x
+                   else if (fst y) <? (fst x) then ret y
+                   else if (snd x) <? (snd y) then ret x
+                   else if (snd y) <? (snd x) then ret y
+                   else ret x)
+       (zip arr (seq 0 (len arr)))) in
+  uncurry_func f ltac:(fun f =>
+  let t := let_intro_pure f (list Z) (comp (list (Z * Z))) in
+  idtac "res = " t).
+Abort.
+
+Ltac let_intro := lazymatch goal with
+| [|- _ = uncurry_aeenv _ ?func] =>
+  uncurry_func func ltac:(fun func' =>
+  let T := match type of func' with ?T -> _ => T end in
+  let ans := match type of func' with _ -> ?ans => ans end in
+  idtac "res of uncurry_func" T ans func';
+  let t := let_intro_pure func' T ans in 
+  idtac t;
+  let t' := constr:(t ret) in
+  let t' := eval cbv beta in t' in 
+  cutrewrite (func = t');
+    [reflexivity|
+     let l := fresh "l" in
+     extensionality l; repeat first [rewrite <-let_lift1 | rewrite let_ret]; eauto])
+end.
+
+Lemma if_app (A B : Type) (f : A -> B) (b : bool) x y :
+  (f (if b then x else y)) = (if b then f x else f y).
+Proof. destruct b; eauto. Qed.
+
 Ltac reifyFunc := 
   eexists;
   eapply equiv_trans;
   [eapply ext_fun;
-    [simpl in *; let_intro|
+    [simpl in *; intros; let_intro|
      lazymatch goal with
-     | [|- equivGI1 ?prog _ ] =>
+     | [|- equivGI ?prog _ ] =>
        transform prog ltac:(fun res => instantiate (1 := res))
      end]; prove_equiv1|].
-
 
 Goal False.
   let t := constr:(

@@ -12,9 +12,7 @@ Definition min_idx (arr : list Z) : comp (list (Z * Z))
        (zip arr (seq 0 (len arr))).
 
 Definition min_idx_GPGPU :
-  {p : GModule | equivGC1 (min_idx : list (Skel.typDenote Skel.TZ) ->
-                                     comp (list (Skel.typDenote (Skel.TTup Skel.TZ Skel.TZ))))
-                          p}.
+  {p : GModule | @equivGC (Skel.TZ :: nil) (Skel.TTup Skel.TZ Skel.TZ) min_idx p}.
 Proof.
   unfold min_idx; simpl.
   reifyFunc.
@@ -36,7 +34,6 @@ Proof.
 Defined.
 
 Definition res := save_to_file (`min_idx_GPGPU) "./min_idx.cu".
-Print Assumptions min_idx_GPGPU.
 
 Cd "extracted".
 
