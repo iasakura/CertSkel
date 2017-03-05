@@ -11,23 +11,40 @@ let (!%) = Printf.sprintf ;;
 
 let var_printer vs = List.fold_right (fun c acc -> Char.escaped c ^ acc) vs "";;
 
+let binop_exp_printer op e1 e2 =
+  match op with
+  | OP_plus -> !% "(%s + %s)" e1 e2
+  | OP_min -> !% "(min(%s, %s))" e1 e2
+  | OP_lt -> !% "(%s < %s)" e1 e2
+  | OP_eq -> !% "(%s == %s)" e1 e2
+  | OP_mult -> !% "(%s * %s)" e1 e2
+  | OP_sub -> !% "(%s - %s)" e1 e2
+  | OP_div -> !% "(%s / %s)" e1 e2
+  | OP_mod -> !% "(%s %% %s)" e1 e2
+;;
+
 let rec exp_printer = function
   | Evar v -> var_printer v
   | Enum i -> !% "%d" i
-  | Eplus (e1, e2) -> !% "(%s + %s)" (exp_printer e1) (exp_printer e2)
-  | Emin (e1, e2) -> !% "min(%s, %s)" (exp_printer e1) (exp_printer e2)
-  | Eeq (e1, e2) -> !% "(%s == %s)" (exp_printer e1) (exp_printer e2)
-  | Emult (e1, e2) -> !% "(%s * %s)" (exp_printer e1) (exp_printer e2)
-  | Esub (e1, e2) -> !% "(%s - %s)" (exp_printer e1) (exp_printer e2)
-  | Ediv (e1, e2) -> !% "(%s / %s)" (exp_printer e1) (exp_printer e2)
-  | Elt (e1, e2) -> !% "(%s < %s)" (exp_printer e1) (exp_printer e2)
+  | Ebinop (op, e1, e2) -> binop_exp_printer op (exp_printer e1) (exp_printer e2) 
+;;
+
+let binop_comp_printer op e1 e2 =
+  match op with
+  | OP_beq -> !% "(%s == %s)" e1 e2
+  | OP_blt -> !% "(%s < %s)" e1 e2
+;;
+
+let binop_bool_printer op e1 e2 =
+  match op with
+  | OP_and -> !% "(%s && %s)" e1 e2
+  | OP_or -> !% "(%s || %s)" e1 e2
 ;;
 
 let rec bexp_printer = function
-  | Beq (e1, e2) -> !% "(%s == %s)" (exp_printer e1) (exp_printer e2)
-  | Blt (e1, e2) -> !% "(%s < %s)" (exp_printer e1) (exp_printer e2)
-  | Band (e1, e2) -> !% "(%s && %s)" (bexp_printer e1) (bexp_printer e2)
-  | Bnot e1 -> !% "(!%s)" (bexp_printer e1)
+  | Bcomp (op, e1, e2) -> binop_comp_printer op (exp_printer e1) (exp_printer e2)
+  | Bbool (op, e1, e2) -> binop_bool_printer op (bexp_printer e1) (bexp_printer e2)
+  | Bunary e1 -> !% "(!%s)" (bexp_printer e1)
 ;;
 
 let rec loc_exp_printer = function
