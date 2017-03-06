@@ -30,7 +30,7 @@ Proof.
               let H := fresh in
               destruct (Z.ltb_spec0 X Y) as [H | H];
               revert H
-            end; eauto; intros; try omega.
+            end; eauto; intros; omega.
 Defined.
 
 Definition res := save_to_file (`min_idx_GPGPU) "./min_idx.cu".

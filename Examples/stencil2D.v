@@ -25,3 +25,9 @@ Proof.
   apply compileOk.
   repeat constructor.
 Defined.
+
+Definition res := save_to_file (`stencil_GPGPU) "./stencil.cu".
+
+Cd "extracted".
+
+Separate Extraction res.
