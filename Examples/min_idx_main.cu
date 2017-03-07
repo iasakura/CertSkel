@@ -40,6 +40,7 @@ int main(int argc, char**argv) {
   check(cudaMemcpy(out2_h, out2_d, sizeof(int) * len, cudaMemcpyDeviceToHost));
   cudaDeviceSynchronize();
   for (int i = 0; i < len; i++) {
-    printf("res[%d] = %d\n", i, out1_h[i]);
+    printf("res.1[%d] = %d\n", i, out1_h[i]);
+    printf("res.2[%d] = %d\n", i, out2_h[i]);
   }
 }

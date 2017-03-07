@@ -14,7 +14,7 @@ Definition stencil (dim : list (Z * Z)) (xs : list Z) : comp (list Z) :=
           do! cv <- nth_error xs i in
           do! ev <- if ix =? dx - 1 then ret 0 else nth_error xs ((ix + 1) + iy * dx) in
           do! sv <- if i =? 0 then ret 0 else nth_error xs (ix + (iy - 1) * dx) in
-          ret (nv + wv + cv + ev + sv))
+          ret ((nv + wv + cv + ev + sv) / 5))
        (seq 0 (len xs)).
 
 Definition stencil_GPGPU :
