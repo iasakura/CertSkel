@@ -3,4 +3,4 @@
 -R ../CertSkel Top
 -R ../GPUCSL Top
 -R ../TypedIR Top
--R ../repo/src Cpdt
+-R ../cpdtlib Cpdt
