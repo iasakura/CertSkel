@@ -5,7 +5,7 @@ Require Import MyVector.
 Require Import List.
 Require Import PHeap.
 Require Import Lang.
-Require Import assertions.
+Require Import CSLLemma.
 Set Implicit Arguments.
 Unset Strict Implicit.
 
@@ -86,14 +86,14 @@ Notation Aex P := (fun (s : stack) (h : pheap) => exists v, P v s h).
 Import VectorNotations.
 Fixpoint Aistar_v (n : nat) (assns : Vector.t assn n) :=
   match assns with
-    | [] => Aemp
+    | [] => Emp_assn
     | (a :: assns) => a ** (Aistar_v assns)
   end.
 
 Lemma aistar_disj (n : nat) (assns : Vector.t assn n) (s : stack) (h : pheap) :
-  sat (s, h) (Aistar_v assns) ->
+  sat s h (Aistar_v assns) ->
   exists (hs : Vector.t pheap n), disj_eq hs h /\ 
-                                  (forall tid : Fin.t n, sat (s, hs[@tid]) assns[@tid]).
+                                  (forall tid : Fin.t n, sat s hs[@tid] assns[@tid]).
 Proof.
   revert h; induction assns; intros h' hsat.
   - exists []; split; simpl in hsat.
@@ -109,7 +109,7 @@ Proof.
 Qed.
 
 Definition indeP (R : stack -> stack -> Prop) (P : assn) :=
-  forall (s1 s2 : stack) (h : pheap), R s1 s2 -> (sat (s1, h) P <-> sat (s2, h) P).
+  forall (s1 s2 : stack) (h : pheap), R s1 s2 -> (sat s1 h P <-> sat s2 h P).
 
 Section Low_eq.
   Variable env : Lang.env.
@@ -206,7 +206,7 @@ Section Barrier.
   Definition jth_pre (j : nat) := Aistar_v (fst (bspec j)).
   Definition jth_post (j : nat) := Aistar_v (snd (bspec j)).
   Definition env_wellformed := 
-    bwf /\ forall (j : nat) (st : pstate), sat st (jth_pre j) -> sat st (jth_post j).
+    bwf /\ forall (j : nat) s h, sat s h (jth_pre j) -> sat s h (jth_post j).
   Hypothesis env_wf : env_wellformed.
 
   Definition get_ss (n : nat) (sts : Vector.t pstate n) : Vector.t stack n := 
@@ -214,11 +214,11 @@ Section Barrier.
   Definition get_hs (n : nat) (sts : Vector.t pstate n) : Vector.t pheap n := 
     Vector.map (fun st => snd st) sts.
 
-  Hint Resolve emp_emp_ph.
+  (* Hint Resolve emp_emp_ph. *)
   Lemma aistar_eq (n : nat) (s : stack) (assns : Vector.t assn n) (hs : Vector.t pstate n)
         (h : pheap) :
-    disj_eq (get_hs hs) h -> (forall tid : Fin.t n, sat (s, snd hs[@tid]) assns[@tid]) ->
-    sat (s, h) (Aistar_v assns).
+    disj_eq (get_hs hs) h -> (forall tid : Fin.t n, sat s (snd hs[@tid]) assns[@tid]) ->
+    sat s h (Aistar_v assns).
   Proof.
     intros heq hsat.
     revert h heq assns hsat; induction hs; intros h' heq assns hsat.
@@ -237,10 +237,10 @@ Section Barrier.
   Lemma sync_barrier (n : nat) (s : stack) (hs : Vector.t pstate n) (h : pheap)
         (prs pss : Vector.t assn n) (bf1 : forall tid : Fin.t n, low_assn prs[@tid])
         (bf2 : forall tid : Fin.t n, low_assn pss[@tid]) (heq : disj_eq (get_hs hs) h)
-        (eq : forall st, sat st (Aistar_v prs) -> sat st (Aistar_v pss))
-        (hp : forall tid : Fin.t n, sat (s, snd hs[@tid]) prs[@tid]) :
+        (eq : forall s h, sat s h (Aistar_v prs) -> sat s h (Aistar_v pss))
+        (hp : forall tid : Fin.t n, sat s (snd hs[@tid]) prs[@tid]) :
     exists (hs' : Vector.t pheap n),
-      disj_eq hs' h /\ forall tid : Fin.t n, sat (s, hs'[@tid]) pss[@tid].
+      disj_eq hs' h /\ forall tid : Fin.t n, sat s hs'[@tid] pss[@tid].
   Proof.
     eapply (aistar_eq heq) in hp.
     apply eq in hp.
@@ -251,8 +251,8 @@ Section Barrier.
   Lemma loweq_sat (n : nat) (s : stack) (sts : Vector.t pstate n)
         (low_eq : low_eq_l2 env (s :: get_ss sts)) (ps : Vector.t assn n) 
         (bf : forall tid : Fin.t n, low_assn ps[@tid]) :
-    (forall tid : Fin.t n, sat sts[@tid] ps[@tid]) <->
-    (forall tid : Fin.t n, sat (Vector.map (fun st => (s, snd st)) sts)[@tid] ps[@tid]).
+    (forall tid : Fin.t n, sat (fst sts[@tid]) (snd sts[@tid]) ps[@tid]) <->
+    (forall tid : Fin.t n, sat s (snd sts[@tid]) ps[@tid]).
   Proof.
     clear env_wf bspec.
     induction sts.
@@ -281,11 +281,11 @@ Section Barrier.
 
   Lemma sync_barrier' (sts : Vector.t pstate ngroup) (j : nat) (h : pheap)
         (heq : disj_eq (get_hs sts) h) (ss_leq : low_eq_l2 env (get_ss sts))
-        (hp : forall tid : Fin.t ngroup, sat sts[@tid] (fst (bspec j))[@tid]) :
+        (hp : forall tid : Fin.t ngroup, sat (fst sts[@tid]) (snd sts[@tid]) (fst (bspec j))[@tid]) :
     exists (sts' : Vector.t pstate ngroup),
       disj_eq (get_hs sts') h /\ 
       get_ss sts' = get_ss sts /\
-      (forall tid : Fin.t ngroup, sat sts'[@tid] (snd (bspec j))[@tid]).
+      (forall tid : Fin.t ngroup, sat (fst sts'[@tid]) (snd sts'[@tid]) (snd (bspec j))[@tid]).
   Proof.
     unfold env_wellformed, bwf in *; destruct env_wf as [bwf H]; clear env_wf.
     unfold jth_pre, jth_post in *; specialize (H j); (specialize (bwf j));
@@ -303,25 +303,25 @@ Section Barrier.
       apply inj_pair2 in H1; apply inj_pair2 in H4; subst.
       rename H3 into hsathd, H5 into hsattl.*)
       set (sts' := Vector.map (fun st => (fst h0, snd st)) (h0 :: sts)).
-      assert (forall tid : Fin.t (S n), sat sts'[@tid] (pr :: pres')[@tid]).
+      assert (forall tid : Fin.t (S n), sat (fst sts'[@tid]) (snd sts'[@tid]) (pr :: pres')[@tid]).
       { intros tid; destruct (finvS tid) as [ |[tid' ?]], h0; [specialize (hsat Fin.F1); eauto|];
         subst; simpl; eauto; unfold sts'.
-        apply loweq_sat; eauto.
-        - intros tid; specialize (bwf1 (Fin.FS tid)); eauto.
-        - intros tid; specialize (hsat (Fin.FS tid)); eauto. }
+        erewrite nth_map; eauto.
+        apply loweq_sat; simpl; eauto.
+        intros tid; specialize (bwf1 (Fin.FS tid)); eauto.
+        intros tid; specialize (hsat (Fin.FS tid)); eauto. }
 (*      rewrite Heqsts' in H; apply ->forall2_map in H; simpl in H.*)
       unfold sts' in *. 
-      assert (forall tid : Fin.t (S n), sat (fst h0, snd (h0 :: sts)[@tid]) (pr :: pres')[@tid]).
+      assert (forall tid : Fin.t (S n), sat (fst h0) (snd (h0 :: sts)[@tid]) (pr :: pres')[@tid]).
       { intros tid; specialize (H tid); erewrite Vector.nth_map in H; eauto. }
       eapply sync_barrier in H0; eauto; clear H; rename H0 into H.
       destruct H as [hs' [heqq hsatq]].
       set (stq := (Vector.map2 (fun st h => (fst st, h)) (h0 :: sts) hs')).
-      assert (forall tid : Fin.t (S n), sat stq[@tid] (ps:: posts')[@tid]). 
+      assert (forall tid : Fin.t (S n), sat (fst stq[@tid]) (snd stq[@tid]) (ps:: posts')[@tid]). 
       { unfold stq; apply <-(loweq_sat (n := S n) (s := fst h0)); eauto.
-        - rewrite map_map2.
-          cutrewrite (Vector.map2 (fun x y => (fst h0, snd (fst x, y))) (h0 :: sts) hs' =
+        - cutrewrite (Vector.map2 (fun x y => (fst h0, snd (fst x, y))) (h0 :: sts) hs' =
                       Vector.map (pair (fst h0)) hs'); [ | ].
-          + intros tid; specialize (hsatq tid); erewrite Vector.nth_map; eauto.
+          + intros tid; specialize (hsatq tid); erewrite Vector.nth_map2; eauto.
           + rewrite map2_map; eauto.
         - unfold get_ss; rewrite map_map2.
         rewrite map2_fst.
@@ -349,7 +349,7 @@ Section BarrierDivergenceFreedom.
     match n with
       | O => True
       | S n => 
-        (c = Cskip -> sat (s, ph) q) /\
+        (c = Cskip -> sat s ph q) /\
 
         (forall (hf : pheap) (h : heap), 
            (pdisj ph hf) -> ptoheap (phplus ph hf) h -> ~aborts c (s, h)) /\
@@ -365,8 +365,8 @@ Section BarrierDivergenceFreedom.
           
         (forall j c', wait c = Some (j, c') ->
            exists (phP ph' : pheap), 
-             pdisj phP ph' /\ phplus phP ph' = ph /\ sat (s, phP) (pre_j tid j) /\
-             (forall (phQ : pheap) (H : pdisj phQ ph'), sat (s, phQ) (post_j tid j) ->
+             pdisj phP ph' /\ phplus phP ph' = ph /\ sat s phP (pre_j tid j) /\
+             (forall (phQ : pheap) (H : pdisj phQ ph'), sat s phQ (post_j tid j) ->
                 safe_nt tid n c' s (phplus_pheap H) q))
     end.
   Definition safe_t (tid : Fin.t ngroup) (c : cmd) (s : stack) (ph : pheap) (q : assn) := 
@@ -588,7 +588,7 @@ Section BarrierDivergenceFreedom.
           subst; eauto. }
         assert (forall tid, exists (phP phF : pheap), 
                   pdisj phP phF /\ phplus phP phF = snd pss2[@tid] /\ 
-                  sat (fst pss2[@tid], phP) (pre_j tid j)) as hpre.
+                  sat (fst pss2[@tid]) phP (pre_j tid j)) as hpre.
         { intros tid; specialize (hsafe2 tid); destruct hsafe2 as [q hsafe2];
           specialize (hsafe2 1%nat); destruct hsafe2 as [_ [_ [_ [_ [_ hsafe2]]]]];
           specialize (hsafe2 j (fst ss2[@tid]) (cswait tid));
@@ -596,13 +596,13 @@ Section BarrierDivergenceFreedom.
         assert (exists (phPs phFs : t pheap ngroup), forall tid : Fin.t ngroup,
                   pdisj phPs[@tid] phFs[@tid] /\
                   phplus phPs[@tid] phFs[@tid] = snd pss2[@tid] /\
-                  sat (fst pss2[@tid], phPs[@tid]) (pre_j tid j)) as [phPs [phFs Hpre]].
+                  sat (fst pss2[@tid]) phPs[@tid] (pre_j tid j)) as [phPs [phFs Hpre]].
         { destruct (@vec_exvec pheap ngroup (fun tid phP => exists (phF : pheap), pdisj phP phF /\
            phplus phP phF = snd pss2[@tid] /\
-           sat (fst pss2[@tid], phP) (pre_j tid j)) hpre) as [phPs Hp].
+           sat (fst pss2[@tid]) phP (pre_j tid j)) hpre) as [phPs Hp].
           destruct (@vec_exvec pheap ngroup (fun tid phF => pdisj phPs[@tid] phF /\
             phplus phPs[@tid] phF = snd pss2[@tid] /\
-            sat (fst pss2[@tid], phPs[@tid]) (pre_j tid j)) Hp) as [phFs Hp'].
+            sat (fst pss2[@tid]) phPs[@tid] (pre_j tid j)) Hp) as [phFs Hp'].
           eexists; eauto. }
         assert (forall tid : Fin.t ngroup, 
                   pdisj phPs[@tid] phFs[@tid] /\ phplus phPs[@tid] phFs[@tid] = (get_hs pss2)[@tid]) 
@@ -630,12 +630,12 @@ Section BarrierDivergenceFreedom.
                   disj_eq phQs hP /\ 
                   forall tid : Fin.t ngroup, 
                     pdisj phQs[@tid] phFs[@tid] /\ 
-                    sat (fst pss2[@tid], phQs[@tid]) (post_j tid j)) as hq.
+                    sat (fst pss2[@tid]) phQs[@tid] (post_j tid j)) as hq.
         { assert (disj_eq (get_hs psspre) (hP)) as disj1 by
           (cutrewrite (get_hs psspre = phPs); [eauto|
              (apply Vector.eq_nth_iff; intros i1 i2 ?; subst; unfold get_hs, psspre;
               erewrite Vector.nth_map; eauto; erewrite Vector.nth_map2; simpl; eauto)]).
-          assert (forall tid : Fin.t ngroup, sat psspre[@tid] (fst (bspec j))[@tid]).
+          assert (forall tid : Fin.t ngroup, sat (fst psspre[@tid]) (snd psspre[@tid]) (fst (bspec j))[@tid]).
           { intros tid; destruct (Hpre tid) as [? [? ?]].
             unfold psspre; erewrite Vector.nth_map2; eauto. } 
           assert (get_ss psspre = get_ss pss2).
@@ -855,5 +855,3 @@ Section BarrierDivergenceFreedom.
           as [? [? ?]]; congruence).
   Qed.
 End BarrierDivergenceFreedom.
-
-
