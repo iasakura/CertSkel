@@ -106,6 +106,7 @@ Fixpoint assn_denote (P : assn) s h : Prop :=
 Definition sat s h (P : assn) := assn_denote P s h.
 Notation "P |= Q" := (forall (s : stack) (h : pheap), sat s h P -> sat s h Q) (at level 87).
 Hint Unfold sat.
+Arguments sat s h P : simpl never.
 
 Definition equiv_sep (P Q : assn) := (forall s h, sat s h P <-> sat s h Q).
 Instance equiv_sep_equiv : Equivalence (equiv_sep).

@@ -225,6 +225,7 @@ Section Barrier.
     - assert (assns = []) by (apply (case0 (fun (v : t assn 0) => v = [])); eauto).
       simpl in heq; inversion heq.
       rewrite H; simpl; intros; simpl; unfold emp_h; eauto.
+      unfold sat; simpl; eauto.
     - destruct (vinvS assns) as [a [assns' ha]]; subst.
       destruct h; simpl in heq.
       inversion heq; subst; apply inj_pair2 in H2; subst; simpl.
