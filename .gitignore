@@ -10,6 +10,4 @@
 *.bak
 *.aux
 extracted
-repo
-tlc
 Makefile

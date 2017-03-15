@@ -1,6 +1,9 @@
 #!/usr/bin/zsh
 
-dirs=(GPUCSL TypedIR Compiler CertSkel Examples)
+dirs=(GPUCSL TypedIR Compiler CertSkel)
+
+pushd cpdtlib; make || exit 1; popd;
+pushd tlc; make || exit 1; popd;
 
 for d in $dirs;
 do
