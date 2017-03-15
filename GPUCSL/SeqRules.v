@@ -745,3 +745,75 @@ Proof.
   - unfold incl; intros; rewrite !in_app_iff in *; tauto.
   - intros; rewrite res_comm; eauto.
 Qed.
+
+Lemma safe_seq ntrd BS (tid : Fin.t ntrd) : forall (n : nat) (C C2 : cmd) (s : stack) (ph : pheap) (Q R : assn),
+  safe_nt BS tid n C s ph Q ->
+  (forall m s' ph', m <= n -> sat s' ph' Q -> safe_nt BS tid m C2 s' ph' R)%nat ->
+  safe_nt BS tid n (C ;; C2) s ph R.
+Proof.
+  induction n; intros C C2 s ph Q R hsafe H; simpl; eauto.
+  repeat split; [congruence| | | | | ].
+  - intros hf h hdis heq Haborts; inversion Haborts; subst; simpl in *.
+    destruct hsafe as [_ [Ha _]]. eapply Ha in A; eauto.
+  - destruct hsafe as [_ [_ [Hok _]]]; eauto.
+  - destruct hsafe as [_ [_ [_ [Hok _]]]]; eauto.
+  - intros hF h c' ss hdis heq hred; inversion hred; subst.
+    + repeat eexists; simpl; eauto; apply H; eauto; simpl in hsafe.
+      destruct hsafe as [hsafe _]; apply (hsafe eq_refl).
+    + simpl in hsafe. destruct hsafe as [_ [_ [_ [_ [hsafe _]]]]].
+      destruct (hsafe _ _ _ _ hdis heq R0) as [h' [ph' Hs]].
+      exists h' ph'; repeat split; try tauto.
+      apply (IHn c1' C2 _ _ Q R); eauto; tauto.
+  - destruct hsafe as [_ [_ [_ [_ [_ hsafe]]]]].
+    intros j c' Heqw; inversion Heqw; destruct (wait C) as [[j' C']|]; inversion H1; subst.
+    destruct (hsafe j C' eq_refl) as [phP [ph' Hs]].
+    exists phP ph'; repeat split; try tauto.
+    intros phQ H0 Hsat.
+    destruct Hs as [_ [_ [_ hsafen]]]. specialize (hsafen phQ H0 Hsat).
+    apply (IHn _ _ _ _ Q _); eauto.
+Qed.
+
+Lemma rule_seq ntrd BS (tid : Fin.t ntrd) (C1 C2 : cmd) (P Q R : assn) :
+  CSL BS tid P C1 Q -> CSL BS tid Q C2 R -> CSL BS tid P (C1 ;; C2) R.
+Proof.
+  unfold CSL. intuition; simpl.
+  applys* safe_seq; unfold safe_nt; eauto.
+Qed.
+
+Lemma safe_while ntrd BS (tid : Fin.t ntrd) :
+  forall P (B : bexp) C (OK: CSL BS tid (P ** (BEval_assn B true)) C P) s h (SAT_P: sat s h P) n,
+    safe_nt BS tid n (Cwhile B C) s h (P ** (BEval_assn B false)).
+Proof.
+  intros; revert s h SAT_P. 
+  assert (lenn : n <= n) by omega; revert lenn; generalize n at -2 as m.
+  induction n; simpl in *; eauto; intros; intuition. (* desf; [by inv H2|]*)
+  { destruct m; inversion lenn; simpl; eauto. }
+  (*   inv H2; repeat eexists; eauto; simpl. *)
+  (* destruct m; ins; intuition; desf; [by inv H5|]. *)
+  (* inv H5; repeat eexists; eauto; simpls.*)
+  inversion lenn; subst; [|apply IHn; eauto].
+  simpl; repeat split; eauto; try congruence.
+  intros ? ? ? ? Hc; inversion Hc.
+  intros hF h0 c' ss' hdis htoh hred.
+  inversion hred; subst.
+  exists h0 h; repeat split; eauto; simpl.
+  destruct n; simpl; repeat split; eauto; intros; try congruence.
+  intros Hc; inversion Hc.
+  inversion H1; subst; repeat eexists; eauto.
+  - eapply safe_seq; simpl; eauto; intros. 
+    apply OK. 
+    exists h (emp_ph loc); splits; eauto.
+    apply disj_emp1.
+    apply phplus_emp2.
+  - eapply safe_skip; repeat split; simpl in *; eauto.
+    exists h (emp_ph loc); splits; eauto.
+    apply disj_emp1.
+    apply phplus_emp2.
+Qed.
+
+Lemma rule_while ntrd BS (tid : Fin.t ntrd) P (B : bexp) C :
+  CSL BS tid (P ** (BEval_assn B true)) C P ->
+  CSL BS tid P (Cwhile B C) (P ** ((BEval_assn B false))).  
+Proof.
+  unfold CSL; intros; intuition; eapply safe_while; unfold CSL; eauto.
+Qed.
