@@ -89,7 +89,7 @@ Env : an assertion for variables/expression bindings
 
 Inductive assn := 
 | Assn (Res : res) (P : Prop) (Env : list entry) : assn
-| Ex_assn (T : Type) (P : T -> assn) : assn
+| Ex_assn {T : Type} (P : T -> assn) : assn
 | Star_assn (P Q : assn) : assn
 | BEval_assn (be : bexp) (b : bool) : assn (* used only for the while rule *)
 | Disj_assn (P Q : assn) : assn
@@ -98,9 +98,9 @@ Inductive assn :=
 Fixpoint assn_denote (P : assn) s h : Prop :=
   match P with
   | Assn R P Env => res_denote R h /\ P /\ env_assns_denote Env s
-  | Ex_assn T P => exists x, assn_denote (P x) s h
+  | Ex_assn P => exists x, assn_denote (P x) s h
   | Star_assn P Q => exists h1 h2, assn_denote P s h1 /\ assn_denote Q s h2 /\ pdisj h1 h2 /\ phplus h1 h2 = h
-  | BEval_assn be b => bdenot be s = b
+  | BEval_assn be b => bdenot be s = b /\ (forall l, this h l = None)
   | Disj_assn P Q => assn_denote P s h \/ assn_denote Q s h
   | Emp_assn => forall l, this h l = None
   end.
