@@ -820,6 +820,9 @@ Proof.
   unfold CSL; intros; intuition; eapply safe_while; unfold CSL; eauto.
 Qed.
 
+Notation nat_of_fin i := (proj1_sig (Fin.to_nat i)).
+Notation Z_of_fin i := (Z.of_nat (nat_of_fin i)).
+
 Section ParCSL.
   Require Vector.
   Import Vector.VectorNotations.
@@ -1195,8 +1198,6 @@ Section ParCSL.
 
 (*  Definition nat_of_fin (i : Fin.t ntrd) : nat := proj1_sig (Fin.to_nat i).*)
 (*  Definition Z_of_fin (i : Fin.t ntrd) : Z := Z.of_nat (nat_of_fin i).*)
-  Notation nat_of_fin i := (proj1_sig (Fin.to_nat i)).
-  Notation Z_of_fin i := (Z.of_nat (nat_of_fin i)).
 
   Definition CSLp (P : assn) (c : cmd) (Q : assn) :=
     forall (ks : klist ntrd) (h : pheap) (leqks : low_eq_l2 E (Vector.map (fun s => snd s) ks)),
