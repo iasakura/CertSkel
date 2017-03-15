@@ -604,7 +604,7 @@ Definition equivGI {GA : list Skel.Typ} {cod : Skel.Typ}
 Definition equivIC {GA : list Skel.Typ} {cod : Skel.Typ} (p_i : Skel.AS GA cod) (M : GModule) :=
   interp_f M nil "__main"
            {| fs_tag := Hfun;
-              fs_params := flatTup (outArr cod) ++ map fst (flatten_avars (gen_params GA));
+              fs_params := inp_len_name :: flatTup (outArr cod) ++ map fst (flatten_avars (gen_params (List.rev GA)));
               fs_tri := 
                 All aeenv apenv outp result vs,
                 FDbl (kernelInv

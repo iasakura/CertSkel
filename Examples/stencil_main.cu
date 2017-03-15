@@ -51,11 +51,12 @@ int main(int argc, char**argv) {
   int* ans = (int*)malloc(sizeof(int) * n);
   for (int i = 0; i < dy; i++) {
       for (int j = 0; j < dx; j++) {
-          ans[i * dx + j] = inp[i * dx + j] +
-              ((i == 0) ? 0 : inp[(i - 1) * dx + j]) +
-              ((i == dy - 1) ? 0 : inp[(i + 1) * dx + j]) +
-              ((j == 0) ? 0 : inp[i * dx + (j - 1)]) +
-              ((j == dx - 1) ? 0 : inp[i * dx + (j + 1)]);
+          ans[i * dx + j] = 
+              (inp[i * dx + j] +
+               ((i == 0) ? 0 : inp[(i - 1) * dx + j]) +
+               ((i == dy - 1) ? 0 : inp[(i + 1) * dx + j]) +
+               ((j == 0) ? 0 : inp[i * dx + (j - 1)]) +
+               ((j == dx - 1) ? 0 : inp[i * dx + (j + 1)])) / 5;
       }
   }
 

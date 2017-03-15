@@ -4,5 +4,5 @@
 -R ../Compiler/GPUVeLib Top
 -R ../Compiler/Skeletons Top
 -R ../Compiler Top
--R ../repo/src Cpdt
+-R ../cpdtlib Cpdt
 -R . Top

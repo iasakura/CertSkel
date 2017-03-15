@@ -1634,7 +1634,7 @@ Theorem compile_prog_ok GA typ ntrd nblk (p : Skel.AS GA typ) :
   -> skel_as_wf GA typ p 
   -> interp_f (compile_prog ntrd nblk p) nil "__main"
     {| fs_tag := Hfun;
-       fs_params := flatTup (outArr typ) ++ map fst (flatten_avars (gen_params GA));
+       fs_params := inp_len_name :: flatTup (outArr typ) ++ map fst (flatten_avars (gen_params (List.rev GA)));
        fs_tri := 
          All aeenv apenv outp result vs,
          FDbl (kernelInv (remove_typeinfo (gen_params GA)) apenv aeenv

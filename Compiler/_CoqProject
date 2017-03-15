@@ -1,5 +1,5 @@
 -R ../tlc/src TLC
--R ../repo/src Cpdt
+-R ../cpdtlib Cpdt
 -R ../CertSkel Top
 -R ../GPUCSL Top
 -R ../TypedIR Top
