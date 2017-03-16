@@ -1,15 +1,13 @@
-Require Export Lang CSL Grid PHeap.
-Require Export assertion_lemmas assertions VCG array_dist sep_tacs.
-Require Export Qcanon List MyList ZArith PeanoNat Arith.
+Require Export PHeap Lang CSLLemma FreeVariables SeqRules Bdiv Grid.
+Require Export Qcanon List ZArith PeanoNat Arith.
 Close Scope Qc_scope.
 
 Set Implicit Arguments.
 Unset Strict Implicit.
 
 Require Import MyVector.
-Notation FalseP := (fun (_ : stack) (h : pheap) => False).
 Definition default ntrd : (Vector.t assn ntrd * Vector.t assn ntrd) := 
-  (init (fun _ => FalseP), init (fun _ => FalseP)).
+  (init (fun _ => Emp_assn), init (fun _ => Emp_assn)).
 
 Ltac ex_intro x H :=
   let t := fresh in
@@ -39,7 +37,7 @@ Infix "<C" := (Bcomp OP_blt) (at level 55).
 Infix "==C" := (Bcomp OP_beq) (at level 55).
 Infix "/C" := (Ebinop OP_div) (at level 40, left associativity) : exp_scope.
 Infix "%C" := (Ebinop OP_mod) (at level 40, left associativity) : exp_scope.
-Infix "&&C" := (Bbool OP_and) (at level 57, left associativity) : exp_scope.
-Infix "||C" := (Bbool OP_or) (at level 58, left associativity) : exp_scope.
+Infix "&&C" := (Bbool OP_and) (at level 56, left associativity) : exp_scope.
+Infix "||C" := (Bbool OP_or) (at level 57, left associativity) : exp_scope.
 Notation minC x y := (Ebinop OP_min x y).
 Notation Zn := Z.of_nat.
