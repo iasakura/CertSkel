@@ -1,4 +1,4 @@
-Require Import LibTactics GPUCSL Grid Relations MyEnv CSLLemma Psatz.
+Require Import Qcanon String List Relations Omega Psatz LibTactics PHeap Lang CSLLemma Bdiv FreeVariables Grid.
 
 (* Add kernel name *)
 Record kernel := BuildKer { (* name : string; *) params_of : list (var * CTyp); body_of : program }.
@@ -188,7 +188,7 @@ Fixpoint safe_nh (n : nat) (s : stack) (gh : zpheap) (p : stmt) (Q : assn) :=
   match n with
   | 0 => True
   | S n =>
-    (p = host_skip -> Q s (as_gheap gh)) /\
+    (p = host_skip -> sat s (as_gheap gh) Q) /\
     (forall (hF : zpheap) (h' : simple_heap),
         pdisj gh hF 
         -> ptoheap (phplus gh hF) h'
@@ -212,7 +212,7 @@ Fixpoint safe_nhfun (n : nat) (s : stack) (gh : zpheap) (p : stmt) (ret : var) (
   match n with
   | 0 => True
   | S n =>
-    (p = host_skip -> Q (s ret) s (as_gheap gh)) /\
+    (p = host_skip -> sat s (as_gheap gh) (Q (s ret))) /\
     (forall (hF : zpheap) (h' : simple_heap),
         pdisj gh hF 
         -> ptoheap (phplus gh hF) h'
@@ -251,14 +251,14 @@ Definition CSLkfun_n_simp (P : assn) (f : kernel) (Q : assn) (n : nat) :=
     -> safe_ng ntrd nblk n tst shs h Q.
 
 Lemma CSLkfun_threads_vars ntrd nblk P p Q n :
-  (forall nt nb, P nt nb |= ("ntrd" === Zn nt) //\\ ("nblk" === Zn nb)) ->
+  (forall nt nb, P nt nb |= Assn TT True ("ntrd" |-> Zn nt :: "nblk" |-> Zn nb :: nil)) ->
   (forall ntrd nblk, CSLkfun_n_simp' ntrd nblk (P ntrd nblk) (p ntrd nblk) (Q ntrd nblk) n) ->
   CSLkfun_n_simp (P ntrd nblk) (p ntrd nblk) (Q ntrd nblk) n.
 Proof.
   unfold CSLkfun_n_simp', CSLkfun_n_simp; intros.
   inverts H3.
   forwards*: H.
-  unfold_conn_in H3; simpl in *; destruct H3.
+  unfold sat in H3; simpl in H3.
   assert (ntrd = ntrd0) by omega.
   assert (nblk = nblk0) by omega.
   substs.
@@ -441,7 +441,7 @@ Qed.
 Lemma subst_ent_bind_params y v xs vs s :
   subst_ent y v xs vs
   -> bind_params s xs vs 
-  -> (y === v) s (emp_ph loc).
+  -> (s y = v).
 Proof.
   revert vs; induction xs as [|x xs]; simpl; try tauto.
   intros [|v' vs]; try tauto.
@@ -452,10 +452,9 @@ Qed.
 Lemma subst_env_bind_params E xs vs s : 
   subst_env E xs vs
   -> bind_params s xs vs
-  -> env_assns_denote E s (emp_ph loc).
+  -> env_assns_denote E s.
 Proof.
-  revert xs vs s; induction E as [| [y v'] E]; introv; simpl.
-  - intros; apply emp_emp_ph.
+  revert xs vs s; induction E as [| [y v'] E]; introv; simpl; eauto.
   - intros; split.
     + applys* subst_ent_bind_params.
     + applys* IHE.
@@ -469,15 +468,15 @@ Proof.
 Qed.
 
 Lemma safe_nh_frame n s (h hF : zpheap) ss R RF P E (dis : pdisj h hF) : 
-  sat_res s (as_gheap hF) RF
+  sat_res (as_gheap hF) RF
   -> safe_nh n s h ss (Assn R P E)
   -> safe_nh n s (phplus_pheap dis) ss (Assn (R *** RF) P E).
 Proof.
   revert s ss h hF dis; induction n; introv; simpl; eauto.
   intros HsatF (Hskip & Hsafe & Hstep); splits; eauto.
   - intros; forwards* Hsk: Hskip.
-    unfold Assn in * ;sep_split; sep_split_in Hsk; jauto.
-    exists (as_gheap h) (as_gheap hF); splits; eauto; eauto.
+    unfold sat in *; simpl in *; splits; jauto.
+    exists (as_gheap h) (as_gheap hF); splits; jauto.
     + apply* as_gheap_pdisj.
     + apply (phplus_gheap_comm _ _ dis).
   - introv Hdis' Heq' Hab.
@@ -495,8 +494,6 @@ Proof.
     exists (phplus_pheap Hdis''F); splits; eauto using pdisj_padd_expand.
     + simpl; applys* pdisj_padd_expand.
     + simpl; rewrites* padd_assoc.
-    + applys* IHn.
-      unfold sat_res, sat in *; eauto using res_inde.
 Qed.
 
 Lemma as_gheap_pdisj (h1 h2 : zpheap) :
@@ -509,7 +506,7 @@ Qed.
 
 Lemma safe_nh_exec_ker nt nb n tst shp h s_ret R P E E' :
   safe_ng nt nb n tst shp h (Assn R P E)
-  -> env_assns_denote E' s_ret (emp_ph loc)
+  -> env_assns_denote E' s_ret
   -> safe_nh n s_ret h (host_exec_ker nt nb tst shp) (Assn R P E').
 Proof.
   revert tst shp h; induction n; simpl; introv; eauto.
@@ -525,7 +522,7 @@ Proof.
       destruct n; simpl; eauto; splits; eauto.
       * intros _.
         forwards* Hsat: Hskip.
-        unfold Assn in Hsat |- * ;sep_split; sep_split_in Hsat; eauto.
+        unfold sat in *; simpl in *; jauto.
       * introv ? ? Hab; inverts Hab.
       * introv ? ? Hst; inverts Hst.
 Qed.
@@ -537,8 +534,7 @@ Lemma safe_nh_conseq n s h body P P' :
 Proof.
   revert s h body; induction n; simpl; eauto; introv.
   intros ? (? & ? & ?); splits; jauto.
-  - intros; apply H; eauto.
-  - intros; forwards* (? & ? & ? & ?): H2.
+  intros; forwards* (? & ? & ? & ?): H2.
 Qed.
 
 Lemma safe_ng_conseq nt nb n tst shp h P P' :
@@ -548,8 +544,7 @@ Lemma safe_ng_conseq nt nb n tst shp h P P' :
 Proof.
   revert tst shp h; induction n; simpl; eauto; introv.
   intros ? (? & ? & ? & ?); splits; jauto.
-  - intros; apply H; eauto.
-  - intros; forwards* (? & ? & ? & ?): H3.
+  intros; forwards* (? & ? & ? & ?): H3.
 Qed.
 
 Lemma initGPU_ntrd nt nb body tst shp stk: 
@@ -571,11 +566,11 @@ Proof. apply Forall2_app. Qed.
 
 
 Lemma safe_nh_frame' n nt nb tst shp s (h hF : zpheap) Q R P E (dis : pdisj h hF) : 
-  sat_res s (as_gheap hF) R
+  sat_res (as_gheap hF) R
   -> (P : Prop)
   -> has_no_vars Q
   -> safe_ng nt nb n tst shp h Q
-  -> env_assns_denote E s (emp_ph loc) 
+  -> env_assns_denote E s
   -> safe_nh n s (phplus_pheap dis) (host_exec_ker nt nb tst shp) (Assn R P E ** Q).
 Proof.
   revert s h tst shp hF dis; induction n; introv; simpl; eauto.
@@ -612,10 +607,11 @@ Proof.
       * simpl; applys* pdisj_padd_expand.
       * simpl; rewrites* padd_assoc.
       * destruct n; simpl; eauto; splits.
-        -- intros _; exists (as_gheap hF) (as_gheap h); splits; jauto.
-           unfold Assn in *; sep_split; sep_split_in H1; eauto.
-           unfold has_no_vars, Bdiv.indeP in HQvar; simpl in HQvar.
-           rewrite HQvar; eauto.
+        -- intros _.
+           exists (as_gheap hF) (as_gheap h); splits; jauto; fold_sat.
+           unfold sat in H1; simpl in *.
+           simpl; splits; jauto.
+           rewrite* has_no_vars_ok.
            applys* as_gheap_pdisj.
            rewrites (>>phplus_gheap_comm); simpl.
            rewrite phplus_comm; eauto.
@@ -678,11 +674,11 @@ Proof.
   - introv Hdisj Htoh Habort.
     inverts Habort as Hent0 Henb0 Habort.
     destruct Habort as [? | [ [? ?] | [Hn0 | [Hm0 | Hcallab] ]]]; try congruence.
-    + unfold Assn, sat in Hsat; sep_split_in Hsat.
+    + unfold sat in Hsat; simpl in Hsat.
       forwards* Hent': (>>evalExp_ok Hent).
       hnf in Hent'; simpl in Hent'; substs.
       rewrite Hent', Nat2Z.inj_iff in Hent0; eauto.
-    + unfold Assn, sat in Hsat; sep_split_in Hsat.
+    + unfold sat in Hsat; simpl in Hsat. 
       forwards* Henb': (>>evalExp_ok Henb).
       hnf in Henb'; simpl in Henb'; substs.
       rewrite Henb', Nat2Z.inj_iff in Henb0; eauto.
@@ -692,37 +688,37 @@ Proof.
     unfold interp_FC_n, interp_f_n in HFC; rewrite Forall_forall in HFC.
     forwards* Hfn: (>>HFC Hinfn); rewrite Hdisp in Hfn.
     forwards* Hfn': (>>interp_fs_inst Hfn Hinst).
-    { unfold sat, Assn in Hsat; sep_split_in Hsat; eauto. }
+    { unfold sat in Hsat; simpl in *; jauto. }
     simpl in Hfn'.
     unfold CSLkfun_n_simp in Hfn'; simpl in Hfn'.
     inverts Hstep as Hent' Henb' Heval' Hdisp' Hinit Hbnd; simpl in *.
     rewrite Hdisp in Hdisp'; inverts Hdisp'; simpl in *.
-    unfold Assn, sat in Hsat.
-    sep_split_in Hsat.
-    forwards* (h1 & h2 & Hpre & HF & Hdis12 & Heq12): (>> Hr HP Hsat).
+    unfold sat in Hsat; simpl in Hsat.
+    forwards* (h1 & h2 & Hpre & HF & Hdis12 & Heq12): (>> Hr Hsat).
     forwards* (h1' & h2' & ? & ? & Heq12'): (>> phplus_gheap  Heq12); substs.
     assert (Heq : nb0 = nblk); [ | subst nb0 ].
-    { unfold Assn, sat in Hsat; sep_split_in Hsat.
+    { unfold sat in Hsat; simpl in Hsat.
       forwards* Henb'': (>>evalExp_ok Henb).
       hnf in Henb''; simpl in Henb''; substs.
       rewrite Henb'', Nat2Z.inj_iff in Henb'; eauto. }
     assert (Heq : nt0 = ntrd); [ | subst nt0 ].
-    { unfold Assn, sat in Hsat; sep_split_in Hsat.
+    { unfold sat in Hsat; simpl in Hsat.
       forwards* Hent'': (>>evalExp_ok Hent).
       hnf in Hent''; simpl in Hent''; substs.
       rewrite Hent'', Nat2Z.inj_iff in Hent'; substs; eauto. }
     forwards* Hsafe: (>>Hfn' h1' Hinit Hbnd).
     (* Proof that precond holds *)
-    { unfold sat, Assn; sep_split; eauto.
-      - applys* Hp.
-      - applys* (>>subst_env_bind_params (Hsubst HP)).
-        repeat split; eauto using initGPU_ntrd, initGPU_nblk.
-        simpl in Hsubst.
-        cutrewrite (vs = vs0); eauto.
-        revert Heval Heval' HP0; clear.
-        intros H; revert vs0; induction H; inversion 1; intros; substs; eauto.
-        forwards*: evalExp_ok.
-        f_equal; eauto. }
+    { unfold sat; simpl; splits; jauto.
+      forwards*Henv: Hsubst.
+      applys* (>>subst_env_bind_params Henv).
+      repeat split; eauto using initGPU_ntrd, initGPU_nblk.
+      simpl in Hsubst.
+      cutrewrite (vs = vs0); eauto.
+      destruct Hsat as (_ & _ & HP).
+      revert Heval Heval' HP; clear.
+      intros H; revert vs0; induction H; inversion 1; intros; substs; eauto.
+      forwards*: evalExp_ok.
+      f_equal; eauto. }
     (* h **                                     hF -> 
        h1' ** (h2' : framed w.r.t. fun exec. ) ** hF -> *)
     exists h; splits; eauto.
@@ -730,14 +726,13 @@ Proof.
     asserts_rewrite (h = phplus_pheap Hdis12).
     { destruct h; apply pheap_eq; eauto. }
     applys* safe_nh_frame'; eauto.
-    
 Qed.
 
 Lemma safe_nh_exec_hfun n s (h1 h2 : zpheap) (disj : pdisj h1 h2) body ret x s_ret R (P : Prop) E Q :
   safe_nhfun n s h1 body ret Q
   -> P
-  -> res_denote R s_ret (as_gheap h2)
-  -> env_assns_denote E s_ret (emp_ph loc)
+  -> sat_res (as_gheap h2) R 
+  -> env_assns_denote E s_ret
   -> (forall v, has_no_vars (Q v))
   -> safe_nh n s (@phplus_pheap val h1 h2 disj) (host_exec_hfun body ret x s_ret)
              (Ex v, Assn R P (x |-> v :: (remove_var E x)) ** Q v).
@@ -770,19 +765,18 @@ Proof.
       * intros _.
         forwards* Hsat: Hskip.
         exists (s ret).
-        unfold Assn in Hsat |- *; repeat (sep_rewrite_r sep_assoc); sep_split; sep_split_in Hsat; eauto.
-        -- simpl; split; eauto using remove_var_imp.
-           ++ unfold "==="; simpl.
-              unfold var_upd; destruct var_eq_dec; try congruence.
-           ++ apply remove_var_inde; simpl; eauto.
-              applys* remove_var_imp.
-        -- sep_rewrite_r sep_comm.
-           exists (as_gheap h1) (as_gheap h2); splits; eauto.
-           ++ unfold has_no_vars, Bdiv.indeP in Qinde; simpl in Qinde.
-              rewrite Qinde; eauto.
-           ++ applys* as_gheap_pdisj.
-           ++ applys* phplus_gheap_comm.
-      * introv ? ? Hab; inverts Hab.
+        exists (as_gheap h2) (as_gheap h1); splits; jauto; fold_sat.
+        -- splits; simpl; jauto.
+           splits; [unfold var_upd; destruct var_eq_dec; congruence|].
+           applys* (>>disjoint_inde_env (x :: nil)); simpl; eauto.
+           ++ apply remove_var_inde.
+           ++ applys* remove_var_imp.
+        -- rewrite has_no_vars_ok; eauto.
+        -- applys* as_gheap_pdisj.
+        -- rewrites* phplus_comm.
+           applys* phplus_gheap_comm.
+           applys* as_gheap_pdisj.
+      * introv ? ? Hst; inverts Hst.
       * introv ? ? Hst; inverts Hst.
 Qed.
 
@@ -823,32 +817,31 @@ Proof.
     unfold interp_FC_n, interp_f_n in HFC; rewrite Forall_forall in HFC.
     forwards* Hfn: (>>HFC Hinfn); rewrite Hdisp in Hfn.
     forwards* Hfn': (>>interp_fs_inst Hfn Hinst).
-    { unfold Assn, sat in Hsat; sep_split_in Hsat; eauto. }
+    { unfold sat in Hsat; simpl in  Hsat; jauto. }
     simpl in Hfn'.
     unfold CSLhfun_n_simp in Hfn'; simpl in Hfn'.
     inverts Hstep as Hdisp' Heval' Hbnd; simpl in *.
     rewrite Hdisp in Hdisp'; inverts Hdisp'; simpl in *.
-    unfold Assn, sat in Hsat.
-    sep_split_in Hsat.
-    forwards* (h1 & h2 & Hpre & HF & Hdis12 & Heq12): (>> Hr HP Hsat).
+    unfold sat in Hsat; simpl in Hsat.
+    forwards* (h1 & h2 & Hpre & HF & Hdis12 & Heq12): (>> Hr Hsat).
     forwards* (h1' & h2' & ? & ? & Heq12'): (>> phplus_gheap  Heq12); substs.
     forwards* Hsafe: (>>Hfn' h1' Hbnd).
     (* Proof that precond holds *)
-    { unfold sat, Assn; sep_split; eauto.
-      - applys* Hp.
-      - applys* subst_env_bind_params.
-        cutrewrite (vs = vs0); eauto.
-        revert Heval Heval' HP0; clear.
-        intros H; revert vs0; induction H; inversion 1; intros; substs; eauto.
-        forwards*: evalExp_ok.
-        f_equal; eauto. }
+    { unfold sat; splits; jauto.
+      applys* subst_env_bind_params.
+      cutrewrite (vs = vs0); eauto.
+      destruct Hsat as (_ & _ & HP).
+      revert Heval Heval' HP; clear.
+      intros H; revert vs0; induction H; inversion 1; intros; substs; eauto.
+      forwards*: evalExp_ok.
+      f_equal; eauto. }
     (* h **                                     hF -> 
        h1' ** (h2' : framed w.r.t. fun exec. ) ** hF -> *)
     exists h; splits; eauto.
     rewrite <-as_gheap_pdisj in Hdis12.
     asserts_rewrite (h = phplus_pheap Hdis12).
     { destruct h; apply pheap_eq; eauto. }
-    apply safe_nh_exec_hfun; eauto.
+    apply safe_nh_exec_hfun; jauto.
 Qed.    
 
 Lemma rule_host_skip G P : CSLh G P host_skip P.
@@ -880,21 +873,20 @@ Proof.
     inverts Hstep.
     exists h; splits; eauto.
     apply safe_nh_skip.
-    unfold Assn, sat in Hsat |- *; sep_split_in Hsat; sep_split; eauto.
-    simpl; split; eauto using remove_var_imp.
-    + unfold "==="; simpl.
-      unfold var_upd; destruct var_eq_dec; try congruence.
+    unfold sat in Hsat |- *; simpl in Hsat.
+    simpl; splits; jauto.
+    + unfold var_upd; destruct var_eq_dec; try congruence.
       forwards*: evalExp_ok.
-    + apply remove_var_inde; simpl; eauto.
+    + applys* (>>disjoint_inde_env (x :: nil)); simpl; eauto.
+      apply remove_var_inde; simpl; eauto.
       applys* remove_var_imp.
 Qed.
-
+Notation heap := PHeap.heap.
 Lemma hdisjC loc (h1 h2 : heap loc) : hdisj h1 h2 -> hdisj h2 h1.
 Proof. unfold hdisj; intros H x; specialize (H x); tauto. Qed.
 
 Lemma hplusC loc (h1 h2 : heap loc) :
-  hdisj h1 h2 
-        -> hplus h1 h2 = hplus h2 h1.
+  hdisj h1 h2 -> hplus h1 h2 = hplus h2 h1.
 Proof.
   intros Hdis.
   extensionality l; specialize (Hdis l); unfold hplus; destruct (h1 l), (h2 l); eauto.
@@ -911,16 +903,16 @@ Proof.
   forwards*: IHvs; lia.
 Qed.
 
-Lemma alloc_heap_ok start vs s  :
-  sat_res s (as_gheap (htop (alloc_heap start vs))) (array (GLoc (Zn start)) vs 1).
+Lemma alloc_heap_ok start vs  :
+  sat_res (as_gheap (htop (alloc_heap start vs))) (array (GLoc (Zn start)) vs 1%Qc).
 Proof.
   revert start; induction vs; introv; simpl.
-  - unfold sat_res, sat; simpl; unfold_conn; simpl; unfold as_gheap', htop'.
-    destruct x as [[|] ?]; eauto.
+  - unfold sat_res; simpl; simpl; unfold as_gheap', htop'.
+    destruct l as [[|] ?]; eauto.
   - exists (as_gheap (htop (fun l => if Z.eq_dec l (Zn start) then Some a else None)))
            (as_gheap (htop (alloc_heap (S start) vs))); splits; eauto.
-    + simpl; unfold_conn; simpl.
-      unfold as_gheap', htop'; destruct x as [[|] ?]; eauto.
+    + simpl.
+      unfold as_gheap', htop'; destruct l  as [[|] ?]; eauto.
       destruct Z.eq_dec, eq_dec; eauto; try congruence.
     + cutrewrite ((Zn start + 1)%Z = Zn (S start)); [| lia].
       apply IHvs.
@@ -957,8 +949,8 @@ Proof.
   - introv Hdis Heq Hc; inverts Hc.
   - introv Hdis Heq Hstep.
     inverts Hstep as Heval' Hdis'; simpl in *.
-    unfold Assn, sat in Hsat; sep_split_in Hsat.
-    forwards* Heval'': evalExp_ok; unfold_conn_in Heval''; simpl in Heval''.
+    unfold sat in Hsat; simpl in Hsat.
+    forwards* Heval'': evalExp_ok; simpl in Heval''.
     assert (size = length vs); [|subst size].
     { rewrite Heval'' in Heval'; rewrite Nat2Z.inj_iff in Heval'; eauto. }
     pose (htop (alloc_heap start vs)) as h_alc.
@@ -980,22 +972,21 @@ Proof.
       apply ptoheap_htop.
     + apply safe_nh_skip.
       exists (Zn start) vs.
-      unfold Assn, sat in Hsat |- *; sep_split_in Hsat; sep_split; eauto.
-      * unfold_conn; split; eauto.
-      * simpl; split; eauto using remove_var_imp.
-        -- unfold "==="; simpl.
-           unfold var_upd; destruct var_eq_dec; try congruence.
-        -- apply remove_var_inde; simpl; eauto.
-           applys* remove_var_imp.
-      * simpl; rewrite <-phplus_gheap_comm'.
-        exists (as_gheap h_alc) (as_gheap h); splits; eauto.
-        -- apply alloc_heap_ok.
-        -- apply as_gheap_pdisj; eauto.
+      unfold sat in Hsat |- *; simpl in Hsat.
+      simpl; splits; jauto.
+      -- exists (as_gheap h_alc) (as_gheap h); splits; jauto.
+         ++ apply alloc_heap_ok.
+         ++ apply as_gheap_pdisj; eauto.
+         ++ rewrites* (phplus_gheap_comm _ _ Hdis'').
+      -- unfold var_upd; destruct var_eq_dec; try congruence.
+      -- applys* (>>disjoint_inde_env (x :: nil)); simpl; eauto.
+         apply remove_var_inde; simpl; eauto.
+         applys* remove_var_imp.
 Qed.
 
 Lemma safe_seq : forall (n : nat) (C C2 : stmt) (s : stack) (h : zpheap) (Q R : assn),
   safe_nh n s h C Q ->
-  (forall m s' h', m <= n -> Q s' (as_gheap h') -> safe_nh m s' h' C2 R)%nat ->
+  (forall m s' h', m <= n -> sat s' (as_gheap h') Q -> safe_nh m s' h' C2 R)%nat ->
   safe_nh n s h (host_seq C C2) R.
 Proof.
   induction n; introv Hsafe H; simpl; eauto; unfold safe_nt in *.

@@ -1,6 +1,7 @@
 Require Import Psatz Classical SetoidClass Qcanon.
 Require Import LibTactics.
 Require Import PHeap Lang.
+Require Import String.
 Require Import List.
 
 Notation val := Z.

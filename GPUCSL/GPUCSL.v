@@ -1,6 +1,6 @@
-Require Export PHeap Lang CSLLemma FreeVariables SeqRules Bdiv Grid.
+Require Export PHeap Lang CSLLemma FreeVariables SeqRules Bdiv Grid Host.
 Require Export Qcanon List ZArith PeanoNat Arith.
-Close Scope Qc_scope.
+Global Close Scope Qc_scope.
 
 Set Implicit Arguments.
 Unset Strict Implicit.
