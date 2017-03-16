@@ -1,4 +1,4 @@
-Require Import DepList Omega List Monad SkelLib.
+Require Import Cpdt.DepList Omega List Monad SkelLib.
 
 Module Skel.
   Inductive Typ := TBool | TZ | TTup (typ1 typ2 : Typ).
