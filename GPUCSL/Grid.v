@@ -155,8 +155,6 @@ Section For_List_Notation.
   Notation nf i := (nat_of_fin i).
   Notation zf i := (Z.of_nat (nf i)).
 
-  Definition has_no_vars (P : assn) : Prop := fv_assn P nil.
-
   Definition sh_inv sh_decl locs : assn :=
     Ex shv', Assn Emp (sh_ok sh_decl locs shv') nil ** sh_spec sh_decl locs shv'.
 
@@ -480,25 +478,6 @@ Section For_List_Notation.
         
         unfold has_no_vars, indeP in Hnov; simpl in Hnov.
         unfold has_no_vars in Hnov.
-        Lemma has_no_vars_ok P h :
-          has_no_vars P -> forall s s', sat s h P <-> sat s' h P.
-        Proof.
-          cut (forall s s', has_no_vars P -> sat s h P -> sat s' h P); [intros; splits; eauto|].
-          unfold has_no_vars; introv.
-          Require Import Program.
-          intros Hfv; revert h; dependent induction Hfv; introv.
-          - assert (E = nil).
-            { unfold incl in *; simpl in *; destruct E as [|[x ?] ?]; eauto; specialize (H x); simpl in *; tauto. }
-            substs; unfold sat; simpl; tauto.
-          - unfold sat; simpl.
-            intros [x Hsat]; exists x; apply H0; eauto.
-          - simpl in *.
-            assert (ys = nil) by (destruct ys as [|y ys]; eauto; specialize (H y); simpl in *; tauto).
-            assert (zs = nil) by (destruct zs as [|z zs]; eauto; specialize (H z); simpl in *; tauto).
-            substs.
-            unfold sat; simpl; intros (h1 & h2 & ? & ? & ? & ?); exists h1 h2; splits; unfold sat in *; jauto.
-        Qed.            
-
         rewrites (>>has_no_vars_ok Hnov default_stack) in H; auto.
         exact H.
         apply precise_sh_spec.

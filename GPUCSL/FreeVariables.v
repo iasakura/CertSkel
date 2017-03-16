@@ -91,3 +91,24 @@ Proof.
       assert (In x0 xs) by (specialize (H1 x0); tauto).
       forwards*: (>>disjoint_not_in_r H2).
 Qed.
+
+Definition has_no_vars (P : assn) : Prop := fv_assn P nil.
+
+Lemma has_no_vars_ok P h :
+  has_no_vars P -> forall s s', sat s h P <-> sat s' h P.
+Proof.
+  cut (forall s s', has_no_vars P -> sat s h P -> sat s' h P); [intros; splits; eauto|].
+  unfold has_no_vars; introv.
+  Require Import Program.
+  intros Hfv; revert h; dependent induction Hfv; introv.
+  - assert (E = nil).
+    { unfold incl in *; simpl in *; destruct E as [|[x ?] ?]; eauto; specialize (H x); simpl in *; tauto. }
+    substs; unfold sat; simpl; tauto.
+  - unfold sat; simpl.
+    intros [x Hsat]; exists x; apply H0; eauto.
+  - simpl in *.
+    assert (ys = nil) by (destruct ys as [|y ys]; eauto; specialize (H y); simpl in *; tauto).
+    assert (zs = nil) by (destruct zs as [|z zs]; eauto; specialize (H z); simpl in *; tauto).
+    substs.
+    unfold sat; simpl; intros (h1 & h2 & ? & ? & ? & ?); exists h1 h2; splits; unfold sat in *; jauto.
+Qed.            
