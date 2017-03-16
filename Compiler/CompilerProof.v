@@ -1,4 +1,4 @@
-Require Import Nat LibTactics assertion_lemmas GPUCSL TypedTerm Monad Grid.
+Require Import Nat LibTactics GPUCSL TypedTerm Monad Grid.
 Require Import Grid Host DepList CUDALib CSLLemma CSLTactics CodeGen Compiler Skel_lemma mkMap mkReduce 
         Correctness CodeGenM SeqCompilerProof Program Psatz.
 

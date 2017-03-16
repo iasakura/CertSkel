@@ -731,6 +731,35 @@ Proof.
     apply phplus_emp2.
 Qed.
 
+Lemma sep_emp_l_unit (P : assn) : (Emp_assn ** P) == P.
+Proof.
+  intros s h; split; unfold sat_res; simpl.
+  - intros (ph1 & ph2 & Hsat1 & Hsat2 & Hdis & Heq).
+    assert (h = ph2).
+    { destruct h, ph2; apply pheap_eq; simpl in *; rewrite <-Heq.
+      unfold phplus; extensionality x.
+      rewrite Hsat1; auto. }
+    rewrite H; auto.
+  - intros H.
+    exists (emp_ph loc) h; repeat split; simpl; auto.
+Qed.
+
+Lemma sep_emp_r_unit (P : assn) : (P ** Emp_assn) == P.
+Proof.
+  intros s h; split; unfold sat_res; simpl.
+  - intros (ph1 & ph2 & Hsat1 & Hsat2 & Hdis & Heq).
+    assert (h = ph1).
+    { destruct h, ph1; apply pheap_eq; simpl in *; rewrite <-Heq.
+      unfold phplus; extensionality x.
+      rewrite Hsat2; auto.
+      destruct (this0 x) as [[? ?]|]; eauto. }
+    rewrite H; auto.
+  - intros H.
+    exists h (emp_ph loc); repeat split; simpl; auto using phplus_emp2.
+    apply disj_emp1.
+    apply phplus_emp2.
+Qed.
+
 Lemma array_unfold i (arr : list val) ptr p:
   i < length arr -> 
   (array ptr arr p) ==
@@ -808,39 +837,45 @@ Fixpoint array' (ptr : loc) (arr : list (option val)) p :=
     end *** array' (loc_off ptr 1) arr p
   end.
 
-Definition conj_xs : list res -> res := fold_right Star Emp.
+Definition conj_xs : list assn -> assn := fold_right Star_assn Emp_assn.
 Fixpoint ls_init {T : Type} s (n : nat) (f : nat -> T) := 
   match n with
     | O => nil
     | S n => f s :: ls_init (S s) n f
   end%list.
 
-Lemma init_emp_emp (n : nat) : forall b,
-  conj_xs (ls_init b n (fun _ => Emp)) == Emp.
+Lemma init_length {T : Type} (n : nat) (fc : nat -> T) :
+  forall b,length (ls_init b n fc) = n.
 Proof.
-  induction n; simpl; intros ? h; [reflexivity|].
-  rewrite res_emp_l_unit, IHn; reflexivity.
+  induction n; simpl; auto.
 Qed.
 
-Lemma ls_star {n : nat} (P Q : nat -> res) : 
+Lemma init_emp_emp (n : nat) : forall b,
+  conj_xs (ls_init b n (fun _ => Emp_assn)) == Emp_assn.
+Proof.
+  induction n; simpl; intros ? ? h; [reflexivity|].
+  rewrite sep_emp_l_unit, IHn; reflexivity.
+Qed.
+
+Lemma ls_star {n : nat} (P Q : nat -> assn) : 
   forall b,
-    (conj_xs (ls_init b n (fun i => P i *** Q i))) == 
-    (conj_xs (ls_init b n (fun i => P i)) ***
+    (conj_xs (ls_init b n (fun i => P i ** Q i))) == 
+    (conj_xs (ls_init b n (fun i => P i)) **
      conj_xs (ls_init b n (fun i => Q i))).
 Proof.
   induction n; [simpl; intros |].
-  - rewrite res_emp_l_unit; reflexivity.
-  - intros s; simpl; rewrite <-!res_assoc, IHn.
-    apply res_star_proper; [reflexivity|].
-    rewrite res_CA; reflexivity.
+  - rewrite sep_emp_l_unit; reflexivity.
+  - intros s; simpl; rewrite <-!sep_assoc, IHn.
+    apply star_proper; [reflexivity|].
+    rewrite sep_CA; reflexivity.
 Qed.
 
-Lemma conj_xs_app (l1 l2 : list res) :
-  conj_xs (l1 ++ l2) == (conj_xs l1 *** conj_xs l2).
+Lemma conj_xs_app (l1 l2 : list assn) :
+  conj_xs (l1 ++ l2) == (conj_xs l1 ** conj_xs l2).
 Proof.
   induction l1; simpl.
-  - rewrite res_emp_l_unit; reflexivity.
-  - rewrite IHl1, <-res_assoc; reflexivity.
+  - rewrite sep_emp_l_unit; reflexivity.
+  - rewrite IHl1, <-sep_assoc; reflexivity.
 Qed.
 
 Fixpoint nseq {T : Type} (n : nat) (d : T) : list T :=
@@ -850,11 +885,11 @@ Fixpoint nseq {T : Type} (n : nat) (d : T) : list T :=
   end.
 
 Lemma nseq_emp_emp (n : nat) :
-  conj_xs (nseq n Emp) == Emp.
+  conj_xs (nseq n Emp_assn) == Emp_assn.
 Proof.
   induction n; simpl.
   - reflexivity.
-  - intros; rewrite res_emp_l_unit; auto.
+  - intros; rewrite sep_emp_l_unit; auto.
 Qed.
 
 (* Lemma array'_ok n ptr dist arr s p : *)
@@ -1757,4 +1792,23 @@ Proof.
   apply Qlt_shift_div_l; lra.
   apply Qle_shift_div_r; try lra.
   lets Heq: Qmult_div_r; unfold Qdiv in Heq; rewrite Heq; lra.
+Qed.
+
+Lemma ex_sat T s h (P : T -> assn) :
+  sat s h (Ex x, P x) <-> exists x, sat s h (P x).
+Proof.
+  unfold sat; simpl; reflexivity.
+Qed.
+
+Lemma sat_pure_l s h P E Q :
+  sat s h (Assn Emp P E ** Q) <-> sat s h Q /\ env_assns_denote E s /\ P.
+Proof.
+  unfold sat; simpl; split.
+  - intros (h1 & h2 & ? & ? & ? & ?); simpl in *; splits; jauto.
+    cutrewrite (h = h2); substs; eauto.
+    assert (h1 = emp_ph loc) by (forwards*: emp_is_emp); substs.
+    rewrite phplus_emp1 in H2; substs.
+    destruct h, h2; apply pheap_eq; simpl in *; eauto.
+  - intros (? & ? & ?); exists (emp_ph loc) h; splits; jauto.
+    apply disj_emp2.
 Qed.

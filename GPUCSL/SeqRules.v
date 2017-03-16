@@ -813,11 +813,21 @@ Proof.
     apply phplus_emp2.
 Qed.
 
+Definition WhileI (I : assn) (b : bexp) (c : cmd) := (Cwhile b c).
+
 Lemma rule_while ntrd BS (tid : Fin.t ntrd) P (B : bexp) C :
   CSL BS tid (P ** (BEval_assn B true)) C P ->
   CSL BS tid P (Cwhile B C) (P ** ((BEval_assn B false))).  
 Proof.
   unfold CSL; intros; intuition; eapply safe_while; unfold CSL; eauto.
+Qed.
+
+Lemma rule_ex {T : Type} (P : T -> assn) Q ntrd bspec (tid : Fin.t ntrd) C:
+  (forall x, CSL bspec tid (P x) C Q) ->
+  CSL bspec tid (Ex x, P x) C Q.
+Proof.
+  intros H; simpl; intros s h [x Hsat] n; specialize (H x s h Hsat n); simpl in *.
+  apply H.
 Qed.
 
 Notation nat_of_fin i := (proj1_sig (Fin.to_nat i)).

@@ -352,23 +352,6 @@ Section For_List_Notation.
           revert locs; unfold sh_inv'; induction sh_dc as [|[v n] sh_dc]; simpl; auto; introv.
           - eapply precise_sat.
             intros s h Hsat.
-            Lemma ex_sat T s h (P : T -> assn) :
-              sat s h (Ex x, P x) <-> exists x, sat s h (P x).
-            Proof.
-              unfold sat; simpl; reflexivity.
-            Qed.
-            Lemma sat_pure_l s h P E Q :
-              sat s h (Assn Emp P E ** Q) <-> sat s h Q /\ env_assns_denote E s /\ P.
-            Proof.
-              unfold sat; simpl; split.
-              - intros (h1 & h2 & ? & ? & ? & ?); simpl in *; splits; jauto.
-                cutrewrite (h = h2); substs; eauto.
-                assert (h1 = emp_ph loc) by (forwards*: emp_is_emp); substs.
-                rewrite phplus_emp1 in H2; substs.
-                destruct h, h2; apply pheap_eq; simpl in *; eauto.
-              - intros (? & ? & ?); exists (emp_ph loc) h; splits; jauto.
-                apply disj_emp2.
-            Qed.
             rewrite ex_sat in Hsat; destruct Hsat as (shv' & Hsat).
             rewrite sat_pure_l in Hsat; destruct Hsat as (Hsat & ?); eauto.
             Lemma precise_emp_assn : precise Emp_assn.
@@ -446,7 +429,7 @@ Section For_List_Notation.
                   inversion H1; reflexivity.
                 Qed.          
                 
-                Lemma precise_array q P E len : forall l s, precise (Ex f, Assn (array l (ls_init s len f) q) P E).
+                Lemma precise_array q P E len : forall l s, precise (Ex f : nat -> val, Assn (array l (ls_init s len f) q) P E).
                 Proof.
                   induction len; simpl; intros.
                   - apply precise_ex; unfold sat; simpl; intros.
@@ -1104,7 +1087,7 @@ Section For_List_Notation.
         Lemma is_arr_dom_eq P E p stk n f : forall (h1 h2 : pheap) s e,
           dom_eqp h1 h2 ->
           sat stk h1 (Assn (array e (ls_init s n f) p) P E) ->
-          sat stk h2 (Ex f, Assn (array e (ls_init s n f) p) P E).
+          sat stk h2 (Ex f : nat -> val, Assn (array e (ls_init s n f) p) P E).
         Proof.
           unfold dom_eq.
           induction n; simpl; intros.
