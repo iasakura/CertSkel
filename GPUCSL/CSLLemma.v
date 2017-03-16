@@ -748,23 +748,19 @@ Proof.
     rewrite <-!res_assoc, IHi; try omega; reflexivity.
 Qed.
 
-(* Ltac fold_sat := *)
-(*   match goal with *)
-(*   | [|- ?P ?s ?h] => *)
-(*     lazymatch type of s with *)
-(*     | stack => cutrewrite (P s h = sat s h P); [|reflexivity] *)
-(*     end *)
-(*   | _ => idtac *)
-(*   end. *)
+Ltac fold_sat :=
+  match goal with
+  | [|- assn_denote ?P ?s ?h] =>
+    cutrewrite (assn_denote P s h = sat s h P); [|reflexivity]
+  | _ => idtac
+  end.
 
-(* Ltac fold_sat_in H := *)
-(*   lazymatch type of H with *)
-(*   | ?P ?s ?h =>  *)
-(*     lazymatch type of s with *)
-(*     | stack => cutrewrite (P s h = sat s h P) in H; [|reflexivity] *)
-(*     end *)
-(*   | _ => idtac *)
-(*   end. *)
+Ltac fold_sat_in H :=
+  lazymatch type of H with
+  | assn_denote ?P ?s ?h =>
+    cutrewrite (assn_denote P s h = sat s h P) in H; [|reflexivity]
+  | _ => idtac
+  end.
 
 (* Lemma rule_read_array ntrd BS *)
 (*       (tid : Fin.t ntrd) (le : loc_exp) (l : loc) (x : var) *)
