@@ -2731,16 +2731,24 @@ Proof.
 Qed.
 
 Lemma sh_spec_assn_ok sdecs locs :
-  (Ex vals, (sh_ok sdecs locs vals) //\\ sh_spec_assn sdecs locs vals) == sh_inv sdecs locs.
+  (Ex vals, (sh_ok sdecs locs vals) ** sh_spec_assn sdecs locs vals) == sh_inv sdecs locs.
 Proof.
-  unfold sh_spec_assn, sh_inv, sh_ok, Grid.sh_ok; revert locs; induction sdecs as [|[? ? ?] ?];
-  intros [|l locs]; split; intros [[|vs vals] [Hlen Hsat]]; unfold Apure in Hlen; simpl in *;
-  try omega; unfold Assn in *; simpl in *; sep_split_in Hsat.
-  - exists (@nil sh_val); split; eauto.
-  - exists (@nil (list val)); split; sep_split; eauto using emp_emp_ph.
-    unfold Apure; eauto.
-  - destruct Hsat as (h1 & h2 & ? & ? & ?); eauto.
-    forwards* [IH1 IH2]: (IHsdecs locs).
+  unfold sh_spec_assn, sh_inv, sh_ok, Grid.sh_ok; revert locs; induction sdecs as [|[? ? ?] ?].
+  - introv; simpl; unfold equiv_sep; introv.
+    rewrite !ex_sat; split; intros [[|vs vals] Hsat];
+    rewrite sat_pure_l in Hsat; unfold sat in Hsat; simpl in *; try omega;
+    try exists (@nil (list val)); try exists (@nil sh_val); rewrite sat_pure_l; splits; jauto.
+    unfold sat; simpl; splits; jauto.
+  - introv; simpl; unfold equiv_sep; introv.
+    rewrite !ex_sat; split; intros [[|vs vals] Hsat];
+    destruct locs as [|l locs];
+    rewrite sat_pure_l in Hsat; try now (unfold sat in Hsat; simpl in *; try omega);
+    try exists (@nil (list val)); try exists (@nil sh_val); rewrite sat_pure_l; splits; jauto.
+                                             simpl in *.
+    destruct Hsat as (Hsat & ? & ? & ?).
+    apply Assn_split in Hsat.
+    destruct Hsat as (h1 & h2 & Hsat1 & Hsat2 & ?); eauto; fold_sat_in Hsat1; fold_sat_in Hsat2.
+    forwards* [IH1 _]: (IHsdecs locs s h1).
     forwards* [sh_vals' [Hlen' IH1']]: IH1.
     { exists vals; unfold Apure; split; [omega|].
       unfold Apure in *; sep_split; try tauto; destruct HP0; eauto. }
