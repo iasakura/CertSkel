@@ -638,7 +638,7 @@ Ltac prove_imp :=
     destruct H as [H|H]; fold_sat_in H
   end;
   try match type of H with
-      | sat _ _ (Ex _, _ ** _) =>
+      | sat _ _ ((Ex _, _) ** _) =>
         lift_ex_in H; rewrites cond_prop_in in H; [|evalBExp]
       end;
   repeat

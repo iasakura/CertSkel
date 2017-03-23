@@ -1,4 +1,4 @@
-Require Import PeanoNat Omega Psatz CSLLemma CSLTactics LibTactics. 
+Require Import PeanoNat Omega Psatz CSLLemma CSLTactics LibTactics List. 
 
 Lemma id_lt_nt_gr i j n m : (i < n -> j < m -> i + j * n < m * n)%nat.
 Proof.
@@ -25,3 +25,13 @@ Hint Resolve id_lt_nt_gr nf_lt Nat.neq_mul_0.
 
 Notation fin_star n f :=
   (istar (ls_init 0 n f)).
+
+
+Lemma nth_map :
+  forall (T1 : Type) (x1 : T1) (T2 : Type) (x2 : T2) 
+         (f : T1 -> T2) (n : nat) (s : list T1),
+    n < length s -> nth n (map f s) x2 = f (nth n s x1).
+Proof.
+  induction n; intros [|y s]; simpl; eauto; try omega.
+  intros. firstorder; omega.
+Qed.

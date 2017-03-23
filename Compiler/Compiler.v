@@ -1,13 +1,11 @@
 Require Import String.
 Require Import Vector.
 Require Import DepList.
-Require Import MyList.
 Require Import ZArith.
 Require Import GPUCSL.
 Require Import LibTactics.
 Require Import Psatz.
 Require Import Monad.
-Require Import MyEnv.
 Require Import TypedTerm.
 Require Import CUDALib.
 Require Import Correctness.

@@ -1,9 +1,10 @@
 Require Import LibTactics Psatz.
-Require Import GPUCSL SkelLib scan_lib CSLTactics.
+Require Import GPUCSL SkelLib CSLTactics.
 Require Import CUDALib TypedTerm.
 Require Import Host.
-Require Import Skel_lemma CodeGen CUDALib Correctness Grid CSLTactics CSLLemma.
-
+Require Import CodeGen CUDALib Correctness Grid CSLTactics CSLLemma Utils.
+Require Import String.
+Import List.
 Section mkMap.
 
 Variable ntrd nblk : nat.
@@ -75,10 +76,10 @@ Definition mkMap_cmd inv :=
     fst (f_c t) ;;
     writes (v2gl out +os "i") (v2e (snd (f_c t))) ;;
     "i" ::= "ntrd" *C "nblk" +C "i"
-  )%exp.
+  ).
 
 Definition mkMap_prog :=
-  Pr nil (mkMap_cmd FalseP).
+  Pr nil (mkMap_cmd Emp_assn).
 
 Definition mkMap : kernel :=
   let arr_vars := gen_params GA in
@@ -107,7 +108,7 @@ Proof.
   pose proof ntrd_neq_0; pose proof nblk_neq_0.
   assert (nf tid < ntrd) by eauto.
   assert (nf bid < nblk) by eauto.
-  forwards*: (id_lt_nt_gr H1 H2).
+  forwards*: (>>id_lt_nt_gr H1 H2).
   lia.
 Qed.
 
@@ -159,7 +160,7 @@ Proof.
     assert (ntrd * nblk <> 0) by eauto with pure_lemma.
     assert (j * (ntrd * nblk) + (nf tid + nf bid * ntrd) < i < S j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
             i mod (ntrd * nblk) <> nf tid + nf bid * ntrd).
-    { intros; apply (mod_between j); eauto with pure_lemma. }
+    { intros; applys (>>mod_between j); eauto with pure_lemma. }
     
     (* Time t. *) admit. }
 Qed.
@@ -233,7 +234,7 @@ Proof.
     unfold arr2CUDA; rewrite map_length; eauto. }
   assert (Hlen' : length outs = length result').
   { unfold arr2CUDA; rewrite map_length; eauto. }
-  forwards*: (nf_lt tid).
+  forwards*: (>>nf_lt tid).
   forwards*: (tid_bid).
   eapply rule_seq.
   hoare_forward_prim'; simplify_remove_var.
@@ -260,9 +261,6 @@ End thread_ok.
 
 Section block_ok.
 Variable bid : Fin.t nblk.
-
-Notation fin_star n f :=
-  (istar (ls_init 0 n f)).
 
 Definition ith_pre (tid : Fin.t ntrd) :=
   (kernelInv
@@ -309,8 +307,8 @@ Definition BS (n : nat) := default ntrd.
 
 Lemma mkMap_cmd_ok_b :
   CSLp ntrd E
-       (jth_pre ** !("bid" === Zn (nf bid)))
-       (mkMap_cmd TrueP)
+       (jth_pre ** Assn Emp True ("bid" |-> Zn (nf bid) :: nil))
+       (mkMap_cmd Emp_assn)
        jth_post.
 Proof.
   unfold jth_pre, jth_post.
@@ -329,7 +327,6 @@ Proof.
   - intros; rewrite !MyVector.init_spec.
     eapply rule_conseq; eauto using mkMap_cmd_ok.
     unfold kernelInv; introv; rewrite assn_var_in; revert s h; prove_imp.    
-    
 Qed.
 
 End block_ok.    
@@ -386,7 +383,7 @@ Proof.
       rewrite <-!res_assoc, Heq in *.
       repeat sep_cancel'.
     + intros s h Hsat.
-      exists (@nil (list val)); split; simpl; unfold Apure; eauto.
+      exists (@nil (list val)); fold_sat; rewrite sat_pure_l; splits; simpl; eauto.
       fold_sat; unfold sh_spec_assn'.
       revert s h Hsat; prove_imp; simpl in *; try tauto.
       rewrite <-!res_assoc, Heq in *; simpl in *.
@@ -427,8 +424,9 @@ Proof.
   intros Havok n Hctx; unfold interp_kfun_n_simp; simpl.
   intros ntrd nblk aptr_env aeval_env arr f result eval_map_ok outp outs.
   eapply (CSLkfun_threads_vars ntrd nblk (fun n m => _) (fun n m => _) (fun n m => _)).
-  unfold kernelInv, Assn; simpl; unfold sat.
-  { introv H; sep_split_in H; unfold_conn_all; simpl in *; jauto. }
+  { unfold kernelInv; simpl.
+    intros ? ?; prove_imp; try tauto.
+    cbv; eauto. }
   introv.
   
   intros ? ?.

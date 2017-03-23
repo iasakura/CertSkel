@@ -1,11 +1,9 @@
 Require Import PeanoNat Nat LibTactics Psatz.
-Require Import GPUCSL SkelLib scan_lib CSLTactics.
+Require Import GPUCSL SkelLib CSLTactics.
 Require Import CUDALib TypedTerm.
 Require Import Host.
-Require Import Skel_lemma CodeGen CUDALib Correctness Grid CSLTactics CSLLemma.
-
-Notation fin_star n f :=
-  (istar (ls_init 0 n f)).
+Require Import CodeGen CUDALib Correctness Grid CSLTactics CSLLemma Utils.
+Import List.
 
 Section Sum_of.
   Variable T : Type.
@@ -265,7 +263,7 @@ Definition reduce_body n s :=
      assigns ys (ty2ctys typ) (v2e zs) ;;
      writes (v2sh sarr +os "tid") (v2e ys)
    ) Cskip
-  )%exp.
+  ).
 
 Definition st n := 2 ^ (e_b - n).
 
@@ -304,7 +302,7 @@ Definition setToLen :=
   )).
 
 Definition mkReduce_cmd :=
-  seq_reduce FalseP ;;
+  seq_reduce Emp_assn ;;
   setToLen ;;
   reduceBlock ;;
   Cif ("tid" ==C 0%Z) (
@@ -403,8 +401,8 @@ Proof.
     simpl; simplify_remove_var.
     apply CSL_prop_prem; intros.
     asserts_rewrite (gets (cvals (f_sim n)) (nf tid + st (S n)) = sc2CUDA (f_sim n (nf tid + st (S n)))).
-    { unfold arr2CUDA; rewrite (nth_map defval').
-      2: autorewrite with pure; lia.
+    { unfold arr2CUDA; rewrites (>>nth_map (@defval' typ)).
+      autorewrite with pure; lia.
       rewrite ls_init_spec; destruct lt_dec; simpl; eauto; lia. }
     (* TODO: implement as VCG *)
     eapply rule_seq.
@@ -424,7 +422,7 @@ Proof.
     { applys (>>(@eq_from_nth) (@None (vals typ))); unfold arr2CUDA.
       repeat autorewrite with pure; eauto.
       introv; repeat autorewrite with pure; intros.
-      repeat rewrite (nth_map defval'); repeat autorewrite with pure; try lia.
+      repeat rewrites (>>nth_map (@defval' typ)); repeat autorewrite with pure; try lia.
       repeat autorewrite with pure; simpl.
       unfold dist in *.
       clear H.
@@ -436,7 +434,7 @@ Proof.
     { applys (>>(@eq_from_nth) (@None (vals typ))); unfold arr2CUDA.
       repeat autorewrite with pure; eauto.
       introv; repeat autorewrite with pure; intros.
-      repeat rewrite (nth_map defval'); repeat autorewrite with pure; try lia.
+      repeat rewrites (>>nth_map (@defval' typ)); repeat autorewrite with pure; try lia.
       repeat autorewrite with pure; simpl.
       unfold dist in *.
       clear H.
@@ -730,7 +728,7 @@ Proof.
       applys (>>(@eq_from_nth) (@None (vals typ))).
       { unfold arr2CUDA; repeat autorewrite with pure; rewrite length_nseq, map_length, init_length; eauto. }
       { unfold arr2CUDA; introv; repeat autorewrite with pure; rewrite length_nseq, map_length, init_length; intros.
-        unfold dist_pre; simpl; rewrite nth_nseq, (nth_map defval'); [|autorewrite with pure; clear_assn; lia].
+        unfold dist_pre; simpl; rewrite nth_nseq, (nth_map _ (@defval' typ)); [|autorewrite with pure; clear_assn; lia].
         repeat autorewrite with pure.
         clear_assn.
         Time (repeat match goal with
@@ -747,7 +745,7 @@ Proof.
     { applys (>>(@eq_from_nth) (@None (vals typ))).
       { unfold arr2CUDA; repeat autorewrite with pure; rewrite !map_length, init_length; eauto. }
       { unfold arr2CUDA; introv; repeat autorewrite with pure; rewrite !map_length, init_length; intros.
-        unfold dist_pre; simpl; rewrite ! (nth_map defval'), ls_init_spec; [|try rewrite init_length; lia..].
+        unfold dist_pre; simpl; rewrite ! (nth_map _ (@defval' typ)), ls_init_spec; [|try rewrite init_length; lia..].
         repeat autorewrite with pure.
         clear_assn.
         Time (repeat match goal with
@@ -877,7 +875,7 @@ Proof.
     introv; repeat autorewrite with pure; intros.
     unfold dist_outs.
     unfold arr2CUDA; repeat rewrite map_length; autorewrite with pure.
-    rewrite (nth_map defval'); autorewrite with pure; [|clear_assn; lia].
+    rewrites (>>nth_map (@defval' typ)); autorewrite with pure; [clear_assn; lia|].
     clear_assn.
     Time (repeat match goal with
        | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; lia)
@@ -894,7 +892,7 @@ Proof.
     unfold arr2CUDA; repeat autorewrite with pure; eauto.
     introv; repeat autorewrite with pure; try rewrite map_length; autorewrite with pure; intros.
     unfold dist_outs.
-    rewrite (nth_map defval'); autorewrite with pure; [|clear_assn; lia].
+    rewrites (>>nth_map (@defval' typ)); autorewrite with pure; [clear_assn; lia|].
     clear_assn.
     Time (repeat match goal with
        | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; lia)
@@ -934,7 +932,7 @@ Notation fin_star n f :=
   (istar (ls_init 0 n f)).
 
 Definition E (x : var) :=
-  if prefix "_" (str_of_var x) then Lo
+  if String.prefix "_" (str_of_var x) then Lo
   else if var_eq_dec "bid" x then Lo
   else if var_eq_dec "ntrd" x then Lo
   else if var_eq_dec "nblk" x then Lo
@@ -1017,8 +1015,8 @@ Proof.
     unfold BSpre', BSpre, Binv, shvals_last.
     prove_istar_imp.
     destruct e_b; try lia.
-    repeat rewrite ls_star_res in H.
-    rewrite CodeGen.array'_ok in H.
+    repeat rewrite ls_star_res in *.
+    rewrite CodeGen.array'_ok in *.
     repeat sep_cancel'; eauto.
     introv; unfold arr2CUDA, dist; rewrite map_length, init_length; destruct Sumbool.sumbool_and; clear H; intros; lia. 
   - unfold E, ith_pre; introv; rewrite MyVector.init_spec; prove_low_assn.
@@ -1329,11 +1327,12 @@ Proof.
       rewrite sh_spec_env_tup; eauto 10.
       rewrite Heq; repeat rewrite <-res_assoc in *.
       sep_cancel'.
-      rewrites* sh_spec_res_tup in H4.
+      rewrites* sh_spec_res_tup in *.
       repeat sep_cancel'.
-    + exists (to_shvals (arr2CUDA (shvals_last bid))).
-      split; [unfold arr2CUDA, shvals_last; rewrite !to_shvals_length; autorewrite with pure|].
-      rewrite sh_decl_length; unfold Apure; eauto.
+    + exists (to_shvals (arr2CUDA (shvals_last bid))); fold_sat.
+      rewrite sat_pure_l; splits; simpl; jauto;
+      [|unfold arr2CUDA, shvals_last; rewrite !to_shvals_length; autorewrite with pure].
+      2: rewrite sh_decl_length; eauto.
       fold_sat; revert s h H1; prove_imp.
       rewrite Heq in *; repeat rewrite <-res_assoc in *.
       repeat sep_cancel'.
@@ -1345,7 +1344,7 @@ Proof.
   - intros s h H; rewrite Heq'; revert s h H.
     prove_istar_imp.
     simpl_nested_istar.
-    rewrite CodeGen.array'_ok in H.
+    rewrite CodeGen.array'_ok in *.
     rewrite <-Heq' in *; eauto.
     unfold dist_outs, arr2CUDA; rewrite map_length; autorewrite with pure; intros; nia.
   - intros; rewrite MyVector.init_spec.
@@ -1399,10 +1398,10 @@ Lemma mkReduce_ok' M G (GA : list Skel.Typ) (typ : Skel.Typ) (ntrd : nat)
                            (fun _ => kernelInv' aptr_env aeval_env
                                        (arrays (val2gl outp)
                                                (arr2CUDA
-                                                  (scan_lib.ls_init 0 nblk
+                                                  (ls_init 0 nblk
                                                      (fun j : nat =>
                                                         f_sim typ e_b f_tot
-                                                              (scan_lib.ls_init 0 ntrd
+                                                              (ls_init 0 ntrd
                                                                 (fun i : nat =>
                                                                    vi typ ntrd nblk GA aeval_env arr func f_tot result
                                                                       eval_reduce_ok
@@ -1420,8 +1419,8 @@ Proof.
   intros nblk aptr_env aeval_env arr f f_tot result eval_map_ok outp outs.
 
   eapply (CSLkfun_threads_vars ntrd nblk (fun n m => _) (fun n m => _) (fun n m => _)).
-  { unfold kernelInv, Assn; simpl; unfold sat.
-    introv H; sep_split_in H; unfold_conn_all; simpl in *; jauto. }
+  { intros ? ?; prove_imp; try tauto.
+    cbv; eauto. }
   introv.
   intros ? ?.
   apply CSLkfun_body.
@@ -1619,7 +1618,7 @@ Qed.
 Lemma reduce_res_ok g :
   sum_of_f_opt _ f_tot 0 (min ((l + ntrd - 1) / ntrd) nblk)
                (fun j => f_sim _ e_b f_tot
-                               (scan_lib.ls_init 0 ntrd (fun i => f_seq g j i))
+                               (ls_init 0 ntrd (fun i => f_seq g j i))
                                (min (l - j * ntrd) ntrd) e_b 0) = 
   sum_of_f_opt _ f_tot 0 l g.
 Proof.
@@ -1888,8 +1887,8 @@ Proof.
   intros nblk aptr_env aeval_env arr f f_tot result eval_map_ok outp outs.
 
   eapply (CSLkfun_threads_vars ntrd nblk (fun n m => _) (fun n m => _) (fun n m => _)).
-  { unfold kernelInv, Assn; simpl; unfold sat.
-    introv H; sep_split_in H; unfold_conn_all; simpl in *; jauto. }
+  { intros ? ?; prove_imp; try tauto.
+    apply I. }
   introv.
   intros ? ?.
   apply CSLkfun_body.
@@ -1908,7 +1907,6 @@ Proof.
     Proof.
       revert gs shs h; induction n; simpl; eauto.
       intros; splits; jauto.
-      - intros; apply H; jauto.
       - destruct H0 as (? & ? & ? & H').
         intros; forwards* (? & ? & ? & ?): H'.
     Qed.

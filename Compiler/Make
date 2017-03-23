@@ -3,13 +3,9 @@ CodeGenM.v
 Correctness.v 
 CUDALib.v
 SeqCompilerProof.v 
-Host.v
-MyEnv.v
-MyMSets.v
 Compiler.v
 GPUVeLib/CSLTactics.v
 GPUVeLib/CodeGen.v 
-GPUVeLib/Skel_lemma.v
 Skeletons/mkMap.v
 Skeletons/mkReduce.v
 Skeletons/Utils.v
