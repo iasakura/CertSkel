@@ -508,8 +508,9 @@ Proof.
   apply res_emp_l_unit.
 Qed.
 
-Create HintDb sep_eq.
-Hint Rewrite emp_unit_l_res emp_unit_r_res res_assoc : sep_eq.
+(* Create HintDb sep_eq. *)
+(* Hint Rewrite emp_unit_l_res emp_unit_r_res : sep_eq. *)
+(* Hint Rewrite <-res_assoc : sep_eq. *)
 
 Ltac sep_cancel' :=
   lazymatch goal with
@@ -545,7 +546,6 @@ Abort.
 
 Ltac sep_auto' := 
   intros ? ?;
-  repeat autorewrite with sep_eq in *;
   repeat sep_cancel'.
 
 (*
@@ -633,28 +633,28 @@ Ltac prove_imp :=
   let h := fresh "h" in
   let H := fresh "H" in
   intros s h H; 
-    try match type of H with
-        | sat _ _ (_ ** _) =>
-          lift_ex_in H;
-            rewrites cond_prop_in in H; [|evalBExp]
-        | sat _ _ (Disj_assn _ _) =>
-          destruct H as [H|H]; revert s h H; prove_imp
-        end;
-    repeat
-      match goal with
-      | [|- sat _ _ (Ex _, _)] => eexists; fold_sat
-      | [|- sat _ _ ((Ex _, _) ** _)] => rewrite ex_lift_r
-      | [|- sat _ _ (Assn _ _ _ ** Assn _ _ _)] => rewrite Assn_combine
+  repeat match type of H with 
+  | sat _ _ (_ \\// _) =>
+    destruct H as [H|H]; fold_sat_in H
+  end;
+  try match type of H with
+      | sat _ _ (Ex _, _ ** _) =>
+        lift_ex_in H; rewrites cond_prop_in in H; [|evalBExp]
       end;
-    repeat autorewrite with sep_eq in *;
-    [ applys (>>Assn_imply s h H);
-      [ (* proof impl. on environment *)
-        intros ?; choose_var_vals |
-        (* proof impl. on resource assertion *)
-        intros Hp; des_conj Hp; sep_auto' |
-        (* proof impl. on pure assertion *)
-        let H' := fresh "H" in
-        intros H'; des_conj H'; repeat split; substs; try prove_pure]..].
+  repeat
+    match goal with
+    | [|- sat _ _ (Ex _, _)] => eexists; fold_sat
+    | [|- sat _ _ ((Ex _, _) ** _)] => rewrite ex_lift_r
+      | [|- sat _ _ (Assn _ _ _ ** Assn _ _ _)] => rewrite Assn_combine
+    end;
+  [ applys (>>Assn_imply s h H);
+    [ (* proof impl. on environment *)
+      intros ?; choose_var_vals |
+      (* proof impl. on resource assertion *)
+      intros Hp; des_conj Hp; sep_auto' |
+      (* proof impl. on pure assertion *)
+      let H' := fresh "H" in
+      intros H'; des_conj H'; repeat split; substs; try prove_pure]..].
 
 (*
   find an R in Res that contains le in its arguments, 
@@ -794,7 +794,7 @@ Ltac hoare_forward_prim :=
     let Hle := fresh "Hle" in let l := fresh "l" in
     evar (l : loc); assert (Hle : evalLExp Env le l) by (unfold l; evalLExp); unfold l in *;
     let Hv := fresh "Hv" in let v := fresh "v" in
-    evar (v : val); assert (Hv : evalExp Env ix v) by (unfold v; evalLExp); unfold v in *;
+    evar (v : val); assert (Hv : evalExp Env ix v) by (unfold v; evalExp); unfold v in *;
     let Hn := fresh "Hn" in let n := fresh "n" in
     evar (n : nat); assert (Hn : v = Zn n) by (unfold v, n; solve_zn); unfold n in *;
     let le := eval unfold l in l in
@@ -1754,10 +1754,10 @@ Ltac hoare_forward :=
   | [|- CSL _ _ (kernelDisj _ _ _ _ _ _ _ _ _ _) _ _] =>
     idtac "hoare_forward: match disj case";
     apply rule_disj_kinv
-  | [|- CSL _ _ (kernelInv _ _ _ _ _ _ _ ** !(_)) _ _] =>
+  | [|- CSL _ _ (kernelInv _ _ _ _ _ _ _ ** (BEval_assn ?B ?b)) _ _] =>
     idtac "hoare_forward: match conditional case";
     eapply cond_prop_kerInv; [evalBExp|]; hoare_forward
-  | [|- CSL _ _ (Assn _ _ _ ** !(_)) _ _] =>
+  | [|- CSL _ _ (Assn _ _ _ ** (BEval_assn ?B ?b)) _ _] =>
     idtac "hoare_forward: match conditional case";
     eapply cond_prop; [evalBExp|]; hoare_forward
   | [|- CSL _ _ ?P (_ ;; _) ?Q ] =>
@@ -2060,7 +2060,7 @@ Ltac find_const fs H :=
         evar (x : var);
         forwards [? Heq]: (ex_assn_in_env x (fun i => nth i v 0) Res P Env s h n H);
         unfold x in *;
-        [now (intros; evalExp) |
+        [now (intros; constructor; simpl; eauto) |
          repeat (erewrite ls_init_eq0 in H; [|intros; rewrite Heq; eauto; reflexivity])]
   end in
   let rec iter fs :=
@@ -2164,8 +2164,8 @@ Ltac dest_ex :=
     evar (x : T);
     rewrite (ls_exists0 x), ex_sat; 
     eexists (nseq n x); unfold x;
-    rewrite sat_pure_l; split;
-    [|rewrite length_nseq; reflexivity]; fold_sat;
+    rewrite sat_pure_l; splits;
+    [ |jauto | rewrite length_nseq; reflexivity ]; fold_sat;
     erewrite @ls_init_eq0; [|intros; rewrite nseq_nth_same; reflexivity]
   end).
 
@@ -2305,23 +2305,23 @@ Ltac prove_istar_imp :=
   let s := fresh "s" in
   let h := fresh "h" in
   let H := fresh "H" in
-  let simplify :=
+  let simplify _ :=
       let i := fresh "i" in
-      let Hi := fresh in
-      let Hex := fresh in
-      let Heq := fresh in
+      let Hi := fresh "Hi" in
+      let Hex := fresh "Hex" in
+      let Heq := fresh "Heq" in
       intros i Hi;
         lazymatch goal with
           [|- match ?X with inleft _ => _ | inright _ => _ end = _] =>
           destruct X as [|Hex] eqn:Heq; [|destruct Hex; omega]
         end;
-        rewrite (Fin_nat_inv Heq); reflexivity in
+        rewrite (Fin_nat_inv _ _ _ Heq); reflexivity in
   intros s h H;
   match goal with _ => idtac end;
   try lazymatch type of H with
   | sat _ _ (Bdiv.Aistar_v (MyVector.init _))  =>
-    rewrite sc_v2l, (vec_to_list_init0 _ Emp_assn) in H;
-    erewrite ls_init_eq0 in H; [|simplify];
+    rewrite sc_v2l, (vec_to_list_init0 _ _ Emp_assn) in H;
+    erewrite ls_init_eq0 in H; [|simplify tt];
     dest_ex_in tt H;
     try rewrite conj_xs_assn in H;
     try (rewrite conj_xs_kernelInv in H; intros; try nia);
@@ -2329,15 +2329,15 @@ Ltac prove_istar_imp :=
   end;
   try lazymatch goal with
   | [|- sat _ _ (Bdiv.Aistar_v (MyVector.init _)) ] =>
-    rewrite sc_v2l, (vec_to_list_init0 _ Emp_assn);
-    erewrite ls_init_eq0; [|simplify];
+    rewrite sc_v2l, (vec_to_list_init0 _ _ Emp_assn);
+    erewrite ls_init_eq0; [|simplify tt];
     dest_ex;
     try rewrite conj_xs_assn;
     try (rewrite conj_xs_kernelInv; intros; try nia);
     try (rewrite conj_xs_kernelInv'; intros; try nia);
     auto
   end;
-  revert s h H; unfold kernelInv; try prove_imp.
+  generalize s h H; unfold kernelInv; try prove_imp.
 
 Ltac ls_rewrite_in Heq H :=
   erewrite ls_init_eq0 in H; [|intros; rewrite Heq; reflexivity].
@@ -2608,6 +2608,8 @@ Ltac prove_uniq := match goal with
   congruence
 end.
 
+Hint Resolve precise_emp_assn.
+
 Ltac prove_precise :=
   match goal with
   | [|- precise (Ex _, _)] =>
@@ -2730,6 +2732,18 @@ Proof.
   forwards*: (>>array_is_array' loc len vs f 0); eauto.
 Qed.
 
+Lemma eq_from_nth :
+  forall (T : Type) (x : T) (s1 s2 : list T),
+    length s1 = length s2 ->
+    (forall i : nat, i < length s1 -> nth i s1 x = nth i s2 x) -> s1 = s2.
+Proof.
+  induction s1; intros [|y s2]; inversion 1; eauto.
+  intros Heq; f_equal.
+  apply (Heq 0); simpl; omega.
+  apply IHs1; eauto.
+  intros i H'; pose proof (Heq (S i)); simpl in H0; apply H0; omega.
+Qed.
+
 Lemma sh_spec_assn_ok sdecs locs :
   (Ex vals, (sh_ok sdecs locs vals) ** sh_spec_assn sdecs locs vals) == sh_inv sdecs locs.
 Proof.
@@ -2743,71 +2757,87 @@ Proof.
     rewrite !ex_sat; split; intros [[|vs vals] Hsat];
     destruct locs as [|l locs];
     rewrite sat_pure_l in Hsat; try now (unfold sat in Hsat; simpl in *; try omega);
-    try exists (@nil (list val)); try exists (@nil sh_val); rewrite sat_pure_l; splits; jauto.
-                                             simpl in *.
-    destruct Hsat as (Hsat & ? & ? & ?).
-    apply Assn_split in Hsat.
-    destruct Hsat as (h1 & h2 & Hsat1 & Hsat2 & ?); eauto; fold_sat_in Hsat1; fold_sat_in Hsat2.
-    forwards* [IH1 _]: (IHsdecs locs s h1).
-    forwards* [sh_vals' [Hlen' IH1']]: IH1.
-    { exists vals; unfold Apure; split; [omega|].
-      unfold Apure in *; sep_split; try tauto; destruct HP0; eauto. }
-    exists ((fun i => nth i vs 0%Z) :: sh_vals').
-    destruct HP0.
-    split; simpl; [unfold Apure in *; lia| sep_split; eauto].
-    exists h1 h2; repeat split; try tauto.
-
-    fold_sat.
-    rewrite <-array_is_array; destruct HP; eauto.
-  - destruct Hsat as (h1 & h2 & ? & ? & ?); eauto.
-    forwards* [IH1 IH2]: (IHsdecs locs).
-    forwards* [vss' [Hlen' IH2']]: IH2.
-    { exists vals; unfold Apure; split; [omega|]; eauto. }
-    exists ((ls_init 0 SD_len vs) :: vss').
-    sep_split_in IH2'.
-    split; simpl; [unfold Apure in *; lia..| sep_split; eauto].
-    unfold Apure in *; rewrite init_length; try tauto.
-    split; eauto.
-    exists h1 h2; repeat split; try tauto.
-    fold_sat.
-    rewrite array_is_array; destruct HP; eauto.
-    rewrite init_length; omega.
-    intros; rewrite ls_init_spec; destruct lt_dec; eauto; omega.
+    try exists (@nil (list val)); try exists (@nil sh_val); rewrite sat_pure_l; splits; jauto;
+    simpl in *.
+    + destruct Hsat as (Hsat & ? & ? & ?).
+      apply Assn_split in Hsat.
+      destruct Hsat as (h1 & h2 & Hsat1 & Hsat2 & ?); eauto; fold_sat_in Hsat1; fold_sat_in Hsat2.
+      forwards* [IH1 _]: (IHsdecs locs s h2).
+      forwards* [sh_vals' IH1']: IH1.
+      { apply ex_sat; exists vals; rewrite Assn_combine.
+        generalize s h2 Hsat2; prove_imp. }
+      fold_sat_in IH1'.
+      apply sat_pure_l in IH1'; destruct IH1' as (IH1' & ?).
+      exists ((fun i => nth i vs 0%Z) :: sh_vals') (emp_ph loc) h; splits; jauto; fold_sat.
+      unfold sat; simpl; splits; jauto.
+      2: apply disj_emp2.
+      exists h1 h2; splits; jauto; fold_sat.
+      generalize s h1 Hsat1; prove_imp; try tauto.
+      apply (eq_from_nth _ 0%Z).
+      rewrite init_length; eauto.
+      introv; rewrite init_length; intros.
+      rewrite ls_init_spec; destruct lt_dec; try omega; eauto.
+    + destruct Hsat as (Hsat & ? & ? & ?).
+      destruct Hsat as (h1 & h2 & Hsat1 & Hsat2 & ?); eauto; fold_sat_in Hsat1; fold_sat_in Hsat2.
+      forwards* [_ IH1]: (IHsdecs locs s h2).
+      forwards* [sh_vals' IH1']: IH1.
+      { apply ex_sat; exists vals; rewrite sat_pure_l; splits; jauto. }
+      fold_sat_in IH1'.
+      apply sat_pure_l in IH1'; destruct IH1' as (IH1' & ?).
+      exists (ls_init 0 SD_len vs :: sh_vals') (emp_ph loc) h; splits; jauto; fold_sat.
+      unfold sat; simpl; splits; jauto.
+      2: apply disj_emp2.
+      unfold sat in *; simpl in *; splits; jauto.
+      splits; jauto.
+      rewrite init_length; eauto.
 Qed.
 
 Lemma sh_spec_assn'_ok sdecs locs :
-  (Ex vals, sh_ok sdecs locs vals //\\ sh_spec_assn' sdecs locs vals) == sh_inv' sdecs locs.
+  (Ex vals, sh_ok sdecs locs vals ** sh_spec_assn' sdecs locs vals) == sh_inv' sdecs locs.
 Proof.
-  unfold sh_spec_assn', sh_inv', sh_ok, Grid.sh_ok; revert locs; induction sdecs as [|[? ? ?] ?];
-  intros [|l locs]; split; intros [[|vs vals] [Hlen Hsat]]; unfold Apure in Hlen; simpl in *;
-  try omega; unfold Assn in *; simpl in *; sep_split_in Hsat.
-  - exists (@nil sh_val); split; eauto.
-  - exists (@nil (list val)); split; sep_split; eauto using emp_emp_ph.
-    unfold Apure; eauto.
-  - destruct Hsat as (h1 & h2 & ? & ? & ?); eauto.
-    forwards* [IH1 IH2]: (IHsdecs locs).
-    forwards* [sh_vals' [Hlen' IH1']]: IH1.
-    { exists vals; unfold Apure; split; [omega|].
-      unfold Apure in *; sep_split; try tauto; eauto. }
-    exists ((fun i => nth i vs 0%Z) :: sh_vals').
-    split; simpl; [unfold Apure in *; lia| sep_split; eauto].
-    exists h1 h2; repeat split; try tauto.
-
-    fold_sat.
-    rewrite <-array_is_array; destruct HP; eauto.
-  - destruct Hsat as (h1 & h2 & ? & ? & ?); eauto.
-    forwards* [IH1 IH2]: (IHsdecs locs).
-    forwards* [vss' [Hlen' IH2']]: IH2.
-    { exists vals; unfold Apure; split; [omega|]; eauto. }
-    exists ((ls_init 0 SD_len vs) :: vss').
-    sep_split_in IH2'.
-    split; simpl; [unfold Apure in *; lia..| sep_split; eauto].
-    unfold Apure in *; rewrite init_length; try tauto.
-    exists h1 h2; repeat split; try tauto.
-    fold_sat.
-    rewrite array_is_array; eauto.
-    rewrite init_length; omega.
-    intros; rewrite ls_init_spec; destruct lt_dec; eauto; omega.
+  unfold sh_spec_assn', sh_inv', sh_ok, Grid.sh_ok; revert locs; induction sdecs as [|[? ? ?] ?].
+  - introv; simpl; unfold equiv_sep; introv.
+    rewrite !ex_sat; split; intros [[|vs vals] Hsat];
+    rewrite sat_pure_l in Hsat; unfold sat in Hsat; simpl in *; try omega;
+    try exists (@nil (list val)); try exists (@nil sh_val); rewrite sat_pure_l; splits; jauto.
+    unfold sat; simpl; splits; jauto.
+  - introv; simpl; unfold equiv_sep; introv.
+    rewrite !ex_sat; split; intros [[|vs vals] Hsat];
+    destruct locs as [|l locs];
+    rewrite sat_pure_l in Hsat; try now (unfold sat in Hsat; simpl in *; try omega);
+    try exists (@nil (list val)); try exists (@nil sh_val); rewrite sat_pure_l; splits; jauto;
+    simpl in *.
+    + destruct Hsat as (Hsat & ? & ? & ?).
+      apply Assn_split in Hsat.
+      destruct Hsat as (h1 & h2 & Hsat1 & Hsat2 & ?); eauto; fold_sat_in Hsat1; fold_sat_in Hsat2.
+      forwards* [IH1 _]: (IHsdecs locs s h2).
+      forwards* [sh_vals' IH1']: IH1.
+      { apply ex_sat; exists vals; rewrite Assn_combine.
+        generalize s h2 Hsat2; prove_imp. }
+      fold_sat_in IH1'.
+      apply sat_pure_l in IH1'; destruct IH1' as (IH1' & ?).
+      exists ((fun i => nth i vs 0%Z) :: sh_vals') (emp_ph loc) h; splits; jauto; fold_sat.
+      unfold sat; simpl; splits; jauto.
+      2: apply disj_emp2.
+      exists h1 h2; splits; jauto; fold_sat.
+      generalize s h1 Hsat1; prove_imp; try tauto.
+      apply (eq_from_nth _ 0%Z).
+      rewrite init_length; eauto.
+      introv; rewrite init_length; intros.
+      rewrite ls_init_spec; destruct lt_dec; try omega; eauto.
+    + destruct Hsat as (Hsat & ? & ? & ?).
+      destruct Hsat as (h1 & h2 & Hsat1 & Hsat2 & ?); eauto; fold_sat_in Hsat1; fold_sat_in Hsat2.
+      forwards* [_ IH1]: (IHsdecs locs s h2).
+      forwards* [sh_vals' IH1']: IH1.
+      { apply ex_sat; exists vals; rewrite sat_pure_l; splits; jauto. }
+      fold_sat_in IH1'.
+      apply sat_pure_l in IH1'; destruct IH1' as (IH1' & ?).
+      exists (ls_init 0 SD_len vs :: sh_vals') (emp_ph loc) h; splits; jauto; fold_sat.
+      unfold sat; simpl; splits; jauto.
+      2: apply disj_emp2.
+      unfold sat in *; simpl in *; splits; jauto.
+      splits; jauto.
+      rewrite init_length; eauto.
 Qed.
 
 Lemma ex_lift_l T P Q :
@@ -2828,32 +2858,30 @@ Lemma CSLp_preprocess n E Res Res' P P' Env Env' C sdecs locs bid :
       CSLp n E 
        ((Assn Res P ("bid" |-> bid :: Env)) ** sh_spec_assn sdecs locs vss)
        C
-       (Ex vss, pure (length vss = length sdecs) //\\ (Assn Res' P' Env') ** sh_spec_assn' sdecs locs vss))
+       (Ex vss, Assn Emp (length vss = length sdecs) nil ** (Assn Res' P' Env') ** sh_spec_assn' sdecs locs vss))
   -> CSLp n E 
-       ((Assn Res P Env) ** sh_inv sdecs locs ** !("bid" === bid))
+       ((Assn Res P Env) ** sh_inv sdecs locs ** (Assn Emp True ("bid" |-> bid :: nil)))
        C
        ((Assn Res' P' Env') ** sh_inv' sdecs locs).
 Proof.
   intros.
-  applys (>>rule_p_backward (Ex vss, sh_ok sdecs locs vss //\\ (Assn Res P ("bid" |-> bid :: Env) ** sh_spec_assn sdecs locs vss))).
+  applys (>>rule_p_backward (Ex vss, sh_ok sdecs locs vss ** (Assn Res P ("bid" |-> bid :: Env) ** sh_spec_assn sdecs locs vss))).
   Focus 2.
-  { unfold sat; intros ? ? Hsat; sep_split_in Hsat.
-    fold_sat_in Hsat.
+  { intros s h Hsat.
     rewrite <-sh_spec_assn_ok in Hsat.
-    apply ex_lift_r_in in Hsat as [vss Hsat].
-    destruct Hsat as (h1 & h2  & ? & (? & ?) & ? & ?); unfold sh_ok in *; eauto.
-    exists vss; split; eauto.
-    apply scC; sep_cancel.
-    fold_sat; rewrite <-assn_var_in.
-    exists h2 h1; repeat split; eauto; sep_split; eauto.
-    rewrite phplus_comm; eauto. } Unfocus.
-  applys (>>rule_p_forward (Ex vss, sh_ok sdecs locs vss //\\ (Assn Res' P' Env' ** sh_spec_assn' sdecs locs vss))). 
+    rewrite sep_comm, <-sep_assoc, ex_lift_r, ex_sat in Hsat.
+    destruct Hsat as [vss Hsat].
+    apply ex_sat; exists vss.
+    rewrite Assn_combine in Hsat.
+    unfold sh_ok, sh_spec_assn in *; repeat rewrite Assn_combine in * |- *; revert s h Hsat; 
+    prove_imp. } Unfocus.
+  applys (>>rule_p_forward (Ex vss, sh_ok sdecs locs vss ** (Assn Res' P' Env' ** sh_spec_assn' sdecs locs vss))). 
   Focus 2. {
-    unfold sat; intros s h [vss Hsat].
-    fold_sat; rewrite <-sh_spec_assn'_ok.
-    rewrite ex_lift_l; exists vss; eauto.
-    destruct Hsat as (? & h1 & h2 & ? & ? & ? & ?).
-    unfold sh_ok, Apure in *; exists h1 h2; repeat split; try tauto. } Unfocus.
+    intros s h; rewrite ex_sat; intros [vss Hsat].
+    rewrite <-sh_spec_assn'_ok.
+    rewrite ex_lift_l, ex_sat; exists vss; eauto.
+    unfold sh_ok, sh_spec_assn' in *; repeat rewrite Assn_combine in * |- *; revert s h Hsat;
+    prove_imp. } Unfocus.
   Lemma rule_p_ex_pre n E T P C Q :
     (forall x, CSLp n E (P x) C Q)
     -> CSLp n E (Ex x : T, P x) C Q.
@@ -2869,22 +2897,24 @@ Proof.
   apply rule_p_ex_pre; intros.
   Lemma rule_p_conj_pure n E(P : Prop) P' C Q :
     (P -> CSLp n E (P') C Q)
-    -> CSLp n E (pure P //\\ P') C Q.
+    -> CSLp n E (Assn Emp P nil ** P') C Q.
   Proof.
     intros H; simpl.
     unfold CSLp, sat_k in *.
     introv.
     intros ? ?.
-    destruct (low_eq_repr _) eqn:Heq; simpl; intros [? ?] m.
+    destruct (low_eq_repr _) eqn:Heq; simpl.
+    rewrite sat_pure_l.
+    intros [? ?] m.
     forwards*: (>>H); simpl.
     instantiate (1 := leqks); rewrite Heq; eauto.
   Qed.
   apply rule_p_conj_pure; intros [? ?].
   applys* rule_p_forward.
-  intros ? ? [vss [? ?]]; exists vss; split; eauto.
-  unfold sh_ok; split; eauto.
+  introv; rewrite !ex_sat; intros [vss ?]; exists vss.
+  unfold sh_ok, sh_spec_assn' in *; repeat rewrite Assn_combine in * |- *; revert s h H2.
+  prove_imp.
 Qed.
-
 
 Lemma rule_p_assn n E Res (P : Prop) Env C Q :
   (P -> CSLp n E (Assn Res P Env) C Q)
@@ -2896,41 +2926,38 @@ Proof.
   intros ? ?.
   destruct (low_eq_repr _) eqn:Heq; simpl; intros ? m.
   forwards*: (>>H); simpl.
-  unfold Assn, Apure in H2; sep_split_in H2; eauto.
+  unfold sat in H2; simpl in H2; jauto.
   instantiate (1 := leqks); rewrite Heq; eauto.
 Qed.
 
-
-Lemma rule_grid :
-  forall (ntrd nblk : nat) (E : env),
-    ntrd <> 0 ->
-    nblk <> 0 ->
-    forall (P : assn) (Ps : Vector.t assn nblk) (C : cmd)
-           (Qs : Vector.t assn nblk) (Q : assn) (sh_decl : list Sdecl),
-      P |= Bdiv.Aistar_v Ps ->
-      (forall (bid : Fin.t nblk) (locs : list val),
-          let sinv := sh_inv sh_decl locs in
-          let sinv' := sh_inv' sh_decl locs in
-          CSLp ntrd E (Vector.nth Ps bid ** sinv ** !("bid" === Zn (nf bid))) C
-               (Vector.nth Qs bid ** sinv')) ->
-      Bdiv.Aistar_v Qs |= Q ->
-      (forall bid : Fin.t nblk, inde (Vector.nth Ps bid) (Var "bid" :: Var "tid" :: nil)) ->
-      (forall bid : Fin.t nblk, low_assn E (Vector.nth Ps bid)) ->
-      (forall bid : Fin.t nblk, has_no_vars (Vector.nth Qs bid)) ->
-      (forall v : var, In v (map SD_var sh_decl) -> E v = Lo) ->
-      E "tid" = Hi ->
-      E "bid" = Lo ->
-      disjoint_list (map SD_var sh_decl) ->
-      CSLg ntrd nblk P {| get_sh_decl := sh_decl; get_cmd := C |} Q.
-Proof. eauto using rule_grid. Qed.
+(* Lemma rule_grid : *)
+(*   forall (ntrd nblk : nat) (E : env), *)
+(*     ntrd <> 0 -> *)
+(*     nblk <> 0 -> *)
+(*     forall (P : assn) (Ps : Vector.t assn nblk) (C : cmd) *)
+(*            (Qs : Vector.t assn nblk) (Q : assn) (sh_decl : list Sdecl), *)
+(*       P |= Bdiv.Aistar_v Ps -> *)
+(*       (forall (bid : Fin.t nblk) (locs : list val), *)
+(*           let sinv := sh_inv sh_decl locs in *)
+(*           let sinv' := sh_inv' sh_decl locs in *)
+(*           CSLp ntrd E (Vector.nth Ps bid ** sinv ** !("bid" === Zn (nf bid))) C *)
+(*                (Vector.nth Qs bid ** sinv')) -> *)
+(*       Bdiv.Aistar_v Qs |= Q -> *)
+(*       (forall bid : Fin.t nblk, inde (Vector.nth Ps bid) (Var "bid" :: Var "tid" :: nil)) -> *)
+(*       (forall bid : Fin.t nblk, low_assn E (Vector.nth Ps bid)) -> *)
+(*       (forall bid : Fin.t nblk, has_no_vars (Vector.nth Qs bid)) -> *)
+(*       (forall v : var, In v (map SD_var sh_decl) -> E v = Lo) -> *)
+(*       E "tid" = Hi -> *)
+(*       E "bid" = Lo -> *)
+(*       disjoint_list (map SD_var sh_decl) -> *)
+(*       CSLg ntrd nblk P {| get_sh_decl := sh_decl; get_cmd := C |} Q. *)
+(* Proof. eauto using rule_grid. Qed. *)
 
 Lemma has_no_vars_assn R P : 
   has_no_vars (Assn R P nil).
 Proof.
-  unfold has_no_vars, Bdiv.indeP; simpl.
-  unfold Assn; split; intros Hsat; sep_split_in Hsat; sep_split; eauto.
+  constructor; simpl; eauto.
 Qed.
-
     
 Lemma conj_xs_init_flatten s l1 l2 f_ini :
   istar (ls_init s l1 (fun i =>
@@ -3002,11 +3029,9 @@ Lemma CSL_prop_prem n (tid : Fin.t n) BS R R' (P P' : Prop) Env Env' C :
   (P -> CSL BS tid (Assn R P Env) C (Assn R' P' Env'))
   -> CSL BS tid (Assn R P Env) C (Assn R' P' Env').
 Proof.
-  intros ? ? ?; simpl; unfold Assn in *; intros Hsat; sep_split_in Hsat; unfold Apure in *.
+  intros ? ? ?; simpl; unfold sat in *; simpl in *; intros Hsat.
   applys* H.
-  sep_split; eauto.
 Qed.
-
 
 Lemma CSLkfun_body ntrd nblk P k Q n:
   CSLg_n ntrd nblk P (body_of k) Q n ->
@@ -3020,8 +3045,7 @@ Lemma CSLg_float ntrd nblk R (P : Prop) E p Q n :
   -> CSLg_n ntrd nblk (Assn R P E) p Q n.
 Proof.
   unfold CSLg_n; intros; eauto.
-  applys* H.
-  unfold Assn in *; sep_split_in H1; eauto.
+  unfold sat in *; simpl in *; applys* H.
 Qed.
 
 Lemma CSLg_weaken_pure ntrd nblk R (P : Prop) E p Q n :

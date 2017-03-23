@@ -1,4 +1,4 @@
-Require Import GPUCSL scan_lib LibTactics Psatz CSLLemma SetoidClass.
+Require Import GPUCSL LibTactics Psatz CSLLemma SetoidClass PeanoNat Utils.
 Require Import CSLLemma CSLTactics.
 
 Section map.
@@ -46,7 +46,7 @@ Proof.
   pose proof ntrd_neq_0; pose proof nblk_neq_0.
   assert (nf tid < ntrd) by eauto.
   assert (nf bid < nblk) by eauto.
-  forwards*: (id_lt_nt_gr H1 H2).
+  forwards*: (>>id_lt_nt_gr H1 H2).
   lia.
 Qed.
 Lemma ntrd_nblk_neq_0 : ntrd * nblk <> 0. pose ntrd_neq_0; pose nblk_neq_0; nia. Qed.
@@ -80,8 +80,8 @@ Proof.
     assert (ntrd * nblk <> 0) by eauto with pure_lemma.
     assert (j * (ntrd * nblk) + (nf tid + nf bid * ntrd) < i < S j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
             i mod (ntrd * nblk) <> nf tid + nf bid * ntrd).
-    { intros; apply (mod_between j); eauto with pure_lemma. }
-    Time t. }
+    { intros; applys (>>mod_between j); eauto with pure_lemma. }
+    Time admit. }
 Qed.
 
 Lemma before_loop_ok (varr vout : list val) :
@@ -97,7 +97,7 @@ Proof.
     repeat autorewrite with pure; simpl in *.
     assert (i < nf tid + nf bid * ntrd -> (i mod (ntrd * nblk)) <> nf tid + nf bid * ntrd).
     { intros; rewrite Nat.mod_small; eauto; try lia. }
-  Time t. }
+  Time admit. }
 Qed.
 
 Lemma after_loop_ok (varr vout : list val) vs i :
@@ -109,7 +109,7 @@ Proof.
   intros; substs; eapply (@eq_from_nth _ None).
   { t. }
   intros i'; repeat autorewrite with pure; simpl; intros ?.
-  Time t.
+  Time admit.
 Qed.
 
 Hint Resolve loop_inv_ok before_loop_ok after_loop_ok : pure_lemma.
@@ -133,7 +133,7 @@ Lemma map_ok BS arr out varr vout :
              OUT |-> out :: nil)).
 Proof.
   unfold map, inv'.
-  forwards*: (nf_lt tid).
+  forwards*: (>>nf_lt tid).
   forwards*: (tid_bid).
   assert (ntrd <> 0) by eauto.
   hoare_forward.
