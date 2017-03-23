@@ -13,7 +13,6 @@ Require Export FunctionalExtensionality.
 Require Export ProofIrrelevance.
 
 Require Export Coq.ZArith.BinInt.
-Require Export String.
 
 (* Require Export Vbase Varith Vlistbase Vlist Basic.*)
 

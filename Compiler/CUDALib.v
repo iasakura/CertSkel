@@ -1,4 +1,4 @@
-Require Import DepList GPUCSL LibTactics scan_lib TypedTerm.
+Require Import String DepList GPUCSL LibTactics TypedTerm.
 
 Fixpoint typ2Coq T ty :=
   match ty with

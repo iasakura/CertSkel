@@ -1,13 +1,11 @@
 Require Import String.
 Require Import Vector.
 Require Import DepList.
-Require Import MyList.
 Require Import ZArith.
 Require Import GPUCSL.
 Require Import LibTactics.
 Require Import Psatz.
 Require Import Monad.
-Require Import MyEnv.
 Require Import TypedTerm.
 Require Import CUDALib.
 Require Import Correctness.
@@ -247,7 +245,6 @@ End TestCompiler.
 (* TODO: use actual impl. of skeletons *)
 (* Require Import pmap_skel. *)
 (* Require Import Reduce_opt_skel. *)
-Import scan_lib.
 
 (* Module VarE_eq : DecType with Definition t := varE with Definition eq_dec := eq_dec. *)
 (*   Definition t := varE. *)
@@ -746,9 +743,6 @@ Section Compiler.
       let arr := Skel.VArr _ _ x in
       compile_res ntrd nblk aenv arr outArr
     end%list.
-
-  Definition env_of_list {A B : Type} `{eq_type A} (xs : list (A * B)) : Env A (option B) _ :=
-    List.fold_right (fun x acc => upd_opt acc (fst x) (snd x)) emp_opt xs.
 
   Definition hostVars_of_typ (ty : Skel.Typ) (n : nat) :=
     let ctys := ctyps_of_typ ty in

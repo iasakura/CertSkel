@@ -1,8 +1,8 @@
-Require Import GPUCSL scan_lib LibTactics Psatz CSLLemma SetoidClass.
+Require Import GPUCSL LibTactics Psatz CSLLemma SetoidClass Utils.
 Require Import Grid CSLLemma CSLTactics.
-
-Arguments div _ _ : simpl never.
-Arguments modulo _ _ : simpl never.
+Require Import PeanoNat.
+Arguments Nat.div _ _ : simpl never.
+Arguments Nat.modulo _ _ : simpl never.
 
 Section reduce.
 Variable ntrd nblk : nat.
@@ -45,7 +45,7 @@ Section thread.
 Variable tid : Fin.t ntrd.
 
 Lemma reg_b_length:
-  length reg_b = ntrd.
+  length reg_b = ntrd + 0.
 Proof.
   unfold reg_b'; autorewrite with pure.
   rewrite inp_len in *.
@@ -200,7 +200,7 @@ Definition reduce inv :=
   "c" ::= 0%Z ;;
   "st" ::= Zn ntrd ;;
   WhileI inv (1%Z <C "st") (
-    "d" ::= ("st" +C 1%Z)>>1 ;;
+    "d" ::= ("st" +C 1%Z) /C 2%Z ;;
     Cif ("tid" +C "d" <C "st") (
       "t1" ::= [ Sh "arr" +o "tid" ] ;;
       "t2" ::= [ Sh "arr" +o ("tid" +C "d") ] ;;
@@ -210,7 +210,7 @@ Definition reduce inv :=
     "st" ::= "d" ;;
     "c" ::= "c" +C 1%Z
   ) ;;
-  Cif ("tid" == 0%Z) (
+  Cif ("tid" ==C 0%Z) (
     "t" ::= [ Sh "arr" +o 0%Z] ;;
     [Gl "out" +o "bid"] ::= "t"
   ) Cskip.
@@ -353,16 +353,13 @@ Proof.
   assert (nf tid < ntrd) by eauto.
   assert (nf bid < nblk) by eauto.
   pose proof reg_b_length.
-  
   hoare_forward.
   rewrite inp_len; eauto.
 
   hoare_forward.
-
   hoare_forward; eauto.
   { applys (>>(@eq_from_nth) (@None Z)).
     autorewrite with pure; rewrite* reg_b_length.
-    lia.
     clear H2.
     unfold reg_b'; intros i Hi; autorewrite with pure in *.
     repeat match goal with
@@ -410,7 +407,8 @@ Proof.
   rewrite (Nat.add_1_r c), stS; repeat f_equal; lia.
   
   prove_imp.
-  
+  { f_equal; f_equal; omega. }
+  simpl; omega.
   hoare_forward.
   hoare_forward.
   rewrite st_inv2, reg_b_length; lia.
@@ -517,8 +515,8 @@ Definition E := fun x =>
 
 Lemma reduce_ok_b :
   CSLp ntrd E
-       (jth_pre ** !("bid" === Zn (nf bid)))
-       (reduce TrueP)
+       (jth_pre ** Assn Emp True ("bid" |-> Zn (nf bid) :: nil))
+       (reduce Emp_assn)
        jth_post.
 Proof.
   applys (>>rule_block BS E (MyVector.init ith_pre) (MyVector.init ith_post)).
@@ -527,25 +525,28 @@ Proof.
     try prove_low_assn.
   - intros [|[|i]]; eauto; simpl.
     prove_istar_imp.
-    rewrite array'_ok in H |- *; eauto; rewrite reg_b_length; intros; try omega.
     unfold dist; repeat destruct lt_dec; try omega.
+    rewrite array'_ok in * |- *; eauto; rewrite reg_b_length; intros; try omega.
+    repeat destruct lt_dec; try omega.
     prove_istar_imp.
-    rewrite array'_ok in H |- *; eauto; intros; try omega;
-    rewrite st_inv2, reg_b_length in H1;
+    rewrite array'_ok in * |- *; eauto; intros; try omega;
+    rewrite st_inv2, reg_b_length in *;
     unfold dist; repeat destruct lt_dec; try omega.
   - unfold BS; intros [|[|i]] ?; simpl; rewrite !MyVector.init_spec; split; prove_precise.
   - unfold jth_pre, ith_pre.
-    intros s h H; rewrite assn_var_in in H; revert s h H; 
+    intros s h H; rewrite assn_var_in in H; revert s h H.
     prove_istar_imp.
     repeat rewrite ls_star_res.
     rewrite array'_ok; [|intros; lia]; auto.
-  - unfold jth_post, ith_post.
+  - lets st2: st_inv2.
+    lets reg_b_len: reg_b_length.
+    unfold jth_post, ith_post.
     prove_istar_imp.
-    repeat rewrite ls_star_res in H.
-    rewrite array'_ok in H; eauto.
-    intros i; rewrite st_inv2, reg_b_length; intros ?; unfold dist;
-    repeat destruct lt_dec; lia.
-    rewrite st_inv2, reg_b_length; eauto.
+    repeat rewrite ls_star_res in *.
+    rewrite array'_ok in *; eauto.
+    intros i; rewrite st_inv2, reg_b_length; intros ?; unfold dist.
+    repeat destruct lt_dec; try lia.
+    rewrite st2, reg_b_len; eauto.
   - unfold ith_pre; intros; rewrite MyVector.init_spec; prove_low_assn.
   - unfold ith_post; intros; rewrite MyVector.init_spec; prove_low_assn.
   - unfold reduce.
@@ -559,7 +560,7 @@ Qed.
    
 End block.
 
-Definition reduce_prog := Pr ((SD "arr" Int ntrd) :: nil) (reduce TrueP).
+Definition reduce_prog := Pr ((SD "arr" Int ntrd) :: nil) (reduce Emp_assn).
 
 Definition jth_pre' (bid : Fin.t nblk) :=
   (Assn
@@ -602,7 +603,6 @@ Proof.
   unfold jth_pre', jth_post'; eauto.
   - prove_istar_imp.
     rewrite ls_star_res.
-    unfold fin_star.
     repeat simpl_nested_istar.
     rewrite array'_ok. 
     2: intros; nia.
@@ -625,18 +625,17 @@ Proof.
       repeat sep_cancel'.
     + unfold jth_post.
       intros s h [sh_vals Hsat].
-      exists (sh_vals :: nil); split; eauto.
+      exists (sh_vals :: nil); fold_sat; rewrite sat_pure_l; splits; simpl; eauto.
       fold_sat; fold_sat_in Hsat; unfold sh_spec_assn'.
       revert s h Hsat; prove_imp.
       rewrite <-!res_assoc; simpl.
       repeat sep_cancel'.
   - prove_istar_imp.
     rewrite !ls_star_res in *.
-    unfold fin_star in *.
     repeat simpl_nested_istar.
-    rewrite array'_ok in H.
+    rewrite array'_ok in *.
     2: intros; rewrite @init_length in *; nia.
-    rewrite <-is_array_is_array_p_1 in H; eauto.
+    rewrite <-is_array_is_array_p_1 in *; eauto.
     nia.
   - intros; rewrite MyVector.init_spec.
     apply inde_assn_vars.

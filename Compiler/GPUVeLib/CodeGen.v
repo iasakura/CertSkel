@@ -1,4 +1,4 @@
-Require Import GPUCSL scan_lib LibTactics Psatz CSLLemma Skel_lemma SetoidClass.
+Require Import GPUCSL LibTactics Psatz SetoidClass.
 Require Import CUDALib CSLLemma TypedTerm CUDALib.
 
 Fixpoint evalExps {ty : Skel.Typ} (Env : list entry) :=
@@ -122,13 +122,16 @@ Proof.
   rewrite Heq, remove_var_disjoint; eauto.
 Qed.
 
-Lemma remove_vars_imp (Env : list entry) xs :
-  env_assns_denote Env ===> env_assns_denote (remove_vars Env xs).
+Lemma remove_vars_imp (Env : list entry) xs s :
+  env_assns_denote Env s -> env_assns_denote (remove_vars Env xs) s.
 Proof.
   revert Env; induction xs; simpl; eauto.
-  intros Env s h Hsat.
+  intros Env Hsat.
   applys* remove_var_imp.
 Qed.
+
+Definition fv_env (Env : list entry) := 
+  List.fold_right (fun x e => fv_E (ent_e x) ++ e) nil Env.
 
 Lemma not_in_remove_var x Env:
   ~In x (fv_env (remove_var Env x)).
@@ -137,6 +140,7 @@ Proof.
   destruct var_eq_dec; simpl; eauto.
   intros [? | ?]; try tauto; congruence.
 Qed.
+
 Lemma disjoint_incl (A : Type) (xs ys zs : list A) :
   incl zs ys ->
   disjoint xs ys -> disjoint xs zs.
@@ -146,6 +150,15 @@ Proof.
   - intros Hc; apply H in Hc; tauto.
   - apply IHxs; tauto.
 Qed.
+
+Lemma disjoint_incl_l A (xs ys zs : list A) :
+  incl xs ys -> disjoint ys zs -> disjoint xs zs.
+Proof.
+  intros.
+  apply disjoint_comm in H0; apply disjoint_comm.
+  eauto using disjoint_incl.
+Qed.
+
 Lemma remove_var_incl Env x:
   incl (fv_env (remove_var Env x)) (fv_env Env).
 Proof.
@@ -155,14 +168,14 @@ Proof.
 Qed.
 
 Lemma remove_vars_inde (Env : list entry) xs :
-  inde (env_assns_denote (remove_vars Env xs)) xs.
+  inde_env (remove_vars Env xs) xs.
 Proof.
-  apply disjoint_inde_env.
-  revert Env; induction xs; simpl; eauto.
-  split.
-  - apply not_in_remove_var.
-  - applys (>>disjoint_incl (IHxs Env)).
-    applys* remove_var_incl.
+  unfold inde_env.
+  induction xs; simpl; eauto.
+  apply disjoint_cons_r; simpl.
+  applys (>>disjoint_incl_l IHxs).
+  applys* remove_var_incl.
+  apply not_in_remove_var.
 Qed.
 
 Fixpoint EEq_tup {ty : Skel.Typ}  :=
@@ -231,9 +244,9 @@ Proof.
   intuition.
 Qed.
       
-Lemma env_assns_cons a env s h :
-  (env_assns_denote (a :: env)) s h <-> 
-  (ent_e a === ent_v a) s h /\ (env_assns_denote env) s h.
+Lemma env_assns_cons a env s :
+  (env_assns_denote (a :: env)) s <-> 
+  (s (ent_e a) = ent_v a) /\ (env_assns_denote env) s.
 Proof.
   destruct a; simpl; split; intros [? ?]; split; eauto.
 Qed.
@@ -278,7 +291,7 @@ Ltac simplify_env := simpl in *;
                  rewrite remove_removes in * |
                  no_side_cond ltac:(rewrite env_assns_remove_cons in *) |
                  no_side_cond ltac:(rewrite env_assns_removes_cons in *)
-                ]; unfold "//\\" in *) .
+                ]).
 
 Lemma env_assns_remove_app ty (xs : vars ty) vs e x :
   disjoint x (flatTup xs) ->
@@ -506,16 +519,14 @@ Lemma arrays_unfold ty i (arr : list (vals ty)) ptr p:
 Proof.
   simpl; unfold equiv_sep, sat_res, sat;
   revert arr ptr; induction i; intros arr ptr.
-  - destruct arr; simpl; try (intros; omega); intros _ s h; unfold sat_res, sat in *; simpl.
-    split; intros; sep_normal; sep_normal_in H; rewrite locs_off0 in *; eauto. 
+  - destruct arr; simpl; try (intros; omega); intros _ h.
+    rewrite res_emp_l_unit, locs_off0; reflexivity.
   - destruct arr as [|v arr]; try (simpl; intros; omega).
     intros Hlen'; simpl in Hlen'; assert (Hlen : i < length arr) by omega.
     rewrite Nat2Z.inj_succ.
     do 2 rewrite locs_offS; simpl.
-    split; unfold sat_res, sat in *; unfold sat_res, sat in *;
-    intros; simpl in *; sep_normal; sep_normal_in H; repeat sep_cancel.
-    apply IHi in H0; sep_normal_in H0; eauto.
-    apply IHi; sep_normal; eauto.
+    rewrite IHi; try omega.
+    rewrite <-res_assoc; reflexivity.
 Qed.
 
 Lemma arrays_eq ty (ls : locs ty) vs vs' p :
@@ -580,7 +591,7 @@ Lemma arrays_p_star ty (loc : locs ty) xs p q :
   arrays loc xs (p + q) == (arrays loc xs p *** arrays loc xs q).
 Proof.
   revert loc; induction xs; simpl; intros; eauto.
-  - rewrite emp_unit_l_res; reflexivity.
+  - rewrite res_emp_l_unit; reflexivity.
   - rewrite* mpss_p_star; rewrite* IHxs.
     rewrite <-!res_assoc.
     rewrite (res_CA (arrays (locs_off loc 1) xs p)); reflexivity.
@@ -608,7 +619,7 @@ Proof.
     { apply Qc_is_canon.
       rewrite QcmultQ.
       lra_Qc. }
-    rewrite emp_unit_r_res; reflexivity.
+    rewrite res_emp_r_unit; reflexivity.
   - remember (S nt) as nt'.
     asserts_rewrite (Zn (S nt') = Zn nt' + 1)%Z.
      { rewrite Nat2Z.inj_succ; omega. }
@@ -656,17 +667,16 @@ Lemma arrays'_unfold ty i (arr : list (option (vals ty))) ptr p:
    (arrays' (locs_off ptr (Z.succ (Zn i))) (skipn (S i) arr) p)).
 Proof.
   unfold array.
-  simpl; unfold equiv_res, sat_res, sat;
   revert arr ptr; induction i; intros arr ptr.
-  - destruct arr; simpl; try (intros; omega); intros _ s h.
-    split; intros; sep_normal; sep_normal_in H; rewrite locs_off0 in *; eauto. 
+  - destruct arr; simpl; try (intros; omega); intros _ h.
+    rewrite res_emp_l_unit, locs_off0; reflexivity.
   - destruct arr as [|v arr]; try (simpl; intros; omega).
     intros Hlen'; simpl in Hlen'; assert (Hlen : i < length arr) by omega.
     rewrite Nat2Z.inj_succ.
     do 2 rewrite locs_offS; simpl.
-    split; intros; sep_normal; sep_normal_in H; repeat sep_cancel.
-    rewrites* IHi in H0.
-    rewrites* IHi.
+    intros.
+    rewrite IHi; try omega.
+    rewrite <-res_assoc; reflexivity.
 Qed.
 
 Lemma arrays'_oq ty ls ls' (ptr : locs ty) p :
@@ -681,7 +691,7 @@ Lemma array'_ok ty n (ptr : locs ty) dist vals s p :
   arrays ptr vals p.
 Proof.
   revert s ptr; induction vals; intros; simpl.
-  - intros s' h.
+  - intros h.
     rewrite init_emp_emp_res; reflexivity.
   - rewrite ls_star_res.
     rewrite IHvals.
@@ -694,7 +704,7 @@ Proof.
                   ls_init ((dist s) + 1) (n - dist s - 1) (fun _ => Emp)))
     end.
     rewrite istar_app, init_emp_emp_res; simpl; rewrite init_emp_emp_res.
-    rewrite emp_unit_l_res, emp_unit_r_res; reflexivity.
+    rewrite res_emp_l_unit, res_emp_r_unit; reflexivity.
     specialize (H s).
     simpl in *.
     cutrewrite (n = (dist s) + 1 + (n - dist s - 1)); [|omega].
@@ -864,13 +874,13 @@ Proof.
   2: applys* eval_locs_off.
   intros ? ?.
   apply Assn_imply; eauto using incl_refl.
-  intros Hp ? ? Hsat; rewrites (>>arrays_unfold i_n); [rewrite* length_set_nth|].
+  intros Hp ? Hsat; rewrites (>>arrays_unfold i_n); [rewrite* length_set_nth|].
   rewrite nth_set_nth.
   forwards*: H3.
   destruct Nat.eq_dec; try (clear Hsat; false; lia).
   destruct lt_dec; try (clear Hsat; false; lia).
   rewrite <-!res_assoc, res_CA; substs; eauto.
-  intros Hp ? ? Hsat.
+  intros Hp ? Hsat.
   lets* Hsat': (>> H4 Hsat).
   rewrites (>>arrays_unfold i_n) in Hsat'; eauto.
   rewrite <-!res_assoc, res_CA in Hsat'; eauto.
@@ -897,7 +907,7 @@ Proof.
   eapply forward; [|applys* (>>rule_writes (locs_off ls iz) vs)].
   2: applys* eval_locs_off.
   apply Assn_imply; eauto using incl_refl.
-  intros Hp ? ? Hsat.
+  intros Hp ? Hsat.
   forwards*: H3.
   rewrite (arrays'_unfold _ i).
   2: rewrite ith_vals_length, length_set_nth; (clear Hsat; lia).
@@ -909,7 +919,7 @@ Proof.
   destruct lt_dec; try (clear Hsat; lia).
   rewrite <-!res_assoc, res_CA; substs; eauto.
   
-  intros Hp s h Hsat.
+  intros Hp h Hsat.
   apply H4 in Hsat; auto.
   forwards*: H3.
   rewrite (arrays'_unfold _ i) in Hsat.

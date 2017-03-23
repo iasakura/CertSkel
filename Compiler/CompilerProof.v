@@ -1,6 +1,9 @@
-Require Import Nat LibTactics assertion_lemmas GPUCSL TypedTerm Monad Grid.
-Require Import Grid Host DepList CUDALib CSLLemma CSLTactics CodeGen Compiler Skel_lemma mkMap mkReduce 
+Require Import PeanoNat String List LibTactics GPUCSL TypedTerm Monad Grid.
+Require Import Grid Host DepList CUDALib CSLLemma CSLTactics CodeGen Compiler mkMap mkReduce 
         Correctness CodeGenM SeqCompilerProof Program Psatz.
+Import Utils.
+    
+Open Scope list_scope.
 
 Lemma genenv_ok GA : aenv_ok (remove_typeinfo (gen_params GA)).
 Proof.
@@ -246,6 +249,27 @@ Proof.
   intros n; rewrite in_app_iff; intros [? | ?]; eauto.
 Qed.
 
+Lemma prefix_ex (s1 s2 : string) : prefix s1 s2 = true <-> exists s, s2 = (s1 ++ s)%string.
+Proof.
+  revert s1; induction s2; simpl; split; intros.
+  - destruct s1; try congruence.
+    exists ""; reflexivity.
+  - destruct H as [? ?].
+    destruct s1; inversion H; eauto.
+  - destruct s1.
+    + exists (String a s2); reflexivity.
+    + destruct Ascii.ascii_dec; try congruence.
+      apply IHs2 in H as [? ?]; subst.
+      exists x; reflexivity.
+  - destruct s1; auto.
+    destruct Ascii.ascii_dec.
+    + apply IHs2; destruct H as [s ?]; exists s.
+      inversion H; eauto.
+    + destruct H as [s ?].
+      cutrewrite (String a0 s1 ++ s = String a0 (s1 ++ s))%string in H; [|auto].
+      inversion H; congruence.
+Qed.
+
 Lemma out_name_arrInvVar GA (aeenv : AEvalEnv GA) (apenv : APtrEnv GA) typ :
   disjoint (map ent_e (arrInvVar (remove_typeinfo (gen_params GA)) apenv aeenv))
            (map fst (flatTup (out_name typ))).
@@ -378,6 +402,7 @@ Proof.
   split; revert s h; prove_imp.
   simpl in *; tauto.
 Qed.
+
 Lemma ls_app_cons A l (x : A) l' :
   l ++ x :: l' = (l ++ x :: nil) ++ l'.
 Proof. rewrite <-app_assoc; eauto. Qed.
@@ -408,11 +433,11 @@ Lemma compile_map_ok GA dom cod ntrd nblk
       xs fns Gp E R P :
   ntrd <> 0 -> nblk <> 0
   -> Skel.skelDenote GA cod (Skel.Map GA dom cod f arr) aeenv = Some result
-  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv (T *** R) P E 1) Gp)
+  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv (TT *** R) P E 1) Gp)
            (compile_map ntrd nblk avenv f arr)
-           (fun res => postST xs fns (kernelInv avenv apenv aeenv (T *** R) P E 1)
+           (fun res => postST xs fns (kernelInv avenv apenv aeenv (TT *** R) P E 1)
                               (Ex ps, kernelInv avenv apenv aeenv
-                                                    (arrays (val2gl ps) (arr2CUDA result) 1%Qc *** T *** R)
+                                                    (arrays (val2gl ps) (arr2CUDA result) 1%Qc *** TT *** R)
                                                     P
                                                     (fst res |-> Zn (length result) :: snd res |=> ps ++ E) 1%Qc) Gp Gp).
 Proof.
@@ -541,11 +566,11 @@ Lemma compile_reduce_ok GA typ ntrd nblk
   -> (forall x y : Skel.typDenote typ, f_tot x y = f_tot y x)
   -> (forall x y z : Skel.typDenote typ, f_tot (f_tot x y) z = f_tot x (f_tot y z))
   -> Skel.skelDenote GA typ (Skel.Reduce GA typ f arr) aeenv = Some result
-  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv (T *** R) P E 1) Gp)
+  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv (TT *** R) P E 1) Gp)
            (compile_reduce ntrd nblk avenv f arr)
-           (fun res => postST xs fns (kernelInv avenv apenv aeenv (T *** R) P E 1)
+           (fun res => postST xs fns (kernelInv avenv apenv aeenv (TT *** R) P E 1)
                               (Ex ps, kernelInv avenv apenv aeenv
-                                                    (arrays (val2gl ps) (arr2CUDA result) 1%Qc *** T  *** R)
+                                                    (arrays (val2gl ps) (arr2CUDA result) 1%Qc *** TT  *** R)
                                                     P
                                                     (fst res |-> Zn (length result) :: snd res |=> ps ++ E) 1%Qc) Gp Gp).
 Proof.
@@ -588,7 +613,7 @@ Proof.
   intros vs.
   eapply rule_bind'.
   { eapply rule_invokeKernel.
-    - remember (S (log2 ntrd)).
+    - remember (S (Nat.log2 ntrd)).
       unfold K; rewrite !in_app_iff; simpl; substs; eauto.
     - simpl; eauto.
     - simpl; rewrite !map_app, !app_length, !map_length, !flatTup_length; eauto.
@@ -604,7 +629,7 @@ Proof.
       Proof.
         unfold has_no_vars, Bdiv.indeP; simpl.
         intros.
-        split; intros [x ?]; exists x; [apply <-H|apply ->H]; eauto.
+        constructor; eauto.
       Qed.
       apply has_no_vars_Ex; intros.
       apply has_no_vars_kernelInv'.
@@ -649,15 +674,13 @@ Proof.
   eapply rule_equiv_mono_pre.
   { introv; unfold K.
     rewrite ex_lift_l.
-    intros [? ?].
-    simpl in H.
-    rewrite ls_app_cons in H.
-    fold_sat_in H.
-    rewrite app_assoc in H.
-    rewrite kernelInv'_combine in H.
-    unfold sat in H.
-    ex_intro x0 H; simpl in H.
-    apply H. }
+    intros [? Hsat]; fold_sat_in Hsat.
+    simpl in Hsat.
+    rewrite ls_app_cons in Hsat.
+    rewrite app_assoc in Hsat.
+    rewrite kernelInv'_combine in *.
+    ex_intro x0 Hsat; simpl in Hsat.
+    apply Hsat. }
   { unfold K; introv H.
     apply fv_assn_sep in H as (ys & zs & Hys & Hzs & Heq).
     rewrite fv_assn_base in Hys.
@@ -675,7 +698,7 @@ Proof.
   apply hasDefval_aTypDenote.
   intros vs1.
   
-  remember (S (log2 ntrd)).
+  remember (S (Nat.log2 ntrd)).
   unfold arr_res.
   destruct eval_arr_ok.
   assert (x0 = inp) by congruence; subst x0.
@@ -709,41 +732,6 @@ Proof.
         (extensionality l; extensionality l'; eauto); eauto.
     rewrite Hfeq; eauto. 
     congruence. }
-  (*   Lemma sum_of_f_opt_reduceM T (f : T -> T -> T) s len g : *)
-  (*     SkelLib.reduceM (fun x y => Some (f x y)) (scan_lib.ls_init s len g) = *)
-  (*     match sum_of_f_opt _ f s len g with *)
-  (*     | None => None *)
-  (*     | Some x => Some (x :: nil) *)
-  (*     end. *)
-  (*   Proof. *)
-  (*     unfold SkelLib.reduceM; revert s; induction len; simpl; eauto. *)
-  (*     introv. *)
-  (*     specialize (IHlen (S s)). *)
-  (*     destruct fold_right eqn:Heq1; destruct sum_of_f_opt eqn:Heq2; inverts IHlen; eauto. *)
-  (*   Qed. *)
-  (*   rewrite sum_of_f_opt_reduceM. *)
-  (*   rewrite <-Heq2. *)
-  (*   Lemma ls_init_nth_aux' T (xs : list T) d n s : *)
-  (*     length xs = n  *)
-  (*     -> scan_lib.ls_init s n (fun i => nth (i - s) xs d) = xs. *)
-  (*   Proof. *)
-  (*     intros. *)
-  (*     applys (>>eq_from_nth d); autorewrite with pure; eauto. *)
-  (*     intros. *)
-  (*     autorewrite with pure; destruct lt_dec; f_equal; lia. *)
-  (*   Qed. *)
-  (*   Lemma ls_init_nth' T (xs : list T) d n : *)
-  (*     length xs = n  *)
-  (*     -> scan_lib.ls_init 0 n (fun i => nth i xs d) = xs. *)
-  (*   Proof. *)
-  (*     intros; forwards*: (>>ls_init_nth_aux' d n 0); eauto. *)
-  (*     erewrite scan_lib.ls_init_eq0; eauto. *)
-  (*     intros; simpl; rewrite* <-minus_n_O. *)
-  (*   Qed. *)
-  (*   rewrite <-(ls_init_nth' _ inp defval' (length inp)); eauto. *)
-  (*   rewrite sum_of_f_opt_reduceM. *)
-  (*   rewrites* <-(>>fn_ok ntrd nblk (S (log2 ntrd))). *)
-  (* } *)
 
   eapply rule_bind'.
   { apply rule_gen_kernel.
@@ -884,8 +872,8 @@ Proof.
       introv.
       rewrite shift_func_GA_ok; eauto.
     - intros (? & [? ?] & ?).
-      introv; rewrite <-!res_assoc; revert s h.
-      simpl; repeat sep_auto.
+      introv; rewrite <-!res_assoc; revert h.
+      simpl; repeat sep_auto'.
       rewrite res_CA.
       sep_cancel'.
       unfold arrInvRes in *; simpl.
@@ -928,7 +916,7 @@ Proof.
       
       instantiate (1 :=
         kernelInv avenv apenv aeenv
-                  (arrays (val2gl ps') (arr2CUDA result) 1 *** T *** R)
+                  (arrays (val2gl ps') (arr2CUDA result) 1 *** TT *** R)
                   P
                   (outLen |-> 1 :: outs |=> ps' ++ E) 1).
       unfold kernelInv.
@@ -1131,11 +1119,11 @@ Lemma compile_skel_ok GA ntrd nblk typ
   ntrd <> 0 -> nblk <> 0
   -> skelE_wf GA _ skelE 
   -> Skel.skelDenote GA typ skelE aeenv = Some result
-  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv (T *** R) P E 1) Gp)
+  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv (TT *** R) P E 1) Gp)
            (compile_Skel ntrd nblk skelE avenv)
-           (fun res => postST xs fns (kernelInv avenv apenv aeenv (T *** R) P E 1)
+           (fun res => postST xs fns (kernelInv avenv apenv aeenv (TT *** R) P E 1)
                               (Ex ps, kernelInv avenv apenv aeenv
-                                                (arrays (val2gl ps) (arr2CUDA result) 1%Qc *** T *** R)
+                                                (arrays (val2gl ps) (arr2CUDA result) 1%Qc *** TT *** R)
                                                 P
                                                 (fst res |-> Zn (length result)  :: snd res |=> ps ++ E) 1%Qc) Gp Gp).
 Proof.
@@ -1160,8 +1148,8 @@ Proof.
     applys* (>>eq_from_nth 0%Z).
     rewrite map_length, !seq_length; eauto.
     introv; rewrite map_length, !seq_length; intros.
-    rewrite (nth_map 0%Z).
-    2: rewrite seq_length; eauto.
+    rewrites (>>nth_map 0%Z).
+    { rewrite seq_length; eauto. }
     rewrite !seq_nth.
     destruct lt_dec; omega.
   - intros; applys* compile_map_ok.
@@ -1268,13 +1256,13 @@ Lemma compile_res_ok GA typ ntrd nblk
   ntrd <> 0 -> nblk <> 0
   -> length result <= length vs
   -> Skel.aeDenote GA typ arr aeenv = Some result
-  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv (T *** arrays (val2gl outp) vs 1)
+  -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv (TT *** arrays (val2gl outp) vs 1)
                                     True
                                     (outs |=> outp) 1) Gp)
            (compile_res ntrd nblk avenv arr outs)
-           (fun res => postST xs fns (kernelInv avenv apenv aeenv (T *** arrays (val2gl outp) vs 1) True (outs |=> outp) 1)
+           (fun res => postST xs fns (kernelInv avenv apenv aeenv (TT *** arrays (val2gl outp) vs 1) True (outs |=> outp) 1)
                               (kernelInv avenv apenv aeenv
-                                         (T *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
+                                         (TT *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
                                          True
                                          (res |-> Zn (length result) :: outs |=> outp) 1%Qc) Gp Gp).
 Proof.
@@ -1379,7 +1367,7 @@ Proof.
   introv.
   applys* postST_imp.
   apply Assn_imply; eauto.
-  intros _ ? ? Hsat.
+  intros _ ? Hsat.
   rewrites (>>arrays_split (length result)).
   rewrite <-!res_assoc in *.
   repeat sep_cancel'.
@@ -1395,6 +1383,13 @@ Proof.
   Qed.
   rewrite skipn_app.
   cutrewrite (length result = length (arr2CUDA result)); [|unfold arr2CUDA; rewrites* map_length ].
+  Lemma drop_oversize:
+    forall (T : Type) (n : nat) (s : list T ), length s <= n -> skipn n s = nil.
+  Proof.
+    induction n; destruct s; simpl; intros; try omega; eauto.
+    apply IHn; omega.
+  Qed.
+
   rewrites (>>drop_oversize (arr2CUDA result)); simpl; eauto.
   rewrite minus_diag; simpl; eauto.
   unfold incl; introv; simpl; rewrite !in_app_iff; simpl; try tauto.
@@ -1415,13 +1410,13 @@ Theorem compile_AS_ok GA ntrd nblk typ
   -> skel_as_wf GA _ skel_as
   -> Skel.asDenote GA typ skel_as aeenv = Some result
   -> ST_ok (preST xs fns (kernelInv avenv apenv aeenv 
-                                    (T *** arrays (val2gl outp) vs 1)
+                                    (TT *** arrays (val2gl outp) vs 1)
                                     True
                                     (outs |=> outp) 1) Gp)
            (compile_AS ntrd nblk skel_as outs avenv)
-           (fun res => postST xs fns (kernelInv avenv apenv aeenv (T *** arrays (val2gl outp) vs 1) True (outs |=> outp) 1)
+           (fun res => postST xs fns (kernelInv avenv apenv aeenv (TT *** arrays (val2gl outp) vs 1) True (outs |=> outp) 1)
                               (kernelInv avenv apenv aeenv
-                                         (T *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
+                                         (TT *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
                                          True
                                          (res |-> Zn (length result) :: outs |=> outp) 1%Qc) Gp Gp).
 Proof.
@@ -1443,7 +1438,7 @@ Proof.
     intros ps; unfold K.
     eapply rule_equiv_mono_pre.
     { intros stk h Hsat.
-      instantiate (1 := kernelInv (x ::: avenv) (ps ::: apenv) (a ::: aeenv) (T *** arrays (val2gl outp) vs 1) True (outs |=> outp) 1).
+      instantiate (1 := kernelInv (x ::: avenv) (ps ::: apenv) (a ::: aeenv) (TT *** arrays (val2gl outp) vs 1) True (outs |=> outp) 1).
       unfold kernelInv in Hsat |- *; revert stk h Hsat; prove_imp.
       - unfold arrInvVar in *; simpl in *.
         destruct x; simpl in *.
@@ -1590,7 +1585,7 @@ Proof.
   
   Lemma safe_nh_safe_nhfun M n s h body ret Q' Q v :
     safe_nh M n s h body Q'
-    -> (forall s h, Q' s h -> s ret = v)
+    -> (forall s h, sat s h Q' -> s ret = v)
     -> Q' |= Q v
     -> safe_nhfun M n s h body ret Q.
   Proof.
@@ -1598,7 +1593,6 @@ Proof.
     introv (Hskip & Hsafe & Hstep) Hret HQ; splits; jauto.
     - intros; forwards*: Hskip.
       erewrite Hret; eauto.
-      applys* HQ.
     - introv Hdis Htoh Hexec; forwards*(h'' & ? & ? & ?): Hstep.
   Qed.
 
@@ -1611,10 +1605,9 @@ Lemma CSLhfun_pure_prem M G R (P : Prop) E hf Q :
 Proof.
   intros H.
   intros n Hctx vs s h Hbind Hsat.
-  unfold sat, Assn in Hsat; sep_split_in Hsat.
+  unfold sat in Hsat; simpl in Hsat.
   unfold CSLhfun, with_ctx, CSLhfun_n_simp in H.
-  applys (>>H vs); eauto.
-  unfold sat, Assn; sep_split; eauto.
+  applys* (>>H vs).
 Qed.
 
 Lemma CSLfd_host M G P hf Q:
@@ -1638,11 +1631,11 @@ Theorem compile_prog_ok GA typ ntrd nblk (p : Skel.AS GA typ) :
        fs_tri := 
          All aeenv apenv outp result vs,
          FDbl (kernelInv (remove_typeinfo (gen_params GA)) apenv aeenv
-                         (T *** arrays (val2gl outp) vs 1)
+                         (TT *** arrays (val2gl outp) vs 1)
                          (Skel.asDenote GA typ p aeenv = Some result /\ length result <= length vs)
                          (outArr typ |=> outp) 1)
               (fun l => kernelInv' apenv aeenv
-                                   (T *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
+                                   (TT *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
                                    (l = Zn (length result)) 1%Qc) |}.
 Proof.
   intros.
@@ -1689,8 +1682,7 @@ Proof.
   - eapply rule_host_forward; [apply Hcsl|..]; unfold kernelInv; prove_imp.
   - applys* incl_tl.
   - introv Hsat'.
-    unfold sat, kernelInv, Assn in Hsat'; sep_split_in Hsat'.
-    simpl in HP0; destruct HP0.
-    unfold_conn_in H4; simpl in H4; eauto.
+    unfold sat, kernelInv in Hsat'; simpl in Hsat'.
+    jauto.
   - unfold kernelInv, kernelInv'; prove_imp; try tauto.
 Qed.
