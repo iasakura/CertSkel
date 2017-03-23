@@ -47,10 +47,6 @@ Proof.
   rewrite IHxs; eauto.
 Qed.
 
-Axiom inde_fv_equiv :
-  forall R P E xs,
-    inde (Assn R P E) xs <-> (forall x v, In (x |-> v) E -> ~In x xs).
-
 Lemma rule_host_allocs GM G R P E ty (xs : vars ty) e l :
   evalExp E e (Zn l)
   -> disjoint (flatTup xs) (fv_E e)
@@ -106,14 +102,6 @@ Definition ST_ok {T} (P : STPre) (gen : CUDAM T) (Q : T -> STPost) :=
     P n m GMp
     -> gen n m = (v, (n', m', st, GM))
     -> Q v n m n' m' GM (GMp ++ GM) (seqs st).
-
-Parameter fv_assn : assn -> list var -> Prop.
-Axiom fv_assn_ok : forall P xs ys,
-    fv_assn P xs -> disjoint xs ys -> inde P ys.
-Axiom fv_assn_base :
-  forall R P E xs, fv_assn (Assn R P E) xs <-> incl (List.map ent_e E) xs.
-Axiom fv_assn_Ex :
-  forall T (P : T -> assn) xs, fv_assn (Ex v, P v) xs <-> (forall v, fv_assn (P v) xs).
 
 Definition hvar n := Var ("h" ++ nat2str n).
 Definition kname n := ("_ker" ++ nat2str n)%string.
@@ -797,23 +785,23 @@ Proof.
 
   applys (>>rule_setI (x :: nil)).
   { intros; applys* rule_host_let. }
-  { introv; rewrite !fv_assn_base; simpl.
+  { introv; rewrite !fv_assn_base_eq; simpl.
     intros; applys* incl_cons_lr.
     lets: remove_var_incl'.
     unfold incl in *; intros.
     eapply H, H0; eauto. }
   apply incl_cons_lr, incl_nil_l.
-  (* apply fv_assn_base; simpl. *)
+  (* apply fv_assn_base_eq; simpl. *)
   (* unfold incl; introv; simpl; repeat rewrite in_app_iff in *; eauto. *)
   (* destruct 1; eauto. *)
-  (* rewrite fv_assn_base in Hfv. *)
+  (* rewrite fv_assn_base_eq in Hfv. *)
   (* right; apply remove_var_incl' in H. *)
   (* applys* Hfv. *)
   (* unfold incl; introv; simpl; tauto. *)
   (* simpl; destruct var_eq_dec; try congruence. *)
   (* rewrites* remove_xs_disj. *)
   introv.
-  unfold K in Hfvxs; rewrite fv_assn_base in Hfvxs.
+  unfold K in Hfvxs; rewrite fv_assn_base_eq in Hfvxs.
   rewrite remove_var_disjoint.
   2: intros Hc; apply Hfvxs in Hc; tauto.
   simpl; destruct var_eq_dec; try congruence.
@@ -846,14 +834,14 @@ Proof.
   applys* (>>rule_bind' (Assn R P E)).
   applys (>>rule_setI (x :: nil)).
   { intros; applys* rule_host_alloc. }
-  { intros; do 2 (apply fv_assn_Ex; intros); rewrite fv_assn_base in *; simpl.
+  { intros; do 2 (apply fv_assn_Ex_eq; intros); rewrite fv_assn_base_eq in *; simpl.
     apply incl_cons_lr.
     forwards*: (>>remove_var_incl' E x).
     unfold incl in *; intuition. }
   { apply incl_cons_lr, incl_nil_l. }
   unfold incl; introv; simpl; repeat rewrite in_app_iff in *; eauto.
   (* destruct 1; eauto. *)
-  (* rewrite fv_assn_base in Hfv. *)
+  (* rewrite fv_assn_base_eq in Hfv. *)
   (* right; apply remove_var_incl' in H. *)
   (* applys* Hfv. *)
   (* unfold incl; introv; simpl; tauto. *)
@@ -861,7 +849,7 @@ Proof.
   rewrites* remove_xs_disj.
   introv.
   rewrite remove_var_disjoint.
-  2: intros Hc; apply fv_assn_base in Hfvxs; apply Hfvxs in Hc; tauto.
+  2: intros Hc; apply fv_assn_base_eq in Hfvxs; apply Hfvxs in Hc; tauto.
   eapply (rule_ret _ x (fun x => K ys x)
                    (fun x => fns)
                    (fun x' => Ex (p : val) (vs : list val),
@@ -929,7 +917,7 @@ Proof.
     forwards*: (H default); splits; [..|splits]; jauto.
     introv; forwards*: (H y). }
   unfold preST in H0; destruct H0 as ((? & ? & ? & ?) & ?).
-  rewrite fv_assn_Ex in H0.
+  rewrite fv_assn_Ex_eq in H0.
   forwards*: H'.
   unfold preST in *; intros; splits; jauto.
   splits; [..|splits]; jauto.
@@ -954,18 +942,18 @@ Proof.
   - eapply rule_backward.
     applys (>>rule_fAlloc (size |-> G.Zn l :: E)).
     evalExp.
-    (* rewrite fv_assn_base; simpl. *)
+    (* rewrite fv_assn_base_eq; simpl. *)
     (* apply incl_cons_lr; eauto. *)
     simpl; intros.
     unfold postST in *; splits; [..|splits]; jauto.
     { destruct H as (_ & _ & (xs' & ? & ? & ?) & _).
       exists xs'; splits; jauto.
-      do 2 (apply fv_assn_Ex; intros).
-      rewrite fv_assn_Ex in H.
+      do 2 (apply fv_assn_Ex_eq; intros).
+      rewrite fv_assn_Ex_eq in H.
       specialize (H v0).
-      rewrite fv_assn_Ex in H.
+      rewrite fv_assn_Ex_eq in H.
       specialize (H v1).
-      rewrite fv_assn_base in *.
+      rewrite fv_assn_base_eq in *.
       unfold incl in *; simpl in *; intros; forwards*: H. }
     (* { destruct H as (_ & _ & _ & H' & _). *)
     (*   constructor; [|constructor]; inverts H' as ? H'; inverts H'; eauto. } *)
@@ -977,18 +965,18 @@ Proof.
   - eapply rule_backward.
     applys (>>rule_fAlloc (size |-> G.Zn l :: E)).
     evalExp.
-    (* rewrite fv_assn_base; simpl. *)
+    (* rewrite fv_assn_base_eq; simpl. *)
     (* apply incl_cons_lr; eauto. *)
     simpl; intros.
     unfold postST in *; splits; [..|splits]; jauto.
     { destruct H as (_ & _ & (xs' & ? & ? & ?) & _).
       exists xs'; splits; jauto.
-      do 2 (apply fv_assn_Ex; intros).
-      rewrite fv_assn_Ex in H.
+      do 2 (apply fv_assn_Ex_eq; intros).
+      rewrite fv_assn_Ex_eq in H.
       specialize (H v0).
-      rewrite fv_assn_Ex in H.
+      rewrite fv_assn_Ex_eq in H.
       specialize (H v1).
-      rewrite fv_assn_base in *.
+      rewrite fv_assn_base_eq in *.
       unfold incl in *; simpl in *; intros; forwards*: H. }
     (* { destruct H as (_ & _ & _ & H' & _). *)
     (*   constructor; [|constructor]; inverts H' as ? H'; inverts H'; eauto. } *)
@@ -1048,20 +1036,20 @@ Proof.
       rewrite combine_length.
       rewrite Nat.min_l; omega. }
     { intros xs Hfv.
-      apply fv_assn_Ex; intros ps.
-      apply fv_assn_Ex; intros vs.
-      rewrite fv_assn_Ex in Hfv; specialize (Hfv (snd ps)).
-      rewrite fv_assn_Ex in Hfv; specialize (Hfv (map snd vs)).
-      rewrite fv_assn_base in *; simpl in *.
+      apply fv_assn_Ex_eq; intros ps.
+      apply fv_assn_Ex_eq; intros vs.
+      rewrite fv_assn_Ex_eq in Hfv; specialize (Hfv (snd ps)).
+      rewrite fv_assn_Ex_eq in Hfv; specialize (Hfv (map snd vs)).
+      rewrite fv_assn_base_eq in *; simpl in *.
       rewrite !map_app, !map_flatTup, <-app_assoc in *.
       unfold incl in *; simpl in *; intros x; specialize (Hfv x); repeat rewrite in_app_iff in *; intuition. }
     unfold vals; simpl; eauto.
     (* unfold preST; introv H; splits; [..|splits]; jauto. *)
     (* (* { destruct H as (_ & _ & H' & _). *) *)
-    (* (*   do 2 (apply fv_assn_Ex; intros); apply fv_assn_base. *) *)
-    (* (*   rewrite fv_assn_Ex in H'; forwards*: (>>H' v0). *) *)
-    (* (*   rewrite fv_assn_Ex in H; forwards*: (>>H v1). *) *)
-    (* (*   apply fv_assn_base in H0. *) *)
+    (* (*   do 2 (apply fv_assn_Ex_eq; intros); apply fv_assn_base_eq. *) *)
+    (* (*   rewrite fv_assn_Ex_eq in H'; forwards*: (>>H' v0). *) *)
+    (* (*   rewrite fv_assn_Ex_eq in H; forwards*: (>>H v1). *) *)
+    (* (*   apply fv_assn_base_eq in H0. *) *)
     (* (*   unfold incl in *; simpl in *; introv; specialize (H0 a); repeat rewrite in_app_iff in *. *) *)
     (* (*   intuition. } *) *)
     (* { destruct H as (H' & _). *)
@@ -1188,11 +1176,11 @@ Proof.
   introv.
   apply postST_imp; eauto.
   - intros stk hp (ps & vs & Hsat); exists ps vs; revert stk hp Hsat; prove_imp.
-  - introv H; rewrite !fv_assn_Ex in *.
+  - introv H; rewrite !fv_assn_Ex_eq in *.
     introv; specialize (H v0).
-    rewrite !fv_assn_Ex in *.
+    rewrite !fv_assn_Ex_eq in *.
     introv; specialize (H v1).
-    rewrite fv_assn_base in *; simpl in *.
+    rewrite fv_assn_base_eq in *; simpl in *.
     unfold incl in *; intros a Hin; forwards*: H; simpl in *; eauto.
 Qed.
 
@@ -1439,13 +1427,10 @@ Proof.
   destruct H10 as ((xs' & ? & ? & ?) & _); exists xs'; splits; jauto.
   unfold K.
   
-  Axiom fv_assn_sep : forall P Q xs, fv_assn (P ** Q) xs <-> exists ys zs, fv_assn P ys /\ fv_assn Q zs /\ (forall x, In x xs <-> In x ys \/ In x zs).
-  apply fv_assn_sep.
+  apply fv_assn_sep_eq.
   exists xs' (nil : list var).
   splits; jauto.
-  rewrites* fv_assn_base in *.
-  Axiom fv_assn_novars : forall P, has_no_vars P -> fv_assn P nil.
-  applys* fv_assn_novars.
+  rewrites* fv_assn_base_eq in *.
   simpl; intros; tauto.
   Lemma CSLh_pure_prem M G R (P : Prop) E ss Q :
     (P -> CSLh M G (Assn R P E) ss Q)

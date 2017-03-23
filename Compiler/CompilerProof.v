@@ -525,9 +525,9 @@ Proof.
     rewrite app_assoc.
     unfold K; introv; rewrite kernelInv'_combine; eauto. }
   { unfold K; intros.
-    apply fv_assn_base.
-    apply fv_assn_sep in H as (? & ? & ? & ? & ?).
-    apply fv_assn_base in H.
+    apply fv_assn_base_eq.
+    apply fv_assn_sep_eq in H as (? & ? & ? & ? & ?).
+    apply fv_assn_base_eq in H.
     unfold incl in *; simpl in *; introv.
     rewrite <-!app_assoc; simpl.
     firstorder. }
@@ -542,8 +542,8 @@ Proof.
   rewrite H; eauto.
   unfold incl; introv; simpl; rewrite !in_app_iff; simpl; try tauto.
 
-  introv; unfold kernelInv; rewrite fv_assn_base; intros.
-  (apply fv_assn_Ex; intros); unfold kernelInv; rewrite fv_assn_base.
+  introv; unfold kernelInv; rewrite fv_assn_base_eq; intros.
+  (apply fv_assn_Ex_eq; intros); unfold kernelInv; rewrite fv_assn_base_eq.
   eapply incl_tran in H; eauto.
   simpl; rewrite !map_app.
   
@@ -682,12 +682,12 @@ Proof.
     ex_intro x0 Hsat; simpl in Hsat.
     apply Hsat. }
   { unfold K; introv H.
-    apply fv_assn_sep in H as (ys & zs & Hys & Hzs & Heq).
-    rewrite fv_assn_base in Hys.
-    rewrite fv_assn_Ex in *.
+    apply fv_assn_sep_eq in H as (ys & zs & Hys & Hzs & Heq).
+    rewrite fv_assn_base_eq in Hys.
+    rewrite fv_assn_Ex_eq in *.
     intros v; specialize (Hzs v).
-    apply fv_assn_base in Hzs; simpl in Hzs.
-    apply fv_assn_base; simpl in *.
+    apply fv_assn_base_eq in Hzs; simpl in Hzs.
+    apply fv_assn_base_eq; simpl in *.
     rewrite <-!app_assoc; simpl.
     unfold incl; firstorder. }
   apply rule_code_ex.
@@ -964,7 +964,7 @@ Proof.
       omega.
       rewrite res_comm.
       sep_cancel'; apply I.
-    - unfold kernelInv; introv; rewrite !fv_assn_base; simpl.
+    - unfold kernelInv; introv; rewrite !fv_assn_base_eq; simpl.
       repeat (simpl; rewrite map_app).
       intros Hincl v Hin; apply Hincl.
       repeat (simpl in *; rewrite in_app_iff in *).
@@ -981,10 +981,10 @@ Proof.
     destruct fold_right; inverts Heq2; simpl; eauto. }
   unfold K.
   unfold incl; introv; rewrite !in_app_iff; eauto.
-  unfold K, kernelInv; introv; repeat rewrite fv_assn_base.
+  unfold K, kernelInv; introv; repeat rewrite fv_assn_base_eq.
   intros.
-  apply fv_assn_Ex; intro.
-  apply fv_assn_base.
+  apply fv_assn_Ex_eq; intro.
+  apply fv_assn_base_eq.
   intros a ?; apply H0.
   rewrite !map_app, !in_app_iff in *; simpl in *.
   rewrite map_app in *.
@@ -1355,9 +1355,9 @@ Proof.
   { rewrite app_comm_cons.
     unfold K; introv; rewrite kernelInv'_combine; eauto. }
   { unfold K; intros.
-    apply fv_assn_base.
-    apply fv_assn_sep in H as (? & ? & ? & ? & ?).
-    apply fv_assn_base in H.
+    apply fv_assn_base_eq.
+    apply fv_assn_sep_eq in H as (? & ? & ? & ? & ?).
+    apply fv_assn_base_eq in H.
     unfold incl in *; simpl in *; introv.
     firstorder. }
 
@@ -1394,7 +1394,7 @@ Proof.
   rewrite minus_diag; simpl; eauto.
   unfold incl; introv; simpl; rewrite !in_app_iff; simpl; try tauto.
 
-  introv; unfold kernelInv; rewrite !fv_assn_base in *; intros.
+  introv; unfold kernelInv; rewrite !fv_assn_base_eq in *; intros.
   eauto.
 
   Grab Existential Variables.
@@ -1449,7 +1449,7 @@ Proof.
         rewrite <-res_assoc.
         repeat sep_cancel'. }
     { introv.
-      unfold kernelInv; rewrite !fv_assn_base; simpl.
+      unfold kernelInv; rewrite !fv_assn_base_eq; simpl.
       intros Hincl t Hin; apply Hincl; simpl in *.
       unfold arrInvVar in Hin; simpl in *.
       destruct x; simpl in *.
@@ -1469,7 +1469,7 @@ Proof.
         sep_cancel'.
         eauto.
     + introv Hfv.
-      unfold kernelInv in *; rewrite !fv_assn_base in *; simpl.
+      unfold kernelInv in *; rewrite !fv_assn_base_eq in *; simpl.
       intros var Hin; apply Hfv.
       unfold arrInvVar in Hin; simpl in *.
       destruct x; simpl in *.
@@ -1664,7 +1664,7 @@ Proof.
                                                      (fun _ : var => @nil string)
                                                      (fun _ : var => @nil (string * FSpec))
                                                      (@nil fdecl) Hok); try now constructor.
-  { eexists; unfold kernelInv; rewrite fv_assn_base.
+  { eexists; unfold kernelInv; rewrite fv_assn_base_eq.
     splits; eauto.
     introv; rewrite map_app, in_app_iff, map_flatTup.
     intros [Hin | Hin] Hc; substs.

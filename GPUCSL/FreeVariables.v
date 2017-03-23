@@ -112,3 +112,33 @@ Proof.
     substs.
     unfold sat; simpl; intros (h1 & h2 & ? & ? & ? & ?); exists h1 h2; splits; unfold sat in *; jauto.
 Qed.            
+
+Lemma fv_assn_novars : forall P, has_no_vars P -> fv_assn P nil.
+Proof.
+  unfold has_no_vars; eauto.
+Qed.
+Lemma fv_assn_sep_eq : forall P Q xs, fv_assn (P ** Q) xs <-> exists ys zs, fv_assn P ys /\ fv_assn Q zs /\ (forall x, In x xs <-> In x ys \/ In x zs).
+Proof.
+  split; intros.
+  - inverts H; do 2 eexists; jauto.
+  - destruct H as (? & ? & ?); econstructor; jauto.
+Qed.
+
+Lemma fv_assn_base_eq :
+  forall R P E xs, fv_assn (Assn R P E) xs <-> incl (List.map ent_e E) xs.
+Proof.
+  split; intros.
+  - inverts H; jauto.
+  - constructor; eauto.
+Qed.
+
+Lemma fv_assn_Ex_eq :
+  forall T (P : T -> assn) xs, fv_assn (Ex v, P v) xs <-> (forall v, fv_assn (P v) xs).
+Proof.
+  split; intros.
+  - inverts H.
+    cutrewrite (P v = P1 v); eauto.
+    assert (id (fun v : T => P1 v) v = id (fun v : T => P v) v) by (rewrites* H0).
+    eauto.
+  - constructor; eauto.
+Qed.
