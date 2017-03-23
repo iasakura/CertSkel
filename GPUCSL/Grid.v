@@ -381,19 +381,6 @@ Section For_List_Notation.
               remember (f, fs) as x.
               cutrewrite (f = (fst x)) in Hsat'; [|subst; auto].
               cutrewrite (fs = snd x) in Hsat'; [|subst; auto].
-              Ltac ex_intro x H :=
-                let t := fresh in
-                let H' := fresh in 
-                lazymatch type of H with
-                | sat ?s ?h ?X => pose X as t; pattern x in t;
-                                  match goal with
-                                  | [t' := ?X x : _ |- _] => 
-                                    let v := fresh in
-                                    match t with t' => assert (H' : sat s h (Ex v, X v)) by (exists x; auto)
-                                    end 
-                                  end;
-                                  clear t; clear H; rename H' into H
-                end.
               ex_intro x Hsat'; eauto; simpl.
               simpl.
               apply precise_ex_star.

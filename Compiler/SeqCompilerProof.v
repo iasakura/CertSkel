@@ -1,9 +1,8 @@
 Require Import Monad DepList GPUCSL TypedTerm Compiler.
 Require Import Program.Equality LibTactics.
 Require Import CUDALib CodeGen CSLLemma CSLTactics Correctness mkMap.
-Import Skel_lemma.
 Require Import SkelLib Psatz.
-
+Import String List.
 Variable sorry : forall A, A.
 Arguments sorry {A}.
 
@@ -79,7 +78,7 @@ Proof.
 Qed.
 
 Lemma inde_equiv P P' xs :
-  (forall stk, stk ||= P <=> P') ->
+  (P == P') ->
   (inde P xs <-> inde P' xs).
 Proof.
   unfold inde, equiv_sep.
@@ -302,7 +301,7 @@ Fixpoint remove_by_mem {A t} (ls : list A) : member t ls -> list A :=
 (* Lemma len_of_val typ (v : Skel.typDenote typ) : length (vs_of_sval v) = len_of_ty typ. *)
 (* Proof. induction typ; simpl; eauto; rewrite app_length; auto. Qed. *)
 
-Hint Rewrite prefix_nil ctyps_of_typ__len_of_ty gen_read_writes : core.
+Hint Rewrite prefix_nil ctyps_of_typ__len_of_ty : core.
 Ltac sep_rewrites_in lem H :=
   match type of H with
   | ?X _ _ => pattern X in H
@@ -329,16 +328,16 @@ Proof.
   forwards*: IHarr; omega.
 Qed.
 Lemma nth_error_lt A (arr : list A) i v : 
-  nth_error arr i = Some v -> (0 <= i /\ i < len arr)%Z.
+  SkelLib.nth_error arr i = Some v -> (0 <= i /\ i < len arr)%Z.
 Proof.
-  unfold nth_error, Z_to_nat_error.
+  unfold SkelLib.nth_error, Z_to_nat_error.
   destruct Z_le_dec; try now inversion 1.
   unfold ret; simpl; unfold bind_opt.
   intros H; apply nth_error_lt' in H.
   rewrite Nat2Z.inj_lt in H.
   rewrite !Z2Nat.id in H; unfold len; omega.
 Qed.
-Hint Rewrite prefix_nil ctyps_of_typ__len_of_ty gen_read_writes : core.
+Hint Rewrite prefix_nil ctyps_of_typ__len_of_ty : core.
 
 Ltac no_side_cond tac :=
   tac; [now auto_star..|idtac].
@@ -358,7 +357,6 @@ Proof.
 Qed.
 
 Ltac simplify :=
-  unfold vars2es, tarr_idx, vs2es in *;
   repeat (simpl in *; substs; lazymatch goal with
         | [|- In _ (map _ _) -> _] =>
           rewrite in_map_iff; intros [? [? ?]]; substs
@@ -366,8 +364,6 @@ Ltac simplify :=
           rewrite in_map_iff in H; destruct H as [? [? H]]; substs
         | [H : In _ (flatTup (v2e _)) |- _] =>
           apply in_v2e in H as [? [? H]]; substs
-        | [|- indeE _ _] => apply indeE_fv
-        | [|- indelE _ _] => apply indelE_fv
         | [H : _ \/ False|-_] =>destruct H as [H|[]];substs
         | [H : _ \/ _ |-_] =>destruct H as [?|H]
         | [|- ~(_ \/ _)] => intros [?|?]
@@ -375,28 +371,12 @@ Ltac simplify :=
         | [H : context [In _ (_ ++ _)] |- _] => rewrite in_app_iff in H
         | [|- forall _, _] => intros ?
         | [H : In _ (locals _ _) |- _] => apply locals_pref in H
-        | [H : In _ (nseq _ _) |- _] => apply nseq_in in H
-        | [H : prefix _ _ = true |- _] => apply prefix_ex in H as [? ?]; substs
-        | [|- disjoint_list (locals _ _)] => apply locals_disjoint_ls
         (* | [|- context [length (locals _ _)]] => rewrite locals_length *)
         (* | [H :context [length (locals _ _)]|- _] => rewrite locals_length in H *)
-        | [H :context [length (vars2es _)]|- _] => unfold vars2es in *; rewrite map_length
-        | [|- context [length (vars2es _)]] => unfold vars2es; rewrite map_length
-        | [H :context [In _ (vars2es _)]|- _] =>
-          unfold vars2es in *; rewrite in_map_iff in H;
-          destruct H as [? [? H]]; substs
-        | [|- context [In _ (vars2es _)]] => unfold vars2es; rewrite in_map_iff
         | [|- Forall _ _] => rewrite Forall_forall; intros
-        | [|- indeE _ _] => apply indeE_fv
-        | [|- indelE _ _] => apply indelE_fv
-        | [|- indeB _ _] => apply indeB_fv
         | [H : context [str_of_var ?x] |- _] => destruct x
-        | [|- inde (_ ==t _) _] => apply inde_eq_tup
-        | [|- inde (_ -->l (_, _)) _] => apply inde_is_tup
-        | [|- inde (is_tuple_array_p _ _ _ _ _) _] => apply inde_is_tup_arr
         | [|- context [length (map _ _)]] => rewrite map_length
         | [H : context [length (map _ _)] |- _] => rewrite map_length in H
-        | [H : In _ (names_of_array _ _) |- _] => apply names_of_array_in in H
         | [|- ~_] => intros ?
         end; simpl in *; try substs).
 
@@ -730,10 +710,10 @@ Proof.
   rewrite IHi; auto.
 Qed.
 
-Lemma nth_error_ok T (ls : list T) i d v : nth_error ls i = Some v -> nth (Z.to_nat i) ls d = v.
+Lemma nth_error_ok T (ls : list T) i d v : SkelLib.nth_error ls i = Some v -> nth (Z.to_nat i) ls d = v.
 Proof.
   intros H; forwards*: nth_error_lt.
-  unfold nth_error, Z_to_nat_error in *.
+  unfold SkelLib.nth_error, Z_to_nat_error in *.
   unfoldM_in H; unfold Monad.bind_opt in *; destruct Z_le_dec; try lia.
   eapply nth_error_ok' in H; eauto.
 Qed.
@@ -792,7 +772,7 @@ Lemma rule_reads_ainv ntrd BS (tid : Fin.t ntrd) GA GS
   -> aenv_ok avar_env
   -> resEnv_ok resEnv n
   -> hget avar_env m' = (len, aname)
-  -> nth_error (hget aeval_env m') i = Some v
+  -> SkelLib.nth_error (hget aeval_env m') i = Some v
   -> disjoint (flatTup xs) (fv_lEs (v2gl aname))
   -> disjoint (flatTup xs) (fv_E ix)
   -> disjoint_list (flatTup xs)
@@ -812,6 +792,7 @@ Proof.
   try (rewrite remove_vars_cons, !remove_vars_app in *; repeat rewrite in_app_iff in *; eauto).
   - forwards*: nth_error_lt.
     unfold arr2CUDA, SkelLib.len in *.
+    Import Utils.
     rewrites (>>(@nth_map) v).
     zify; rewrite Z2Nat.id; lia.
     rewrites (>>nth_error_ok Hnth); eauto.
@@ -821,7 +802,7 @@ Proof.
   - constructor; simpl.
     forwards*: nth_error_lt.
     rewrite Z2Nat.id; try omega; eauto.
-  - intros ? s h Hsat; rewrite Heq in Hsat.
+  - intros ? h Hsat; rewrite Heq in Hsat.
     repeat rewrite <-res_assoc in Hsat.
     apply Hsat.
   - unfold arr2CUDA.
@@ -1237,12 +1218,12 @@ Lemma evalExps_env n (tid : Fin.t n)  ty (xs : vars ty) vs R R' P P' Env Env' C 
 Proof.
   intros.
   eapply backwardR; eauto.
-  unfold Assn, sat; intros s h Hsat.
-  sep_split_in Hsat; sep_split; eauto.
-  rewrite env_assns_app; split; eauto.
-  revert HP0 H; clear; induction ty; simpl;
-  try (split; eauto using evalExp_ok, emp_emp_ph).
-  intros; rewrite !env_assns_app; split; intuition.
+  unfold sat; simpl; intros; splits; jauto.
+  rewrite env_assns_app; split; jauto.
+  destruct H1 as (? & ? & HP0).
+  clear H0.
+  induction ty; simpl in *; try now forwards*: evalExp_ok.
+  apply env_assns_app; split; jauto.
 Qed.
 
 Lemma evalExps_app ty Env1 Env2 (es : exps ty) (vs : vals ty) :
@@ -1281,9 +1262,9 @@ Qed.
 
 Lemma nth_error_some' T (ls : list T) (i : Z) d :
   (0 <= i < Zn (length ls))%Z
-  -> nth_error ls i = Some (nth (Z.to_nat i) ls d).
+  -> SkelLib.nth_error ls i = Some (nth (Z.to_nat i) ls d).
 Proof.
-  unfold nth_error; simpl; unfoldM; unfold Monad.bind_opt.
+  unfold SkelLib.nth_error; simpl; unfoldM; unfold Monad.bind_opt.
   intros.
   unfold Z_to_nat_error; destruct Z_le_dec; try lia; simpl.
   apply nth_error_some.
@@ -1336,12 +1317,12 @@ Proof.
   repeat destruct lt_dec; try lia.
 Qed.
 
-Lemma seq_length n m : length (seq n m) = Z.to_nat m.
+Lemma seq_length n m : length (SkelLib.seq n m) = Z.to_nat m.
 Proof.
-  unfold seq; rewrite seq'_length; eauto.
+  unfold SkelLib.seq; rewrite seq'_length; eauto.
 Qed.
 
-Lemma seq_nth n m i d : nth i (seq n m) d = if lt_dec i (Z.to_nat m) then (n + Zn i)%Z else d.
+Lemma seq_nth n m i d : nth i (SkelLib.seq n m) d = if lt_dec i (Z.to_nat m) then (n + Zn i)%Z else d.
 Proof.
   unfold seq; apply seq'_nth.
 Qed.

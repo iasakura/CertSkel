@@ -1,7 +1,6 @@
 Require Import Monad DepList GPUCSL TypedTerm Compiler.
-Require Import Program.Equality LibTactics.
+Require Import Program.Equality LibTactics String List.
 Require Import CUDALib CodeGen CSLLemma CSLTactics Correctness mkMap.
-Import Skel_lemma.
 Require Import SkelLib Psatz Host.
 
 Lemma rule_host_backward GM G P Q Q' C :
@@ -1039,7 +1038,7 @@ Proof.
                            (arrays (val2gl ps) vs 1 *** R)
                            (Datatypes.length vs = l /\ P)
                            (size |-> G.Zn l :: xs' |=> ps ++ E)))).
-    { intros s h (ps & vs & Hsat); exists (ps1, ps) (combine vs1 vs); revert s h Hsat; simpl; prove_imp.
+    { intros s h (ps & vs & Hsat); exists (ps1, ps) (combine vs1 vs); fold_sat; fold_sat_in Hsat; revert s h Hsat; simpl; prove_imp.
       rewrite mkReduce.arrays_TTup; simpl.
       rewrite <-res_assoc.
       rewrite combine_map_fst, combine_map_snd; try omega.
@@ -1454,9 +1453,9 @@ Proof.
   Proof.
     intros H.
     intros n Hctx s h Hsat.
-    unfold sat, Assn in Hsat; sep_split_in Hsat.
-    apply H; eauto.
-    unfold sat, Assn; sep_split; eauto.
+    unfold sat in Hsat; simpl in Hsat.
+    apply H; jauto.
+    unfold sat; simpl; jauto.
   Qed.
   constructor.
   apply CSLh_pure_prem; intros Hp.

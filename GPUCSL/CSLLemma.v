@@ -1812,3 +1812,24 @@ Proof.
   - intros (? & ? & ?); exists (emp_ph loc) h; splits; jauto.
     apply disj_emp2.
 Qed.
+
+Ltac ex_intro x H :=
+  let t := fresh in
+  let H' := fresh in 
+  lazymatch type of H with
+    | sat ?s ?h ?X => pose X as t; pattern x in t;
+      match goal with
+        | [t' := ?X x : _ |- _] => 
+          let v := fresh in
+          match t with t' => 
+            assert (H' : sat s h (Ex v, X v)) by (exists x; auto)
+          end 
+      end;
+      clear t; clear H; rename H' into H
+  end.
+
+Ltac ex_intros vs H :=
+  match vs with
+    | tt => idtac
+    | (?v, ?vs) => ex_intro v H; ex_intros vs H
+  end.

@@ -587,12 +587,12 @@ Definition equivGC {GA : list Skel.Typ} {cod : Skel.Typ}
                 All aeenv apenv outp result vs,
                 FDbl (kernelInv
                         (remove_typeinfo (gen_params GA)) apenv aeenv
-                        (T *** arrays (val2gl outp) vs 1)
+                        (TT *** arrays (val2gl outp) vs 1)
                         (uncurry_aeenv aeenv p_g = Some result /\ length result <= length vs)%nat
                         (outArr cod |=> outp) 1)
                      (fun l => kernelInv'
                                  apenv aeenv
-                                 (T *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
+                                 (TT *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
                                  (l = Zn (length result)) 1%Qc) |}.
 
 Definition equivGI {GA : list Skel.Typ} {cod : Skel.Typ}
@@ -609,12 +609,12 @@ Definition equivIC {GA : list Skel.Typ} {cod : Skel.Typ} (p_i : Skel.AS GA cod) 
                 All aeenv apenv outp result vs,
                 FDbl (kernelInv
                         (remove_typeinfo (gen_params GA)) apenv aeenv
-                        (T *** arrays (val2gl outp) vs 1)
+                        (TT *** arrays (val2gl outp) vs 1)
                         (Skel.asDenote GA cod p_i aeenv = Some result /\ length result <= length vs)%nat
                         (outArr cod |=> outp) 1)
                      (fun l => kernelInv'
                                  apenv aeenv
-                                 (T *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
+                                 (TT *** arrays (val2gl outp) (arr2CUDA result ++ skipn (length result) vs) 1%Qc)
                                  (l = Zn (length result)) 1%Qc) |}.
 
 Lemma equiv_trans GA cod
