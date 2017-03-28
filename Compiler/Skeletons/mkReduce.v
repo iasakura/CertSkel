@@ -1020,16 +1020,6 @@ Proof.
 Qed.
 End mkReduce_block.
 
-Fixpoint addTyp {ty} :=
-  match ty return vars ty -> vartys ty with 
-  | Skel.TBool => fun x => (x, Bool)
-  | Skel.TZ => fun x => (x, Int)
-  | Skel.TTup t1 t2 => fun xs => (addTyp (fst xs), addTyp (snd xs))
-  end.
-
-Definition sh_decl len typ pref st :=
-  flatTup (maptys (fun sv => Grid.SD (fst sv) (snd sv) len) (addTyp (locals pref typ st))).
-
 Definition mkReduce_prog :=
   Pr (sh_decl ntrd typ "_sarr" 0) (mkReduce_cmd).
 
