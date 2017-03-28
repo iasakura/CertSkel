@@ -59,3 +59,14 @@ Goal False.
   pose (scan_block 16).
   unfold scan_block, scan_loop, scan_aux, scan_body, log2, out_sarr, in_sarr in c; simpl in c.
 Abort.
+
+Definition scan_prog nt : program :=
+  {| get_sh_decl := sh_decl ntrd typ "_sarr0" 0 ++ sh_decl ntrd typ "_sarr1" 0;
+     get_cmd := scan_block nt |}.
+
+Definition mkScan GA typ ntrd : kernel :=
+  let arr_vars := gen_params GA in
+  let params_in := flatten_avars arr_vars in
+  let params_out := (inp_len_name, Int) :: flatTup (out_name typ) in
+  {| params_of := params_out ++ params_in;
+     body_of := scan_prog ntrd |}.
