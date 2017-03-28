@@ -47,48 +47,6 @@ Proof.
   rewrite IHxs; eauto.
 Qed.
 
-Lemma rule_host_allocs GM G R P E ty (xs : vars ty) e l :
-  evalExp E e (Zn l)
-  -> disjoint (flatTup xs) (fv_E e)
-  -> disjoint_list (flatTup xs)
-  -> CSLh GM G
-            (Assn R P E)
-            (alloc_tup_arr xs e)
-            (Ex (ps : vals ty) (vs : list (vals ty)),
-              Assn (arrays (val2gl ps) vs 1 *** R) (length vs = l /\ P)
-                   (EEq_tup xs ps ++ remove_vars E (flatTup xs))).
-Proof.
-  intros; revert R P E H; induction ty; introv Heval; simpl.
-  - eapply rule_host_backward; [applys* rule_host_alloc|].
-    intros s h (? & ? & Hsat); revert s h Hsat; prove_imp.
-    rewrites* mkReduce.arrays_TB.
-  - eapply rule_host_backward; [applys* rule_host_alloc|].
-    intros s h (? & ? & Hsat); revert s h Hsat; prove_imp.
-    rewrites* mkReduce.arrays_TZ.
-  - simpl in *; eapply rule_host_seq.
-    { applys* IHty1; eauto using disjoint_app_r1, disjoint_list_proj1, disjoint_comm. }
-    apply rule_host_ex; intros ps1.
-    apply rule_host_ex; intros vs1.
-    eapply rule_host_backward.
-    { apply IHty2; eauto using disjoint_app_r2, disjoint_list_proj2, disjoint_comm.
-      apply evalExp_app_ig.
-      apply evalExp_removes; eauto using disjoint_app_r1, disjoint_comm. }
-    repeat rewrite remove_vars_app.
-    rewrite mpss_remove_vars; eauto using disjoint_list_app_disjoint.
-    intros s h (ps2 & vs2 & Hsat).
-    exists (ps1, ps2) (combine vs1 vs2).
-    revert s h Hsat; prove_imp.
-    + rewrite remove_vars_nest in *; eauto.
-    + unfold val2gl in *; simpl.
-      Require Import SetoidClass.
-      rewrite mkReduce.arrays_TTup; simpl.
-      rewrite <-res_assoc.
-      repeat sep_cancel'; [rewrite combine_map_fst|rewrite combine_map_snd]; congruence.
-    + unfold vals in *; simpl in *.
-      rewrite (combine_length vs1 vs2).
-      rewrite Nat.min_r; omega.
-Qed.
-
 Definition STPre : Type := nat -> nat -> GModule -> Prop.
 Definition STPost : Type := 
   nat -> nat (* pre state *)
