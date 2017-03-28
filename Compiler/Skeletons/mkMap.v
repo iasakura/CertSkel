@@ -26,37 +26,24 @@ Hypothesis arr_ok : ae_ok avar_env arr arr_c.
 Variable f : Skel.Func GA (Skel.Fun1 dom cod).
 Variable f_c : vars dom -> (cmd * vars cod).
 Hypothesis f_ok : func_ok avar_env f f_c.
-
+Variable arr_res : Skel.aTypDenote dom.
+Hypothesis eval_arr_ok :
+  Skel.aeDenote _ _ arr aeval_env = Some arr_res.
 Variable result : Skel.aTypDenote cod.
 Hypothesis eval_map_ok :
-  Skel.skelDenote _ _ (Skel.Map _ _ _ f arr) aeval_env = Some result.
-Lemma eval_arr_ok :
-  { arr_res | Skel.aeDenote _ _ arr aeval_env = Some arr_res}.
-Proof.
-  simpl in *; unfold Monad.bind_opt in *.
-  destruct Skel.aeDenote; simpl in *; inverts eval_map_ok; eexists; eauto.
-Qed.
-
-Definition arr_res : Skel.aTypDenote dom := let (a, _) := eval_arr_ok in a.
-
-Definition eval_arr_ok' : Skel.aeDenote _ _ arr aeval_env = Some arr_res.
-Proof.
-  unfold arr_res; destruct eval_arr_ok; eauto.
-Qed.
-
-Hint Resolve eval_arr_ok' : pure_lemma.
+  Monad.mapM (Skel.funcDenote _ _ f aeval_env) arr_res = Some result.
 
 Lemma eval_f_ok : 
   { f_res | forall i, i < length arr_res ->
                       Skel.funcDenote _ _ f aeval_env (gets' arr_res i) = Some (f_res i)}.
 Proof.
   simpl in *; unfold Monad.bind_opt in *.
-  lets H: eval_arr_ok'; generalize arr_res H; intros arr_res H'; clear H.
-  rewrite H' in eval_map_ok.
+  lets H: eval_arr_ok; generalize arr_res H; intros ar H'; clear H.
+  rewrite H' in eval_arr_ok; inverts eval_arr_ok.
   exists (fun i : nat => nth i result (defval')).
   intros i Hi.
   forwards*: (>>mapM_some i (@defval' dom) (@defval' cod)).
-  destruct lt_dec; eauto; lia.
+  destruct lt_dec; eauto; try lia.
 Qed.
 
 Definition f_res := let (f, _) := eval_f_ok in f.
@@ -199,8 +186,9 @@ Lemma result_nth i :
   i < length result -> gets' result i = f_res i.
 Proof.
   simpl in *; unfold Monad.bind_opt in *.
-  generalize arr_res eval_f_ok'  eval_arr_ok' eval_map_ok; intros arr_res' ? Heq.
-  rewrite Heq; intros.
+  generalize arr_res eval_f_ok'  eval_arr_ok eval_map_ok; intros arr_res' ? Heq.
+  (* rewrite Heq;  *)
+  intros.
   forwards*: (>>mapM_some i (@defval' dom)).
   forwards*: mapM_length; eauto.
   destruct lt_dec; [|clear H1; lia].
@@ -228,8 +216,8 @@ Lemma mkMap_cmd_ok BS :
          True p).
 Proof.
   assert (Hlen: length arr_res = length result').
-  { generalize arr_res eval_arr_ok' eval_map_ok; simpl in *; unfold Monad.bind_opt in *; intros a Heq.
-    rewrite Heq; intros H.
+  { generalize arr_res eval_arr_ok eval_map_ok; simpl in *; unfold Monad.bind_opt in *; intros a Heq.
+    intros H.
     forwards*: mapM_length; eauto.
     unfold arr2CUDA; rewrite map_length; eauto. }
   assert (Hlen' : length outs = length result').
@@ -414,11 +402,14 @@ Lemma mkMap_ok M G GA dom cod arr_c (f_c : vars dom -> cmd * vars cod) pars tag 
   aenv_ok avar_env
   -> interp_kfun M G (mkMap GA dom cod arr_c f_c)
               (FS pars tag
-                  (All ntrd nblk aptr_env aeval_env arr (f : Skel.Func GA (Skel.Fun1 dom cod)) result eval_map_ok outp outs,
+                  (All ntrd nblk aptr_env aeval_env arr (f : Skel.Func GA (Skel.Fun1 dom cod)) arr_res result outp outs,
                    FDbl (kernelInv avar_env aptr_env aeval_env (arrays (val2gl outp) outs 1)
-                                   (ntrd <> 0 /\ nblk <> 0 /\ ae_ok avar_env arr arr_c /\ func_ok avar_env f f_c /\ Datatypes.length outs = Datatypes.length result)
-                                   ("nblk" |-> Zn nblk :: "ntrd" |-> Zn ntrd :: inp_len_name |-> Zn
-                                           (Datatypes.length (arr_res GA aeval_env dom cod arr f result eval_map_ok)) :: outArr cod |=> outp) 1)
+                                   (ntrd <> 0 /\ nblk <> 0 /\ ae_ok avar_env arr arr_c /\ func_ok avar_env f f_c /\
+                                    Skel.aeDenote GA dom arr aeval_env = Some arr_res /\
+                                    Monad.mapM (Skel.funcDenote GA (Skel.Fun1 dom cod) f aeval_env) arr_res = Some result /\
+                                    Datatypes.length outs = Datatypes.length result)
+                                   ("nblk" |-> Zn nblk :: "ntrd" |-> Zn ntrd ::
+                                    inp_len_name |-> Zn (Datatypes.length arr_res) :: outArr cod |=> outp) 1)
                         (fun _ => kernelInv' aptr_env aeval_env (arrays (val2gl outp) (arr2CUDA result) 1) True 1)))%nat.
 Proof.
   intros Havok n Hctx; unfold interp_kfun_n_simp; simpl.

@@ -219,9 +219,13 @@ Hypothesis f_comm :
 Hypothesis f_assoc :
   forall x y z, x \op y \op z = x \op (y \op z).
 
+Variable arr_res : Skel.aTypDenote typ.
+Hypothesis eval_arr_ok : 
+  Skel.aeDenote _ _ arr aeval_env = Some arr_res.
+
 Variable result : Skel.aTypDenote typ.
 Hypothesis eval_reduce_ok :
-  Skel.skelDenote _ _ (Skel.Reduce _ _ func arr) aeval_env = Some result.
+  reduceM (Skel.funcDenote _ _ func aeval_env) arr_res = Some result.
 
 Variable outp : vals typ.
 Variable outs : list (vals typ).
@@ -231,22 +235,6 @@ Notation sarr := (locals "_sarr" typ 0).
 Notation out := (outArr typ).
 Notation len := inp_len_name.
 Definition dist_outs i := i * ntrd.
-
-Lemma eval_arr_ok :
-  { arr_res | Skel.aeDenote _ _ arr aeval_env = Some arr_res}.
-Proof.
-  simpl in *; unfold Monad.bind_opt in *.
-  destruct Skel.aeDenote; simpl in *; inverts eval_reduce_ok; eexists; eauto.
-Qed.
-
-Definition arr_res : Skel.aTypDenote typ := let (a, _) := eval_arr_ok in a.
-
-Definition eval_arr_ok' : Skel.aeDenote _ _ arr aeval_env = Some arr_res.
-Proof.
-  unfold arr_res; destruct eval_arr_ok; eauto.
-Qed.
-
-Hint Resolve eval_arr_ok' : pure_lemma.
 
 Notation xs := (locals "xs" typ 0).
 Notation ys := (locals "ys" typ 0).
@@ -1383,17 +1371,20 @@ Lemma mkReduce_ok' M G (GA : list Skel.Typ) (typ : Skel.Typ) (ntrd : nat)
      interp_kfun M G (mkReduce GA typ ntrd arr_c func_c)
                  (FS pars tag 
                      (All nblk aptr_env aeval_env arr (func : Skel.Func GA (Skel.Fun2 typ typ typ)) f_tot
-                          result eval_reduce_ok outp outs,
+                          arr_res result outp outs,
                       FDbl (kernelInv avar_env aptr_env aeval_env (arrays (val2gl outp) outs 1)
                                       (ntrd <> 0 /\ nblk <> 0 /\ ntrd <= 2 ^ e_b /\ e_b <> 0 /\
                                        ae_ok avar_env arr arr_c /\ func_ok avar_env func func_c /\
+                                       Skel.aeDenote GA typ arr aeval_env = Some arr_res /\
+                                       reduceM (Skel.funcDenote GA (Skel.Fun2 typ typ typ) func aeval_env)
+                                               arr_res = Some result /\
                                        (forall x y, Skel.funcDenote GA (Skel.Fun2 typ typ typ) func aeval_env x y =
                                                     Some (f_tot x y)) /\
                                        (forall x y : Skel.typDenote typ, f_tot x y = f_tot y x) /\
                                        (forall x y z, f_tot (f_tot x y) z = f_tot x (f_tot y z)) /\
                                        Datatypes.length outs = nblk + 0)
                                       ("nblk" |-> Zn nblk :: "ntrd" |-> Zn ntrd :: inp_len_name |-> Zn
-                                      (length (arr_res typ GA aeval_env arr func result eval_reduce_ok)) ::
+                                      (length arr_res) ::
                                       outArr typ |=> outp) 1)
                            (fun _ => kernelInv' aptr_env aeval_env
                                        (arrays (val2gl outp)
@@ -1403,16 +1394,11 @@ Lemma mkReduce_ok' M G (GA : list Skel.Typ) (typ : Skel.Typ) (ntrd : nat)
                                                         f_sim typ e_b f_tot
                                                               (ls_init 0 ntrd
                                                                 (fun i : nat =>
-                                                                   vi typ ntrd nblk GA aeval_env arr func f_tot result
-                                                                      eval_reduce_ok
+                                                                   vi typ ntrd nblk f_tot arr_res
                                                                       (fun x : nat =>
-                                                                         gets'
-                                                                           (arr_res typ GA aeval_env arr func result
-                                                                                    eval_reduce_ok) x) j i))
+                                                                         gets' arr_res x) j i))
                                                               (min
-                                                                 (Datatypes.length
-                                                                    (arr_res typ GA aeval_env arr func result
-                                                                             eval_reduce_ok) - j * ntrd) ntrd) e_b 0))) 1) True 1))).
+                                                                 (Datatypes.length arr_res - j * ntrd) ntrd) e_b 0))) 1) True 1))).
 Proof.
   intros Havok e_b n Hctx; unfold interp_kfun_n_simp.
   subst e_b.
@@ -1426,7 +1412,7 @@ Proof.
   apply CSLkfun_body.
   apply CSLg_float; intros Hprem; apply CSLg_weaken_pure.
   clear Hctx; revert n.
-  applys* mkReduce_prog_ok.
+  applys* (>>mkReduce_prog_ok).
 Qed.
 
 Lemma sum_of_f_opt_eq T s n f g g' :
@@ -1862,29 +1848,31 @@ Lemma mkReduce_ok M G (GA : list Skel.Typ) (typ : Skel.Typ) (ntrd : nat)
      interp_kfun M G (mkReduce GA typ ntrd arr_c func_c)
                  (FS pars tag 
                      (All nblk aptr_env aeval_env arr (func : Skel.Func GA (Skel.Fun2 typ typ typ)) f_tot
-                          result eval_reduce_ok outp outs,
+                          arr_res result outp outs,
                       FDbl (kernelInv avar_env aptr_env aeval_env (arrays (val2gl outp) outs 1)
                                       (ntrd <> 0 /\ nblk <> 0 /\ ntrd <= 2 ^ e_b /\ e_b <> 0 /\
                                        ae_ok avar_env arr arr_c /\ func_ok avar_env func func_c /\
+                                       Skel.aeDenote GA typ arr aeval_env = Some arr_res /\
+                                       reduceM
+                                         (Skel.funcDenote GA (Skel.Fun2 typ typ typ) func aeval_env) arr_res = Some result /\
                                        (forall x y, Skel.funcDenote GA (Skel.Fun2 typ typ typ) func aeval_env x y =
                                                     Some (f_tot x y)) /\
                                        (forall x y : Skel.typDenote typ, f_tot x y = f_tot y x) /\
                                        (forall x y z, f_tot (f_tot x y) z = f_tot x (f_tot y z)) /\
                                        Datatypes.length outs = nblk + 0)
                                       ("nblk" |-> Zn nblk :: "ntrd" |-> Zn ntrd :: inp_len_name |-> Zn
-                                      (length (arr_res typ GA aeval_env arr func result eval_reduce_ok)) ::
+                                      (length arr_res) ::
                                       outArr typ |=> outp) 1)
                            (fun _ => Ex vs, kernelInv' aptr_env aeval_env
                                               (arrays (val2gl outp) (arr2CUDA vs) 1)
-                                              (reduceM (fun x y => Some (f_tot x y))
-                                                       (firstn (min (((length (arr_res typ GA aeval_env arr func result eval_reduce_ok) ) + ntrd - 1) / ntrd) nblk) vs) =
-                                               reduceM (fun x y => Some (f_tot x y))
-                                                       (arr_res typ GA aeval_env arr func result eval_reduce_ok) /\ length vs = nblk) 1
+                                              (reduceM (Skel.funcDenote GA (Skel.Fun2 typ typ typ) func aeval_env)
+                                                       (firstn (min (((length arr_res ) + ntrd - 1) / ntrd) nblk) vs) =
+                                               reduceM (Skel.funcDenote GA (Skel.Fun2 typ typ typ) func aeval_env) arr_res /\ length vs = nblk) 1
                  ))).
 Proof.
   intros Havok e_b n Hctx; unfold interp_kfun_n_simp.
   subst e_b.
-  intros nblk aptr_env aeval_env arr f f_tot result eval_map_ok outp outs.
+  intros nblk aptr_env aeval_env arr f f_tot arr_res result outp outs.
 
   eapply (CSLkfun_threads_vars ntrd nblk (fun n m => _) (fun n m => _) (fun n m => _)).
   { intros ? ?; prove_imp; try tauto.
@@ -1922,18 +1910,17 @@ Proof.
                       f_sim typ (S (log2 ntrd0)) f_tot
                             (ls_init 0 ntrd0
                                      (fun i : nat =>
-                                        vi typ ntrd0 nblk0 GA aeval_env arr f f_tot
-                                           result eval_map_ok
+                                        vi typ ntrd0 nblk0 f_tot
+                                           arr_res 
                                            (fun x : nat =>
-                                              gets'
-                                                (arr_res typ GA aeval_env arr f result
-                                                         eval_map_ok) x) j i))
+                                              gets' arr_res x) j i))
                             (Init.Nat.min
-                               (Datatypes.length
-                                  (arr_res typ GA aeval_env arr f result
-                                           eval_map_ok) - j * ntrd0) ntrd0)
+                               (Datatypes.length arr_res - j * ntrd0) ntrd0)
                             (S (log2 ntrd0)) 0))).
   unfold kernelInv' in *; revert s h H; prove_imp.
+  assert (Hfeq : Skel.funcDenote GA _ f aeval_env = fun x y => Some (f_tot x y)) by
+      (extensionality l; extensionality l'; eauto); eauto.
+  repeat rewrite Hfeq.
   Lemma sum_of_f_opt_reduceM T d (f : T -> T -> T) (g : list T) :
     SkelLib.reduceM (fun x y => Some (f x y)) g =
     match sum_of_f_opt _ f 0 (length g) (fun i => nth i g d) with
@@ -1972,8 +1959,7 @@ Proof.
     rewrite !Nat.add_0_l.
     
     reflexivity. } Unfocus.
-  lets*: (>>reduce_res_ok f_tot (S (log2 ntrd0)) ntrd0 nblk0 (length (arr_res typ GA aeval_env arr f result eval_map_ok))
-           (fun x : nat => gets' (arr_res typ GA aeval_env arr f result eval_map_ok) x)).
+  lets*: (>>reduce_res_ok f_tot (S (log2 ntrd0)) ntrd0 nblk0 (length arr_res) (fun x : nat => gets' arr_res x)).
   unfold f_seq, vi in *.
   rewrite H; eauto.
 Qed.
