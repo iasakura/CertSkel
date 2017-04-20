@@ -1,2 +1,3 @@
 min_idx.v
-min_idx2.v
+stencil2D.v
+vecadd2.v
