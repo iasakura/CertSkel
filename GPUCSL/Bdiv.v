@@ -473,7 +473,7 @@ Section BarrierDivergenceFreedom.
         (* apply pdisj_padd_expand; eauto; rewrite hto1; eauto. *)
       + simpl; subst; eauto.
       + eauto using pdisjE1.
-      + subst h'; lets Heq: (>> ptoD H1 H9).
+      + subst h'; lets Heq: (>> (@ptoD) H1 H9).
         rewrite <-padd_assoc in Heq; eauto.
         assert (pdisj ph' hF) by eauto using pdisjE1.
         assert (phplus ph' hF = phplus_pheap H) by eauto.
@@ -552,7 +552,7 @@ Section BarrierDivergenceFreedom.
             unfold get_hs; erewrite Vector.nth_map; eauto.
             repeat rewrite replace_nth. destruct (fin_eq_dec tid p2); eauto.
             erewrite Vector.nth_map; eauto. }
-          lets (h2' & Hdeq2' & Heq): (>>disj_upd eqni tdisj).
+          lets (h2' & Hdeq2' & Heq): (>>(@disj_upd) eqni tdisj).
           simpl in *.
           cutrewrite (h2 = h2'); eauto.
           unfold get_hs in *.

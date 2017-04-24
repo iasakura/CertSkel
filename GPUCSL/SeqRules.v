@@ -26,13 +26,16 @@ Proof.
   unfold sat in Hsat; simpl in Hsat.
   simpl; repeat split; try congruence.
   - introv ? ? HC; inverts HC.
+    forwards*: (>>evalExp_ok); simpl in *; congruence.
   - introv Hdis Htoh Hred.
     inverts Hred; inverts EQ1; simpl.
     repeat eexists; repeat split; eauto.
     apply safe_skip; splits; jauto.
-    cutrewrite (edenot e s0 = v); [|applys (>> evalExp_ok HevalLe); jauto].
+    cutrewrite (edenote e s0 = Some v); [|applys (>> evalExp_ok HevalLe); jauto].
     split.
     + unfold var_upd in *; simpl; destruct var_eq_dec; try congruence.
+      forwards*: (evalExp_ok).
+      congruence.
     + applys* disjoint_inde_env.
       apply remove_var_inde; simpl in *; auto.
       simpl; eauto.
@@ -65,18 +68,19 @@ Proof.
     rewrite H; simpl.
     destruct l; try destruct pl; simpl in *; destruct (eq_dec _ _); try congruence;
     destruct (PHeap.this x1 _) as [[? ?]|]; eexists; eauto. }
-  assert (Hle : ledenot le s = l).
+  assert (Hle : ledenote le s = Some l).
   { forwards*: (>>evalLExp_ok HevalLe). }
   simpl; repeat split; try congruence.
   - intros hF h' Hdis Htoh HC.
-    inverts HC; simpl in *.
+    inverts HC; simpl in *; try congruence.
     apply ptoheap_eq in Htoh.
     rewrites* (>>htop_eq Htoh) in NIN.
     unfold phplus in NIN.
-    rewrite Hle, Heq in NIN.
+    cutrewrite (l1 = l) in NIN; [|congruence].
+    rewrite Heq in NIN.
     destruct (PHeap.this hF l) as [[? ?]|]; congruence.
-  - hnf.
-    eexists; rewrite Hle, Heq; eauto.
+  - hnf; simpl; rewrite Hle.
+    eexists; rewrite Heq; eauto.
   - introv Hdis Htoh Hred.
     destruct ss' as [s' h'].
     inverts Hred; simpl in *.
@@ -86,7 +90,7 @@ Proof.
     unfold sat; simpl; splits; jauto.
     + auto; simpl.
       unfold var_upd; destruct (var_eq_dec _ _); try congruence.
-      rewrite Hle in RD.
+      cutrewrite (l1 = l) in RD; [|congruence].
       apply ptoheap_eq in Htoh.
       apply (f_equal (fun x => x l)) in Htoh.
       unfold phplus, htop in Htoh.
@@ -100,7 +104,7 @@ Proof.
       applys* remove_var_imp.
 Qed.
 
-Lemma ph_upd_phplus (ph1 ph2 : pheap) (x : loc) (v w : Z):
+Lemma ph_upd_phplus (ph1 ph2 : pheap) (x : loc) (v w : val):
   pdisj ph1 ph2 -> this ph1 x = Some (full_p, w) -> 
   phplus (ph_upd ph1 x v) ph2 = ph_upd (phplus ph1 ph2) x v.
 Proof.
@@ -114,7 +118,7 @@ Proof.
   destruct hdis as [? [? Hc]]. apply frac_contra1 in Hc; tauto.
 Qed.
 
-Lemma ph_upd_ptoheap (ph : pheap) (h : heap) (x : loc) (v : Z) :
+Lemma ph_upd_ptoheap (ph : pheap) (h : heap) (x : loc) (v : val) :
   ptoheap ph h -> ptoheap (ph_upd ph x v) (upd h x (Some v)).
 Proof.        
   intros heq y.
@@ -154,21 +158,23 @@ Proof.
       lra_Qc. }
     rewrite H3.
     destruct l; simpl in *; destruct (eq_dec _ _); try congruence; auto. }
-  assert (Hle : ledenot le s = l).
+  assert (Hle : ledenote le s = Some l).
   { forwards*: (>>evalLExp_ok HevalLe). }
-  assert (Hv : edenot e s = v').
+  assert (Hv : edenote e s = Some v').
   { forwards*: (>>evalExp_ok Henv). }
   simpl; repeat split; try congruence.
   - intros hF h' Hdis Htoh HC.
-    inverts HC; simpl in *.
+    inverts HC; simpl in *; try congruence.
     apply ptoheap_eq in Htoh.
     rewrites* (>>htop_eq Htoh) in NIN.
     unfold phplus in NIN.
-    rewrite Hle, Heq in NIN.
+    cutrewrite (l1 = l) in NIN; [|congruence].
+    rewrite Heq in NIN.
     destruct (PHeap.this hF l) as [[? ?]|]; congruence.
-  - hnf.
-    eexists; rewrite Hle, Heq; eauto.
-  - hnf; eexists; rewrite Hle; eauto.
+  - hnf; simpl; rewrite Hle.
+    eexists; rewrite Heq; eauto.
+  - hnf; simpl; rewrite Hle. 
+    eexists; rewrite Heq; eauto.
   - introv Hdis Htoh Hred.
     destruct ss' as [s' h'].
     inverts Hred; simpl in *.
@@ -178,7 +184,8 @@ Proof.
     + unfold ph_upd2; simpl.
       erewrite ph_upd_phplus; eauto.
       cutrewrite (phplus h hF = phplus_pheap Hdis); [|simpl; eauto].
-      rewrite Hle, Hv.
+      cutrewrite (l1 = l); [|congruence].
+      cutrewrite (v0 = v'); [|congruence].
       apply (ph_upd_ptoheap); eauto.
     + apply safe_skip.
       (* split; eauto. *)

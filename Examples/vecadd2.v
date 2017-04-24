@@ -15,7 +15,9 @@ Proof.
   repeat constructor.
 Defined.
 
-Definition res := save_to_file (`vecadd2_GPGPU) "./vecadd2.cu".
+Definition res := 
+  save_to_file (`vecadd2_GPGPU) 
+               "./vecadd2.cu".
 
 Cd "extracted".
 
