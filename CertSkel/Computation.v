@@ -645,7 +645,7 @@ Ltac prove_equiv1 :=
   repeat (lazymatch goal with
            | [x : DepList.hlist _ _ |- _] => dependent destruction x
            end);
-  simpl; unfold len; destruct Z_le_dec; try omega; eauto.
+  simpl; unfold len; repeat (destruct Z_le_dec); try omega; eauto.
 
   (* unfold equivGI1; simpl; intros; auto; *)
   (* repeat (destruct Z_le_dec; try omega); *)
@@ -722,17 +722,23 @@ Ltac let_intro_pure f T ans :=
     constr:(fun k x => 
                  arg1' (fun t1 => 
                  arg2' (fun t2 => 
-                 do! t3 <- ret (zip t1 t2) in k t3) x) x)
+                          do! t3 <- ret (zip t1 t2) in k t3) x) x)
   | fun x => mapM (@?f x) (@?arg1 x) =>
-    let arg1' := let_intro_pure arg1 T ans in
+      let arg1' := let_intro_pure arg1 T ans in
     constr:(fun k x => arg1' (fun t1 => do! t2 <- (@mapM _ _ comp _ (f x) t1) in k t2) x)
   | fun x => reduceM (@?op x) (@?arg1 x) =>
     let arg1' := let_intro_pure arg1 T ans in
     constr:(fun k x => arg1' (fun t1 => do! t2 <- (reduceM (op x) t1) in k t2) x)
-  | fun x => @?func x => constr:(fun (k : T -> ans) x => k (f x))
+  | fun x => @?func x => constr:(fun (k : _ -> ans) x => k (f x))
   end.
 
 Goal False.
+  let f := constr:(fun (xs1 xs2 : list Z) => mapM (fun xy => ret (fst xy + snd xy))
+       (zip xs1 xs2) : comp (list Z)) in
+  uncurry_func f ltac:(fun f => 
+  let t := let_intro_pure f (list Z * list Z)%type (comp (list (Z * Z))) in
+  idtac "res = " t).
+
   let f := constr:(fun arr => reduceM
        (fun x y => if (fst x) <? (fst y) then ret x
                    else if (fst y) <? (fst x) then ret y
@@ -740,8 +746,8 @@ Goal False.
                    else if (snd y) <? (snd x) then ret y
                    else ret x)
        (zip arr (seq 0 (len arr)))) in
-  uncurry_func f ltac:(fun f =>
-  let t := let_intro_pure f (list Z) (comp (list (Z * Z))) in
+  uncurry_func f ltac:(fun f => 
+  let t := let_intro_pure f (list (Z * Z)) (comp (list (Z * Z))) in
   idtac "res = " t).
 Abort.
 

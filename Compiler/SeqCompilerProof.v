@@ -166,54 +166,54 @@ Arguments lpref _ : simpl never.
 Arguments append _ _ : simpl nomatch.
 Arguments append _ _ : simpl never.
 
-Lemma compile_wr_vars GA GS typ (se : Skel.SExp GA GS typ)
-      (svar_env : SVarEnv GS) (avar_env : AVarEnv GA) (n0 n1 : nat) c es :
-  compile_sexp se avar_env svar_env n0 = ((c, es), n1) ->
-  (forall x, In x (writes_var c) ->
-             exists k l, (Var (lpref k ++ nat2str l)) = x /\ n0 <= k < n1).
-Proof.
-  Lemma id_mark A (x : A) :
-    x = id x. eauto. Qed.
-  Ltac t := do 2 eexists; splits*; omega.
-  Ltac fwd H := first [forwards* (? & ? & ? & ?): H | forwards* (? & ? & ?): H ].
-  revert n0 n1 svar_env c es; induction se; simpl;
-    intros n0 n1 svar_env c es' Hsuc; eauto; (try inverts Hsuc as Hsuc);
-  eauto; (try (unfoldM_in Hsuc); 
-        (repeat lazymatch type of Hsuc with
-           | context [compile_sexp ?X ?Y ?Z ?n] => destruct (compile_sexp X Y Z n) as [(? & ?)?] eqn:?
-           | context [compile_op ?X ?Y ?Z ?n] => destruct (compile_op X Y Z n) as [(? & ?) ?] eqn:? 
-           | context [freshes ?X ?Y] => destruct (freshes X Y) as ([?] & ?) eqn:?
-           end));
-  (repeat lazymatch goal with [H : context [match ?E with | _ => _ end]|- _] => destruct E eqn:? end);
-  (repeat lazymatch goal with [H : (_, _) = (_, _) |- _] => inverts* H end);
-  (try inverts Hsuc); simpl; try tauto; intros; repeat rewrite in_app_iff in *;
-  (repeat lazymatch goal with
-    | [H : False |- _] => destruct H
-    | [H : _ \/ _ |- _] => destruct H
-    end; simpl in *; try tauto);
-  (try (forwards (? & ? & ? & ?): IHse; [now auto_star..|idtac]; substs));
-  (try (forwards (? & ? & ? & ?): IHse1; [now auto_star..|idtac]; substs));
-  (try (forwards (? & ? & ? & ?): IHse2; [now auto_star..|idtac]; substs));
-  (try (forwards (? & ? & ? & ?): IHse3; [now auto_star..|idtac]; substs));
-  repeat lazymatch goal with
-    | [H : compile_sexp ?A ?B ?C ?D = ?E |- _] =>
-        forwards*: (>>compile_don't_decrease H);
-          rewrite (id_mark _ (compile_sexp A B C D = E)) in H
-    | [H : freshes ?A ?B = ?C |- _] =>
-      forwards*: (>>freshes_incr H);
-          rewrite (id_mark _ (freshes A B = C)) in H
-    end;
-  unfold id in *; substs;  (try now (do 2 eexists; split; simpl; eauto; omega));
-  try (rewrite reads_writes in *);
-  try (rewrite assigns_writes in *);
-  try (forwards (? & ? & ?): freshes_vars; [now auto_star..|idtac]);
-  try (substs; repeat eexists; eauto; omega).
-  - exists n0 0; split; eauto; omega.
-  - exists x0 x1; split; eauto; forwards*: compile_op_don't_decrease; omega.
-  - exists x0 x1; split; eauto; forwards*: compile_op_don't_decrease; omega.
-  - forwards*: compile_op_wr_vars; forwards*: compile_op_don't_decrease; substs; exists n2 0; split; eauto; omega.
-  - exists n0 0; split; eauto; omega.
-Qed.
+(* Lemma compile_wr_vars GA GS typ (se : Skel.SExp GA GS typ) *)
+(*       (svar_env : SVarEnv GS) (avar_env : AVarEnv GA) (n0 n1 : nat) c es : *)
+(*   compile_sexp se avar_env svar_env n0 = ((c, es), n1) -> *)
+(*   (forall x, In x (writes_var c) -> *)
+(*              exists k l, (Var (lpref k ++ nat2str l)) = x /\ n0 <= k < n1). *)
+(* Proof. *)
+(*   Lemma id_mark A (x : A) : *)
+(*     x = id x. eauto. Qed. *)
+(*   Ltac t := do 2 eexists; splits*; omega. *)
+(*   Ltac fwd H := first [forwards* (? & ? & ? & ?): H | forwards* (? & ? & ?): H ]. *)
+(*   revert n0 n1 svar_env c es; induction se; simpl; *)
+(*     intros n0 n1 svar_env c es' Hsuc; eauto; (try inverts Hsuc as Hsuc); *)
+(*   eauto; (try (unfoldM_in Hsuc);  *)
+(*         (repeat lazymatch type of Hsuc with *)
+(*            | context [compile_sexp ?X ?Y ?Z ?n] => destruct (compile_sexp X Y Z n) as [(? & ?)?] eqn:? *)
+(*            | context [compile_op ?X ?Y ?Z ?n] => destruct (compile_op X Y Z n) as [(? & ?) ?] eqn:?  *)
+(*            | context [freshes ?X ?Y] => destruct (freshes X Y) as ([?] & ?) eqn:? *)
+(*            end)); *)
+(*   (repeat lazymatch goal with [H : context [match ?E with | _ => _ end]|- _] => destruct E eqn:? end); *)
+(*   (repeat lazymatch goal with [H : (_, _) = (_, _) |- _] => inverts* H end); *)
+(*   (try inverts Hsuc); simpl; try tauto; intros; repeat rewrite in_app_iff in *; *)
+(*   (repeat lazymatch goal with *)
+(*     | [H : False |- _] => destruct H *)
+(*     | [H : _ \/ _ |- _] => destruct H *)
+(*     end; simpl in *; try tauto); *)
+(*   (try (forwards (? & ? & ? & ?): IHse; [now auto_star..|idtac]; substs)); *)
+(*   (try (forwards (? & ? & ? & ?): IHse1; [now auto_star..|idtac]; substs)); *)
+(*   (try (forwards (? & ? & ? & ?): IHse2; [now auto_star..|idtac]; substs)); *)
+(*   (try (forwards (? & ? & ? & ?): IHse3; [now auto_star..|idtac]; substs)); *)
+(*   repeat lazymatch goal with *)
+(*     | [H : compile_sexp ?A ?B ?C ?D = ?E |- _] => *)
+(*         forwards*: (>>compile_don't_decrease H); *)
+(*           rewrite (id_mark _ (compile_sexp A B C D = E)) in H *)
+(*     | [H : freshes ?A ?B = ?C |- _] => *)
+(*       forwards*: (>>freshes_incr H); *)
+(*           rewrite (id_mark _ (freshes A B = C)) in H *)
+(*     end; *)
+(*   unfold id in *; substs;  (try now (do 2 eexists; split; simpl; eauto; omega)); *)
+(*   try (rewrite reads_writes in * ); *)
+(*   try (rewrite assigns_writes in * ); *)
+(*   try (forwards (? & ? & ?): freshes_vars; [now auto_star..|idtac]); *)
+(*   try (substs; repeat eexists; eauto; omega). *)
+(*   - exists n0 0; split; eauto; omega. *)
+(*   - exists x0 x1; split; eauto; forwards*: compile_op_don't_decrease; omega. *)
+(*   - exists x0 x1; split; eauto; forwards*: compile_op_don't_decrease; omega. *)
+(*   - forwards*: compile_op_wr_vars; forwards*: compile_op_don't_decrease; substs; exists n2 0; split; eauto; omega. *)
+(*   - exists n0 0; split; eauto; omega. *)
+(* Qed. *)
 
 Lemma freshes_disjoint d n m xs :
   freshes d n = (xs, m) ->
