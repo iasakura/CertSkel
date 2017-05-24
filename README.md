@@ -1,5 +1,7 @@
 # CertSkel
 
+[![wercker status](https://app.wercker.com/status/782385b9d3161dee3e164f316999f6da/m/master "wercker status")](https://app.wercker.com/project/byKey/782385b9d3161dee3e164f316999f6da)
+
 A Formally Verified Skeleton-based DSL for GPGPU in Coq
 
 ## Prerequisite
