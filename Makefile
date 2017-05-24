@@ -1,16 +1,16 @@
 .PHONY: cpdtlib tlc all
 default: all
 
-./external/cpdtlib:
+./external/cpdtlib/Makefile:
 	git submodule update --init
 
-./external/tlc:
+./external/tlc/GNUmakefile:
 	git submodule update --init
 
-cpdtlib: ./external/cpdtlib
+cpdtlib: ./external/cpdtlib/Makefile
 	cd ./external/cpdtlib && make
 
-tlc: ./external/tlc
+tlc: ./external/tlc/GNUmakefile
 	cd ./external/tlc/ && make
 
 Makefile.coq: _CoqProject
