@@ -1,6 +1,6 @@
 Require Import List Omega.
 Require Import TLC.LibTactics.
-Require Import Lang Top.CSLLemma Bdiv SeqRules.
+Require Import Lang CSLLemma Bdiv SeqRules.
 
 Inductive fv_assn : assn -> list var -> Prop :=
 | fv_assn_base R P E xs : incl (List.map ent_e E) xs -> fv_assn (Assn R P E) xs
