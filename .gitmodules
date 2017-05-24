@@ -1,6 +1,6 @@
 [submodule "cpdtlib"]
 	path = external/cpdtlib
-	url = git@github.com:snu-sf/cpdtlib.git
+	url = https://github.com/snu-sf/cpdtlib.git
 [submodule "tlc"]
 	path = external/tlc
 	url = https://gforge.inria.fr/git/tlc/tlc.git
