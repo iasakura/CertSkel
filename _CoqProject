@@ -4,7 +4,6 @@
 src/CertSkel/Computation.v
 src/CertSkel/Ext.v
 src/CertSkel/Extract.v
-src/Compiler/CSLLemma.v
 src/Compiler/CSLTactics.v
 src/Compiler/CodeGen.v
 src/Compiler/CompilerProof.v
