@@ -10,5 +10,4 @@
 *.bak
 *.aux
 extracted
-Makefile
 .lia.cache
