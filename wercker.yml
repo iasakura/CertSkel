@@ -1,0 +1,10 @@
+box:
+  id: iasakura/coq8.5pl3
+  cmd: sudo -s
+
+build:
+  steps:
+    - script:
+        name: build
+        code: |
+          source ~opam/.profile && make

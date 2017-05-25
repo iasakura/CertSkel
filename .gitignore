@@ -10,5 +10,5 @@
 *.bak
 *.aux
 extracted
-Makefile
+Makefile.coq
 .lia.cache
