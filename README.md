@@ -11,4 +11,5 @@ A Formally Verified Skeleton-based DSL for GPGPU in Coq
 
 ## Build
 
-- run `./build.sh`
+- For CertSkel, run `make`
+- For examples, run `make examples`
