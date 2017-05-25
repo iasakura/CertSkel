@@ -10,13 +10,13 @@ all: tlc cpdtlib Makefile.coq
 	git submodule update --init
 
 cpdtlib: ./external/cpdtlib/Makefile
-	cd ./external/cpdtlib && make
+	make -C ./external/cpdtlib
 
 tlc: ./external/tlc/GNUmakefile
-	cd ./external/tlc/ && make
+	make -C ./external/tlc
 
 Makefile.coq: _CoqProject
 	coq_makefile -f _CoqProject -o Makefile.coq
 
 examples: all tlc cpdtlib
-	cd ./examples && make 
+	make -C examples
