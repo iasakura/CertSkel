@@ -1,5 +1,7 @@
 .PHONY: cpdtlib tlc all
-default: all
+
+all: tlc cpdtlib Makefile.coq
+	make -f Makefile.coq
 
 ./external/cpdtlib/Makefile:
 	git submodule update --init
@@ -15,7 +17,3 @@ tlc: ./external/tlc/GNUmakefile
 
 Makefile.coq: _CoqProject
 	coq_makefile -f _CoqProject -o Makefile.coq
-
-all: tlc cpdtlib Makefile.coq
-	make -f Makefile.coq
-
