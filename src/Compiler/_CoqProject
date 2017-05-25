@@ -1,8 +1,0 @@
--R ../tlc/src TLC
--R ../cpdtlib Cpdt
--R ../CertSkel Top
--R ../GPUCSL Top
--R ../TypedIR Top
-
--R Skeletons Top
--R GPUVeLib Top

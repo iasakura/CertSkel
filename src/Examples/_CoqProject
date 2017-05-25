@@ -1,6 +1,0 @@
--R ../Compiler Top
--R ../tlc/src TLC
--R ../CertSkel Top
--R ../GPUCSL Top
--R ../TypedIR Top
--R ../cpdtlib Cpdt

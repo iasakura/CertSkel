@@ -1,8 +1,0 @@
--R ../TypedIR Top
--R ../tlc/src TLC
--R ../GPUCSL Top
--R . Top
--R ../Compiler Top
--R ../Compiler/GPUVeLib Top
--R ../Compiler/Skeletons Top
--R ../cpdtlib Cpdt
