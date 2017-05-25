@@ -17,3 +17,6 @@ tlc: ./external/tlc/GNUmakefile
 
 Makefile.coq: _CoqProject
 	coq_makefile -f _CoqProject -o Makefile.coq
+
+examples: all tlc cpdtlib
+	cd ./examples && make 

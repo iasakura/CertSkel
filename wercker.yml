@@ -8,3 +8,7 @@ build:
         name: build
         code: |
           source ~opam/.profile && make
+    - script:
+        name: build-example
+        code: |
+          source ~opam/.profile && make examples
