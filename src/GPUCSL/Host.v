@@ -20,8 +20,8 @@ Inductive stmt :=
 | host_iLet : var -> exp -> stmt
 | host_invoke : string -> exp -> exp -> list exp -> stmt
 | host_seq : stmt -> stmt -> stmt
-| host_while : bexp -> stmt -> stmt
-| host_if : bexp -> stmt -> stmt -> stmt
+| host_while : exp -> stmt -> stmt
+| host_if : exp -> stmt -> stmt -> stmt
 (* runtime expression representing kernel execution *)
 | host_exec_ker : forall ntrd nblk,
     Vector.t (klist ntrd) nblk
@@ -54,10 +54,10 @@ Record State := St {
 Fixpoint alloc_heap (start : nat) (vs : list Z) : simple_heap :=
   match vs with
   | nil => fun x => None
-  | v :: vs => fun l => if Z.eq_dec l (Zn start) then Some v else alloc_heap (S start) vs l
+  | v :: vs => fun l => if Z.eq_dec l (Zn start) then Some (VZ v) else alloc_heap (S start) vs l
   end.
 
-Fixpoint bind_params (stk : stack) (xs : list var) (vs : list Z) : Prop :=
+Fixpoint bind_params (stk : stack) (xs : list var) (vs : list val) : Prop :=
   match xs, vs with
   | nil, nil => True
   | x :: xs, v :: vs => bind_params stk xs vs /\ stk x = v
@@ -105,19 +105,19 @@ Instance var_eq_type : eq_type var := {|
 
 Inductive stmt_step : GModule -> stmt -> State -> stmt -> State -> Prop :=
 | Exec_alloc kenv (x : var) e (gst : State) start vs :
-    edenot e (st_stack gst) = (Z.of_nat (length vs)) ->
+    edenote e (st_stack gst) = Some (VZ (Z.of_nat (length vs))) ->
     hdisj (st_heap gst) (alloc_heap start vs) ->
     stmt_step kenv (host_alloc x e) gst
-              host_skip (St (var_upd (st_stack gst) x (Z.of_nat start))
+              host_skip (St (var_upd (st_stack gst) x (VZ (Z.of_nat start)))
                             (hplus (st_heap gst) (alloc_heap start vs)))
 | Exec_iLet kenv x e (gst : State) n :
-    edenot e (st_stack gst) = n ->
+    edenote e (st_stack gst) = Some n ->
     stmt_step kenv (host_iLet x e) gst
               host_skip (St (var_upd (st_stack gst) x n) (st_heap gst))
 | Exec_invoke ent nt enb nb kenv tst shp kerID ker args vs gst stk :
-    edenot ent (st_stack gst) = Zn nt ->
-    edenot enb (st_stack gst) = Zn nb ->
-    List.Forall2 (fun a v => edenot a (st_stack gst) = v) args vs ->
+    edenote ent (st_stack gst) = Some (VZ (Zn nt)) ->
+    edenote enb (st_stack gst) = Some (VZ (Zn nb)) ->
+    List.Forall2 (fun a v => edenote a (st_stack gst) = Some v) args vs ->
     func_disp kenv kerID = Some (Kern ker) ->
     init_GPU nt nb (body_of ker) tst shp stk ->
     bind_params stk (map fst (params_of ker)) vs ->
@@ -136,7 +136,7 @@ Inductive stmt_step : GModule -> stmt -> State -> stmt -> State -> Prop :=
               (host_skip) (St s h)
 | Exec_call kenv x st fn hf args vs new_stk :
     func_disp kenv fn = Some (Host hf)
-    -> List.Forall2 (fun a v => edenot a (st_stack st) = v) args vs
+    -> List.Forall2 (fun a v => edenote a (st_stack st) = Some v) args vs
     -> bind_params new_stk (map fst (host_params hf)) vs
     -> stmt_step kenv 
                  (host_call x fn args) st
@@ -149,16 +149,20 @@ Inductive stmt_step : GModule -> stmt -> State -> stmt -> State -> Prop :=
 | Exec_hfun_end kenv ret_st x ret st :
     stmt_step kenv
               (host_exec_hfun host_skip ret x ret_st) st
-              host_skip (St (var_upd ret_st x (edenot ret (st_stack st))) (st_heap st))
+              host_skip (St (var_upd ret_st x (st_stack st ret)) (st_heap st))
 | Exec_seq1 kenv s1 s2 s1' st1 st2 :
     stmt_step kenv s1 st1 s1' st2  ->
     stmt_step kenv (host_seq s1 s2) st1 (host_seq s1' s2) st2
 | Exec_seq2 kenv s st :
     stmt_step kenv (host_seq host_skip s) st s st
-| Exec_if1 kenv e s1 s2 st :
-    bdenot e (st_stack st) = true -> stmt_step kenv (host_if e s1 s2) st s1 st
-| Exec_if2 kenv e s1 s2 st :
-    bdenot e (st_stack st) = false -> stmt_step kenv (host_if e s1 s2) st s2 st
+| Exec_if1 kenv e s1 s2 st v:
+    edenote e (st_stack st) = Some (VZ v)
+    -> v <> 0%Z
+    -> stmt_step kenv (host_if e s1 s2) st s1 st
+| Exec_if2 kenv e s1 s2 st v :
+    edenote e (st_stack st) = Some (VZ v)
+    -> v = 0%Z
+    -> stmt_step kenv (host_if e s1 s2) st s2 st
 | Exec_while kenv e s st :
     stmt_step kenv (host_while e s) st (host_if e (host_seq s (host_while e s)) host_skip) st.
 End VecNot.
@@ -166,9 +170,14 @@ End VecNot.
 (* TODO: check e >= 0 in alloc(e) *)
 Inductive aborts_h : GModule -> stmt -> stack -> simple_heap -> Prop :=
   | aborts_host_seq : forall ke p p' s h, aborts_h ke p s h -> aborts_h ke (host_seq p p') s h
-  | aborts_kernel_invk : forall ke kid en n em m args s h,
-      edenot en s = Zn n ->
-      edenot em s = Zn m ->
+  | aborts_kernel_invk_param : forall ke kid en em args s h, 
+      (edenote en s = None \/  
+       edenote em s = None \/
+       (exists e, List.In e args /\ edenote e s = None)) ->
+      aborts_h ke (host_invoke kid en em args) s h
+  | aborts_kernel_invk_0 : forall ke kid en n em m args s h,
+      edenote en s = Some (VZ (Zn n)) ->
+      edenote em s = Some (VZ (Zn m)) ->
       func_disp ke kid = None \/
       (exists f, func_disp ke kid = Some (Host f)) \/
       n = 0 \/ m = 0 \/
@@ -177,6 +186,9 @@ Inductive aborts_h : GModule -> stmt -> stack -> simple_heap -> Prop :=
   | aborts_kernel_exec : forall kenv ntrd nblk tst shp s h,
       (abort_g (Gs tst shp h) \/ bdiv_g ntrd nblk tst shp (htop h)) ->
       aborts_h kenv (host_exec_ker ntrd nblk tst shp) s h
+  | aborts_hfun_call_param : forall x ke fn args s h, 
+      ((exists e, List.In e args /\ edenote e s = None)) ->
+      aborts_h ke (host_call x fn args) s h
   | aborts_hfun_call : forall x ke fn args s h,
       func_disp ke fn = None \/
       (exists f, func_disp ke fn = Some (Kern f)) \/
@@ -184,7 +196,16 @@ Inductive aborts_h : GModule -> stmt -> stack -> simple_heap -> Prop :=
       aborts_h ke (host_call x fn args) s h
   | aborts_hfun_exec : forall kenv body ret_stk ret x s h,
       aborts_h kenv body s h
-      -> aborts_h kenv (host_exec_hfun body ret x ret_stk) s h.
+      -> aborts_h kenv (host_exec_hfun body ret x ret_stk) s h
+  | aborts_alloc : forall kenv x e s h,
+      edenote e s = None->
+      aborts_h kenv (host_alloc x e) s h
+  | aborts_iLet : forall kenv x e s h,
+      edenote e s = None->
+      aborts_h kenv (host_iLet x e) s h
+  | aborts_If : forall kenv e s1 s2 s h,
+      edenote e s = None ->
+      aborts_h kenv (host_if e s1 s2) s h.
 
 Notation zpheap := (gen_pheap Z).
 
@@ -259,7 +280,8 @@ Definition CSLkfun_n_simp (P : assn) (f : kernel) (Q : assn) (n : nat) :=
     -> safe_ng ntrd nblk n tst shs h Q.
 
 Lemma CSLkfun_threads_vars ntrd nblk P p Q n :
-  (forall nt nb, P nt nb |= Assn TT True ("ntrd" |-> Zn nt :: "nblk" |-> Zn nb :: nil)) ->
+  (forall nt nb, P nt nb |= Assn TT True
+                   ("ntrd" |-> Vval (VZ (Zn nt)) :: "nblk" |-> Vval (VZ (Zn nb)) :: nil)) ->
   (forall ntrd nblk, CSLkfun_n_simp' ntrd nblk (P ntrd nblk) (p ntrd nblk) (Q ntrd nblk) n) ->
   CSLkfun_n_simp (P ntrd nblk) (p ntrd nblk) (Q ntrd nblk) n.
 Proof.
@@ -267,7 +289,11 @@ Proof.
   inverts H3.
   forwards*: H.
   unfold sat in H3; simpl in H3.
+  unfold ent_assn_denote in *; simpl in *.
+  destruct H3 as (? & ? & ? & ? & ?).
+  assert (Zn ntrd = Zn ntrd0) by congruence.
   assert (ntrd = ntrd0) by omega.
+  assert (Zn nblk = Zn nblk0) by congruence.
   assert (nblk = nblk0) by omega.
   substs.
   eapply H0; eauto.
@@ -290,7 +316,7 @@ Fixpoint interp_ftri (fs : FTri) (k : assn -> (val -> assn) -> Prop) : Prop :=
   end.
 
 Definition interp_kfun_n_simp k (fs : FSpec) n :=
-  interp_ftri (fs_tri fs) (fun P Q => CSLkfun_n_simp P k (Q 0%Z) n).
+  interp_ftri (fs_tri fs) (fun P Q => CSLkfun_n_simp P k (Q (VZ 0%Z)) n).
 
 Definition interp_hfun_n_simp h (fs : FSpec) n :=
   interp_ftri (fs_tri fs) (fun P Q => CSLhfun_n_simp P h Q n).
@@ -426,9 +452,9 @@ Inductive inst_spec : FTri -> assn -> (val -> assn) -> Prop :=
 | IS_all T (v : T) f P Q : inst_spec (f v) P Q -> inst_spec (FAll _ f) P Q.
 
 (* (y = v)[vs/xs], if variable remains in sustituted pred, it cannot holds *)
-Fixpoint subst_ent (y : var) (v : val) (xs : list var) (vs : list val) : Prop :=
+Fixpoint subst_ent (y : var) (v : lval) (xs : list var) (vs : list lval) : Prop :=
   match xs, vs with
-  | x :: xs, v' :: vs => if var_eq_dec x y then v = v' else subst_ent y v xs vs
+  | x :: xs, v' :: vs => if var_eq_dec x y then v' = v else subst_ent y v xs vs
   | _, _ => False
   end.
 
@@ -454,7 +480,7 @@ Proof.
   revert vs; induction xs as [|x xs]; simpl; try tauto.
   intros [|v' vs]; try tauto.
   destruct var_eq_dec; substs; jauto.
-  intros ? [? ?]; cbv; congruence.
+  intros ? [? ?]; eauto; substs; eauto.
 Qed.
 
 Lemma subst_env_bind_params E xs vs s : 
@@ -557,15 +583,15 @@ Qed.
 
 Lemma initGPU_ntrd nt nb body tst shp stk: 
   init_GPU nt nb body tst shp stk ->
-  stk "ntrd" = Zn nt.
+  stk "ntrd" = VZ (Zn nt).
 Proof. inversion 1; eauto. Qed.
 
 Lemma initGPU_nblk nt nb body tst shp stk: 
   init_GPU nt nb body tst shp stk ->
-  stk "nblk" = Zn nb.
+  stk "nblk" = VZ (Zn nb).
 Proof. inversion 1; eauto. Qed.
 
-Definition evalExpseq E (es : list exp) (vs : list val) := Forall2 (fun e v => evalExp E e v) es vs.
+Definition evalExpseq E (es : list exp) (vs : list lval) := Forall2 (fun e v => evalExp E e v) es vs.
 
 Lemma evalExpseq_app E es1 es2 vs1 vs2 :
   evalExpseq E es1 vs1 -> evalExpseq E es2 vs2 ->
@@ -649,7 +675,7 @@ Proof.
 Qed.
 
 Lemma rule_invk (G : FC) (fn : string) (nt nb : nat) (es : list exp)
-      (vs : list val)
+      (vs : list lval)
       fs ent ntrd enb nblk
       Rpre Ppre Epre
       Q
@@ -659,10 +685,11 @@ Lemma rule_invk (G : FC) (fn : string) (nt nb : nat) (es : list exp)
   -> In (fn, fs) G
   -> length es = length (fs_params fs)
   -> (P -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) Q)
-  -> has_no_vars (Q 0%Z)
-  -> evalExpseq E (enb :: ent :: es) (Zn nblk :: Zn ntrd :: vs)
+  -> has_no_vars (Q (VZ 0%Z))
+  -> evalExpseq E (enb :: ent :: es) (Vval (VZ (Zn nblk)) :: Vval (VZ (Zn ntrd)) :: vs)
   -> ntrd <> 0 -> nblk <> 0
-  -> (P -> subst_env Epre (Var "nblk" :: Var "ntrd" :: fs_params fs) (Zn nblk :: Zn ntrd :: vs))
+  -> (P -> subst_env Epre (Var "nblk" :: Var "ntrd" :: fs_params fs) 
+                     (Vval (VZ (Zn nblk)) :: Vval (VZ (Zn ntrd)) :: vs))
   -> (P -> Ppre)
   -> (P -> R |=R Rpre *** RF)
   -> CSLh G

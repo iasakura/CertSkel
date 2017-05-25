@@ -14,25 +14,29 @@ Proof.
   intros ? ? Hc; inversion Hc.
 Qed.
 
-Lemma rule_assign ntrd BS (tid : Fin.t ntrd) e x cty (v : val) Env P Res :
-  evalExp Env e v ->
+Lemma rule_assign ntrd BS (tid : Fin.t ntrd) e x cty (v : val) Env (P : Prop) Res :
+  (P -> evalExp Env e (Vval v)) ->
   CSL BS tid
       (Assn Res P Env)
       (x ::T cty ::= e)
-      (Assn Res P (Ent x v :: remove_var Env x)).
+      (Assn Res P (Ent x (Vval v) :: remove_var Env x)).
 Proof.
   intros HevalLe.
   unfold CSL; intros s h Hsat; destruct n; [now (simpl; eauto)|].
   unfold sat in Hsat; simpl in Hsat.
   simpl; repeat split; try congruence.
   - introv ? ? HC; inverts HC.
+    forwards*(? & ? & ?): (>>evalExp_ok); simpl in *; congruence.
   - introv Hdis Htoh Hred.
     inverts Hred; inverts EQ1; simpl.
     repeat eexists; repeat split; eauto.
     apply safe_skip; splits; jauto.
-    cutrewrite (edenot e s0 = v); [|applys (>> evalExp_ok HevalLe); jauto].
+    cutrewrite (edenote e s0 = Some v); [|forwards*(?&?&?): (>> evalExp_ok HevalLe);
+                                           simpl in *; substs; jauto].
     split.
-    + unfold var_upd in *; simpl; destruct var_eq_dec; try congruence.
+    + unfold ent_assn_denote, var_upd in *; simpl; destruct var_eq_dec; try congruence.
+      forwards*(?&?&?): (evalExp_ok).
+      congruence.
     + applys* disjoint_inde_env.
       apply remove_var_inde; simpl in *; auto.
       simpl; eauto.
@@ -48,12 +52,12 @@ Proof.
 Qed.
 
 Lemma rule_read ntrd BS (tid : Fin.t ntrd) le l x cty p (v : val) Env (P : Prop) (Res Res' : res) :
-  evalLExp Env le l ->
+  (P -> evalExp Env le (Vval (VPtr l))) ->
   (P -> (Res |=R l |->p (p, v) *** Res')) ->
   CSL BS tid
       (Assn Res P Env)
       (x ::T cty ::= [le])
-      (Assn Res P (Ent x v :: remove_var Env x)).
+      (Assn Res P (Ent x (Vval v) :: remove_var Env x)).
 Proof.
   intros HevalLe Hres.
   unfold CSL, sat; intros s h Hsat; destruct n; [now (simpl; eauto)|].
@@ -65,18 +69,20 @@ Proof.
     rewrite H; simpl.
     destruct l; try destruct pl; simpl in *; destruct (eq_dec _ _); try congruence;
     destruct (PHeap.this x1 _) as [[? ?]|]; eexists; eauto. }
-  assert (Hle : ledenot le s = l).
-  { forwards*: (>>evalLExp_ok HevalLe). }
+  assert (Hle : edenote le s = Some (VPtr l)).
+  { forwards*(? & ? & ?): (>>evalExp_ok HevalLe).
+    simpl in *; substs; jauto. }
   simpl; repeat split; try congruence.
   - intros hF h' Hdis Htoh HC.
-    inverts HC; simpl in *.
+    inverts HC; simpl in *; try congruence.
     apply ptoheap_eq in Htoh.
     rewrites* (>>htop_eq Htoh) in NIN.
     unfold phplus in NIN.
-    rewrite Hle, Heq in NIN.
+    cutrewrite (l1 = l) in NIN; [|congruence].
+    rewrite Heq in NIN.
     destruct (PHeap.this hF l) as [[? ?]|]; congruence.
-  - hnf.
-    eexists; rewrite Hle, Heq; eauto.
+  - hnf; simpl; rewrite Hle.
+    eexists; rewrite Heq; eauto.
   - introv Hdis Htoh Hred.
     destruct ss' as [s' h'].
     inverts Hred; simpl in *.
@@ -85,8 +91,8 @@ Proof.
     apply safe_skip; simpl.
     unfold sat; simpl; splits; jauto.
     + auto; simpl.
-      unfold var_upd; destruct (var_eq_dec _ _); try congruence.
-      rewrite Hle in RD.
+      unfold ent_assn_denote, var_upd; destruct (var_eq_dec _ _); simpl in *; try congruence.
+      cutrewrite (l1 = l) in RD; [|congruence].
       apply ptoheap_eq in Htoh.
       apply (f_equal (fun x => x l)) in Htoh.
       unfold phplus, htop in Htoh.
@@ -100,7 +106,7 @@ Proof.
       applys* remove_var_imp.
 Qed.
 
-Lemma ph_upd_phplus (ph1 ph2 : pheap) (x : loc) (v w : Z):
+Lemma ph_upd_phplus (ph1 ph2 : pheap) (x : loc) (v w : val):
   pdisj ph1 ph2 -> this ph1 x = Some (full_p, w) -> 
   phplus (ph_upd ph1 x v) ph2 = ph_upd (phplus ph1 ph2) x v.
 Proof.
@@ -114,7 +120,7 @@ Proof.
   destruct hdis as [? [? Hc]]. apply frac_contra1 in Hc; tauto.
 Qed.
 
-Lemma ph_upd_ptoheap (ph : pheap) (h : heap) (x : loc) (v : Z) :
+Lemma ph_upd_ptoheap (ph : pheap) (h : heap) (x : loc) (v : val) :
   ptoheap ph h -> ptoheap (ph_upd ph x v) (upd h x (Some v)).
 Proof.        
   intros heq y.
@@ -127,8 +133,8 @@ Proof.
 Qed.
 
 Lemma rule_write ntrd BS (tid : Fin.t ntrd) le l e (v : val) v' Env (P : Prop) (Res Res' : res) :
-  evalLExp Env le l ->
-  evalExp Env e v' ->
+  (P -> evalExp Env le (Vval (VPtr l))) ->
+  (P -> evalExp Env e (Vval v')) ->
   (P -> Res |=R ((l |->p (1, v)) *** Res')) ->
   CSL BS tid
       (Assn Res P Env)
@@ -154,21 +160,25 @@ Proof.
       lra_Qc. }
     rewrite H3.
     destruct l; simpl in *; destruct (eq_dec _ _); try congruence; auto. }
-  assert (Hle : ledenot le s = l).
-  { forwards*: (>>evalLExp_ok HevalLe). }
-  assert (Hv : edenot e s = v').
-  { forwards*: (>>evalExp_ok Henv). }
+  assert (Hle : edenote le s = Some (VPtr l)).
+  { forwards*(? & ? & ?): (>>evalExp_ok HevalLe).
+    simpl in *; substs; jauto. }
+  assert (Hv : edenote e s = Some v').
+  { forwards*(? & ? & ?): (>>evalExp_ok Henv).
+    simpl in *; substs; jauto. }
   simpl; repeat split; try congruence.
   - intros hF h' Hdis Htoh HC.
-    inverts HC; simpl in *.
+    inverts HC; simpl in *; try congruence.
     apply ptoheap_eq in Htoh.
     rewrites* (>>htop_eq Htoh) in NIN.
     unfold phplus in NIN.
-    rewrite Hle, Heq in NIN.
+    cutrewrite (l1 = l) in NIN; [|congruence].
+    rewrite Heq in NIN.
     destruct (PHeap.this hF l) as [[? ?]|]; congruence.
-  - hnf.
-    eexists; rewrite Hle, Heq; eauto.
-  - hnf; eexists; rewrite Hle; eauto.
+  - hnf; simpl; rewrite Hle.
+    eexists; rewrite Heq; eauto.
+  - hnf; simpl; rewrite Hle. 
+    eexists; rewrite Heq; eauto.
   - introv Hdis Htoh Hred.
     destruct ss' as [s' h'].
     inverts Hred; simpl in *.
@@ -178,7 +188,8 @@ Proof.
     + unfold ph_upd2; simpl.
       erewrite ph_upd_phplus; eauto.
       cutrewrite (phplus h hF = phplus_pheap Hdis); [|simpl; eauto].
-      rewrite Hle, Hv.
+      cutrewrite (l1 = l); [|congruence].
+      cutrewrite (v0 = v'); [|congruence].
       apply (ph_upd_ptoheap); eauto.
     + apply safe_skip.
       (* split; eauto. *)
@@ -244,26 +255,33 @@ Proof.
   intros; eapply rule_conseq; eauto.
 Qed.
 
-Lemma rule_if_disj ntrd BS (tid : Fin.t ntrd) b c1 c2 P cond Res Env Q1 Q2 :
-  evalBExp Env b cond ->
+Lemma rule_if_disj ntrd BS (tid : Fin.t ntrd) b c1 c2 (P : Prop) cond Res Env Q1 Q2 :
+  (P -> evalExp Env b (Bval cond)) ->
   CSL BS tid (Assn Res (P /\ cond) Env) c1 Q1 ->
   CSL BS tid (Assn Res (P /\ ~cond) Env) c2 Q2 -> 
   CSL BS tid (Assn Res P Env) (Cif b c1 c2) (Disj_assn Q1 Q2).
 Proof.
   unfold CSL; intuition; destruct n; [simpl; eauto|]; simpl in *; eauto; intros; intuition.
   - inversion H3.
-  - inversion H5.
+  - inversion H5; substs; simpl in *.
+    unfold sat in *; simpl in *.
+    forwards*(? & ? & ?): evalExp_ok.
+    congruence.
   - unfold access_ok; simpl; eauto.
   - unfold write_ok; simpl; eauto.
   - inverts H5; substs; repeat eexists; eauto; simpl.
     + unfold sat in *; simpl in *.
-      forwards*: evalBExp_ok.
-      eapply safe_conseq; [apply H0; unfold sat in *; simpl in *; splits; jauto; tauto|].
-      unfold sat; simpl; eauto.
+      forwards*(? & ? & ?): evalExp_ok.
+      eapply safe_conseq; [apply H0; unfold sat in *; simpl in *; splits; jauto; try tauto|].
+      * split; try tauto.
+        unfold val_prop_equiv in *.
+        cutrewrite (x = VZ v) in H6; [tauto | congruence].
+      * unfold sat; simpl; eauto.
     + unfold sat in *; simpl in *.
-      forwards*: evalBExp_ok.
+      forwards*(? & ? & ?): evalExp_ok.
       eapply safe_conseq; [apply H1; unfold sat in *; simpl in *; splits; jauto|].
-      destruct bdenot eqn:Heq; try congruence; rewrite <-H5; split; jauto; congruence.
+      unfold val_prop_equiv in *.
+      cutrewrite (x = VZ 0) in H6; [tauto| congruence].
       unfold sat; simpl; eauto.
   - inverts H3.
 Qed.
@@ -310,21 +328,21 @@ Qed.
 (*   end. *)
 
 Lemma rule_read_array ntrd BS
-      (tid : Fin.t ntrd) (le : loc_exp) (l : loc) (x : var)
+      (tid : Fin.t ntrd) (le : exp) (l : loc) (x : var)
       (cty : option CTyp) (p : Qc) (Env : list entry)
       (P : Prop) (Res Res' : res) (arr : list val) ix i iz:
-  evalLExp Env le l ->
-  evalExp Env ix iz ->
+  (P -> evalExp Env le (Vval (VPtr l))) ->
+  (P -> evalExp Env ix (Vval (VZ iz))) ->
   Res |=R array l arr p *** Res' ->
   iz = Zn i ->
   (P -> i < length arr) ->
   CSL BS tid
       (Assn Res P Env)
       (x ::T cty ::= [le +o ix])
-      (Assn Res P (Ent x (nth i arr 0%Z) :: (remove_var Env x))).
+      (Assn Res P (Ent x (Vval (nth i arr (VZ 0%Z))) :: (remove_var Env x))).
 Proof.
   intros.
-  eapply forward; [|applys (>>rule_read (loc_off l iz) p (nth i arr 0%Z) ) ].
+  eapply forward; [|applys (>>rule_read (loc_off l iz) p (nth i arr (VZ 0%Z)) ) ].
   2: constructor; eauto.
   Focus 2.
   { intros Hp h Hres.
@@ -337,21 +355,21 @@ Proof.
 Qed.
 
 Lemma rule_read_array' ntrd BS
-      (tid : Fin.t ntrd) (le : loc_exp) (l : loc) (x : var)
+      (tid : Fin.t ntrd) (le : exp) (l : loc) (x : var)
       (cty : option CTyp) (p : Qc) (Env : list entry)
       (P : Prop) (Res Res' : res) (arr : list val) dist ix i iz j st:
-  evalLExp Env le l ->
-  evalExp Env ix iz ->
+  (P -> evalExp Env le (Vval (VPtr l))) ->
+  (P -> evalExp Env ix (Vval (VZ iz))) ->
   Res |=R array' l (ith_vals dist arr j st) p *** Res' ->
   iz = Zn i ->
   (P -> i < length arr /\ dist (st + i) = j) ->
   CSL BS tid
       (Assn Res P Env)
       (x ::T cty ::= [le +o ix])
-      (Assn Res P (Ent x (nth i arr 0%Z) :: (remove_var Env x))).
+      (Assn Res P (Ent x (Vval (nth i arr (VZ 0%Z))) :: (remove_var Env x))).
 Proof.
   intros.
-  eapply forward; [|applys (>>rule_read (loc_off l iz) p (nth i arr 0%Z) ) ].
+  eapply forward; [|applys (>>rule_read (loc_off l iz) p (nth i arr (VZ 0%Z)) ) ].
   2: constructor; eauto.
   Focus 2.
   { intros Hp h Hres.
@@ -362,7 +380,7 @@ Proof.
     repeat rewrite <-res_assoc in *.
     rewrite res_CA in Hres.
     subst; eauto.
-    rewrite (nth_skip _ 0%Z); simpl.
+    rewrite (nth_skip _ (VZ 0%Z)); simpl.
     destruct Nat.eq_dec; try tauto.
     destruct lt_dec; try tauto.
   } Unfocus.
@@ -370,31 +388,31 @@ Proof.
 Qed.
 
 Lemma rule_read_sarray ntrd BS
-      (tid : Fin.t ntrd) (le : loc_exp) (l : loc) (x : var)
+      (tid : Fin.t ntrd) (le : exp) (l : loc) (x : var)
       (cty : option CTyp) (p : Qc) (Env : list entry)
       (P : Prop) (Res Res' : res) (arr : list val) ix i iz d j:
-  evalLExp Env le l ->
-  evalExp Env ix iz ->
+  (P -> evalExp Env le (Vval (VPtr l))) ->
+  (P -> evalExp Env ix (Vval (VZ iz))) ->
   Res |=R array' l (skip arr d j) p *** Res' ->
   iz = Zn i ->
   (P -> i < length arr /\ i mod d = j) ->
   CSL BS tid
       (Assn Res P Env)
       (x ::T cty ::= [le +o ix])
-      (Assn Res P (Ent x (nth i arr 0%Z) :: (remove_var Env x))).
+      (Assn Res P (Ent x (Vval (nth i arr (VZ 0%Z))) :: (remove_var Env x))).
 Proof.
   intros; eapply rule_read_array'; eauto.
 Qed.
 
 Lemma rule_write_array :
   forall (ntrd : nat) BS
-         (tid : Fin.t ntrd) (le : loc_exp) (l : loc) (e : exp)
+         (tid : Fin.t ntrd) (le : exp) (l : loc) (e : exp)
          (v : val) (Env : list entry) (P : Prop) (Res Res' : res) arr ix iz i,
-    evalLExp Env le l ->
-    evalExp Env ix iz ->
+    (P -> evalExp Env le (Vval (VPtr l))) ->
+    (P -> evalExp Env ix (Vval (VZ iz))) ->
     iz = Zn i ->
     (P -> i < length arr) ->
-    evalExp Env e v ->
+    (P -> evalExp Env e (Vval v)) ->
     Res |=R array l arr 1 *** Res' ->
     CSL BS tid
         (Assn Res P Env)
@@ -402,7 +420,7 @@ Lemma rule_write_array :
         (Assn (array l (set_nth i arr v) 1 *** Res') P Env).
 Proof.
   intros.
-  eapply forward; [|applys (>>rule_write (loc_off l iz) (nth i arr 0%Z))].
+  eapply forward; [|applys (>>rule_write (loc_off l iz) (nth i arr (VZ 0%Z)))].
   2: do 1 constructor; eauto.
   2: eauto.
   Focus 2.
@@ -452,12 +470,12 @@ Qed.
 (* Proof. intros; substs; forwards*: (>>ith_vals_set_nth x 0). Qed. *)
 
 Lemma rule_write_array'  ntrd BS
-      (tid : Fin.t ntrd) (le : loc_exp) (l : loc)
+      (tid : Fin.t ntrd) (le : exp) (l : loc)
       (Env : list entry) (P : Prop) (Res Res' : res) (arr : list val) dist ix i iz j e v st:
-  evalLExp Env le l ->
-  evalExp Env ix iz ->
+  (P -> evalExp Env le (Vval (VPtr l))) ->
+  (P -> evalExp Env ix (Vval (VZ iz))) ->
   Res |=R array' l (ith_vals dist arr j st) 1 *** Res' ->
-  evalExp Env e v ->
+  (P -> evalExp Env e (Vval v)) ->
   iz = Zn i ->
   (P -> i < length arr /\ dist (st + i) = j) ->
   CSL BS tid
@@ -466,7 +484,7 @@ Lemma rule_write_array'  ntrd BS
       (Assn (array' l (ith_vals dist (set_nth i arr v) j st) 1 *** Res') P Env).
 Proof.
   intros.
-  eapply forward; [|applys (>>rule_write (loc_off l iz) (nth i arr 0%Z) )].
+  eapply forward; [|applys (>>rule_write (loc_off l iz) (nth i arr (VZ 0%Z)) )].
   2: constructor; eauto.
   2: eauto.
   Focus 2.
@@ -475,7 +493,7 @@ Proof.
     rewrites* (array'_unfold i (ith_vals dist arr j st) l 1) in Hres; [|rewrites* ith_vals_length].
     repeat rewrite <-res_assoc in *; substs.
     rewrite res_CA in Hres.
-    rewrite (nth_skip _ 0%Z) in Hres.
+    rewrite (nth_skip _ (VZ 0%Z)) in Hres.
     forwards*: H4.
     destruct Nat.eq_dec, (lt_dec i (length arr)); try now (simpl in *; omega).
     apply Hres. } Unfocus.
@@ -484,7 +502,7 @@ Proof.
   rewrites* (>>array'_unfold i l 1%Qc); [rewrite ith_vals_length, length_set_nth; tauto|].
   forwards*[? ?]: H4; substs.
   repeat rewrite <-res_assoc in *; substs.
-  rewrite (nth_skip _ 0%Z); destruct Nat.eq_dec; try (simpl in *; omega).
+  rewrite (nth_skip _ (VZ 0%Z)); destruct Nat.eq_dec; try (simpl in *; omega).
   destruct lt_dec; try (tauto).
   2:rewrite length_set_nth in *; tauto.
   rewrite nth_set_nth; destruct (Nat.eq_dec i i), (lt_dec i (length arr)); try omega.
@@ -496,12 +514,12 @@ Proof.
 Qed.
 
 Lemma rule_write_sarray'  ntrd BS
-      (tid : Fin.t ntrd) (le : loc_exp) (l : loc) (Env : list entry)
+      (tid : Fin.t ntrd) (le : exp) (l : loc) (Env : list entry)
       (P : Prop) (Res Res' : res) (arr : list val) ix i iz d j e v:
-  evalLExp Env le l ->
-  evalExp Env ix iz ->
+  (P -> evalExp Env le (Vval (VPtr l))) ->
+  (P -> evalExp Env ix (Vval (VZ iz))) ->
   Res |=R array' l (skip arr d j) 1 *** Res' ->
-  evalExp Env e v ->
+  (P -> evalExp Env e (Vval v)) ->
   iz = Zn i ->
   (P -> i < length arr /\ i mod d = j) ->
   CSL BS tid
@@ -525,7 +543,7 @@ Proof.
 Qed.
 
 Definition inde (R : assn) (ls : list var) :=
-  forall (x : var) (s : stack) (h : pheap) (v : Z),
+  forall (x : var) (s : stack) (h : pheap) (v : val),
     In x ls -> (sat s h R <-> sat (var_upd s x v) h R).
 
 Fixpoint writes_var (c : cmd) : list var :=
@@ -541,6 +559,7 @@ Lemma access_ok_mono (C : cmd) (s : stack) (ph phF : pheap) (dis : pdisj ph phF)
   access_ok C s ph -> access_ok C s (phplus_pheap dis).
 Proof.
   intros hok; induction C; eauto; unfold access_ok in *; simpl in *;
+  try destruct (edenote e s) as [[?|?]|]; try destruct (edenote e1 s) as [[?|?]|]; eauto;
   destruct hok as [[q v] H]; unfold phplus; rewrite H; 
   match goal with
         [  |- context [match ?v with | Some _ => _ | None => _ end] ] => 
@@ -553,7 +572,8 @@ Proof.
   clears.
   intros hok; induction C; eauto; unfold write_ok in *; simpl in *;
   destruct phF as [phF ispF], ph as [ph isp]; unfold phplus; simpl in *.
-  specialize (dis (ledenot e1 s)); specialize (ispF (ledenot e1 s)).
+  try destruct (edenote e s) as [[?|?]|]; try destruct (edenote e1 s) as [[?|?]|]; eauto.
+  specialize (dis l); specialize (ispF l).
   destruct hok as [v H]; unfold phplus; rewrite H in *; simpl.
   match goal with
       [  |- context [match ?v with | Some _ => _ | None => _ end] ] => 
@@ -567,13 +587,13 @@ Qed.
 Lemma writes_agrees (c1 c2 : cmd) (st1 st2 : state) :
   c1 / st1 ==>s c2 / st2 ->
   fst st1 = fst st2 \/
-  exists (x : var) (v : Z), In x (writes_var c1) /\ fst st2 = var_upd (fst st1) x v.
+  exists (x : var) (v : val), In x (writes_var c1) /\ fst st2 = var_upd (fst st1) x v.
 Proof.
   induction 1; try (left; now eauto).
   - destruct IHred as [ ? | [x [ v [Hin Heq] ]] ]; [tauto | right].
     exists x v; split; eauto.
     apply in_app_iff; eauto.
-  - right; exists x (edenot e s); split; [constructor | subst]; eauto.
+  - right; exists x v; split; [constructor | subst]; eauto.
   - right; exists x v; split; [constructor | subst]; eauto.
   - left; subst; eauto.
 Qed.
@@ -780,11 +800,18 @@ Proof.
   applys* safe_seq; unfold safe_nt; eauto.
 Qed.
 
+Inductive evalExpSafe : assn -> exp -> Prop :=
+| evalExp_Assn R (P : Prop) E e :
+    (exists v, P -> evalExp E e v) -> evalExpSafe (Assn R P E) e
+| evalExp_Ex T (P : T -> assn) e :
+    (forall x, evalExpSafe (P x) e) -> evalExpSafe (Ex x, P x) e.
+
 Lemma safe_while ntrd BS (tid : Fin.t ntrd) :
-  forall P (B : bexp) C (OK: CSL BS tid (P ** (BEval_assn B true)) C P) s h (SAT_P: sat s h P) n,
+  forall P (B : exp) C (OK: CSL BS tid (P ** (BEval_assn B true)) C P) s h (SAT_P: sat s h P) n
+         (Hsafe : evalExpSafe P B),
     safe_nt BS tid n (Cwhile B C) s h (P ** (BEval_assn B false)).
 Proof.
-  intros; revert s h SAT_P. 
+  intros; revert s h Hsafe SAT_P.
   assert (lenn : n <= n) by omega; revert lenn; generalize n at -2 as m.
   induction n; simpl in *; eauto; intros; intuition. (* desf; [by inv H2|]*)
   { destruct m; inversion lenn; simpl; eauto. }
@@ -799,11 +826,26 @@ Proof.
   exists h0 h; repeat split; eauto; simpl.
   destruct n; simpl; repeat split; eauto; intros; try congruence.
   intros Hc; inversion Hc.
+  { Lemma evalExpSafe_ok P e s h :
+      evalExpSafe P e
+      -> sat s h P
+      -> exists v, edenote e s = Some v.
+    Proof.
+      induction 1; intros.
+      - destruct H.
+        unfold sat in *; simpl in *.
+        forwards*(? & ? & ?): evalExp_ok.
+      - destruct H1.
+        forwards*: H0.
+    Qed.
+    forwards*(? & ?): evalExpSafe_ok.
+    simpl in *; congruence. }
+  
   inversion H1; subst; repeat eexists; eauto.
   - eapply safe_seq; simpl; eauto; intros. 
     apply OK.
     unfold sat; simpl.
-    exists h (emp_ph loc); splits; eauto.
+    exists h (emp_ph loc); splits; simpl in *; eauto.
     apply disj_emp1.
     apply phplus_emp2.
   - eapply safe_skip; repeat split; simpl in *; eauto.
@@ -813,9 +855,10 @@ Proof.
     apply phplus_emp2.
 Qed.
 
-Definition WhileI (I : assn) (b : bexp) (c : cmd) := (Cwhile b c).
+Definition WhileI (I : assn) (b : exp) (c : cmd) := (Cwhile b c).
 
-Lemma rule_while ntrd BS (tid : Fin.t ntrd) P (B : bexp) C :
+Lemma rule_while ntrd BS (tid : Fin.t ntrd) P (B : exp) C :
+  evalExpSafe P B ->
   CSL BS tid (P ** (BEval_assn B true)) C P ->
   CSL BS tid P (Cwhile B C) (P ** ((BEval_assn B false))).  
 Proof.
@@ -880,7 +923,7 @@ Section ParCSL.
     match n return forall (ss : Vector.t stack n), 
                      low_eq_l2 E ss ->
                      { x : stack & forall tid : Fin.t n, low_eq E ss[@tid] x } with
-      | 0 => fun ss  _ => existT _ ((fun _ => 0%Z) : stack) (fun tid : Fin.t 0 => 
+      | 0 => fun ss  _ => existT _ ((fun _ => VZ 0%Z) : stack) (fun tid : Fin.t 0 => 
                                                                match fin_0 tid with end)
       | S n => fun ss heq => low_eq_repr1 _ _ heq
     end.
@@ -1118,7 +1161,7 @@ Section ParCSL.
               - inversion H1; f_equal; eauto.
               - inversion H1; subst.
                 lets (_ & _ & Haok & Hwok & _) : (>> Hsafe i); clear Hsafe; rewrite H2 in *; simpl in *.
-                lets (hrest' & Hdeq' & Hdisji' & Heqi') : (>> disj_tid phs ph i Hdiseq).
+                lets (hrest' & Hdeq' & Hdisji' & Heqi') : (>> (@disj_tid) phs ph i Hdiseq).
                 econstructor; eauto.
                 lets Hok : (access_ok_mono _ _ _ _ Hdisji' Haok); simpl in *.
                 applys_eq Hok 1; destruct ph; apply pheap_eq; auto.
@@ -1212,7 +1255,7 @@ Section ParCSL.
   Definition CSLp (P : assn) (c : cmd) (Q : assn) :=
     forall (ks : klist ntrd) (h : pheap) (leqks : low_eq_l2 E (Vector.map (fun s => snd s) ks)),
       (forall tid : Fin.t ntrd, fst ks[@tid] = c) ->
-      (forall tid : Fin.t ntrd, (snd ks[@tid]) (Var "tid") = Z_of_fin tid) ->
+      (forall tid : Fin.t ntrd, (snd ks[@tid]) (Var "tid") = VZ (Z_of_fin tid)) ->
       sat_k _ h leqks P ->
       forall n, safe_nk n ks h Q.
 
@@ -1224,7 +1267,7 @@ Section ParCSL.
     typing_cmd E c ty ->
     (forall tid : Fin.t ntrd, 
        CSL bspec tid 
-           (Ps[@tid] ** (Assn Emp True (Var "tid" |-> Z_of_fin tid :: nil)))
+           (Ps[@tid] ** (Assn Emp True (Var "tid" |-> Vval (VZ (Z_of_fin tid)) :: nil)))
            c 
            Qs[@tid]) ->
     CSLp P c Q.
@@ -1246,7 +1289,8 @@ Section ParCSL.
       rewrite Heqc; apply Hsafei.
       erewrite Vector.nth_map in Hsat'; eauto.
       exists prehs[@tid] (emp_ph loc); simpl; splits; eauto.
-      apply disj_emp1.
+      unfold ent_assn_denote; simpl; eauto.
+      apply @disj_emp1.
       apply phplus_emp2.
     - exists ks h prehs c ty; repeat split; eauto; simpl in *.
       + apply Relation_Operators.rt1n_refl. 
@@ -1255,6 +1299,7 @@ Section ParCSL.
         (* erewrite Vector.nth_map; eauto; *) apply Hsafei.
         specialize (Hsat' tid); erewrite Vector.nth_map in Hsat'; eauto.
         exists prehs[@tid] (emp_ph loc); simpl; splits; eauto.
+        unfold ent_assn_denote; simpl; eauto.
         apply disj_emp1.
         apply phplus_emp2.
   Qed.

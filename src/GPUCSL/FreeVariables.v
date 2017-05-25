@@ -71,7 +71,7 @@ Proof.
     induction E as [|[y n] E]; simpl; eauto.
     intros.
     split.
-    + unfold var_upd; destruct var_eq_dec; try omega.
+    + unfold ent_assn_denote, var_upd in *; destruct var_eq_dec; simpl in *; try tauto.
       substs.
       assert (In x xs) by (unfold incl in *; specialize (H x); simpl in *; eauto).
       forwards*: (>>disjoint_not_in_r xs ys).
