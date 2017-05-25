@@ -20,7 +20,8 @@ Inductive stmt :=
 | host_iLet : var -> exp -> stmt
 | host_invoke : string -> exp -> exp -> list exp -> stmt
 | host_seq : stmt -> stmt -> stmt
-| host_while : exp -> stmt -> stmt
+| host_while : bexp -> stmt -> stmt
+| host_if : bexp -> stmt -> stmt -> stmt
 (* runtime expression representing kernel execution *)
 | host_exec_ker : forall ntrd nblk,
     Vector.t (klist ntrd) nblk
@@ -153,7 +154,13 @@ Inductive stmt_step : GModule -> stmt -> State -> stmt -> State -> Prop :=
     stmt_step kenv s1 st1 s1' st2  ->
     stmt_step kenv (host_seq s1 s2) st1 (host_seq s1' s2) st2
 | Exec_seq2 kenv s st :
-    stmt_step kenv (host_seq host_skip s) st s st.
+    stmt_step kenv (host_seq host_skip s) st s st
+| Exec_if1 kenv e s1 s2 st :
+    bdenot e (st_stack st) = true -> stmt_step kenv (host_if e s1 s2) st s1 st
+| Exec_if2 kenv e s1 s2 st :
+    bdenot e (st_stack st) = false -> stmt_step kenv (host_if e s1 s2) st s2 st
+| Exec_while kenv e s st :
+    stmt_step kenv (host_while e s) st (host_if e (host_seq s (host_while e s)) host_skip) st.
 End VecNot.
 
 (* TODO: check e >= 0 in alloc(e) *)
