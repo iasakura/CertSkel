@@ -194,8 +194,8 @@ Proof.
     simpl in *; forwards*: Hskip; forwards*: Hsafe2.
   - introv Hdis Heq Hstep.
     Lemma seqs_app_step GM C1 C2 C' st1 st2 :
-      stmt_exec GM (seqs (C1 ++ C2)) st1 C' st2
-      -> (exists C'', stmt_exec GM (seqs C1) st1 (seqs C'') st2 /\ seqs (C'' ++ C2) = C')  \/
+      stmt_step GM (seqs (C1 ++ C2)) st1 C' st2
+      -> (exists C'', stmt_step GM (seqs C1) st1 (seqs C'') st2 /\ seqs (C'' ++ C2) = C')  \/
          (C1 = nil).
     Proof.
       induction C1; simpl; eauto.
@@ -520,12 +520,12 @@ Proof.
           forwards*: (>>func_disp_incl_none Hincl Heq'); congruence.
     Qed.
     applys* aborts_h_weaken.
-  - Lemma stmt_exec_weaken GM GM' st state st' state' :
-      stmt_exec GM' st state st' state'
+  - Lemma stmt_step_weaken GM GM' st state st' state' :
+      stmt_step GM' st state st' state'
       -> disjoint_list (map fst GM')
       -> incl GM GM' 
       -> ~aborts_h GM st (st_stack state) (st_heap state)
-      -> stmt_exec GM st state st' state'.
+      -> stmt_step GM st state st' state'.
     Proof.
       induction 1; intros Hdisj Hincl Hnab; try econstructor; eauto.
       - destruct (func_disp GM kerID) eqn:Heq.
@@ -534,13 +534,13 @@ Proof.
       - destruct (func_disp GM fn) eqn:Heq.
         + f_equal; applys* (>>func_disp_incl Hincl).
         + false; apply Hnab; econstructor; eauto.
-      - apply IHstmt_exec; eauto.
+      - apply IHstmt_step; eauto.
         intros Hc; apply Hnab; constructor; eauto.
-      - apply IHstmt_exec; eauto.
+      - apply IHstmt_step; eauto.
         intros Hc; apply Hnab; constructor; eauto.
     Qed.
     introv Hdis Heq Hstep'; forwards* (h'' & ? & ? & ?): (>>Hstep).
-    { applys* stmt_exec_weaken. }
+    { applys* stmt_step_weaken. }
 Qed.
 
 Lemma safe_nhfun_weaken GM GM' n s h st ret Q :
@@ -554,7 +554,7 @@ Proof.
   - introv Hdisj Heq Hc; applys* Hsafe.
     applys* aborts_h_weaken.
   - introv Hdis Heq Hstep'; forwards* (h'' & ? & ? & ?): (>>Hstep).
-    { applys* stmt_exec_weaken. }
+    { applys* stmt_step_weaken. }
 Qed.
 
 Lemma CSLh_n_weaken GM G GM' G' P st Q :

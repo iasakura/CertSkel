@@ -19,6 +19,8 @@ Inductive stmt :=
 | host_alloc : var -> exp -> stmt
 | host_iLet : var -> exp -> stmt
 | host_invoke : string -> exp -> exp -> list exp -> stmt
+| host_seq : stmt -> stmt -> stmt
+| host_while : exp -> stmt -> stmt
 (* runtime expression representing kernel execution *)
 | host_exec_ker : forall ntrd nblk,
     Vector.t (klist ntrd) nblk
@@ -26,8 +28,7 @@ Inductive stmt :=
     -> stmt
 | host_call : var -> string -> list exp -> stmt
 (* runtime expression for executing another function *)
-| host_exec_hfun : stmt -> var -> var -> stack -> stmt
-| host_seq : stmt -> stmt -> stmt.
+| host_exec_hfun : stmt -> var -> var -> stack -> stmt.
 
 Record hostfun := Hf {
   host_params : list (var * CTyp);
@@ -101,16 +102,16 @@ Instance var_eq_type : eq_type var := {|
   eq_dec := var_eq_dec
 |}.
 
-Inductive stmt_exec : GModule -> stmt -> State -> stmt -> State -> Prop :=
+Inductive stmt_step : GModule -> stmt -> State -> stmt -> State -> Prop :=
 | Exec_alloc kenv (x : var) e (gst : State) start vs :
     edenot e (st_stack gst) = (Z.of_nat (length vs)) ->
     hdisj (st_heap gst) (alloc_heap start vs) ->
-    stmt_exec kenv (host_alloc x e) gst
+    stmt_step kenv (host_alloc x e) gst
               host_skip (St (var_upd (st_stack gst) x (Z.of_nat start))
                             (hplus (st_heap gst) (alloc_heap start vs)))
 | Exec_iLet kenv x e (gst : State) n :
     edenot e (st_stack gst) = n ->
-    stmt_exec kenv (host_iLet x e) gst
+    stmt_step kenv (host_iLet x e) gst
               host_skip (St (var_upd (st_stack gst) x n) (st_heap gst))
 | Exec_invoke ent nt enb nb kenv tst shp kerID ker args vs gst stk :
     edenot ent (st_stack gst) = Zn nt ->
@@ -119,40 +120,40 @@ Inductive stmt_exec : GModule -> stmt -> State -> stmt -> State -> Prop :=
     func_disp kenv kerID = Some (Kern ker) ->
     init_GPU nt nb (body_of ker) tst shp stk ->
     bind_params stk (map fst (params_of ker)) vs ->
-    stmt_exec kenv
+    stmt_step kenv
               (host_invoke kerID ent enb args) gst
               (host_exec_ker nt nb tst shp) gst
 | Exec_invoke_step kenv ntrd nblk tst tst' shp shp' s h h' :
     red_g (Gs tst shp h)  (Gs tst' shp' h') ->
-    stmt_exec kenv
+    stmt_step kenv
               (host_exec_ker ntrd nblk tst shp) (St s h)
               (host_exec_ker ntrd nblk tst' shp') (St s h')
 | Exec_invoke_end kenv ntrd nblk tst shp s h :
     (forall i j, fst tst[@j][@i] = Cskip) ->
-    stmt_exec kenv
+    stmt_step kenv
               (host_exec_ker ntrd nblk tst shp) (St s h)
               (host_skip) (St s h)
 | Exec_call kenv x st fn hf args vs new_stk :
     func_disp kenv fn = Some (Host hf)
     -> List.Forall2 (fun a v => edenot a (st_stack st) = v) args vs
     -> bind_params new_stk (map fst (host_params hf)) vs
-    -> stmt_exec kenv 
+    -> stmt_step kenv 
                  (host_call x fn args) st
                  (host_exec_hfun (host_stmt hf) (host_res hf) x (st_stack st)) (St new_stk (st_heap st))
 | Exec_hfun_step kenv body1 body2 ret x st1 st2 ret_st :
-    stmt_exec kenv body1 st1 body2 st2
-    -> stmt_exec kenv
+    stmt_step kenv body1 st1 body2 st2
+    -> stmt_step kenv
                  (host_exec_hfun body1 ret_st ret x) st1
                  (host_exec_hfun body2 ret_st ret x) st2
 | Exec_hfun_end kenv ret_st x ret st :
-    stmt_exec kenv
+    stmt_step kenv
               (host_exec_hfun host_skip ret x ret_st) st
               host_skip (St (var_upd ret_st x (edenot ret (st_stack st))) (st_heap st))
 | Exec_seq1 kenv s1 s2 s1' st1 st2 :
-    stmt_exec kenv s1 st1 s1' st2  ->
-    stmt_exec kenv (host_seq s1 s2) st1 (host_seq s1' s2) st2
+    stmt_step kenv s1 st1 s1' st2  ->
+    stmt_step kenv (host_seq s1 s2) st1 (host_seq s1' s2) st2
 | Exec_seq2 kenv s st :
-    stmt_exec kenv (host_seq host_skip s) st s st.
+    stmt_step kenv (host_seq host_skip s) st s st.
 End VecNot.
 
 (* TODO: check e >= 0 in alloc(e) *)
@@ -196,7 +197,7 @@ Fixpoint safe_nh (n : nat) (s : stack) (gh : zpheap) (p : stmt) (Q : assn) :=
     (forall (hF : zpheap) (h h' : simple_heap) (s' : stack) (p' : stmt),
         pdisj gh hF 
         -> ptoheap (phplus gh hF) h
-        -> stmt_exec GM p (St s h) p' (St s' h') 
+        -> stmt_step GM p (St s h) p' (St s' h') 
         -> exists (h'' : zpheap),
             pdisj h'' hF /\ ptoheap (phplus h'' hF) h' /\
             safe_nh n s' h'' p' Q)
@@ -220,7 +221,7 @@ Fixpoint safe_nhfun (n : nat) (s : stack) (gh : zpheap) (p : stmt) (ret : var) (
     (forall (hF : zpheap) (h h' : simple_heap) (s' : stack) (p' : stmt),
         pdisj gh hF 
         -> ptoheap (phplus gh hF) h
-        -> stmt_exec GM p (St s h) p' (St s' h') 
+        -> stmt_step GM p (St s h) p' (St s' h') 
         -> exists (h'' : zpheap),
             pdisj h'' hF /\ ptoheap (phplus h'' hF) h' /\
             safe_nhfun n s' h'' p' ret Q)
