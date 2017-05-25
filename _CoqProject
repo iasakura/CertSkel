@@ -15,9 +15,6 @@ src/Compiler/GPUVeLib/CodeGen.v
 src/Compiler/Skeletons/mkMap.v
 src/Compiler/Skeletons/mkReduce.v
 src/Compiler/Skeletons/Utils.v
-src/Examples/min_idx.v
-src/Examples/stencil2D.v
-src/Examples/vecadd2.v
 src/GPUCSL/SeqRules.v
 src/GPUCSL/FreeVariables.v
 src/GPUCSL/CSLLemma.v
