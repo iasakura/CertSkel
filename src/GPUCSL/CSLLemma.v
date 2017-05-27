@@ -23,11 +23,16 @@ Definition val_prop_equiv (v : val) p :=
   | VZ n => n = 0%Z <-> ~p
   end.
 
+Definition val_lval_equiv v lv :=
+  match lv with
+  | Bval p => val_prop_equiv v p
+  | Vval v' => v = v'
+  end.
+
 Inductive entry := Ent {ent_e : var; ent_v : lval}.
 Definition ent_assn_denote va (s : stack) : Prop :=
-  match ent_v va with
-  | Vval v => s (ent_e va) = v 
-  | Bval p => val_prop_equiv (s (ent_e va)) p
+  match va with
+  | Ent x v => val_lval_equiv (s x) v
   end.
 
 Definition env_assns_denote env : stack -> Prop :=
@@ -213,12 +218,6 @@ Inductive evalExp : list entry -> exp -> lval -> Prop :=
     evalExp env off (Vval (VZ o)) ->
     evalExp env (Eoff loc off) (Vval (VPtr (loc_off l o)))
 | SEval_var env e v : In (Ent e v) env -> evalExp env e v.
-
-Definition val_lval_equiv v lv :=
-  match lv with
-  | Bval p => val_prop_equiv v p
-  | Vval v' => v = v'
-  end.
 
 Lemma env_denote_in Env x v :
   In (Ent x v) Env -> forall s, env_assns_denote Env s -> val_lval_equiv (s x) v.
