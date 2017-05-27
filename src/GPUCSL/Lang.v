@@ -805,7 +805,10 @@ Section NonInter.
                 typing_exp (Eunop op e) ty
   | ty_binop : forall (op : binop) (e1 e2 : exp) (ty1 ty2 : type), 
                 typing_exp e1 ty1 -> typing_exp e2 ty2 ->
-                typing_exp (Ebinop op e1 e2) (join ty1 ty2).
+                typing_exp (Ebinop op e1 e2) (join ty1 ty2)
+  | ty_eoff : forall (e1 e2 : exp),
+      typing_exp e1 ty1 -> typing_exp e2 ty2 ->
+      typing_exp (Ebinop op e1 e2) (join ty1 ty2).
 
   Inductive typing_cmd : cmd -> type -> Prop :=
   | ty_skip : forall (pc : type), typing_cmd Cskip pc
