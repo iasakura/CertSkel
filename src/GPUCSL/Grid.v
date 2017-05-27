@@ -24,7 +24,7 @@ Inductive decl_sh : list Sdecl -> stack -> simple_heap -> Prop :=
 | decl_cons : forall ds stk sh v cty len loc (f : nat -> val),
     decl_sh ds stk sh ->
     (forall i, i < len -> sh (loc + Z.of_nat i)%Z = None) ->
-    decl_sh (SD v cty len :: ds) (fun v' => if var_eq_dec v' v then VZ loc else stk v')
+    decl_sh (SD v cty len :: ds) (fun v' => if var_eq_dec v' v then VPtr (SLoc loc) else stk v')
             (fun l => if Z_range_dec loc l (loc + Z.of_nat len) then Some (f (Z.to_nat (l - loc)))
                       else sh l).
 
@@ -36,7 +36,7 @@ Definition sh_ok (sh_decl : list Sdecl) (locs : list Z) (fs : list sh_val) :=
 Fixpoint sh_spec (sh_decl : list Sdecl) (locs : list Z) (fs : list sh_val) : assn :=
   match sh_decl, locs, fs with
   | SD sh _ len :: sh_decl, l :: locs, f :: fs =>
-    Assn (array (SLoc l) (ls_init 0 len f) 1%Qc) True (sh |-> Vval (VZ l) :: nil) ** sh_spec sh_decl locs fs
+    Assn (array (SLoc l) (ls_init 0 len f) 1%Qc) True (sh |-> Vval (VPtr (SLoc l)) :: nil) ** sh_spec sh_decl locs fs
   | _, _, _ => Emp_assn
   end.
 
@@ -1423,7 +1423,7 @@ Proof.
 
     Focus 2.
     { assert (low_eq (fun v => if in_dec var_eq_dec v (map SD_var ds) then Lo else Hi)
-                     stk (fun v' => if var_eq_dec v' v then VZ loc else stk v')).
+                     stk (fun v' => if var_eq_dec v' v then VPtr (SLoc loc) else stk v')).
       { intros v' Hlo; destruct var_eq_dec; eauto.
         destruct in_dec; try congruence; subst v'.
         simpl in Hdisj; tauto. }

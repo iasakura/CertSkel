@@ -12,7 +12,6 @@ Definition vals ty := typ2Coq val ty.
 Definition locs ty := typ2Coq loc ty.
 Definition ctys ty := typ2Coq (option CTyp) ty.
 Definition exps ty := typ2Coq exp ty.
-Definition lexps ty := typ2Coq loc_exp ty.
 Definition vartys ty := typ2Coq (var * CTyp) ty.
 
 Fixpoint nat2str (n : nat) : string :=
@@ -90,7 +89,7 @@ Fixpoint assigns {ty : Skel.Typ} :=
 
 (* A generating function xs := pl arr + ix. pl denotes array is on shared / global memory *)
 Fixpoint reads {ty : Skel.Typ} :=
-  match ty return vars ty -> ctys ty -> lexps ty -> cmd with
+  match ty return vars ty -> ctys ty -> exps ty -> cmd with
   | Skel.TBool | Skel.TZ => fun x ty e => x ::T ty ::= [e]
   | Skel.TTup t1 t2 => fun xs ctys es => 
     reads (fst xs) (fst ctys) (fst es) ;; reads (snd xs) (snd ctys) (snd es)
@@ -98,15 +97,15 @@ Fixpoint reads {ty : Skel.Typ} :=
 
 (* A generating function pl arr + ix := es. pl denotes array is on shared / global memory *)
 Fixpoint writes {ty : Skel.Typ} :=
-  match ty return lexps ty -> exps ty -> cmd with
+  match ty return exps ty -> exps ty -> cmd with
   | Skel.TBool | Skel.TZ => fun le e  => [le] ::= e
   | Skel.TTup t1 t2 => fun les es => 
     writes (fst les) (fst es) ;; writes (snd les) (snd es)
   end.
 
 Fixpoint locs_offset {ty} :=
-  match ty return lexps ty -> exp -> lexps ty with
-  | Skel.TBool | Skel.TZ => loc_offset
+  match ty return exps ty -> exp -> exps ty with
+  | Skel.TBool | Skel.TZ => Eoff
   | Skel.TTup t1 t2 => fun l off => (locs_offset (fst l) off, locs_offset (snd l) off)
   end.
 
@@ -120,10 +119,11 @@ Fixpoint maptys {ty T1 T2} (f : T1 -> T2) :=
   end.
 
 Definition v2e {ty} : vars ty -> exps ty := @maptys ty _ _ Evar.
-Definition e2sh {ty} : exps ty -> lexps ty := @maptys ty _ _ Sh.
-Definition e2gl {ty} : exps ty -> lexps ty := @maptys ty _ _ Gl.
-Definition v2sh {ty} (xs : vars ty) : lexps ty := (e2sh (v2e xs)).
-Definition v2gl {ty} (xs : vars ty) : lexps ty := (e2gl (v2e xs)).
+Definition l2val {ty} : locs ty -> vals ty := @maptys ty _ _ VPtr.
+(* Definition e2sh {ty} : exps ty -> lexps ty := @maptys ty _ _ Sh. *)
+(* Definition e2gl {ty} : exps ty -> lexps ty := @maptys ty _ _ Gl. *)
+(* Definition v2sh {ty} (xs : vars ty) : lexps ty := (e2sh (v2e xs)). *)
+(* Definition v2gl {ty} (xs : vars ty) : lexps ty := (e2gl (v2e xs)). *)
 
 Fixpoint ty2ctys ty :=
   match ty return ctys ty with

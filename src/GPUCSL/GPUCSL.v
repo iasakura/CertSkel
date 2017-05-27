@@ -18,6 +18,7 @@ Infix "/C" := (Ebinop (OP_arith OP_div)) (at level 40, left associativity).
 Infix "%C" := (Ebinop (OP_arith OP_mod)) (at level 40, left associativity).
 Infix "&&C" := (Ebinop (OP_bool OP_and)) (at level 56, left associativity).
 Infix "||C" := (Ebinop (OP_bool OP_or)) (at level 57, left associativity).
+Notation "'!C' x" := (Eunop OP_not x) (at level 39).
 Notation minC x y := (Ebinop (OP_arith OP_min) x y).
 Notation Zn := Z.of_nat.
 

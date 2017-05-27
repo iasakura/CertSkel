@@ -20,17 +20,17 @@ Notation BID := (Var "bid").
 Definition map inv :=
   I :T Int ::= TID +C BID *C Zn ntrd;;
   WhileI inv (I <C L) (
-    T :T Int ::= [Gl ARR +o I] ;;
-    [Gl OUT +o I] ::= T ;;
+    T :T Int ::= [ARR +o I] ;;
+    [OUT +o I] ::= T ;;
     I ::= Zn ntrd *C Zn nblk +C I
   ).
 
 Notation arri a := (skip a (ntrd * nblk) (nf tid + nf bid * ntrd)).
 
-Definition inv' arr out varr vout :=
+Definition inv' (arr out : loc) (varr vout : list val) :=
   Ex j i,
-    Assn (array' (GLoc arr) (arri varr) 1%Qc ***
-          array' (GLoc out) (arri (firstn i varr ++ skipn i vout)) 1%Qc)
+    Assn (array' arr (arri varr) 1%Qc ***
+          array' out (arri (firstn i varr ++ skipn i vout)) 1%Qc)
           (i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) /\
            i < length varr + ntrd * nblk /\
            length varr = length vout)
@@ -59,7 +59,7 @@ Ltac t :=
                    | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; lia); try lia
                    | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; lia); try lia
                    end;
-             do 2 f_equal; lia). 
+             do 2 f_equal; first [lia | congruence]). 
 
 
 Lemma loop_inv_ok i j vs (varr vout : list val) :
@@ -71,7 +71,7 @@ Lemma loop_inv_ok i j vs (varr vout : list val) :
   arri (firstn (ntrd * nblk + i) varr ++ skipn (ntrd * nblk + i) vout).
 Proof.
   intros; substs.
-  applys (>>(@eq_from_nth) (@None Z)).
+  applys (>>(@eq_from_nth) (@None val)).
   { t. }
   { intros i; repeat autorewrite with pure; simpl in *.
     destruct lt_dec; [|false; lia]; intros H.
@@ -81,7 +81,7 @@ Proof.
     assert (j * (ntrd * nblk) + (nf tid + nf bid * ntrd) < i < S j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
             i mod (ntrd * nblk) <> nf tid + nf bid * ntrd).
     { intros; applys (>>mod_between j); eauto with pure_lemma. }
-    Time admit. }
+    Time t. }
 Qed.
 
 Lemma before_loop_ok (varr vout : list val) :

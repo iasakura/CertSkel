@@ -212,7 +212,7 @@ Inductive evalExp : list entry -> exp -> lval -> Prop :=
     evalExp env (Ebinop (OP_bool op) e1 e2) (Bval (binop_bool_denote_prop op p1 p2))
 | SEval_Eunop_bool env op e p :
     evalExp env e (Bval p) ->
-    evalExp env (Eunop OP_not e) (Bval (unop_bool_denote_prop op p))
+    evalExp env (Eunop op e) (Bval (unop_bool_denote_prop op p))
 | SEval_Eoff env loc l off o :
     evalExp env loc (Vval (VPtr l)) ->
     evalExp env off (Vval (VZ o)) ->
