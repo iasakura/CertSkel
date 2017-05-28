@@ -760,6 +760,16 @@ Proof.
   - intros ? ? heq; inversion heq.
 Qed.
 
+Ltac evalExpSafe :=
+  repeat match goal with
+    | [|- evalExpSafe (Ex x, _) _] =>
+      let x := fresh x in
+      constructor; intros x
+    | [|- evalExpSafe (Assn _ _ _) _] =>
+      let HP := fresh "HP" in
+      constructor; intros HP; eexists; evalExp
+  end.
+
 Ltac hoare_forward_prim :=
   lazymatch goal with
   | [|- CSL _ _ (Assn ?Res ?P ?Env) (?x ::T _ ::= [?le +o ?ix]) ?Q] =>
@@ -806,7 +816,7 @@ Ltac hoare_forward_prim :=
 
   | [|- CSL _ _ _ (WhileI ?inv _ _) _ ] =>
     idtac "hoare_forward_prim: match while case";
-    eapply backwardR; [applys (>>rule_while inv)|]
+    eapply backwardR; [applys (>>rule_while inv); [evalExpSafe|]|]
 
   | [|- CSL _ _ (Assn _ _ _) (Cif _ _ _) _] =>
     eapply rule_if_disj; [intros; evalExp2Prop|..]

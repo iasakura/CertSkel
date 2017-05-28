@@ -806,7 +806,7 @@ Qed.
 
 Inductive evalExpSafe : assn -> exp -> Prop :=
 | evalExp_Assn R (P : Prop) E e :
-    (exists v, P -> evalExp E e v) -> evalExpSafe (Assn R P E) e
+    (P -> exists v, evalExp E e v) -> evalExpSafe (Assn R P E) e
 | evalExp_Ex T (P : T -> assn) e :
     (forall x, evalExpSafe (P x) e) -> evalExpSafe (Ex x, P x) e.
 
@@ -836,8 +836,8 @@ Proof.
       -> exists v, edenote e s = Some v.
     Proof.
       induction 1; intros.
-      - destruct H.
-        unfold sat in *; simpl in *.
+      - hnf in H0.
+        destruct H; jauto.
         forwards*?: evalExp_ok.
       - destruct H1.
         forwards*: H0.

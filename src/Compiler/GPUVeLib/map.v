@@ -1,4 +1,4 @@
-Require Import GPUCSL LibTactics Psatz CSLLemma SetoidClass PeanoNat Utils.
+Require Import GPUCSL LibTactics Psatz CSLLemma SetoidClass PeanoNat Utils Default.
 Require Import CSLLemma CSLTactics.
 
 Section map.
@@ -138,7 +138,6 @@ Proof.
   assert (ntrd <> 0) by eauto.
   hoare_forward.
   hoare_forward.
-  admit.
   hoare_forward. 
   hoare_forward.
   hoare_forward.
