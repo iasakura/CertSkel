@@ -1,4 +1,4 @@
-Require Import GPUCSL LibTactics Psatz CSLLemma SetoidClass PeanoNat Utils Default.
+Require Import GPUCSL LibTactics Psatz CSLLemma SetoidClass PeanoNat CUDALib Utils Default.
 Require Import CSLLemma CSLTactics.
 
 Section map.

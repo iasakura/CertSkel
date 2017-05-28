@@ -1,4 +1,4 @@
-Require Import GPUCSL LibTactics Psatz CSLLemma SetoidClass Utils.
+Require Import Default GPUCSL LibTactics Psatz CSLLemma SetoidClass Utils CUDALib.
 Require Import Grid CSLLemma CSLTactics.
 Require Import PeanoNat.
 Arguments Nat.div _ _ : simpl never.
@@ -231,8 +231,8 @@ Definition inv :=
        ("tid" |-> Zn (nf tid) ::
         "bid" |-> Zn (nf bid) ::
         "st" |-> Zn st ::
-        "arr" |-> arr ::
-        "out" |-> out ::
+        "arr" |-> SLoc arr ::
+        "out" |-> GLoc out ::
         "c" |-> Zn c ::
         nil).
 
@@ -260,7 +260,7 @@ Definition BS1 :=
 
 Definition BS := (fun i => if Nat.eq_dec i 0 then BS0
                            else if Nat.eq_dec i 1 then BS1
-                           else default ntrd).
+                           else defaultSpec ntrd).
 
 Lemma barrier_sync_then vals st c :
       st = fst (c_state c) ->
@@ -268,15 +268,15 @@ Lemma barrier_sync_then vals st c :
       (1 < Zn st)%Z -> 
       (Zn (nf tid) + (Zn st + 1) / 2 < Zn st)%Z ->
       ith_vals (dist st)
-               (set_nth (nf tid) vals
+               (set_nth (nf tid) (z2v vals)
                         (get vals (nf tid) + get vals (nf tid + (st + 1) / 2))%Z) 
                (nf tid) 0 =
-      ith_vals (dist (fst (c_state c))) (snd (c_state (c + 1))) (nf tid) 0.
+      ith_vals (dist (fst (c_state c))) (z2v (snd (c_state (c + 1)))) (nf tid) 0.
 Proof.
   intros.
   subst st vals.
   rewrite (Nat.add_1_r c).
-  applys (>>(@eq_from_nth) (@None Z)).
+  applys (>>(@eq_from_nth) (@None val)).
   autorewrite with pure.
   rewrites (st_inv2); rewrites (st_inv2); lia.
   autorewrite with pure.
@@ -288,28 +288,30 @@ Proof.
   forwards*: (st_inv2 c).
   forwards*: (st_length c).
   destruct (c_state c); simpl in *; autorewrite with pure.
-  rewrites* (>> nth_zipWith 0 0 0)%Z.
+  repeat rewrites* (>> map_nth).
+  autorewrite with pure.
+  rewrites (>>nth_zipWith 0 0 0)%Z.
   autorewrite with pure.
   elim_div.
   Time (repeat match goal with
      | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; lia)
      | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; lia)
-   end);
-    first [do 3 f_equal; ring | do 2 f_equal; lia].
+   end).
+  all: first [do 4 f_equal; ring | do 3 f_equal; lia].
 Qed.
 
 Lemma barrier_sync_else vals st c :
   st = fst (c_state c) ->
-  vals = snd (c_state c) ->
-  (1 < Zn st)%Z -> 
+  vals = z2v (snd (c_state c)) ->
+  (1 < Zn st)%Z ->
   ~(Zn (nf tid) + (Zn st + 1) / 2 < Zn st)%Z ->
   ith_vals (dist st) vals (nf tid) 0 =
-  ith_vals (dist (fst (c_state c))) (snd (c_state (c + 1))) (nf tid) 0.
+  ith_vals (dist (fst (c_state c))) (z2v (snd (c_state (c + 1)))) (nf tid) 0.
 Proof.
   intros.
   subst st vals.
   rewrite (Nat.add_1_r c).
-  applys (>>(@eq_from_nth) (@None Z)).
+  applys (>>(@eq_from_nth) (@None val)).
   autorewrite with pure; repeat rewrites (st_inv2); lia.
   introv; autorewrite with pure; intros.
   repeat rewrites (st_inv2) in *.
@@ -318,6 +320,8 @@ Proof.
   forwards*: (st_inv2 c).
   forwards*: (st_length c).
   destruct (c_state c); simpl in *; autorewrite with pure.
+  repeat rewrites* (>> map_nth).
+  autorewrite with pure.
   rewrites* (>> nth_zipWith 0 0 0)%Z.
   autorewrite with pure.
   elim_div.
@@ -332,82 +336,91 @@ Hint Resolve barrier_sync_then barrier_sync_else : pure_lemma.
 Lemma reduce_ok :
   CSL BS tid 
       (Assn (array' (SLoc arr) (ith_vals (fun i => i) sh_vals (nf tid) 0) 1 ***
-             array (GLoc inp) init_vals p ***
-             array' (GLoc out) (ith_vals (fun i => i * ntrd) out_vals (nf tid + nf bid * ntrd) 0) 1)
+             array (GLoc inp) (z2v init_vals) p ***
+             array' (GLoc out) (ith_vals (fun i => i * ntrd) (z2v out_vals) (nf tid + nf bid * ntrd) 0) 1)
             True
-            ("arr" |-> arr ::
-             "inp" |-> inp ::
-             "out" |-> out :: 
+            ("arr" |-> SLoc arr ::
+             "inp" |-> GLoc inp ::
+             "out" |-> GLoc out :: 
              "l" |-> Zn (length init_vals) ::
              "tid" |-> Zn (nf tid) ::
              "bid" |-> Zn (nf bid) :: nil))
       (reduce inv)
       (Ex c,
-       Assn (array' (SLoc arr) (ith_vals (dist (fst (c_state c))) (snd (c_state c)) (nf tid) 0) 1 ***
-             array (GLoc inp) init_vals p ***
-             array' (GLoc out) (ith_vals (fun i => i * ntrd) (ls_init 0 nblk (fun i => sum_of (reg_b' i))) (nf tid + nf bid * ntrd) 0) 1)
+       Assn (array' (SLoc arr) (ith_vals (dist (fst (c_state c))) (z2v (snd (c_state c))) (nf tid) 0) 1 ***
+             array (GLoc inp) (z2v init_vals) p ***
+             array' (GLoc out) (ith_vals (fun i => i * ntrd) (z2v (ls_init 0 nblk (fun i => sum_of (reg_b' i)))) (nf tid + nf bid * ntrd) 0) 1)
             True
-            ("c" |-> Zn c :: "arr" |-> arr :: nil)).
+            ("c" |-> Zn c :: "arr" |-> SLoc arr :: nil)).
 Proof.
   intros; unfold reduce, inv, BS.
   assert (nf tid < ntrd) by eauto.
   assert (nf bid < nblk) by eauto.
+  forwards*: (>>id_lt_nt_gr (nf tid) (nf bid)).
   pose proof reg_b_length.
   hoare_forward.
   rewrite inp_len; eauto.
 
   hoare_forward.
   hoare_forward; eauto.
-  { applys (>>(@eq_from_nth) (@None Z)).
+  { applys (>>(@eq_from_nth) (default : option val)).
     autorewrite with pure; rewrite* reg_b_length.
-    clear H2.
+    clear H2 H3.
     unfold reg_b'; intros i Hi; autorewrite with pure in *.
-    repeat match goal with
-     | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; nia)
-     | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; nia)
-    end; do 2 f_equal; nia. }
+    rewrites (>> nth_map 0%Z); [repeat autorewrite with pure; try lia|].
+    rewrites (>> nth_map 0%Z); [repeat autorewrite with pure; try lia|].
+    destruct lt_dec; try nia.
+    repeat autorewrite with pure.
+    repeat lazymatch goal with
+     | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; lia)
+     | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; lia)
+    end; do 3 f_equal; nia. }
 
   do 4 hoare_forward.
   hoare_forward.
   lets: (st_decrease c); rewrite stS in *.
+  forwards*: (st_length c).
+  forwards*: (st_inv2 c).
 
   hoare_forward.
   hoare_forward.
-  rewrite st_inv2; lia.
   unfold dist; repeat (destruct lt_dec; eauto); div_lia.
   
   hoare_forward.
-  forwards*: (st_length c).
-  forwards*: (st_inv2 c); try div_lia.
+  unfold dist; repeat (destruct lt_dec; eauto); div_lia.
+
+  (* Because t1 |-> nth (z2v ...) 0%Z, we need to expose VZ at the top of value *)
+  apply CSL_prop_prem; intros Hp.
+  repeat (rewrites (>>nth_map 0%Z); [div_lia|]).
+
+  hoare_forward; eauto.
   unfold dist; repeat (destruct lt_dec; eauto); div_lia.
 
   hoare_forward; eauto.
-  rewrite st_inv2; lia.
-  unfold dist; repeat (destruct lt_dec; eauto); div_lia.
 
-  hoare_forward; eauto.
-
-  do 2 hoare_forward; eauto with pure_lemma.
+  do 2 hoare_forward; eauto with pure_lemma.  
 
   do 3 hoare_forward.
   prove_imp.
-  clear H3.
-  repeat f_equal; subst st.
+  assert (Zn c0 = Zn c) by congruence.
+  clear H6.
+  repeat f_equal; subst st; try lia.
   rewrite Nat.add_1_r, stS; repeat f_equal; lia.
-  lia.
   rewrite (Nat.add_1_r c), stS; repeat f_equal; lia.
-
+  substs; eauto.
+    
   hoare_forward; eauto with pure_lemma.
   do 2 hoare_forward; prove_imp; substs.
   
-  clear H3.
+  clear H6.
+  assert (Zn c0 = Zn c) by congruence.
+  assert (c0 = c) by lia; substs.
   repeat f_equal. 
-  rewrite Nat.add_1_r, stS; repeat f_equal; lia.
-  lia.
-  rewrite (Nat.add_1_r c), stS; repeat f_equal; lia.
+  rewrite Nat.add_1_r, stS; eauto.
+  rewrite (Nat.add_1_r c), stS; eauto.
   
   prove_imp.
-  { f_equal; f_equal; omega. }
+  { do 3 f_equal; omega. }
   simpl; omega.
   hoare_forward.
   hoare_forward.
@@ -418,9 +431,9 @@ Proof.
   repeat hoare_forward; eauto.
   hoare_forward; eauto.
 
-  prove_imp; subst st; eauto; clear H2; applys (>>eq_from_nth (@None Z));
+  prove_imp; eauto; try subst st; clear H3; applys (>>eq_from_nth (@None val));
   autorewrite with pure; try lia; intros i; autorewrite with pure; intros Hi;
-  rewrite out_len in *.
+  eauto; rewrite out_len.
   - cutrewrite (nf tid = 0); [|lia]; simpl.
     assert (i * ntrd = nf bid * ntrd -> i = nf bid) by nia.
     repeat match goal with
@@ -428,6 +441,8 @@ Proof.
      | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; nia)
     end.
     f_equal.
+    rewrite !map_nth; autorewrite with pure; f_equal.
+    destruct lt_dec; try lia.
     apply after_loop; lia.
   - simpl.
     assert (nf tid <> 0) by lia.
@@ -446,13 +461,13 @@ End thread.
 Definition ith_pre (tid : Fin.t ntrd) :=
   (Assn
      (array' (SLoc arr) (ith_vals (fun i : nat => i) sh_vals (nf tid) 0) 1 ***
-      array (GLoc inp) init_vals (1 / injZ (Zn (nblk * ntrd))) ***
+      array (GLoc inp) (z2v init_vals) (1 / injZ (Zn (nblk * ntrd))) ***
       array' (GLoc out)
-        (ith_vals (fun i : nat => i * ntrd) out_vals
+        (ith_vals (fun i : nat => i * ntrd) (z2v out_vals)
            (nf tid + nf bid * ntrd) 0) 1) True
-     ("arr" |-> arr ::
-      "inp" |-> inp ::
-      "out" |-> out ::
+     ("arr" |-> SLoc arr ::
+      "inp" |-> GLoc inp ::
+      "out" |-> GLoc out ::
       "l" |-> Zn (Datatypes.length init_vals) ::
       "bid" |-> Zn (nf bid) :: nil)).
 
@@ -464,7 +479,7 @@ Definition ith_post (tid : Fin.t ntrd) :=
            (dist
               (fst
                  (iter c next
-                    (Datatypes.length (reg_b' (nf bid)), reg_b' (nf bid)))))
+                    (Datatypes.length (reg_b' (nf bid)), (reg_b' (nf bid))))))
            (snd
               (iter c next
                  (Datatypes.length (reg_b' (nf bid)), reg_b' (nf bid))))
