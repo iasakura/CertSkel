@@ -380,7 +380,7 @@ Proof.
     apply H1 in Hres.
     rewrites* (array'_unfold i) in Hres.
     2: rewrite ith_vals_length; tauto.
-    cutrewrite (nth i (ith_vals dist arr j st) None = Some (get arr i)) in Hres.
+    cutrewrite (nth i (ith_vals dist arr j st) None = Some (get_ls arr i)) in Hres.
     repeat rewrite <-res_assoc in *.
     rewrite res_CA in Hres.
     subst; eauto.

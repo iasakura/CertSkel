@@ -49,7 +49,7 @@ Fixpoint locals pref ty i : vars ty :=
 Definition arr_params' pref ty i := locals pref ty i.
 Fixpoint with_PTyp {ty} : vars ty -> vartys ty :=
   match ty return vars ty -> vartys ty with
-  | Skel.TBool => fun x => (x, Ptr Bool)
+  | Skel.TBool => fun x => (x, Ptr Int)
   | Skel.TZ => fun x => (x, Ptr Int)
   | Skel.TTup t1 t2 => fun xs => (with_PTyp (fst xs), with_PTyp (snd xs))
   end.
@@ -127,7 +127,7 @@ Definition l2val {ty} : locs ty -> vals ty := @maptys ty _ _ VPtr.
 
 Fixpoint ty2ctys ty :=
   match ty return ctys ty with
-  | Skel.TBool => Some Bool
+  | Skel.TBool => Some Int
   | Skel.TZ => Some Int
   | Skel.TTup t1 t2 => (ty2ctys t1, ty2ctys t2)
   end.
@@ -233,7 +233,7 @@ Fixpoint flatten_avars {GA : list Skel.Typ}
 
 Fixpoint addTyp {ty} :=
   match ty return vars ty -> vartys ty with 
-  | Skel.TBool => fun x => (x, Bool)
+  | Skel.TBool => fun x => (x, Int)
   | Skel.TZ => fun x => (x, Int)
   | Skel.TTup t1 t2 => fun xs => (addTyp (fst xs), addTyp (snd xs))
   end.
