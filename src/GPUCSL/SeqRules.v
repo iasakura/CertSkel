@@ -15,27 +15,25 @@ Proof.
 Qed.
 
 Lemma rule_assign ntrd BS (tid : Fin.t ntrd) e x cty (v : val) Env (P : Prop) Res :
-  (P -> evalExp Env e (Vval v)) ->
+  (P -> evalExp Env e v) ->
   CSL BS tid
       (Assn Res P Env)
       (x ::T cty ::= e)
-      (Assn Res P (Ent x (Vval v) :: remove_var Env x)).
+      (Assn Res P (Ent x v :: remove_var Env x)).
 Proof.
   intros HevalLe.
   unfold CSL; intros s h Hsat; destruct n; [now (simpl; eauto)|].
   unfold sat in Hsat; simpl in Hsat.
   simpl; repeat split; try congruence.
   - introv ? ? HC; inverts HC.
-    forwards*(? & ? & ?): (>>evalExp_ok); simpl in *; congruence.
+    forwards*?: (>>evalExp_ok); simpl in *; congruence.
   - introv Hdis Htoh Hred.
     inverts Hred; inverts EQ1; simpl.
     repeat eexists; repeat split; eauto.
     apply safe_skip; splits; jauto.
-    cutrewrite (edenote e s0 = Some v); [|forwards*(?&?&?): (>> evalExp_ok HevalLe);
-                                           simpl in *; substs; jauto].
     split.
-    + unfold ent_assn_denote, var_upd in *; simpl; destruct var_eq_dec; try congruence.
-      forwards*(?&?&?): (evalExp_ok).
+    + simpl; unfold var_upd; destruct var_eq_dec; try congruence.
+      forwards*?: (evalExp_ok).
       congruence.
     + applys* disjoint_inde_env.
       apply remove_var_inde; simpl in *; auto.
@@ -52,12 +50,12 @@ Proof.
 Qed.
 
 Lemma rule_read ntrd BS (tid : Fin.t ntrd) le l x cty p (v : val) Env (P : Prop) (Res Res' : res) :
-  (P -> evalExp Env le (Vval (VPtr l))) ->
+  (P -> evalExp Env le (VPtr l)) ->
   (P -> (Res |=R l |->p (p, v) *** Res')) ->
   CSL BS tid
       (Assn Res P Env)
       (x ::T cty ::= [le])
-      (Assn Res P (Ent x (Vval v) :: remove_var Env x)).
+      (Assn Res P (Ent x v :: remove_var Env x)).
 Proof.
   intros HevalLe Hres.
   unfold CSL, sat; intros s h Hsat; destruct n; [now (simpl; eauto)|].
@@ -70,8 +68,7 @@ Proof.
     destruct l; try destruct pl; simpl in *; destruct (eq_dec _ _); try congruence;
     destruct (PHeap.this x1 _) as [[? ?]|]; eexists; eauto. }
   assert (Hle : edenote le s = Some (VPtr l)).
-  { forwards*(? & ? & ?): (>>evalExp_ok HevalLe).
-    simpl in *; substs; jauto. }
+  { forwards*?: (>>evalExp_ok HevalLe). }
   simpl; repeat split; try congruence.
   - intros hF h' Hdis Htoh HC.
     inverts HC; simpl in *; try congruence.
@@ -133,8 +130,8 @@ Proof.
 Qed.
 
 Lemma rule_write ntrd BS (tid : Fin.t ntrd) le l e (v : val) v' Env (P : Prop) (Res Res' : res) :
-  (P -> evalExp Env le (Vval (VPtr l))) ->
-  (P -> evalExp Env e (Vval v')) ->
+  (P -> evalExp Env le (VPtr l)) ->
+  (P -> evalExp Env e v') ->
   (P -> Res |=R ((l |->p (1, v)) *** Res')) ->
   CSL BS tid
       (Assn Res P Env)
@@ -161,11 +158,9 @@ Proof.
     rewrite H3.
     destruct l; simpl in *; destruct (eq_dec _ _); try congruence; auto. }
   assert (Hle : edenote le s = Some (VPtr l)).
-  { forwards*(? & ? & ?): (>>evalExp_ok HevalLe).
-    simpl in *; substs; jauto. }
+  { forwards*?: (>>evalExp_ok HevalLe). }
   assert (Hv : edenote e s = Some v').
-  { forwards*(? & ? & ?): (>>evalExp_ok Henv).
-    simpl in *; substs; jauto. }
+  { forwards*?: (>>evalExp_ok Henv). }
   simpl; repeat split; try congruence.
   - intros hF h' Hdis Htoh HC.
     inverts HC; simpl in *; try congruence.
@@ -255,8 +250,19 @@ Proof.
   intros; eapply rule_conseq; eauto.
 Qed.
 
+Lemma evalExp2Prop_ok E e p :
+  evalExp2Prop E e p
+  -> forall s,
+      env_assns_denote E s 
+      -> exists v, edenote e s = Some (VZ v) /\ eq_vp v p.
+Proof.
+  intros (? & ? & ?) ? ?; forwards*: evalExp_ok.
+  eexists; splits; eauto.
+  forwards*: Z2Prop_ok.
+Qed.
+
 Lemma rule_if_disj ntrd BS (tid : Fin.t ntrd) b c1 c2 (P : Prop) cond Res Env Q1 Q2 :
-  (P -> evalExp Env b (Bval cond)) ->
+  (P -> evalExp2Prop Env b cond) ->
   CSL BS tid (Assn Res (P /\ cond) Env) c1 Q1 ->
   CSL BS tid (Assn Res (P /\ ~cond) Env) c2 Q2 -> 
   CSL BS tid (Assn Res P Env) (Cif b c1 c2) (Disj_assn Q1 Q2).
@@ -265,23 +271,21 @@ Proof.
   - inversion H3.
   - inversion H5; substs; simpl in *.
     unfold sat in *; simpl in *.
-    forwards*(? & ? & ?): evalExp_ok.
+    forwards*(? & ? & ?): evalExp2Prop_ok.
     congruence.
   - unfold access_ok; simpl; eauto.
   - unfold write_ok; simpl; eauto.
   - inverts H5; substs; repeat eexists; eauto; simpl.
     + unfold sat in *; simpl in *.
-      forwards*(? & ? & ?): evalExp_ok.
+      forwards*(? & ? & ?): evalExp2Prop_ok.
       eapply safe_conseq; [apply H0; unfold sat in *; simpl in *; splits; jauto; try tauto|].
       * split; try tauto.
-        unfold val_prop_equiv in *.
-        cutrewrite (x = VZ v) in H6; [tauto | congruence].
+        assert (v = x) by congruence; substs; unfold eq_vp in *; tauto.
       * unfold sat; simpl; eauto.
     + unfold sat in *; simpl in *.
-      forwards*(? & ? & ?): evalExp_ok.
+      forwards*(? & ? & ?): evalExp2Prop_ok.
       eapply safe_conseq; [apply H1; unfold sat in *; simpl in *; splits; jauto|].
-      unfold val_prop_equiv in *.
-      cutrewrite (x = VZ 0) in H6; [tauto| congruence].
+      assert (x = 0%Z) by congruence; substs; unfold eq_vp in *; tauto.
       unfold sat; simpl; eauto.
   - inverts H3.
 Qed.
@@ -331,15 +335,15 @@ Lemma rule_read_array ntrd BS
       (tid : Fin.t ntrd) (le : exp) (l : loc) (x : var)
       (cty : option CTyp) (p : Qc) (Env : list entry)
       (P : Prop) (Res Res' : res) (arr : list val) ix i iz:
-  (P -> evalExp Env le (Vval (VPtr l))) ->
-  (P -> evalExp Env ix (Vval (VZ iz))) ->
+  (P -> evalExp Env le (VPtr l)) ->
+  (P -> evalExp Env ix (VZ iz)) ->
   Res |=R array l arr p *** Res' ->
   iz = Zn i ->
   (P -> i < length arr) ->
   CSL BS tid
       (Assn Res P Env)
       (x ::T cty ::= [le +o ix])
-      (Assn Res P (Ent x (Vval (nth i arr (VZ 0%Z))) :: (remove_var Env x))).
+      (Assn Res P (Ent x (nth i arr (VZ 0%Z)) :: (remove_var Env x))).
 Proof.
   intros.
   eapply forward; [|applys (>>rule_read (loc_off l iz) p (nth i arr (VZ 0%Z)) ) ].
@@ -358,15 +362,15 @@ Lemma rule_read_array' ntrd BS
       (tid : Fin.t ntrd) (le : exp) (l : loc) (x : var)
       (cty : option CTyp) (p : Qc) (Env : list entry)
       (P : Prop) (Res Res' : res) (arr : list val) dist ix i iz j st:
-  (P -> evalExp Env le (Vval (VPtr l))) ->
-  (P -> evalExp Env ix (Vval (VZ iz))) ->
+  (P -> evalExp Env le (VPtr l)) ->
+  (P -> evalExp Env ix (VZ iz)) ->
   Res |=R array' l (ith_vals dist arr j st) p *** Res' ->
   iz = Zn i ->
   (P -> i < length arr /\ dist (st + i) = j) ->
   CSL BS tid
       (Assn Res P Env)
       (x ::T cty ::= [le +o ix])
-      (Assn Res P (Ent x (Vval (nth i arr (VZ 0%Z))) :: (remove_var Env x))).
+      (Assn Res P (Ent x (nth i arr (VZ 0%Z)) :: (remove_var Env x))).
 Proof.
   intros.
   eapply forward; [|applys (>>rule_read (loc_off l iz) p (nth i arr (VZ 0%Z)) ) ].
@@ -391,15 +395,15 @@ Lemma rule_read_sarray ntrd BS
       (tid : Fin.t ntrd) (le : exp) (l : loc) (x : var)
       (cty : option CTyp) (p : Qc) (Env : list entry)
       (P : Prop) (Res Res' : res) (arr : list val) ix i iz d j:
-  (P -> evalExp Env le (Vval (VPtr l))) ->
-  (P -> evalExp Env ix (Vval (VZ iz))) ->
+  (P -> evalExp Env le (VPtr l)) ->
+  (P -> evalExp Env ix (VZ iz)) ->
   Res |=R array' l (skip arr d j) p *** Res' ->
   iz = Zn i ->
   (P -> i < length arr /\ i mod d = j) ->
   CSL BS tid
       (Assn Res P Env)
       (x ::T cty ::= [le +o ix])
-      (Assn Res P (Ent x (Vval (nth i arr (VZ 0%Z))) :: (remove_var Env x))).
+      (Assn Res P (Ent x (nth i arr (VZ 0%Z)) :: (remove_var Env x))).
 Proof.
   intros; eapply rule_read_array'; eauto.
 Qed.
@@ -408,11 +412,11 @@ Lemma rule_write_array :
   forall (ntrd : nat) BS
          (tid : Fin.t ntrd) (le : exp) (l : loc) (e : exp)
          (v : val) (Env : list entry) (P : Prop) (Res Res' : res) arr ix iz i,
-    (P -> evalExp Env le (Vval (VPtr l))) ->
-    (P -> evalExp Env ix (Vval (VZ iz))) ->
+    (P -> evalExp Env le (VPtr l)) ->
+    (P -> evalExp Env ix (VZ iz)) ->
     iz = Zn i ->
     (P -> i < length arr) ->
-    (P -> evalExp Env e (Vval v)) ->
+    (P -> evalExp Env e v) ->
     Res |=R array l arr 1 *** Res' ->
     CSL BS tid
         (Assn Res P Env)
@@ -472,10 +476,10 @@ Qed.
 Lemma rule_write_array'  ntrd BS
       (tid : Fin.t ntrd) (le : exp) (l : loc)
       (Env : list entry) (P : Prop) (Res Res' : res) (arr : list val) dist ix i iz j e v st:
-  (P -> evalExp Env le (Vval (VPtr l))) ->
-  (P -> evalExp Env ix (Vval (VZ iz))) ->
+  (P -> evalExp Env le (VPtr l)) ->
+  (P -> evalExp Env ix (VZ iz)) ->
   Res |=R array' l (ith_vals dist arr j st) 1 *** Res' ->
-  (P -> evalExp Env e (Vval v)) ->
+  (P -> evalExp Env e v) ->
   iz = Zn i ->
   (P -> i < length arr /\ dist (st + i) = j) ->
   CSL BS tid
@@ -516,10 +520,10 @@ Qed.
 Lemma rule_write_sarray'  ntrd BS
       (tid : Fin.t ntrd) (le : exp) (l : loc) (Env : list entry)
       (P : Prop) (Res Res' : res) (arr : list val) ix i iz d j e v:
-  (P -> evalExp Env le (Vval (VPtr l))) ->
-  (P -> evalExp Env ix (Vval (VZ iz))) ->
+  (P -> evalExp Env le (VPtr l)) ->
+  (P -> evalExp Env ix (VZ iz)) ->
   Res |=R array' l (skip arr d j) 1 *** Res' ->
-  (P -> evalExp Env e (Vval v)) ->
+  (P -> evalExp Env e v) ->
   iz = Zn i ->
   (P -> i < length arr /\ i mod d = j) ->
   CSL BS tid
@@ -834,7 +838,7 @@ Proof.
       induction 1; intros.
       - destruct H.
         unfold sat in *; simpl in *.
-        forwards*(? & ? & ?): evalExp_ok.
+        forwards*?: evalExp_ok.
       - destruct H1.
         forwards*: H0.
     Qed.
@@ -1267,7 +1271,7 @@ Section ParCSL.
     typing_cmd E c ty ->
     (forall tid : Fin.t ntrd, 
        CSL bspec tid 
-           (Ps[@tid] ** (Assn Emp True (Var "tid" |-> Vval (VZ (Z_of_fin tid)) :: nil)))
+           (Ps[@tid] ** (Assn Emp True (Var "tid" |-> (VZ (Z_of_fin tid)) :: nil)))
            c 
            Qs[@tid]) ->
     CSLp P c Q.

@@ -36,7 +36,7 @@ Definition sh_ok (sh_decl : list Sdecl) (locs : list Z) (fs : list sh_val) :=
 Fixpoint sh_spec (sh_decl : list Sdecl) (locs : list Z) (fs : list sh_val) : assn :=
   match sh_decl, locs, fs with
   | SD sh _ len :: sh_decl, l :: locs, f :: fs =>
-    Assn (array (SLoc l) (ls_init 0 len f) 1%Qc) True (sh |-> Vval (VPtr (SLoc l)) :: nil) ** sh_spec sh_decl locs fs
+    Assn (array (SLoc l) (ls_init 0 len f) 1%Qc) True (sh |-> VPtr (SLoc l) :: nil) ** sh_spec sh_decl locs fs
   | _, _, _ => Emp_assn
   end.
 
@@ -1518,7 +1518,7 @@ Theorem rule_grid (P : assn) Ps C Qs (Q : assn) sh_decl :
   (forall bid locs,
       let sinv := sh_inv sh_decl locs in
       let sinv' := sh_inv' sh_decl locs in
-      CSLp ntrd Env (Ps[@bid] ** sinv ** (Assn Emp True (BID |-> Vval (VZ (zf bid)) :: nil))) 
+      CSLp ntrd Env (Ps[@bid] ** sinv ** (Assn Emp True (BID |-> (VZ (zf bid)) :: nil))) 
            C 
            (Qs[@bid] ** sinv')) ->
   Aistar_v Qs |= Q ->

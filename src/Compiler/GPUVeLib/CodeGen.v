@@ -246,7 +246,7 @@ Qed.
       
 Lemma env_assns_cons a env s :
   (env_assns_denote (a :: env)) s <-> 
-  (val_lval_equiv (s (ent_e a)) (ent_v a)) /\ (env_assns_denote env) s.
+  (s (ent_e a) = ent_v a) /\ (env_assns_denote env) s.
 Proof.
   destruct a; simpl; split; intros [? ?]; split; eauto.
 Qed.
@@ -347,10 +347,10 @@ Lemma rule_assigns
   (ty : Skel.Typ)
   (ntrd : nat) (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd)
   (tid : Fin.t ntrd) (es : exps ty) (xs : vars ty) (tys : ctys ty) 
-  (vs : vals ty) Env P (Res : res) :
+  (vs : vals ty) Env (P : Prop) (Res : res) :
   disjoint (flatTup xs) (fv_Es es) ->
   disjoint_list (flatTup xs) ->
-  evalExps Env es vs ->
+  (P -> evalExps Env es vs) ->
   CSL BS tid
       (Assn Res P Env)
       (assigns xs tys es)
@@ -359,7 +359,9 @@ Proof.
   Ltac tac := eauto using disjoint_app_r1, disjoint_comm, disjoint_app_r2,
               disjoint_list_proj1, disjoint_list_proj2, disjoint_list_app_disjoint.
   revert Env; induction ty; simpl in *; try now (intros ? [Hnin _] Heval; eauto using rule_assign).
-  intros Env Hdisj Hdisjxs [Heval1 Heval2]; eapply rule_seq; [apply IHty1 | eapply forward; [|apply IHty2] ]; jauto; tac.
+  intros Env Hdisj Hdisjxs Heval; eapply rule_seq; [apply IHty1 | eapply forward; [|apply IHty2] ]; jauto; tac.
+  intros; forwards*: Heval.
+
   apply Assn_imply; eauto.
   intros ? x; repeat rewrite in_app_iff in *; intros [[? | ?] | ?]; tac.
   
@@ -367,9 +369,10 @@ Proof.
   rewrite env_assns_remove_app, in_app_iff; tac.
   rewrite env_assns_remove_app; tac.
   rewrite in_app_iff, <-remove_vars_nest; eauto.
-  apply evalExps_app_inv2.
+  intros; apply evalExps_app_inv2.
 
   apply evalExps_removes; tac.
+  forwards*: Heval.
 Qed.
 
 Fixpoint Mpss {ty : Skel.Typ} :=
@@ -442,7 +445,7 @@ Lemma rule_reads
   (ls : locs ty) (vs : vals ty) Env (Res Res' : res) p (P : Prop) :
   disjoint (flatTup xs) (fv_Es es) ->
   disjoint_list (flatTup xs) ->
-  evalExps Env es (l2val ls) ->
+  (P -> evalExps Env es (l2val ls)) ->
   (P -> Res |=R ls |=>p (p, vs) *** Res') ->
   CSL BS tid
       (Assn Res P Env)
@@ -450,7 +453,8 @@ Lemma rule_reads
       (Assn Res P (EEq_tup xs vs ++ (remove_vars Env (flatTup xs)))).
 Proof.
   revert Env Res'; induction ty; simpl in *; try now (intros ? ? [Hnin _] Heval; eauto using rule_read).
-  intros Env Res' Hdisj Hdisjxs [Heval1 Heval2] Hres; eapply rule_seq; [eapply IHty1 |]; tac.
+  intros Env Res' Hdisj Hdisjxs Heval Hres; eapply rule_seq; [eapply IHty1 |]; tac.
+  { intros; forwards*: Heval. }
   { intros; rewrite res_assoc; eauto. }
   eapply forward; [|eapply IHty2]; tac.
 
@@ -461,8 +465,9 @@ Proof.
   rewrite env_assns_remove_app; tac.
   rewrite in_app_iff, <-remove_vars_nest; eauto.
 
-  apply evalExps_app_inv2.
+  intros; apply evalExps_app_inv2.
   apply evalExps_removes; tac.
+  forwards*: Heval.
 
   intros; rewrite res_CA, res_assoc; eauto.
 Qed.
@@ -780,8 +785,8 @@ Lemma rule_reads_arrays (ty : Skel.Typ) (ntrd : nat) (BS : nat -> Vector.t assn 
   disjoint (flatTup xs) (fv_E ix) ->
   disjoint_list (flatTup xs) ->
 
-  evalExps Env es (l2val ls) ->
-  evalExp Env ix iz ->
+  (P -> evalExps Env es (l2val ls)) ->
+  (P -> evalExp Env ix iz) ->
   (P -> Res |=R arrays ls arr p *** Res') ->
 
   iz = Zn i_n ->
@@ -796,7 +801,7 @@ Proof.
   applys* rule_reads.
   - eapply disjoint_incl; [apply fv_Es_off|].
     rewrite disjoint_app; eauto.
-  - apply eval_locs_off; eauto.
+  - intros; apply eval_locs_off; eauto.
   - intros; forwards*Himp: H4.
     rewrite arrays_unfold in Himp; [|applys* H6].
     substs; rewrite <-!res_assoc in Himp; rewrites* res_CA in Himp.
@@ -809,8 +814,8 @@ Lemma rule_reads_arrays' (ty : Skel.Typ) (ntrd : nat) (BS : nat -> Vector.t assn
   disjoint (flatTup xs) (fv_E ix) ->
   disjoint_list (flatTup xs) ->
 
-  evalExps Env es (l2val ls) ->
-  evalExp Env ix iz ->
+  (P -> evalExps Env es (l2val ls)) ->
+  (P -> evalExp Env ix iz) ->
   (P -> Res |=R arrays' ls (ith_vals dist arr j st) p *** Res') ->
 
   iz = Zn i_n ->
@@ -825,7 +830,7 @@ Proof.
   applys* rule_reads.
   - eapply disjoint_incl; [apply fv_Es_off|].
     rewrite disjoint_app; eauto.
-  - apply eval_locs_off; eauto.
+  - intros; apply eval_locs_off; eauto.
   - intros; forwards*Himp: H4.
     rewrites (>>arrays'_unfold i_n) in Himp; [|].
     rewrite ith_vals_length; tauto.
@@ -838,8 +843,8 @@ Qed.
 Lemma rule_writes (ty : Skel.Typ)  (ntrd : nat) (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd)
   (tid : Fin.t ntrd) (les : exps ty) (es : exps ty) 
   (ls : locs ty) (vs vs' : vals ty) Env (Res Res' : res) (P : Prop) :
-  evalExps Env es vs ->
-  evalExps Env les (l2val ls) ->
+  (P -> evalExps Env es vs) ->
+  (P -> evalExps Env les (l2val ls)) ->
   (P -> Res |=R ls |=>p (1, vs') *** Res') ->
   CSL BS tid
       (Assn Res P Env)
@@ -847,7 +852,7 @@ Lemma rule_writes (ty : Skel.Typ)  (ntrd : nat) (BS : nat -> Vector.t assn ntrd 
       (Assn (ls |=>p (1, vs) *** Res') P Env).
 Proof.
   revert Env Res Res' vs'; induction ty; simpl in *; try now (eauto using rule_write).
-  simpl in *; intros Env Res Res' vs' [Heval1 Heval2] [Hleval1 Hleval2] Hres.
+  simpl in *; intros Env Res Res' vs' Heval Hleval Hres.
   eapply rule_seq; [applys* IHty1|].
   { intros; rewrite* res_assoc. }
   eapply forward; [|applys* IHty2].
@@ -859,9 +864,9 @@ Qed.
 Lemma rule_writes_arrays (ty : Skel.Typ) (ntrd : nat) (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd)
   (tid : Fin.t ntrd) (les : exps ty) (es : exps ty) 
   (ls : locs ty) (vs : vals ty) Env (Res Res' : res) (P : Prop) arr ix (iz : Z) i_n:
-  evalExps Env es vs ->
-  evalExp Env ix iz ->
-  evalExps Env les (l2val ls) ->
+  (P -> evalExps Env es vs) ->
+  (P -> evalExp Env ix iz) ->
+  (P -> evalExps Env les (l2val ls)) ->
   iz = Zn i_n ->
   (P -> i_n < length arr) ->
   (P -> Res |=R arrays ls arr 1 *** Res') ->
@@ -871,7 +876,7 @@ Lemma rule_writes_arrays (ty : Skel.Typ) (ntrd : nat) (BS : nat -> Vector.t assn
       (Assn (arrays ls (set_nth i_n arr vs) 1 *** Res') P Env).
 Proof.
   intros; eapply forward; [|applys* (>>rule_writes (locs_off ls iz) vs)].
-  2: applys* eval_locs_off.
+  2: intros; applys* eval_locs_off.
   intros ? ?.
   apply Assn_imply; eauto using incl_refl.
   intros Hp ? Hsat; rewrites (>>arrays_unfold i_n); [rewrite* length_set_nth|].
@@ -892,9 +897,9 @@ Qed.
 Lemma rule_writes_arrays' (ty : Skel.Typ) ntrd BS
       (tid : Fin.t ntrd) (les : exps ty) (ls : locs ty) 
       (Env : list entry) (P : Prop) (Res Res' : res) (arr : list (vals ty)) dist ix i (iz : Z) j es vs st:
-  evalExps Env les (l2val ls) ->
-  evalExp Env ix iz ->
-  evalExps Env es vs ->
+  (P -> evalExps Env les (l2val ls)) ->
+  (P -> evalExp Env ix iz) ->
+  (P -> evalExps Env es vs) ->
   iz = Zn i ->
   (P -> i < length arr /\ dist (st + i) = j) ->
   (P -> Res |=R arrays' ls (ith_vals dist arr j st) 1 *** Res') ->
@@ -905,7 +910,7 @@ Lemma rule_writes_arrays' (ty : Skel.Typ) ntrd BS
 Proof.
   intros.
   eapply forward; [|applys* (>>rule_writes (locs_off ls iz) vs)].
-  2: applys* eval_locs_off.
+  2: intros; applys* eval_locs_off.
   apply Assn_imply; eauto using incl_refl.
   intros Hp ? Hsat.
   forwards*: H3.
