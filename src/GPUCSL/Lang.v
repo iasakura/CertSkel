@@ -82,7 +82,7 @@ Notation Zn := Z.of_nat.
 Coercion VZ : Z >-> val.
 Coercion VPtr : loc >-> val.
 
-Inductive CTyp := Int | Bool | Ptr (cty : CTyp).
+Inductive CTyp := Int | Ptr (cty : CTyp).
 
 Inductive cmd : Set :=
 | Cskip
