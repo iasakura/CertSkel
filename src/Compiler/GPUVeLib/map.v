@@ -27,10 +27,12 @@ Definition map inv :=
 
 Notation arri a := (skip a (ntrd * nblk) (nf tid + nf bid * ntrd)).
 
-Definition inv' (arr out : loc) (varr vout : list val) :=
+Notation z2v := (List.map VZ).
+
+Definition inv' (arr out : loc) (varr vout : list Z) :=
   Ex j i,
-    Assn (array' arr (arri varr) 1%Qc ***
-          array' out (arri (firstn i varr ++ skipn i vout)) 1%Qc)
+    Assn (array' arr (arri (z2v varr)) 1%Qc ***
+          array' out (arri (firstn i (z2v varr) ++ skipn i (z2v vout))) 1%Qc)
           (i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) /\
            i < length varr + ntrd * nblk /\
            length varr = length vout)
@@ -62,13 +64,13 @@ Ltac t :=
              do 2 f_equal; first [lia | congruence]). 
 
 
-Lemma loop_inv_ok i j vs (varr vout : list val) :
-  i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
-  vs = firstn i varr ++ skipn i vout ->
-  (Zn i < Zn (length varr))%Z ->
-  length varr = length vout ->
-  arri (set_nth i vs (get varr i)) =
-  arri (firstn (ntrd * nblk + i) varr ++ skipn (ntrd * nblk + i) vout).
+Lemma loop_inv_ok i j (varr vout : list Z) :
+  i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd)
+  -> i < length varr + ntrd * nblk
+  -> length varr = length vout
+  -> (Zn i < Zn (length varr))%Z
+  -> arri (set_nth i (firstn i (z2v varr) ++ skipn i (z2v vout)) (nth i (z2v varr) 0%Z)) =
+  arri (firstn (ntrd * nblk + i) (z2v varr) ++ skipn (ntrd * nblk + i) (z2v vout)).
 Proof.
   intros; substs.
   applys (>>(@eq_from_nth) (@None val)).
@@ -81,15 +83,15 @@ Proof.
     assert (j * (ntrd * nblk) + (nf tid + nf bid * ntrd) < i < S j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
             i mod (ntrd * nblk) <> nf tid + nf bid * ntrd).
     { intros; applys (>>mod_between j); eauto with pure_lemma. }
-    Time admit. }
+    Time t. }
 Qed.
 
-Lemma before_loop_ok (varr vout : list val) :
+Lemma before_loop_ok (varr vout : list Z) :
   nf tid < ntrd ->
   nf tid + nf bid * ntrd < ntrd * nblk ->
-  length varr = length vout ->
-  arri vout =
-  arri (firstn (nf tid + nf bid * ntrd) varr ++ skipn (nf tid + nf bid * ntrd) vout).
+  length varr = length vout
+  -> arri (z2v vout) =
+     arri (firstn (nf tid + nf bid * ntrd) (z2v varr) ++ skipn (nf tid + nf bid * ntrd) (z2v vout)).
 Proof.
   intros; applys (>>(@eq_from_nth) (@None val)).
   { t. }
@@ -97,27 +99,28 @@ Proof.
     repeat autorewrite with pure; simpl in *.
     assert (i < nf tid + nf bid * ntrd -> (i mod (ntrd * nblk)) <> nf tid + nf bid * ntrd).
     { intros; rewrite Nat.mod_small; eauto; try lia. }
-  Time admit. }
+  Time t. }
 Qed.
 
-Lemma after_loop_ok (varr vout : list val) vs i :
-  ~(Zn i < Zn (length varr))%Z ->
-  length varr = length vout ->
-  vs = firstn i varr ++ skipn i vout ->
-  arri vs = arri varr.
+Lemma after_loop_ok (varr vout : list Z) i j :
+  i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd)
+  -> i < length varr + ntrd * nblk
+  -> length varr = length vout
+  -> ~ (Zn i < Zn (length varr))%Z
+  -> arri (firstn i (z2v varr) ++ skipn i (z2v vout)) = arri (z2v varr).
 Proof.
   intros; substs; eapply (@eq_from_nth _ None).
   { t. }
   intros i'; repeat autorewrite with pure; simpl; intros ?.
-  Time admit.
+  Time t.
 Qed.
 
 Hint Resolve loop_inv_ok before_loop_ok after_loop_ok : pure_lemma.
 
-Lemma map_ok BS arr out varr vout : 
+Lemma map_ok BS arr out (varr vout : list Z) : 
   CSL BS tid 
-      (Assn (array' arr (arri varr) 1%Qc ***
-             array' out (arri vout) 1%Qc)
+      (Assn (array' arr (arri (z2v varr)) 1%Qc ***
+             array' out (arri (z2v vout)) 1%Qc)
             (length varr = length vout)
             (TID |-> Zn (nf tid) ::
              BID |-> Zn (nf bid) ::
@@ -125,8 +128,8 @@ Lemma map_ok BS arr out varr vout :
              ARR |-> arr ::
              OUT |-> out :: nil))
       (map (inv' arr out varr vout))
-      (Assn (array' arr (arri varr) 1%Qc ***
-             array' out (arri varr) 1%Qc)
+      (Assn (array' arr (arri (z2v varr)) 1%Qc ***
+             array' out (arri (z2v varr)) 1%Qc)
             True
             (L   |-> Zn (length varr) ::
              ARR |-> arr ::
@@ -138,7 +141,7 @@ Proof.
   assert (ntrd <> 0) by eauto.
   hoare_forward.
   hoare_forward.
-  hoare_forward. 
+  hoare_forward.
   hoare_forward.
   hoare_forward.
   prove_imp; eauto with pure_lemma.
