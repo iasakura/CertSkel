@@ -27,8 +27,6 @@ Definition map inv :=
 
 Notation arri a := (skip a (ntrd * nblk) (nf tid + nf bid * ntrd)).
 
-Notation z2v := (List.map VZ).
-
 Definition inv' (arr out : loc) (varr vout : list Z) :=
   Ex j i,
     Assn (array' arr (arri (z2v varr)) 1%Qc ***

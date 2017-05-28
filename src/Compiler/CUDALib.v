@@ -245,3 +245,6 @@ Global Instance vals_hasDefval T ty {_ : hasDefval T} : hasDefval (typ2Coq T ty)
   {default := (fix f ty := match ty return typ2Coq T ty with Skel.TZ | Skel.TBool => default |
                                    Skel.TTup t1 t2 => (f t1, f t2)
                            end) ty}.
+
+(* lift a list of integer to a list of val *)
+Notation z2v := (List.map VZ).
