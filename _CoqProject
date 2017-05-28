@@ -15,7 +15,6 @@ src/Compiler/GPUVeLib/CodeGen.v
 src/Compiler/Skeletons/mkMap.v
 src/Compiler/Skeletons/mkReduce.v
 src/Compiler/Skeletons/Utils.v
-src/Compiler/Default.v
 src/GPUCSL/SeqRules.v
 src/GPUCSL/FreeVariables.v
 src/GPUCSL/CSLLemma.v
@@ -26,6 +25,7 @@ src/GPUCSL/Host.v
 src/GPUCSL/Lang.v
 src/GPUCSL/MyVector.v
 src/GPUCSL/PHeap.v
+src/Utils/Default.v
 src/TypedIR/Monad.v
 src/TypedIR/SkelLib.v
 src/TypedIR/TypedTerm.v

@@ -1,4 +1,4 @@
-Require Import String DepList GPUCSL LibTactics TypedTerm.
+Require Import String DepList Default GPUCSL LibTactics TypedTerm.
 
 Fixpoint typ2Coq T ty :=
   match ty with
@@ -240,3 +240,8 @@ Fixpoint addTyp {ty} :=
 
 Definition sh_decl len typ pref st :=
   flatTup (maptys (fun sv => Grid.SD (fst sv) (snd sv) len) (addTyp (locals pref typ st))).
+
+Global Instance vals_hasDefval T ty {_ : hasDefval T} : hasDefval (typ2Coq T ty) :=
+  {default := (fix f ty := match ty return typ2Coq T ty with Skel.TZ | Skel.TBool => default |
+                                   Skel.TTup t1 t2 => (f t1, f t2)
+                           end) ty}.

@@ -12,13 +12,13 @@ Hypothesis ntrd_neq_0 : ntrd <> 0.
 Hypothesis nblk_neq_0 : nblk <> 0.
 Hint Resolve ntrd_neq_0 nblk_neq_0.
 
-Variable init_vals out_vals : list val.
-Variable inp out : val.
+Variable init_vals out_vals : list Z.
+Variable inp out : Z.
 
 Hypothesis inp_len : length init_vals = nblk * ntrd.
 Hypothesis out_len : length out_vals = nblk + 0.
 
-Definition next (x : nat * list val):=
+Definition next (x : nat * list Z):=
   let (l, ls) := x in
   let d := ((l + 1) / 2) in
   (d, zipWith Z.add (firstn (l - d) ls) (firstn (l - d) (skipn d ls)) ++ skipn (l - d) ls).
@@ -30,7 +30,7 @@ Fixpoint iter {T : Type} n f (x : T) :=
   end.
 
 Section block.
-Variable arr : val.
+Variable arr : Z.
 Variable sh_vals : list val.
 Hypothesis sh_vals_len : length sh_vals = ntrd + 0.
 Variable bid : Fin.t nblk.
@@ -194,25 +194,25 @@ Proof.
 Qed.  
 
 Definition reduce inv := 
-  "t" ::= [Gl "inp" +o ("tid" +C "bid" *C Zn ntrd)] ;;
-  [Sh "arr" +o "tid"] ::= "t" ;;
+  "t" ::= ["inp" +o ("tid" +C "bid" *C Zn ntrd)] ;;
+  ["arr" +o "tid"] ::= "t" ;;
   Cbarrier 0 ;;
   "c" ::= 0%Z ;;
   "st" ::= Zn ntrd ;;
   WhileI inv (1%Z <C "st") (
     "d" ::= ("st" +C 1%Z) /C 2%Z ;;
     Cif ("tid" +C "d" <C "st") (
-      "t1" ::= [ Sh "arr" +o "tid" ] ;;
-      "t2" ::= [ Sh "arr" +o ("tid" +C "d") ] ;;
-      [ Sh "arr" +o "tid" ] ::= "t1" +C "t2"
+      "t1" ::= [ "arr" +o "tid" ] ;;
+      "t2" ::= [ "arr" +o ("tid" +C "d") ] ;;
+      [ "arr" +o "tid" ] ::= "t1" +C "t2"
     ) Cskip ;;
     Cbarrier 1 ;;
     "st" ::= "d" ;;
     "c" ::= "c" +C 1%Z
   ) ;;
   Cif ("tid" ==C 0%Z) (
-    "t" ::= [ Sh "arr" +o 0%Z] ;;
-    [Gl "out" +o "bid"] ::= "t"
+    "t" ::= [ "arr" +o 0%Z] ;;
+    ["out" +o "bid"] ::= "t"
   ) Cskip.
 
 Definition dist st i :=
@@ -223,10 +223,10 @@ Definition dist st i :=
 
 Definition inv :=
   Ex st c,
-  let vals := snd (c_state c) in
+  let vals := map VZ (snd (c_state c)) in
   Assn (array' (SLoc arr) (ith_vals (dist st) vals (nf tid) 0) 1 ***
-        array (GLoc inp) init_vals p ***
-        array' (GLoc out) (ith_vals (fun i => i * ntrd) out_vals (nf tid + nf bid * ntrd) 0) 1)
+        array (GLoc inp) (map VZ init_vals) p ***
+        array' (GLoc out) (ith_vals (fun i => i * ntrd) (map VZ out_vals) (nf tid + nf bid * ntrd) 0) 1)
        (st = fst (c_state c))
        ("tid" |-> Zn (nf tid) ::
         "bid" |-> Zn (nf bid) ::
@@ -238,23 +238,23 @@ Definition inv :=
 
 Definition BS0 :=
   (MyVector.init (fun i : Fin.t ntrd =>
-     Assn (array' (SLoc arr) (ith_vals (fun i => i) reg_b (nf i) 0) 1)
+     Assn (array' (SLoc arr) (ith_vals (fun i => i) (map VZ reg_b) (nf i) 0) 1)
           True
           nil),
    MyVector.init (fun i : Fin.t ntrd =>
-     Assn (array' (SLoc arr) (ith_vals (dist (length reg_b)) reg_b (nf i) 0) 1)
+     Assn (array' (SLoc arr) (ith_vals (dist (length reg_b)) (map VZ reg_b) (nf i) 0) 1)
           True
           nil)).
 
 Definition BS1 :=
   (MyVector.init (fun i : Fin.t ntrd =>
      Ex c,
-     Assn (array' (SLoc arr) (ith_vals (dist (fst (c_state c))) (snd (c_state (c + 1))) (nf i) 0) 1)
+     Assn (array' (SLoc arr) (ith_vals (dist (fst (c_state c))) (map VZ (snd (c_state (c + 1)))) (nf i) 0) 1)
           True
           ("c" |-> Zn c :: nil)),
    MyVector.init (fun i : Fin.t ntrd =>
      Ex c,
-     Assn (array' (SLoc arr) (ith_vals (dist (fst (c_state (c + 1)))) (snd (c_state (c + 1))) (nf i) 0) 1)
+     Assn (array' (SLoc arr) (ith_vals (dist (fst (c_state (c + 1)))) (map VZ (snd (c_state (c + 1)))) (nf i) 0) 1)
           True
           ("c" |-> Zn c :: nil))).
 

@@ -1,6 +1,6 @@
 Require Import PeanoNat Arith Omega Psatz Classical SetoidClass Qcanon.
 Require Import LibTactics.
-Require Import PHeap Lang CSLLemma Bdiv.
+Require Import PHeap Default Lang CSLLemma Bdiv.
 Require Import List.
 
 Definition CSL {ntrd} BS (tid : Fin.t ntrd) P C Q :=

@@ -1,6 +1,6 @@
 Require Import Psatz Classical SetoidClass Qcanon.
 Require Import LibTactics.
-Require Import PHeap Lang.
+Require Import PHeap Lang Default.
 Require Import String.
 Require Import List.
 
@@ -1133,9 +1133,6 @@ Qed.
 (* Qed.     *)
 
 Notation skip arr n i := (ith_vals (fun x => x mod n) arr i 0).
-Notation get v i := (nth i v (VZ 0%Z)).
-Definition option_get {T : Type} (x : option T) d := match x with Some x => x | None => d end.
-Notation get' v i := (option_get (nth i v (VZ 0%Z)) (VZ 0%Z)).
 
 Lemma ith_vals_length (T : Type) dist (arr : list T) i s :
   length (ith_vals dist arr i s) = length arr.
