@@ -237,7 +237,7 @@ Proof.
   apply nth_skip.
 Qed.
 
-Hint Rewrite length_set_nth ith_vals_length app_length zipWith_length : pure.
+Hint Rewrite length_set_nth ith_vals_length app_length zipWith_length map_length : pure.
 Hint Rewrite nth_app nth_skip_Z nth_skip_val nth_skip_ls nth_set_nth nth_firstn nth_skipn : pure.
 
 Lemma ls_init_spec {T : Type} (n : nat) (fc : nat -> T) d: forall i,
