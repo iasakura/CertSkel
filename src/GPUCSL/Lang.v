@@ -65,7 +65,24 @@ Inductive exp :=
 | Eunop (op : unop) (e : exp)
 | Ebinop (op : binop) (e1 e2 : exp).
 
-Inductive CTyp := Int | Bool | Ptr (cty : CTyp).
+Infix "+C" := (Ebinop (OP_arith OP_plus)) (at level 50, left associativity).
+Infix "*C" := (Ebinop (OP_arith OP_mult)) (at level 40, left associativity).
+Infix "-C" := (Ebinop (OP_arith OP_sub)) (at level 50, left associativity).
+Infix "<C" := (Ebinop (OP_comp OP_lt)) (at level 55).
+Infix "==C" := (Ebinop (OP_comp OP_eq)) (at level 55).
+Infix "/C" := (Ebinop (OP_arith OP_div)) (at level 40, left associativity).
+Infix "%C" := (Ebinop (OP_arith OP_mod)) (at level 40, left associativity).
+Infix "&&C" := (Ebinop (OP_bool OP_and)) (at level 56, left associativity).
+Infix "||C" := (Ebinop (OP_bool OP_or)) (at level 57, left associativity).
+Infix "+o" := (Eoff) (at level 51, left associativity).
+Notation "'!C' x" := (Eunop OP_not x) (at level 39).
+Notation minC x y := (Ebinop (OP_arith OP_min) x y).
+Notation Zn := Z.of_nat.
+
+Coercion VZ : Z >-> val.
+Coercion VPtr : loc >-> val.
+
+Inductive CTyp := Int | Ptr (cty : CTyp).
 
 Inductive cmd : Set :=
 | Cskip
@@ -110,28 +127,38 @@ Definition binop_arith_denote op x y :=
   | OP_mod => if eq_dec y 0 then None else Some (Z.modulo x y)
   end%Z.
 
+Definition CUDA_lt x y : Z := if Z_lt_dec x y then 1 else 0.
+Definition CUDA_eq x y : Z := if eq_dec x y then 1 else 0.
+
 Definition binop_comp_denote op x y :=
   match op with
-  | OP_lt => if Z_lt_dec x y then Some 1 else Some 0
-  | OP_eq => if eq_dec x y then Some 1 else Some 0
+  | OP_lt => CUDA_lt x y
+  | OP_eq => CUDA_eq x y
   end%Z.
 
-Definition binop_bool_denote op x y :=
+Definition CUDA_and (x y : Z) : Z :=
+  if sumbool_or _ _ _ _ (eq_dec x 0%Z) (eq_dec y 0%Z) then 0 else 1.
+Definition CUDA_or (x y : Z) : Z :=
+  if sumbool_and _ _ _ _ (eq_dec x 0%Z) (eq_dec y 0%Z) then 0 else 1.
+
+Definition binop_bool_denote op x y : Z :=
   match op with
-  | OP_and => if sumbool_or _ _ _ _ (eq_dec x 0) (eq_dec y 0) then Some 0 else Some 1
-  | OP_or => if sumbool_and _ _ _ _ (eq_dec x 0) (eq_dec y 0) then Some 0 else Some 1
+  | OP_and => CUDA_and x y
+  | OP_or => CUDA_or x y
   end%Z.
 
-Definition binop_denote op :=
+Definition binop_denote op x y :=
   match op with
-  | OP_arith op => binop_arith_denote op
-  | OP_comp op => binop_comp_denote op
-  | OP_bool op => binop_bool_denote op
+  | OP_arith op => binop_arith_denote op x y
+  | OP_comp op => Some (binop_comp_denote op x y)
+  | OP_bool op => Some (binop_bool_denote op x y)
   end.
 
-Fixpoint unop_denote op x :=
+Definition CUDA_not x : Z := if eq_dec x 0%Z then 1%Z else 0%Z.
+
+Definition unop_denote op x :=
   match op with
-  | OP_not => if eq_dec x 0 then 1 else 0
+  | OP_not => CUDA_not x
   end%Z.
 
 Fixpoint edenote e (s : stack) : option val :=
@@ -805,7 +832,10 @@ Section NonInter.
                 typing_exp (Eunop op e) ty
   | ty_binop : forall (op : binop) (e1 e2 : exp) (ty1 ty2 : type), 
                 typing_exp e1 ty1 -> typing_exp e2 ty2 ->
-                typing_exp (Ebinop op e1 e2) (join ty1 ty2).
+                typing_exp (Ebinop op e1 e2) (join ty1 ty2)
+  | ty_eoff : forall (e1 e2 : exp) ty1 ty2,
+      typing_exp e1 ty1 -> typing_exp e2 ty2 ->
+      typing_exp (Eoff e1 e2) (join ty1 ty2).
 
   Inductive typing_cmd : cmd -> type -> Prop :=
   | ty_skip : forall (pc : type), typing_cmd Cskip pc

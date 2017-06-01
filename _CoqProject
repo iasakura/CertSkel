@@ -25,6 +25,7 @@ src/GPUCSL/Host.v
 src/GPUCSL/Lang.v
 src/GPUCSL/MyVector.v
 src/GPUCSL/PHeap.v
+src/Utils/Default.v
 src/TypedIR/Monad.v
 src/TypedIR/SkelLib.v
 src/TypedIR/TypedTerm.v

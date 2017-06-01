@@ -5,7 +5,7 @@ Require Import CUDALib CSLLemma CodeGen.
 Notation SVarEnv GS := (hlist (fun typ : Skel.Typ => vars typ) GS).
 Notation SEvalEnv GS := (hlist Skel.typDenote GS).
 Notation AVarEnv GA := (hlist (fun typ : Skel.Typ => (var * vars typ)%type) GA).
-Notation APtrEnv GA := (hlist (fun typ => vals typ) GA).
+Notation APtrEnv GA := (hlist (fun typ => locs typ) GA).
 Notation AEvalEnv GA := (hlist Skel.aTypDenote GA).
 
 Fixpoint fold_hlist {A B C} (ls : list A) (g : B -> C -> C) (d : C) :=
@@ -27,12 +27,12 @@ Definition arr2CUDA {ty} : Skel.aTypDenote ty -> list (vals ty) := map sc2CUDA.
 
 Definition arrInvRes {GA} (aPtrEnv : APtrEnv GA) (aEvalEnv : AEvalEnv GA) p : res :=
   fold_hlist GA Star Emp
-    (fun x m => arrays (val2gl (hget aPtrEnv m)) (arr2CUDA (hget aEvalEnv m)) p).
+    (fun x m => arrays (hget aPtrEnv m) (arr2CUDA (hget aEvalEnv m)) p).
 
 Definition arrInvVar {GA} (aVarEnv : AVarEnv GA) (aPtrEnv : APtrEnv GA) (aEvalEnv : AEvalEnv GA) : list entry :=
   fold_hlist GA (@app entry) nil
     (fun x m => let (xlen, xarr) := hget aVarEnv m in
-                xlen |-> Zn (length (hget aEvalEnv m)) :: xarr |=> hget aPtrEnv m).
+                xlen |-> Zn (length (hget aEvalEnv m)) :: xarr |=> l2val (hget aPtrEnv m)).
 
 Definition scInv {GS} (sVarEnv : SVarEnv GS) (sEvalEnv : SEvalEnv GS) :=
   fold_hlist GS (@app entry) nil

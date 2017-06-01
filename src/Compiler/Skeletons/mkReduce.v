@@ -346,7 +346,6 @@ Proof.
   apply Nat.pow_le_mono_r; lia.
 Qed.
 
-Hint Rewrite map_length : pure.
 Notation gid := (nf tid + nf bid * ntrd).
 
 Lemma reduce_body_ok n :

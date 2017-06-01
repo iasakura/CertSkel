@@ -820,14 +820,6 @@ Proof.
   eauto.
 Qed.
 
-Class hasDefval A := HD {default : A}.
-Global Instance val_hasDefval : hasDefval val := {default := 0%Z}.
-Global Instance vals_hasDefval T ty (d : hasDefval T) : hasDefval (typ2Coq T ty) :=
-  {default := (fix f ty := match ty return typ2Coq T ty with Skel.TZ | Skel.TBool => default |
-                                   Skel.TTup t1 t2 => (f t1, f t2)
-                           end) ty}.
-Global Instance listA_hasDefval A : hasDefval (list A) := {default := nil}.
-
 Lemma fc_ok_incl M G :
   fc_ok M G -> incl (map fst G) (map fst M).
 Proof.

@@ -27,11 +27,11 @@ Fixpoint evalExps {ty : Skel.Typ} (Env : list entry) :=
 
 (* Notation "e1 ==lt e2" := (eq_ltup e1 e2) (at level 70, right associativity). *)
 
-Fixpoint evalLExps {ty : Skel.Typ} (Env : list entry) :=
-  match ty return lexps ty -> locs ty -> Prop with
-  | Skel.TBool | Skel.TZ => fun e v => evalLExp Env e v
-  | Skel.TTup _ _ => fun es vs => evalLExps Env (fst es) (fst vs) /\ evalLExps Env (snd es) (snd vs)
-  end.
+(* Fixpoint evalLExps {ty : Skel.Typ} (Env : list entry) := *)
+(*   match ty return lexps ty -> locs ty -> Prop with *)
+(*   | Skel.TBool | Skel.TZ => fun e v => evalLExp Env e v *)
+(*   | Skel.TTup _ _ => fun es vs => evalLExps Env (fst es) (fst vs) /\ evalLExps Env (snd es) (snd vs) *)
+(*   end. *)
 
 (* Lemma evalLExps_ok Env e v : *)
 (*   evalLExps Env e v -> *)
@@ -194,12 +194,12 @@ Fixpoint fv_Es {ty : Skel.Typ} :=
     fv_Es (fst es) ++ fv_Es (snd es)
   end.
 
-Fixpoint fv_lEs {ty : Skel.Typ} := 
-  match ty return lexps ty -> list var with
-  | Skel.TBool | Skel.TZ => fun le => fv_lE le
-  | Skel.TTup _ _ => fun les => 
-    fv_lEs (fst les) ++ fv_lEs (snd les)
-  end.
+(* Fixpoint fv_lEs {ty : Skel.Typ} :=  *)
+(*   match ty return lexps ty -> list var with *)
+(*   | Skel.TBool | Skel.TZ => fun le => fv_lE le *)
+(*   | Skel.TTup _ _ => fun les =>  *)
+(*     fv_lEs (fst les) ++ fv_lEs (snd les) *)
+(*   end. *)
 
 Lemma evalExp_remove e v (x : var) Env:
   evalExp Env e v -> ~In x (fv_E e) ->
@@ -347,10 +347,10 @@ Lemma rule_assigns
   (ty : Skel.Typ)
   (ntrd : nat) (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd)
   (tid : Fin.t ntrd) (es : exps ty) (xs : vars ty) (tys : ctys ty) 
-  (vs : vals ty) Env P (Res : res) :
+  (vs : vals ty) Env (P : Prop) (Res : res) :
   disjoint (flatTup xs) (fv_Es es) ->
   disjoint_list (flatTup xs) ->
-  evalExps Env es vs ->
+  (P -> evalExps Env es vs) ->
   CSL BS tid
       (Assn Res P Env)
       (assigns xs tys es)
@@ -359,7 +359,9 @@ Proof.
   Ltac tac := eauto using disjoint_app_r1, disjoint_comm, disjoint_app_r2,
               disjoint_list_proj1, disjoint_list_proj2, disjoint_list_app_disjoint.
   revert Env; induction ty; simpl in *; try now (intros ? [Hnin _] Heval; eauto using rule_assign).
-  intros Env Hdisj Hdisjxs [Heval1 Heval2]; eapply rule_seq; [apply IHty1 | eapply forward; [|apply IHty2] ]; jauto; tac.
+  intros Env Hdisj Hdisjxs Heval; eapply rule_seq; [apply IHty1 | eapply forward; [|apply IHty2] ]; jauto; tac.
+  intros; forwards*: Heval.
+
   apply Assn_imply; eauto.
   intros ? x; repeat rewrite in_app_iff in *; intros [[? | ?] | ?]; tac.
   
@@ -367,9 +369,10 @@ Proof.
   rewrite env_assns_remove_app, in_app_iff; tac.
   rewrite env_assns_remove_app; tac.
   rewrite in_app_iff, <-remove_vars_nest; eauto.
-  apply evalExps_app_inv2.
+  intros; apply evalExps_app_inv2.
 
   apply evalExps_removes; tac.
+  forwards*: Heval.
 Qed.
 
 Fixpoint Mpss {ty : Skel.Typ} :=
@@ -381,68 +384,68 @@ Fixpoint Mpss {ty : Skel.Typ} :=
 
 Notation "ls '|=>p'  ( p , vs )" := (Mpss ls p vs) (at level 58).
 
-Lemma evalLExps_tup t1 t2 Env es1 es2 vs1 vs2:
-  @evalLExps (Skel.TTup t1 t2) Env (es1, es2) (vs1, vs2) ->
-  evalLExps Env es1 vs1 /\ evalLExps Env es2 vs2.
-Proof.
-  intros H; inverts H; split; eauto.
-Qed.
+(* Lemma evalLExps_tup t1 t2 Env es1 es2 vs1 vs2: *)
+(*   @evalLExps (Skel.TTup t1 t2) Env (es1, es2) (vs1, vs2) -> *)
+(*   evalLExps Env es1 vs1 /\ evalLExps Env es2 vs2. *)
+(* Proof. *)
+(*   intros H; inverts H; split; eauto. *)
+(* Qed. *)
 
-Lemma evalLExp_cons Env a e v:
-  evalLExp Env e v ->
-  evalLExp (a :: Env) e v.
-Proof.
-  induction 1;
-  constructor; eauto using evalExp_cons.
-Qed.
+(* Lemma evalLExp_cons Env a e v: *)
+(*   evalLExp Env e v -> *)
+(*   evalLExp (a :: Env) e v. *)
+(* Proof. *)
+(*   induction 1; *)
+(*   constructor; eauto using evalExp_cons. *)
+(* Qed. *)
 
-Lemma evalLExp_remove e v (x : var) Env:
-  evalLExp Env e v -> ~In x (fv_lE e) ->
-  evalLExp (remove_var Env x) e v.
-Proof.
-  induction 1; intros; simpl in *; repeat rewrite in_app_iff in *.
-  econstructor; apply evalExp_remove; destruct p; eauto.
-  econstructor; eauto; simpl; eauto.
-  eapply evalExp_remove; eauto.
-Qed.
+(* Lemma evalLExp_remove e v (x : var) Env: *)
+(*   evalLExp Env e v -> ~In x (fv_lE e) -> *)
+(*   evalLExp (remove_var Env x) e v. *)
+(* Proof. *)
+(*   induction 1; intros; simpl in *; repeat rewrite in_app_iff in *. *)
+(*   econstructor; apply evalExp_remove; destruct p; eauto. *)
+(*   econstructor; eauto; simpl; eauto. *)
+(*   eapply evalExp_remove; eauto. *)
+(* Qed. *)
 
-Lemma evalLExps_remove ty (e : lexps ty) v (x : var) Env:
-  evalLExps Env e v -> ~In x (fv_lEs e) ->
-  evalLExps (remove_var Env x) e v.
-Proof.
-  induction ty; intros; try applys* evalLExp_remove.
-  simpl in *; rewrite in_app_iff in *; intuition.
-Qed.
+(* Lemma evalLExps_remove ty (e : lexps ty) v (x : var) Env: *)
+(*   evalLExps Env e v -> ~In x (fv_lEs e) -> *)
+(*   evalLExps (remove_var Env x) e v. *)
+(* Proof. *)
+(*   induction ty; intros; try applys* evalLExp_remove. *)
+(*   simpl in *; rewrite in_app_iff in *; intuition. *)
+(* Qed. *)
 
-Lemma evalLExps_cons_inv ty Env a (e : lexps ty) v:
-  evalLExps Env e v ->
-  evalLExps (a :: Env) e v.
-Proof.
-  induction ty; intros; simpl in *; eauto using evalLExp_cons.
-  intuition.
-Qed.
+(* Lemma evalLExps_cons_inv ty Env a (e : lexps ty) v: *)
+(*   evalLExps Env e v -> *)
+(*   evalLExps (a :: Env) e v. *)
+(* Proof. *)
+(*   induction ty; intros; simpl in *; eauto using evalLExp_cons. *)
+(*   intuition. *)
+(* Qed. *)
 
-Lemma evalLExps_app_inv2 ty Env1 Env2 (e : lexps ty) v:
-  evalLExps Env2 e v ->
-  evalLExps (Env1 ++ Env2) e v.
-Proof.
-  induction Env1; simpl; eauto using evalLExps_cons_inv.
-Qed.
-Lemma evalLExps_removes ty Env xs (es : lexps ty) vs :
-  disjoint xs (fv_lEs es) ->
-  evalLExps Env es vs ->
-  evalLExps (remove_vars Env xs) es vs.
-Proof.
-  induction xs; simpl; [|intros [? ?]]; eauto using evalLExps_remove.
-Qed.
+(* Lemma evalLExps_app_inv2 ty Env1 Env2 (e : lexps ty) v: *)
+(*   evalLExps Env2 e v -> *)
+(*   evalLExps (Env1 ++ Env2) e v. *)
+(* Proof. *)
+(*   induction Env1; simpl; eauto using evalLExps_cons_inv. *)
+(* Qed. *)
+(* Lemma evalLExps_removes ty Env xs (es : lexps ty) vs : *)
+(*   disjoint xs (fv_lEs es) -> *)
+(*   evalLExps Env es vs -> *)
+(*   evalLExps (remove_vars Env xs) es vs. *)
+(* Proof. *)
+(*   induction xs; simpl; [|intros [? ?]]; eauto using evalLExps_remove. *)
+(* Qed. *)
 
 Lemma rule_reads
   (ty : Skel.Typ) (ntrd : nat) (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd)
-  (tid : Fin.t ntrd) (es : lexps ty) (xs : vars ty) (ctys : ctys ty) 
+  (tid : Fin.t ntrd) (es : exps ty) (xs : vars ty) (ctys : ctys ty) 
   (ls : locs ty) (vs : vals ty) Env (Res Res' : res) p (P : Prop) :
-  disjoint (flatTup xs) (fv_lEs es) ->
+  disjoint (flatTup xs) (fv_Es es) ->
   disjoint_list (flatTup xs) ->
-  evalLExps Env es ls ->
+  (P -> evalExps Env es (l2val ls)) ->
   (P -> Res |=R ls |=>p (p, vs) *** Res') ->
   CSL BS tid
       (Assn Res P Env)
@@ -450,7 +453,8 @@ Lemma rule_reads
       (Assn Res P (EEq_tup xs vs ++ (remove_vars Env (flatTup xs)))).
 Proof.
   revert Env Res'; induction ty; simpl in *; try now (intros ? ? [Hnin _] Heval; eauto using rule_read).
-  intros Env Res' Hdisj Hdisjxs [Heval1 Heval2] Hres; eapply rule_seq; [eapply IHty1 |]; tac.
+  intros Env Res' Hdisj Hdisjxs Heval Hres; eapply rule_seq; [eapply IHty1 |]; tac.
+  { intros; forwards*: Heval. }
   { intros; rewrite res_assoc; eauto. }
   eapply forward; [|eapply IHty2]; tac.
 
@@ -461,8 +465,9 @@ Proof.
   rewrite env_assns_remove_app; tac.
   rewrite in_app_iff, <-remove_vars_nest; eauto.
 
-  apply evalLExps_app_inv2.
-  apply evalLExps_removes; tac.
+  intros; apply evalExps_app_inv2.
+  apply evalExps_removes; tac.
+  forwards*: Heval.
 
   intros; rewrite res_CA, res_assoc; eauto.
 Qed.
@@ -748,17 +753,17 @@ Proof.
   rewrite <-Heq2, <-Heq1 in *; tauto.
 Qed.
 
-Lemma eval_locs_off ty Env (es : lexps ty) ls ix i :
-  evalLExps Env es ls ->
-  evalExp Env ix i ->
-  evalLExps Env (es +os ix) (locs_off ls i).
+Lemma eval_locs_off ty Env (es : exps ty) ls ix i :
+  evalExps Env es (l2val ls) ->
+  evalExp Env ix (VZ i) ->
+  evalExps Env (es +os ix) (l2val (locs_off ls i)).
 Proof.
   revert ls; induction ty; simpl; intros; try now constructor.
-  intuition.
+  split; jauto.
 Qed.
 
-Lemma fv_lEs_off ty (es : lexps ty)  ix:
-  incl (fv_lEs (es +os ix)) (fv_lEs es ++ fv_E ix).
+Lemma fv_Es_off ty (es : exps ty)  ix:
+  incl (fv_Es (es +os ix)) (fv_Es es ++ fv_E ix).
 Proof.
   unfold incl; intros x; induction ty; simpl; eauto; try tauto.
   rewrite !in_app_iff in *.
@@ -774,14 +779,14 @@ Proof.
 Qed.
 
 Lemma rule_reads_arrays (ty : Skel.Typ) (ntrd : nat) (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd)
-  (tid : Fin.t ntrd) (es : lexps ty) (xs : vars ty) (ctys : ctys ty) 
-  (ls : locs ty) Env (Res Res' : res) p (P : Prop) arr ix iz i_n :
-  disjoint (flatTup xs) (fv_lEs es) ->
+  (tid : Fin.t ntrd) (es : exps ty) (xs : vars ty) (ctys : ctys ty) 
+  (ls : locs ty) Env (Res Res' : res) p (P : Prop) arr ix (iz : Z) i_n :
+  disjoint (flatTup xs) (fv_Es es) ->
   disjoint (flatTup xs) (fv_E ix) ->
   disjoint_list (flatTup xs) ->
 
-  evalLExps Env es ls ->
-  evalExp Env ix iz ->
+  (P -> evalExps Env es (l2val ls)) ->
+  (P -> evalExp Env ix iz) ->
   (P -> Res |=R arrays ls arr p *** Res') ->
 
   iz = Zn i_n ->
@@ -794,23 +799,23 @@ Lemma rule_reads_arrays (ty : Skel.Typ) (ntrd : nat) (BS : nat -> Vector.t assn 
 Proof.
   intros.
   applys* rule_reads.
-  - eapply disjoint_incl; [apply fv_lEs_off|].
+  - eapply disjoint_incl; [apply fv_Es_off|].
     rewrite disjoint_app; eauto.
-  - apply eval_locs_off; eauto.
+  - intros; apply eval_locs_off; eauto.
   - intros; forwards*Himp: H4.
     rewrite arrays_unfold in Himp; [|applys* H6].
     substs; rewrite <-!res_assoc in Himp; rewrites* res_CA in Himp.
 Qed.
 
 Lemma rule_reads_arrays' (ty : Skel.Typ) (ntrd : nat) (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd)
-  (tid : Fin.t ntrd) (es : lexps ty) (xs : vars ty) (ctys : ctys ty) 
-  (ls : locs ty) Env (Res Res' : res) p (P : Prop) arr ix iz i_n dist j st:
-  disjoint (flatTup xs) (fv_lEs es) ->
+  (tid : Fin.t ntrd) (es : exps ty) (xs : vars ty) (ctys : ctys ty) 
+  (ls : locs ty) Env (Res Res' : res) p (P : Prop) arr ix (iz : Z) i_n dist j st:
+  disjoint (flatTup xs) (fv_Es es) ->
   disjoint (flatTup xs) (fv_E ix) ->
   disjoint_list (flatTup xs) ->
 
-  evalLExps Env es ls ->
-  evalExp Env ix iz ->
+  (P -> evalExps Env es (l2val ls)) ->
+  (P -> evalExp Env ix iz) ->
   (P -> Res |=R arrays' ls (ith_vals dist arr j st) p *** Res') ->
 
   iz = Zn i_n ->
@@ -823,9 +828,9 @@ Lemma rule_reads_arrays' (ty : Skel.Typ) (ntrd : nat) (BS : nat -> Vector.t assn
 Proof.
   intros.
   applys* rule_reads.
-  - eapply disjoint_incl; [apply fv_lEs_off|].
+  - eapply disjoint_incl; [apply fv_Es_off|].
     rewrite disjoint_app; eauto.
-  - apply eval_locs_off; eauto.
+  - intros; apply eval_locs_off; eauto.
   - intros; forwards*Himp: H4.
     rewrites (>>arrays'_unfold i_n) in Himp; [|].
     rewrite ith_vals_length; tauto.
@@ -836,10 +841,10 @@ Proof.
 Qed.    
 
 Lemma rule_writes (ty : Skel.Typ)  (ntrd : nat) (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd)
-  (tid : Fin.t ntrd) (les : lexps ty) (es : exps ty) 
+  (tid : Fin.t ntrd) (les : exps ty) (es : exps ty) 
   (ls : locs ty) (vs vs' : vals ty) Env (Res Res' : res) (P : Prop) :
-  evalExps Env es vs ->
-  evalLExps Env les ls ->
+  (P -> evalExps Env es vs) ->
+  (P -> evalExps Env les (l2val ls)) ->
   (P -> Res |=R ls |=>p (1, vs') *** Res') ->
   CSL BS tid
       (Assn Res P Env)
@@ -847,7 +852,7 @@ Lemma rule_writes (ty : Skel.Typ)  (ntrd : nat) (BS : nat -> Vector.t assn ntrd 
       (Assn (ls |=>p (1, vs) *** Res') P Env).
 Proof.
   revert Env Res Res' vs'; induction ty; simpl in *; try now (eauto using rule_write).
-  simpl in *; intros Env Res Res' vs' [Heval1 Heval2] [Hleval1 Hleval2] Hres.
+  simpl in *; intros Env Res Res' vs' Heval Hleval Hres.
   eapply rule_seq; [applys* IHty1|].
   { intros; rewrite* res_assoc. }
   eapply forward; [|applys* IHty2].
@@ -857,11 +862,11 @@ Proof.
 Qed.
 
 Lemma rule_writes_arrays (ty : Skel.Typ) (ntrd : nat) (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd)
-  (tid : Fin.t ntrd) (les : lexps ty) (es : exps ty) 
-  (ls : locs ty) (vs : vals ty) Env (Res Res' : res) (P : Prop) arr ix iz i_n:
-  evalExps Env es vs ->
-  evalExp Env ix iz ->
-  evalLExps Env les ls ->
+  (tid : Fin.t ntrd) (les : exps ty) (es : exps ty) 
+  (ls : locs ty) (vs : vals ty) Env (Res Res' : res) (P : Prop) arr ix (iz : Z) i_n:
+  (P -> evalExps Env es vs) ->
+  (P -> evalExp Env ix iz) ->
+  (P -> evalExps Env les (l2val ls)) ->
   iz = Zn i_n ->
   (P -> i_n < length arr) ->
   (P -> Res |=R arrays ls arr 1 *** Res') ->
@@ -871,7 +876,7 @@ Lemma rule_writes_arrays (ty : Skel.Typ) (ntrd : nat) (BS : nat -> Vector.t assn
       (Assn (arrays ls (set_nth i_n arr vs) 1 *** Res') P Env).
 Proof.
   intros; eapply forward; [|applys* (>>rule_writes (locs_off ls iz) vs)].
-  2: applys* eval_locs_off.
+  2: intros; applys* eval_locs_off.
   intros ? ?.
   apply Assn_imply; eauto using incl_refl.
   intros Hp ? Hsat; rewrites (>>arrays_unfold i_n); [rewrite* length_set_nth|].
@@ -890,11 +895,11 @@ Proof.
 Qed.
 
 Lemma rule_writes_arrays' (ty : Skel.Typ) ntrd BS
-      (tid : Fin.t ntrd) (les : lexps ty) (ls : locs ty) 
-      (Env : list entry) (P : Prop) (Res Res' : res) (arr : list (vals ty)) dist ix i iz j es vs st:
-  evalLExps Env les ls ->
-  evalExp Env ix iz ->
-  evalExps Env es vs ->
+      (tid : Fin.t ntrd) (les : exps ty) (ls : locs ty) 
+      (Env : list entry) (P : Prop) (Res Res' : res) (arr : list (vals ty)) dist ix i (iz : Z) j es vs st:
+  (P -> evalExps Env les (l2val ls)) ->
+  (P -> evalExp Env ix iz) ->
+  (P -> evalExps Env es vs) ->
   iz = Zn i ->
   (P -> i < length arr /\ dist (st + i) = j) ->
   (P -> Res |=R arrays' ls (ith_vals dist arr j st) 1 *** Res') ->
@@ -905,7 +910,7 @@ Lemma rule_writes_arrays' (ty : Skel.Typ) ntrd BS
 Proof.
   intros.
   eapply forward; [|applys* (>>rule_writes (locs_off ls iz) vs)].
-  2: applys* eval_locs_off.
+  2: intros; applys* eval_locs_off.
   apply Assn_imply; eauto using incl_refl.
   intros Hp ? Hsat.
   forwards*: H3.
@@ -935,21 +940,21 @@ Qed.
 Definition val2sh {ty} := @maptys ty _ _ SLoc.
 Definition val2gl {ty} := @maptys ty _ _ GLoc.
 
-Lemma evalLExps_gl ty env (e : exps ty) v :
-  evalExps env e v
-  -> evalLExps env (e2gl e) (val2gl v).
-Proof.
-  induction ty; simpl; eauto; try now constructor; eauto.
-  destruct 1; split; firstorder.
-Qed.
+(* Lemma evalLExps_gl ty env (e : exps ty) v : *)
+(*   evalExps env e v *)
+(*   -> evalExps env (e2gl e) (val2gl v). *)
+(* Proof. *)
+(*   induction ty; simpl; eauto; try now constructor; eauto. *)
+(*   destruct 1; split; firstorder. *)
+(* Qed. *)
 
-Lemma evalLExps_sh ty env (e : exps ty) v :
-  evalExps env e v
-  -> evalLExps env (e2sh e) (val2sh v).
-Proof.
-  induction ty; simpl; eauto; try now constructor; eauto.
-  destruct 1; split; firstorder.
-Qed.
+(* Lemma evalLExps_sh ty env (e : exps ty) v : *)
+(*   evalExps env e v *)
+(*   -> evalLExps env (e2sh e) (val2sh v). *)
+(* Proof. *)
+(*   induction ty; simpl; eauto; try now constructor; eauto. *)
+(*   destruct 1; split; firstorder. *)
+(* Qed. *)
 
 Lemma evalExps_vars ty env (xs : vars ty) vs :
   incl (xs |=> vs) env
@@ -977,46 +982,46 @@ Lemma evalExp_cons_ig e env exp v :
   evalExp env exp v
   -> evalExp (e :: env) exp v.
 Proof.
-  induction 1; constructor; simpl; eauto.
+  induction 1; try econstructor; simpl; eauto.
 Qed.
 
 Lemma evalExp_app_ig env1 env2 exp v :
   evalExp env2 exp v
   -> evalExp (env1 ++ env2) exp v.
 Proof.
-  induction 1; constructor; simpl; eauto.
+  induction 1; econstructor; simpl; eauto.
   rewrite in_app_iff; eauto.
 Qed.
 
-Lemma evalLExp_cons_ig e env le lv :
-  evalLExp env le lv
-  -> evalLExp (e :: env) le lv.
-Proof.
-  induction 1; constructor; eauto using evalExp_cons_ig.
-Qed.          
+(* Lemma evalLExp_cons_ig e env le lv : *)
+(*   evalLExp env le lv *)
+(*   -> evalLExp (e :: env) le lv. *)
+(* Proof. *)
+(*   induction 1; constructor; eauto using evalExp_cons_ig. *)
+(* Qed.           *)
 
-Lemma evalLExp_app_ig env1 env2 le lv :
-  evalLExp env2 le lv
-  -> evalLExp (env1 ++ env2) le lv.
-Proof.
-  induction 1; constructor; eauto using evalExp_app_ig.
-Qed.          
+(* Lemma evalLExp_app_ig env1 env2 le lv : *)
+(*   evalLExp env2 le lv *)
+(*   -> evalLExp (env1 ++ env2) le lv. *)
+(* Proof. *)
+(*   induction 1; constructor; eauto using evalExp_app_ig. *)
+(* Qed.           *)
 
-Lemma evalLExps_cons_ig ty e env (le : lexps ty) lv :
-  evalLExps env le lv
-  -> evalLExps (e :: env) le lv.
-Proof.
-  induction ty; simpl; eauto using evalLExp_cons_ig.
-  firstorder.
-Qed.
+(* Lemma evalLExps_cons_ig ty e env (le : lexps ty) lv : *)
+(*   evalLExps env le lv *)
+(*   -> evalLExps (e :: env) le lv. *)
+(* Proof. *)
+(*   induction ty; simpl; eauto using evalLExp_cons_ig. *)
+(*   firstorder. *)
+(* Qed. *)
 
-Lemma evalLExps_app_ig ty env1 env2 (le : lexps ty) lv :
-  evalLExps env2 le lv
-  -> evalLExps (env1 ++ env2) le lv.
-Proof.
-  induction ty; simpl; eauto using evalLExp_app_ig.
-  firstorder.
-Qed.
+(* Lemma evalLExps_app_ig ty env1 env2 (le : lexps ty) lv : *)
+(*   evalLExps env2 le lv *)
+(*   -> evalLExps (env1 ++ env2) le lv. *)
+(* Proof. *)
+(*   induction ty; simpl; eauto using evalLExp_app_ig. *)
+(*   firstorder. *)
+(* Qed. *)
 
 Lemma assigns_writes ty (vs : vars ty) (ts : ctys ty) (es : exps ty) :
   writes_var (assigns vs ts es) = (flatTup vs).
@@ -1024,13 +1029,13 @@ Proof.
   induction ty; simpl; congruence.
 Qed.
 
-Lemma reads_writes ty (xs : vars ty) (ts : ctys ty) (es : lexps ty):
+Lemma reads_writes ty (xs : vars ty) (ts : ctys ty) (es : exps ty):
   (writes_var (reads xs ts es)) = (flatTup xs).
 Proof.
   induction ty; simpl;  congruence.
 Qed.
 
-Lemma writes_writes ty (les : lexps ty) (es : exps ty) :
+Lemma writes_writes ty (les : exps ty) (es : exps ty) :
   (writes_var (writes les es)) = nil.
 Proof.
   induction ty; simpl; eauto.

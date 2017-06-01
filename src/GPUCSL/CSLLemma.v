@@ -1,6 +1,6 @@
 Require Import Psatz Classical SetoidClass Qcanon.
 Require Import LibTactics.
-Require Import PHeap Lang.
+Require Import PHeap Lang Default.
 Require Import String.
 Require Import List.
 
@@ -13,21 +13,10 @@ Open Scope list_scope.
 Close Scope Q_scope.
 Close Scope Qc_scope.
 
-Inductive lval := 
-| Vval : val -> lval
-| Bval : Prop -> lval.
-
-Definition val_prop_equiv (v : val) p :=
-  match v with
-  | VPtr _ => False
-  | VZ n => n = 0%Z <-> ~p
-  end.
-
-Inductive entry := Ent {ent_e : var; ent_v : lval}.
+Inductive entry := Ent {ent_e : var; ent_v : val}.
 Definition ent_assn_denote va (s : stack) : Prop :=
-  match ent_v va with
-  | Vval v => s (ent_e va) = v 
-  | Bval p => val_prop_equiv (s (ent_e va)) p
+  match va with
+  | Ent x v => s x = v
   end.
 
 Definition env_assns_denote env : stack -> Prop :=
@@ -151,112 +140,252 @@ Proof.
   split; intros (h1 & h2 & ? & ? & ? & ?); exists h1 h2; splits; try apply H; try apply H'; eauto.
 Qed.
 
-Definition binop_comp_denote_prop (op : binop_comp) v1 v2 :=
-  match op with
-    | OP_eq => v1 = v2
-    | OP_lt => v1 < v2
-  end%Z.
-
-Definition binop_bool_denote_prop (op : binop_bool) p1 p2 :=
-  match op with
-    | OP_and => p1 /\ p2
-    | OP_or => p1 \/ p2
-  end%Z.
-
-Lemma binop_comp_denote_prop_ok op v1 v2 :
-  exists v, binop_comp_denote op v1 v2 = Some v /\
-            val_prop_equiv (VZ v) (binop_comp_denote_prop op v1 v2).
-Proof.
-  destruct op; simpl; match goal with |- context [if ?b then _ else _] => destruct b end;
-  eexists; [splits; [eauto|]..]; split; try tauto; try lia.
-Qed.
-
-Lemma binop_bool_denote_prop_ok op v1 v2 p1 p2 :
-  v1 = 0%Z <-> ~ p1 -> v2 = 0%Z <-> ~ p2 -> 
-  exists v, binop_bool_denote op v1 v2 = Some v /\
-            val_prop_equiv (VZ v) (binop_bool_denote_prop op p1 p2).
-Proof.
-  destruct op; simpl; match goal with |- context [if ?b then _ else _] => destruct b end;
-  eexists; [splits; [eauto|]..]; split; try tauto; try lia.
-Qed.
-    
-Definition unop_bool_denote_prop (op : unop) p :=
-  match op with
-    | OP_not => ~p
-  end%Z.
-
 Definition loc_off l i := 
   match l with
   | Loc p e => Loc p (e + i)
   end%Z.
 
-Inductive evalExp : list entry -> exp -> lval -> Prop :=
-| SEval_num env n : evalExp env (Enum n) (Vval (VZ n))
+Inductive evalExp : list entry -> exp -> val -> Prop :=
+| SEval_num env n : evalExp env (Enum n) (VZ n)
 | SEval_Ebinop_arith env op e1 v1 e2 v2 v :
-    evalExp env e1 (Vval (VZ v1)) ->
-    evalExp env e2 (Vval (VZ v2)) ->
+    evalExp env e1 (VZ v1) ->
+    evalExp env e2 (VZ v2) ->
     binop_arith_denote op v1 v2 = Some v ->
-    evalExp env (Ebinop (OP_arith op) e1 e2) (Vval (VZ v))
+    evalExp env (Ebinop (OP_arith op) e1 e2) (VZ v)
 | SEval_Ebinop_comp env op e1 v1 e2 v2 :
-    evalExp env e1 (Vval (VZ v1)) ->
-    evalExp env e2 (Vval (VZ v2)) ->
-    evalExp env (Ebinop (OP_comp op) e1 e2) (Bval (binop_comp_denote_prop op v1 v2))
+    evalExp env e1 (VZ v1) ->
+    evalExp env e2 (VZ v2) ->
+    evalExp env (Ebinop (OP_comp op) e1 e2) (VZ (binop_comp_denote op v1 v2))
 | SEval_Ebinop_bool env op e1 p1 e2 p2 :
-    evalExp env e1 (Bval p1) ->
-    evalExp env e2 (Bval p2) ->
-    evalExp env (Ebinop (OP_bool op) e1 e2) (Bval (binop_bool_denote_prop op p1 p2))
+    evalExp env e1 (VZ p1) ->
+    evalExp env e2 (VZ p2) ->
+    evalExp env (Ebinop (OP_bool op) e1 e2) (VZ (binop_bool_denote op p1 p2))
 | SEval_Eunop_bool env op e p :
-    evalExp env e (Bval p) ->
-    evalExp env (Eunop OP_not e) (Bval (unop_bool_denote_prop op p))
+    evalExp env e (VZ p) ->
+    evalExp env (Eunop op e) (VZ (unop_denote op p))
 | SEval_Eoff env loc l off o :
-    evalExp env loc (Vval (VPtr l)) ->
-    evalExp env off (Vval (VZ o)) ->
-    evalExp env (Eoff loc off) (Vval (VPtr (loc_off l o)))
+    evalExp env loc (VPtr l) ->
+    evalExp env off (VZ o) ->
+    evalExp env (Eoff loc off) (VPtr (loc_off l o))
 | SEval_var env e v : In (Ent e v) env -> evalExp env e v.
 
-Definition val_lval_equiv v lv :=
-  match lv with
-  | Bval p => val_prop_equiv v p
-  | Vval v' => v = v'
+Ltac evalExp' := 
+  repeat match goal with
+  | [|- evalExp _ _ _] => econstructor
+  end;
+  simpl;
+  (* try to solve variable evaluation *)
+  (repeat rewrite in_app_iff; simpl; repeat rewrite <-app_assoc; eauto 20);
+  (* try to solve arithmetic side-condition of _ / _ and _ mod _ *)
+  try match goal with
+  | [|- (if ?b then None else Some _) = Some _ ] =>
+    destruct b; [false; try lia|eauto]
+  | [|- (if ?b then Some _ else None) = Some _ ] =>
+    destruct b; [false; try lia|eauto]
   end.
 
+Ltac evalExp :=
+  let t := fresh "tmp" in
+  evar (t : val);
+    lazymatch goal with
+    | [|- evalExp _ _ ?x] => cutrewrite (x = t); [unfold t; evalExp'|unfold t; simpl; eauto]
+    end.
+
+Section evalExp_test.
+  Variable x y z w p q r a1 a2 : var.
+  Variable va1 va2 vx vy vz vw : Z.
+  Variable P Q R : Z.
+  
+  Notation env := (x |-> vx :: y |-> vy :: z |-> vz :: w |-> vw ::
+                   p |-> P :: q |-> Q :: r |-> R :: 
+                   a1 |-> GLoc va1 :: a2 |-> SLoc va2 :: nil).
+  
+  Example evalExp_test1 :
+    evalExp env (x +C y -C z) (VZ (vx + vy - vz)).
+  Proof.
+    evalExp.
+  Qed.
+
+  Example evalExp_test2 :
+    vz <> 0%Z ->
+    evalExp env ((x +C y) /C z) ((vx + vy) / vz)%Z.
+  Proof.
+    intros; evalExp.
+  Qed.
+
+  Example evalExp_test3 :
+    vz <> 0%Z -> vw <> 0%Z
+    -> evalExp env ((x +C y) /C z %C w) ((vx + vy) / vz mod vw)%Z.
+  Proof.
+    intros; evalExp.
+  Qed.
+
+  Example evalExp_test4 :
+    vw <> 0%Z
+    -> evalExp env (x +C y <C z %C w) (CUDA_lt (vx + vy) (vz mod vw)).
+  Proof.
+    intros; evalExp.
+  Qed.
+
+  Example evalExp_test5 :
+    evalExp env (p &&C q ||C !C r) (CUDA_or (CUDA_and P Q) (CUDA_not R)).
+  Proof.
+    intros.
+    evalExp.
+  Qed.
+
+  Example evalExp_test6 :
+    evalExp env (a1 +o x +C y) (GLoc (va1 + (vx + vy))).
+  Proof.
+    evalExp.
+  Qed.
+
+  (* remove test cases from enviroment  *)
+  Reset evalExp_test1.
+End evalExp_test.
+
 Lemma env_denote_in Env x v :
-  In (Ent x v) Env -> forall s, env_assns_denote Env s -> val_lval_equiv (s x) v.
+  In (Ent x v) Env -> forall s, env_assns_denote Env s -> (s x) = v.
 Proof.
   induction Env; simpl; try tauto;
   destruct 1; destruct 1; substs; eauto.
 Qed.
 
-Lemma evalExp_ok (Env : list entry) (e : exp) (lv : lval) :
-  evalExp Env e lv -> 
+Lemma evalExp_ok (Env : list entry) (e : exp) (v : val) :
+  evalExp Env e v -> 
   forall s, env_assns_denote Env s ->
-            exists v, edenote e s = Some v /\ val_lval_equiv v lv.
+            edenote e s = Some v.
 Proof.
   intros H; induction H; simpl; intros ? ?;
   intros; unfold sat in *;
-  try forwards*(? & ? & ?): IHevalExp1;
-  try forwards*(? & ? & ?): IHevalExp2;
-  try forwards*(? & ? & ?): IHevalExp;
+  try rewrites* IHevalExp1;
+  try rewrites* IHevalExp2;
+  try rewrites* IHevalExp;
   simpl in *; try congruence;
   substs; auto.
-  - eexists; jauto.
-  - rewrite H3, H5, H1; jauto.
-  - rewrite H2, H4.
-    forwards*(? & Heq & ?): (>>binop_comp_denote_prop_ok op v1 v2); rewrite Heq.
-    eexists; jauto.
-  - rewrite H2, H4.
-    unfold val_prop_equiv in * |-; destruct x, x0; try tauto.
-    forwards* (? & Heq & ?): (>>binop_bool_denote_prop_ok op n n0).
-    eexists; rewrite Heq; split; eauto.
-  - rewrite H1; unfold val_prop_equiv in H2; destruct x; simpl; try tauto.
-    eexists; splits; simpl; jauto.
-    destruct op; simpl; destruct eq_dec; splits; try tauto; try lia.
-  - rewrite H2, H4; destruct l; eexists; eauto.
-  - eexists; splits; jauto.
-    applys* env_denote_in.
+  - rewrite H1; eauto.
+  - destruct l; eauto.
+  - rewrites* (>>env_denote_in H).
 Qed.
 
-Notation "le +o e" := (Eoff le e) (at level 50, left associativity).
+(* Definition binop_comp_denote_prop (op : binop_comp) v1 v2 := *)
+(*   match op with *)
+(*     | OP_eq => v1 = v2 *)
+(*     | OP_lt => v1 < v2 *)
+(*   end%Z. *)
+
+(* Definition binop_bool_denote_prop (op : binop_bool) p1 p2 := *)
+(*   match op with *)
+(*     | OP_and => p1 /\ p2 *)
+(*     | OP_or => p1 \/ p2 *)
+(*   end%Z. *)
+
+Definition eq_vp v P := v <> 0%Z <-> P.
+
+(* Lemma binop_comp_denote_prop_ok op v1 v2 : *)
+(*   eq_vp (binop_comp_denote op v1 v2) (binop_comp_denote_prop op v1 v2). *)
+(* Proof. *)
+(*   destruct op; simpl; unfold CUDA_eq, CUDA_lt; *)
+(*     match goal with |- context [if ?b then _ else _] => destruct b end; *)
+(*     split; try tauto; try lia. *)
+(* Qed. *)
+
+(* Lemma binop_bool_denote_prop_ok op v1 v2 p1 p2 : *)
+(*   eq_vp v1 p1 -> eq_vp v2 p2 *)
+(*   -> eq_vp (binop_bool_denote op v1 v2) (binop_bool_denote_prop op p1 p2). *)
+(* Proof. *)
+(*   unfold eq_vp; *)
+(*   destruct op; simpl; unfold CUDA_and, CUDA_or; *)
+(*   match goal with |- context [if ?b then _ else _] => destruct b end; *)
+(*   split; try tauto; try lia. *)
+(* Qed. *)
+    
+(* Definition unop_bool_denote_prop (op : unop) p := *)
+(*   match op with *)
+(*     | OP_not => ~p *)
+(*   end%Z. *)
+
+(* Lemma unop_bool_denote_prop_ok op v p : *)
+(*   eq_vp v p -> eq_vp (unop_denote op v) (unop_bool_denote_prop op p). *)
+(* Proof. *)
+(*   unfold eq_vp; destruct op; simpl; unfold CUDA_not; destruct v; simpl; split; try tauto; try lia. *)
+(*   all: assert p by (apply H; congruence); tauto. *)
+(* Qed.   *)
+
+Inductive Z2Prop : Z -> Prop -> Prop :=
+| val2Prop_and v1 v2 p1 p2 :
+    Z2Prop v1 p1 -> Z2Prop v2 p2 -> Z2Prop (CUDA_and v1 v2) (p1 /\ p2)
+| val2Prop_or v1 v2 p1 p2 :
+    Z2Prop v1 p1 -> Z2Prop v2 p2 -> Z2Prop (CUDA_or v1 v2) (p1 \/ p2)
+| val2Prop_not v1 p1 :
+    Z2Prop v1 p1 -> Z2Prop (CUDA_not v1) (~ p1)
+| val2Prop_lt v1 v2 :
+    Z2Prop (CUDA_lt v1 v2) (v1 < v2)%Z
+| val2Prop_eq v1 v2 :
+    Z2Prop (CUDA_eq v1 v2) (v1 = v2)%Z
+| val2Prop_id v p : eq_vp v p -> Z2Prop v p.
+    
+Lemma Z2Prop_ok v p : Z2Prop v p -> eq_vp v p.
+Proof.
+  induction 1; unfold eq_vp, CUDA_and, CUDA_or, CUDA_not, CUDA_lt, CUDA_eq in *;
+    try match goal with |- context [if ?b then _ else _] => destruct b end; split; try tauto; try lia.
+Qed.
+
+Definition evalExp2Prop (E : list entry) (e : exp)  (p : Prop) : Prop :=
+  exists v, evalExp E e (VZ v) /\ Z2Prop v p.
+
+Create HintDb Z2Prop.
+Hint Resolve val2Prop_and val2Prop_or val2Prop_not val2Prop_lt val2Prop_eq : Z2Prop.
+
+Ltac Z2Prop :=
+  match goal with
+  | |- Z2Prop _ _ => (repeat try first [apply val2Prop_and |
+                                       apply val2Prop_or |
+                                       apply val2Prop_not |
+                                       apply val2Prop_lt |
+                                       apply val2Prop_eq ]);
+                     try (apply val2Prop_id; eauto)
+  end.
+
+Ltac evalExp2Prop :=
+  match goal with
+  | |- evalExp2Prop _ _ _ =>
+    eexists; split; [evalExp|]; Z2Prop
+  end.
+
+Section evalExp2Prop_test.
+  Variable x y z w P Q R : var.
+  Variable vx vy vz vw vr : Z.
+
+  Notation env := (x |-> vx :: y |-> vy :: z |-> vz :: w |-> vw ::
+                   P |-> (CUDA_lt vx vy) :: Q |-> (CUDA_eq vz vw) :: R |-> vr :: nil).
+
+  Example test1 :
+    evalExp2Prop env (x +C y <C z *C w) (vx + vy < vz * vw)%Z.
+  Proof.
+    evalExp2Prop.
+  Qed.
+
+  Example test2 :
+    evalExp2Prop env (x <C y &&C y <C z ||C z ==C w) (vx < vy /\ vy < vz \/ vz = vw)%Z.
+  Proof.
+    evalExp2Prop.
+  Qed.
+
+  Example test3 :
+    evalExp2Prop env (P ||C Q &&C Q) (vx < vy \/ vz = vw /\ vz = vw)%Z.
+  Proof.
+    evalExp2Prop.
+  Qed.
+
+  Example test4 :
+    eq_vp vr False -> evalExp2Prop env (P &&C R) (vx < vy /\ False)%Z.
+  Proof.
+    intros; evalExp2Prop.
+  Qed.
+
+  Reset test1.
+End evalExp2Prop_test.
 
 (* Lemma ledenot_id (l : loc) s : ledenot l s = l. *)
 (* Proof. *)
@@ -1004,9 +1133,6 @@ Qed.
 (* Qed.     *)
 
 Notation skip arr n i := (ith_vals (fun x => x mod n) arr i 0).
-Notation get v i := (nth i v (VZ 0%Z)).
-Definition option_get {T : Type} (x : option T) d := match x with Some x => x | None => d end.
-Notation get' v i := (option_get (nth i v (VZ 0%Z)) (VZ 0%Z)).
 
 Lemma ith_vals_length (T : Type) dist (arr : list T) i s :
   length (ith_vals dist arr i s) = length arr.
