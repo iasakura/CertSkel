@@ -398,13 +398,13 @@ Proof.
 Qed.
 End mkMap.
  
-Lemma mkMap_ok M G GA dom cod arr_c (f_c : vars dom -> cmd * vars cod) pars tag avar_env :
-  aenv_ok avar_env
+Lemma mkMap_ok M G GA dom cod arr_c (f_c : vars dom -> cmd * vars cod) pars tag avar_env arr (f : Skel.Func GA (Skel.Fun1 dom cod)) :
+  aenv_ok avar_env -> ae_ok avar_env arr arr_c -> func_ok avar_env f f_c
   -> interp_kfun M G (mkMap GA dom cod arr_c f_c)
               (FS pars tag
-                  (All ntrd nblk aptr_env aeval_env arr (f : Skel.Func GA (Skel.Fun1 dom cod)) arr_res result outp outs,
+                  (All ntrd nblk aptr_env aeval_env arr_res result outp outs,
                    FDbl (kernelInv avar_env aptr_env aeval_env (arrays (val2gl outp) outs 1)
-                                   (ntrd <> 0 /\ nblk <> 0 /\ ae_ok avar_env arr arr_c /\ func_ok avar_env f f_c /\
+                                   (ntrd <> 0 /\ nblk <> 0 /\ 
                                     Skel.aeDenote GA dom arr aeval_env = Some arr_res /\
                                     Monad.mapM (Skel.funcDenote GA (Skel.Fun1 dom cod) f aeval_env) arr_res = Some result /\
                                     Datatypes.length outs = Datatypes.length result)
@@ -412,8 +412,8 @@ Lemma mkMap_ok M G GA dom cod arr_c (f_c : vars dom -> cmd * vars cod) pars tag 
                                     inp_len_name |-> Zn (Datatypes.length arr_res) :: outArr cod |=> outp) 1)
                         (fun _ => kernelInv' aptr_env aeval_env (arrays (val2gl outp) (arr2CUDA result) 1) True 1)))%nat.
 Proof.
-  intros Havok n Hctx; unfold interp_kfun_n_simp; simpl.
-  intros ntrd nblk aptr_env aeval_env arr f result eval_map_ok outp outs.
+  intros Havok ? ? n Hctx; unfold interp_kfun_n_simp; simpl.
+  intros ntrd nblk aptr_env aeval_env result eval_map_ok outp outs.
   eapply (CSLkfun_threads_vars ntrd nblk (fun n m => _) (fun n m => _) (fun n m => _)).
   { unfold kernelInv; simpl.
     intros ? ?; prove_imp; try tauto.

@@ -465,7 +465,9 @@ Proof.
     3: intros; applys (>>mkMap_ok (remove_typeinfo (gen_params GA))).
     simpl; eauto.
     simpl; eauto.
-    apply genenv_ok. }
+    apply genenv_ok.
+    applys* (>> compile_AE_ok).
+    applys* (>> compile_func_ok). }
   intros gen_map.
   eapply rule_bind'.
   apply rule_fLet.
@@ -516,8 +518,6 @@ Proof.
           apply out_name_arrInvVar.          
           apply subst_env_params.
     - intros [? ?]; splits; eauto.      
-      applys* compile_AE_ok.
-      forwards*: (>> compile_func_ok (Skel.Fun1 dom cod)).
       instantiate (1 := vs).
       forwards*: SkelLib.mapM_length; congruence.
     - intros; rewrite <-res_assoc.
@@ -597,7 +597,9 @@ Proof.
     3: intros; applys (>>mkReduce_ok (remove_typeinfo (gen_params GA))).
     simpl; eauto.
     simpl; eauto.
-    apply genenv_ok. }
+    apply genenv_ok.
+    applys* compile_AE_ok.
+    applys* (>>compile_func_ok (Skel.Fun2 typ typ typ)). }
   
   intros gen_reduce.
   eapply rule_bind'.
@@ -661,8 +663,6 @@ Proof.
           apply subst_env_params.
     - intros [? ?]; splits; [..|splits]; eauto.
       forwards*: (Nat.log2_spec ntrd); simpl; omega.
-      applys* compile_AE_ok.
-      applys* (>>compile_func_ok (Skel.Fun2 typ typ typ)).
       instantiate (1 := vs); omega.
     - intros; rewrite <-res_assoc.
       repeat sep_cancel'; eauto. }
@@ -733,7 +733,9 @@ Proof.
     simpl; eauto.
     reflexivity.
     Opaque gen_params flatten_aeenv flatten_aenv.
-    apply genenv_ok. }
+    apply genenv_ok.
+    applys* (>>compile_AE_ok (Skel.VArr (typ :: GA) typ HFirst)).
+    applys* (>>compile_func_ok (Skel.Fun2 typ typ typ)). }
   intros gen_kernel'.
   eapply rule_bind'.
   { apply rule_fLet.
@@ -847,9 +849,6 @@ Proof.
       instantiate (1 := f_tot).
       splits; [..|splits]; jauto; try (zify; omega).
       + simpl; forwards*: (Nat.log2_spec nblk); simpl; (zify; omega).
-      + applys* (>>compile_AE_ok (Skel.VArr (typ :: GA) typ HFirst)).
-      + applys* (>>compile_func_ok (Skel.Fun2 typ typ typ)).
-      + reflexivity.
       + rewrite shift_func_GA_ok; jauto.
         rewrite H3, eval_map; eauto.
       + rewrite shift_func_GA_ok; eauto.
@@ -1236,7 +1235,9 @@ Proof.
     3: intros; applys (>>mkMap_ok (remove_typeinfo (gen_params GA))).
     simpl; eauto.
     simpl; eauto.
-    apply genenv_ok. }
+    apply genenv_ok.
+    applys* compile_AE_ok.
+    applys* (>> compile_func_ok). }
   intros gen_map.
   eapply rule_bind'.
   apply rule_fLet.
@@ -1287,8 +1288,6 @@ Proof.
           apply out_name_arrInvVar.          
           apply subst_env_params.
     - intros _; splits; eauto.      
-      applys* compile_AE_ok.
-      forwards*: (>> compile_func_ok (Skel.Fun1 typ typ)).
       instantiate (1 := result).
       unfold Skel.skelDenote in Heval; rewrite Heq1 in Heval; apply Heval.
       instantiate (1 := firstn (length result) vs).
