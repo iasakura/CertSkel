@@ -78,7 +78,7 @@ Definition preST ys fns P Gp : STPre := fun n m M =>
   disjoint_list fns /\
   sat_FC M Gp Gp /\ disjoint_list (map fst M) /\
   fc_ok M Gp /\
-  fnOk (map fst M) m.
+  fnOk' (map fst M) m.
 
 Definition postST ys fns (P Q : assn) (Gp G : FC) : STPost := fun n m n' m' Mc M st =>
   n <= n' /\ m <= m' /\
@@ -89,7 +89,7 @@ Definition postST ys fns (P Q : assn) (Gp G : FC) : STPost := fun n m n' m' Mc M
   disjoint_list fns  /\
   disjoint_list (map fst M) /\
   fnOk' (map fst Mc) m' /\
-  fnOk (map fst M) m' /\
+  fnOk' (map fst M) m' /\
   fc_ok M G /\
   sat_FC M G G /\
   CSLh M G P st Q.
@@ -867,7 +867,7 @@ Proof.
       disjoint_list (fns v) /\
       disjoint_list (map fst (GMp ++ GM)) /\
       fnOk' (map fst GM) m' /\
-      fnOk (map fst (GMp ++ GM)) m' /\
+      fnOk' (map fst (GMp ++ GM)) m' /\
       fc_ok (GMp ++ GM) (G v) /\
       sat_FC (GMp ++ GM) (G v) (G v) /\
       forall y, CSLh (GMp ++ GM) (G v) (p y) (seqs st) (q v)).
@@ -1179,11 +1179,11 @@ Proof.
     + exists m; splits; eauto.
     + applys (>>fnOk'_weaken HfnsOk); omega.
   - split; eauto.
-    eapply fnOk_ge; jauto.
+    eapply fnOk'_ge; jauto.
   - split; jauto.
     eapply fnOk'_ge; eauto.
   - constructor.
-  - eapply fnOk_weaken; [|jauto]; omega.
+  - eapply fnOk'_weaken; [|jauto]; omega.
   - repeat rewrite app_nil_r.
     apply rule_host_skip.
 Qed.  
@@ -1341,7 +1341,7 @@ Proof.
     unfold fnOk in HfnsOk; inverts HfnsOk.
     constructor; eauto.
     apply Forall_app; jauto.
-    apply fnOk'_fnOk; inverts HfnsOk; constructor; eauto.
+    inverts HfnsOk; constructor; eauto.
     apply fc_ok_app; simpl.
     applys* fc_ok_weaken.
     splits; eauto; applys* fn_ok_ignore.
@@ -1405,4 +1405,67 @@ Proof.
   eapply rule_host_seq.
   applys (>>rule_invk H2 H4); jauto.
   apply rule_host_skip.
+Qed.
+
+Lemma rule_ret_ignore (T : Type) xs fns P Q Gp (v : T) :
+  P |= Q
+  -> (forall xs, fv_assn P xs -> fv_assn Q xs)
+  -> ST_ok (preST xs fns P Gp) (ret v) (fun _ => postST xs fns P Q Gp Gp).
+Proof.
+  unfold ST_ok, preST, postST.
+  introv Hpq Hfv (? & ? & ? & ? & ? & ? & ? & ? & ? & ?) Heq. 
+  inverts Heq.
+  destruct H as (? & ? & ? & ?).
+  rewrite !app_nil_r.
+  splits; [..|splits]; jauto.
+  constructor.
+  eapply rule_host_backward; eauto.
+  eapply rule_host_skip.
+Qed.
+
+Lemma rule_equiv_mono_pre T xs fns xs' fns' (P P' : assn) (Q : T -> assn) Gp G (m : CUDAM T) :
+  P' |= P
+  -> (forall xs, fv_assn P' xs -> fv_assn P xs)
+  -> ST_ok (preST xs fns P Gp) m (fun x => postST (xs' x) (fns' x) P (Q x) Gp (G x))
+  -> ST_ok (preST xs fns P' Gp) m (fun x => postST (xs' x) (fns' x) P' (Q x) Gp (G x)).
+Proof.
+  unfold ST_ok, preST, postST; intros.
+  forwards*: H1.
+  splits; [..|splits]; jauto.
+  splits; [..|splits]; jauto.
+  Lemma rule_host_forward GM G P P' Q C :
+    CSLh GM G P C Q -> P' |= P -> CSLh GM G P' C Q.
+  Proof.
+    intros ? ? ? ? ? ? ?.
+    apply H; eauto.
+  Qed.
+  eapply rule_host_forward; jauto.
+Qed.
+
+Lemma ST_ok_exec T xs fns P Q Gp G (gen : CUDAM T) res ss Mp M n m n' m' :
+  (exists fvs, fv_assn P fvs /\ forall x m, In x fvs -> x <> hvar m)
+  -> fnOk' (map fst Mp) m
+  -> sat_FC Mp Gp Gp
+  -> fc_ok Mp Gp
+  -> disjoint_list (map fst Mp)
+  -> ST_ok (preST nil nil P Gp) gen (fun x => postST (xs x) (fns x) P (Q x) Gp (G x))
+  -> (res, ((n', m'), ss, M)) = gen n m
+  -> fc_ok (Mp ++ M) (G res) /\
+     disjoint_list (map fst Mp ++ map fst M) /\
+     fnOk' (map fst M) m' /\
+     sat_FC (Mp ++ M) nil (G res) /\
+     CSLh (Mp ++ M) (G res) P (seqs ss) (Q res).
+Proof.
+  unfold ST_ok, preST, postST.
+  intros Hfv Hfn Hsat Hfc Hdisj Hok Heq.
+  forwards*: (>>Hok ss Mp M).
+  Hint Constructors Forall.
+  splits; [..|splits]; simpl; try now (unfold fnOk, fvOk; jauto).
+  { destruct Hfv as (? & ? & ?); eexists; splits; jauto.
+    unfold fvOk; rewrite Forall_forall; intros.
+    forwards*: (>>H0 H2). }
+  constructor.
+  rewrite map_app in *.
+  splits; jauto.
+  apply rule_module_rec; jauto.
 Qed.

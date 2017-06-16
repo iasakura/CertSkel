@@ -5,6 +5,7 @@ src/CertSkel/Computation.v
 src/CertSkel/Ext.v
 src/CertSkel/Extract.v
 src/Compiler/CompilerProof.v
+src/Compiler/MonadRules.v
 src/Compiler/CodeGenM.v
 src/Compiler/Correctness.v
 src/Compiler/CUDALib.v
