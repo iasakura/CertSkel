@@ -1345,18 +1345,10 @@ Proof.
       simpl in Hin.
       rewrite map_app, in_app_iff in *.
       destruct Hin as [? | [? | [? | ?]]]; eauto. }
-    eapply rule_backward_s.
-    apply IHskel_as; eauto.
-    introv; simpl; apply postST_imp_s; jauto.
-    + intros stk h Hsat; revert stk h Hsat; prove_imp.
-      * unfold arrInvVar in *; simpl.
-        rewrite in_app_iff; eauto.
-      * unfold arrInvRes in *; simpl in *.
-        rewrite <-res_assoc in H3; sep_cancel'.
-        rewrite res_comm.
-        sep_cancel'.
-        eauto.
-    + introv Hfv.
+    eapply rule_backward_s; [apply IHskel_as; eauto|..].
+    + simpl; eauto.
+    + introv; apply gassnInv_imp_s; simpl; eauto.
+      introv Hfv.
       unfold kernelInv in *; simpl in *; rewrite !fv_assn_base_eq in *; simpl.
       intros var Hin; apply Hfv.
       unfold arrInvVar in Hin; simpl in *.
@@ -1365,6 +1357,14 @@ Proof.
       simpl.
       rewrite map_app, in_app_iff.
       destruct Hin as [? | [? | ?]]; eauto.
+    + intros ? stk h Hsat; revert stk h Hsat; prove_imp.
+      * unfold arrInvVar in *; simpl.
+        rewrite in_app_iff; eauto.
+      * unfold arrInvRes in *; simpl in *.
+        rewrite <-res_assoc in H3; sep_cancel'.
+        rewrite res_comm.
+        sep_cancel'.
+        eauto.
   - intros.
     applys* compile_res_ok.
 Qed.

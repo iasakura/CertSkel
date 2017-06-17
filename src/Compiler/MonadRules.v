@@ -58,13 +58,34 @@ Qed.
 
 Lemma rule_backward_s T P (gen : CUDAM T) Q Q' :
   CMsat P gen Q
-  -> (forall n' m' st Mp M v,
-         gassnInv (Q v) n' m' (Mp ++ M) /\ gassnOk P (seqs st) (Mp ++ M) (Q v)
-         -> gassnInv (Q' v) n' m' (Mp ++ M) /\ gassnOk P (seqs st) (Mp ++ M) (Q' v))
+  -> (forall v, incl (gassn_fc (Q' v)) (gassn_fc (Q v)))
+  -> (forall n' m' M v, gassnInv (Q v) n' m' M -> gassnInv (Q' v) n' m' M)
+  -> (forall v, gassn_a (Q v) |= gassn_a (Q' v))
   -> CMsat P gen Q'.
 Proof.
-  unfold CMsat; intros; eauto.
-Qed.  
+  unfold CMsat, gassnOk in *; simpl; intros.
+  splits.
+  - forwards*: H.
+  - forwards*((? & (? & ? & ? & ?)) & ?): H.
+    eapply rule_host_backward; [|apply H2].
+    apply rule_module_rec in H9; eauto.
+    intros ? ?; apply H10.
+    apply H9; constructor.
+Qed.
+
+Lemma rule_ret_s T (v : T) P Q :
+  (forall n m M, gassnInv P n m M -> gassnInv (Q v) n m M)
+  -> (gassn_a P |= gassn_a (Q v))
+  -> CMsat P (ret v) Q.
+Proof.
+  unfold CMsat, ret; simpl; intros.
+  inverts H2; rewrite app_nil_r in *; simpl.
+  splits.
+  - forwards*: H.
+  - eapply rule_host_forward.
+    applys* rule_host_skip.
+    apply H0.
+Qed.
 
 Lemma postST_imp_s P Q Q' :
   (gassn_a Q |= gassn_a Q')
@@ -198,20 +219,6 @@ Lemma rule_equiv_mono_pre_s T (P P' : assn) (Q : T -> assn) Gp G (m : CUDAM T) :
 Proof.
   intros; eapply ST_ok_CMsat, rule_equiv_mono_pre; eauto.
   apply ST_ok_CMsat; eauto.
-Qed.
-
-Lemma rule_ret_s T (v : T) P Q :
-  (forall n m M, gassnInv P n m M -> gassnInv (Q v) n m M)
-  -> (gassn_a P |= gassn_a (Q v))
-  -> CMsat P (ret v) Q.
-Proof.
-  unfold CMsat, ret; simpl; intros.
-  inverts H2; rewrite app_nil_r in *; simpl.
-  splits.
-  - forwards*: H.
-  - eapply rule_host_forward.
-    applys* rule_host_skip.
-    apply H0.
 Qed.
 
 Lemma ST_ok_exec_s T P Q Gp G (gen : CUDAM T) res ss Mp M n m n' m' :
