@@ -448,7 +448,7 @@ Proof.
   apply rule_code_ex_s.
   apply listA_hasDefval.
   intros vs.
-  apply rule_ret_back_s.
+  (* apply rule_ret_back_s. *)
   eapply rule_bind_s.
   { eapply rule_invokeKernel_s.
     - unfold K; rewrite !in_app_iff; simpl; eauto.
@@ -489,38 +489,27 @@ Proof.
       repeat sep_cancel'.
       eauto. }
   introv; simpl.
+  apply rule_ret_s; simpl.
 
-  eapply rule_equiv_mono_pre_s.
-  { rewrite ls_app_cons.
-    rewrite app_assoc.
-    unfold K; introv; rewrite kernelInv'_combine; eauto. }
-  { unfold K; intros.
-    apply fv_assn_base_eq.
-    apply fv_assn_sep_eq in H as (? & ? & ? & ? & ?).
-    apply fv_assn_base_eq in H.
-    unfold incl in *; simpl in *; introv.
-    rewrite <-!app_assoc; simpl.
-    firstorder. }
+  - unfold K; apply gassnInv_imp_s; simpl.
+    unfold incl; introv; simpl; rewrite !in_app_iff; simpl; eauto.
+    
+    introv; unfold kernelInv, kernelInv'.
+    rewrite fv_assn_sep_eq in *; intros (? & ? & (Hin1 & Hin2 & Heq)).
+    rewrite !fv_assn_base_eq in *.
+    (apply fv_assn_Ex_eq; intros); rewrite fv_assn_base_eq.
+    simpl in *.
+    simpl; repeat (rewrite !map_app in *; simpl in *).
+    unfold incl in *; simpl in *; intros a Hin3.
+    specialize (Hin1 a); specialize (Hin2 a); specialize (Heq a).
+    repeat (rewrite !in_app_iff in *; simpl in *).
+    rewrite !map_flatTup in *.
+    tauto.
 
-  unfold K.
-  eapply rule_backward_s.
-  apply rule_ret_ignore_s; eauto.
-  introv.
-  applys* postST_imp_s; simpl.
-  forwards*: mapM_length.
-  prove_imp.
-  rewrite H; eauto.
-  unfold incl; introv; simpl; rewrite !in_app_iff; simpl; try tauto.
-
-  introv; unfold kernelInv; rewrite fv_assn_base_eq; intros.
-  (apply fv_assn_Ex_eq; intros); unfold kernelInv; rewrite fv_assn_base_eq.
-  eapply incl_tran in H; eauto.
-  simpl; rewrite !map_app.
-  
-  unfold incl; intros.
-  simpl in *; repeat rewrite in_app_iff in *.
-  rewrite map_flatTup in *.
-  simpl; tauto.
+  - unfold K; simpl.
+    introv. 
+    rewrite ls_app_cons, app_assoc, kernelInv'_combine; revert s h; prove_imp.
+    erewrite mapM_length; eauto.
 Qed.
 
 Lemma reduce_eval_invert GA typ aeenv f arr result :
@@ -723,7 +712,7 @@ Proof.
   apply rule_code_ex_s.
   apply listA_hasDefval.
   intros vs'.
-  apply rule_ret_back_s.
+
   eapply rule_bind_s.
   { eapply rule_invokeKernel_s.
     - unfold K; rewrite !in_app_iff; simpl; substs; eauto.
@@ -848,11 +837,26 @@ Proof.
       apply H4. }
   introv.
   unfold K in *.
-  eapply rule_backward_s.
-  apply rule_ret_ignore_s; eauto.
+  apply rule_ret_s.
   introv.
-  applys* postST_imp_s; simpl.
-  - intros s h Hsat.
+  applys* gassnInv_imp_s; simpl.
+  - unfold incl; introv; rewrite !in_app_iff; eauto.
+  - unfold K, kernelInv, kernelInv'; introv; repeat rewrite fv_assn_base_eq.
+    intros.
+    inverts H0.
+    rewrite fv_assn_Ex_eq in *; intro.
+    rewrite fv_assn_base_eq in *.
+    intros a ?; apply H6.
+    rewrite !map_app, !in_app_iff in *; simpl in *.
+    rewrite map_app in *.
+    rewrite map_flatTup in *.
+    destruct H0 as [[? | ?] | ?]; eauto;
+    forwards*: (>>H3 a);
+    repeat first [rewrite !in_app_iff in * | rewrite !map_app in * | simpl].
+    + eauto 10.
+    + destruct H0; eauto 10.
+    + eauto 10.
+  - simpl; intros s h Hsat.
     rewrite ex_lift_l in Hsat; destruct Hsat as [res Hsat].
     fold_sat_in Hsat.
     unfold kernelInv' in Hsat.
@@ -889,22 +893,6 @@ Proof.
       apply Nat.div_le_lower_bound; eauto.
       rewrite Nat.mul_1_r.
       omega.
-  - unfold incl; introv; rewrite !in_app_iff; eauto.
-  - unfold K, kernelInv, kernelInv'; introv; repeat rewrite fv_assn_base_eq.
-    intros.
-    inverts H0.
-    rewrite fv_assn_Ex_eq in *; intro.
-    rewrite fv_assn_base_eq in *.
-    intros a ?; apply H6.
-    rewrite !map_app, !in_app_iff in *; simpl in *.
-    rewrite map_app in *.
-    rewrite map_flatTup in *.
-    destruct H0 as [[? | ?] | ?]; eauto;
-    forwards*: (>>H3 a);
-    repeat first [rewrite !in_app_iff in * | rewrite !map_app in * | simpl].
-    + eauto 10.
-    + destruct H0; eauto 10.
-    + eauto 10.
 Qed.
 
 Inductive skelE_wf GA : forall fty, Skel.SkelE GA fty -> Prop := 
@@ -1214,7 +1202,6 @@ Proof.
   (* apply rule_code_ex. *)
   (* apply listA_hasDefval. *)
   (* intros vs. *)
-  apply rule_ret_back_s.
   eapply rule_bind_s.
   { eapply rule_invokeKernel_s.
     - unfold K; rewrite !in_app_iff; simpl; eauto.
@@ -1260,51 +1247,50 @@ Proof.
       eauto. }
   introv; simpl.
 
-  eapply rule_equiv_mono_pre_s.
-  { rewrite app_comm_cons.
-    unfold K; introv; rewrite kernelInv'_combine; eauto. }
-  { unfold K; intros.
-    apply fv_assn_base_eq.
-    apply fv_assn_sep_eq in H as (? & ? & ? & ? & ?).
-    apply fv_assn_base_eq in H.
-    unfold incl in *; simpl in *; introv.
-    firstorder. }
-
+  apply rule_ret_s.
   unfold K.
-  eapply rule_backward_s.
-  apply rule_ret_ignore_s; eauto.
   introv.
-  applys* postST_imp_s.
-  apply Assn_imply; eauto.
-  intros _ ? Hsat.
-  rewrites (>>arrays_split (length result)).
-  rewrite <-!res_assoc in *.
-  repeat sep_cancel'.
-  rewrite firstn_app.
-  cutrewrite (length result = length (arr2CUDA result)); [|unfold arr2CUDA; rewrites* map_length ].
-  rewrite firstn_length_self.
-  rewrite minus_diag; simpl.
-  rewrite app_nil_r; eauto.
-  Lemma skipn_app A n (ls1 ls2 : list A) :
-    skipn n (ls1 ++ ls2) = skipn n ls1 ++ skipn (n - length ls1) ls2.
-  Proof.
-    revert n ls2; induction ls1; simpl; intros [|n] [|? ls2]; eauto.
-  Qed.
-  rewrite skipn_app.
-  cutrewrite (length result = length (arr2CUDA result)); [|unfold arr2CUDA; rewrites* map_length ].
-  Lemma drop_oversize:
-    forall (T : Type) (n : nat) (s : list T ), length s <= n -> skipn n s = nil.
-  Proof.
-    induction n; destruct s; simpl; intros; try omega; eauto.
-    apply IHn; omega.
-  Qed.
 
-  rewrites (>>drop_oversize (arr2CUDA result)); simpl; eauto.
-  rewrite minus_diag; simpl; eauto.
-  unfold incl; introv; simpl; rewrite !in_app_iff; simpl; try tauto.
+  - unfold K; apply gassnInv_imp_s; simpl.
+    unfold incl; introv; simpl; rewrite !in_app_iff; simpl; eauto.
+    
+    introv; unfold kernelInv, kernelInv'.
+    rewrite fv_assn_sep_eq in *; intros (? & ? & (Hin1 & Hin2 & Heq)).
+    rewrite !fv_assn_base_eq in *.
+    simpl in *.
+    simpl; repeat (rewrite !map_app in *; simpl in *).
+    unfold incl in *; simpl in *; intros a Hin3.
+    specialize (Hin1 a); specialize (Hin2 a); specialize (Heq a).
+    repeat (rewrite !in_app_iff in *; simpl in *).
+    rewrite !map_flatTup in *.
+    tauto.
 
-  introv; unfold kernelInv; simpl; rewrite !fv_assn_base_eq in *; intros.
-  eauto.
+  - unfold K; simpl.
+    introv. 
+    rewrite app_comm_cons, kernelInv'_combine; revert s h; prove_imp.
+    rewrites (>>arrays_split (length result)).
+    rewrite <-!res_assoc in *.
+    repeat sep_cancel'.
+    rewrite firstn_app.
+    cutrewrite (length result = length (arr2CUDA result)); [|unfold arr2CUDA; rewrites* map_length ].
+    rewrite firstn_length_self.
+    rewrite minus_diag; simpl.
+    rewrite app_nil_r; eauto.
+    Lemma skipn_app A n (ls1 ls2 : list A) :
+      skipn n (ls1 ++ ls2) = skipn n ls1 ++ skipn (n - length ls1) ls2.
+    Proof.
+      revert n ls2; induction ls1; simpl; intros [|n] [|? ls2]; eauto.
+    Qed.
+    rewrite skipn_app.
+    cutrewrite (length result = length (arr2CUDA result)); [|unfold arr2CUDA; rewrites* map_length ].
+    Lemma drop_oversize:
+      forall (T : Type) (n : nat) (s : list T ), length s <= n -> skipn n s = nil.
+    Proof.
+      induction n; destruct s; simpl; intros; try omega; eauto.
+      apply IHn; omega.
+    Qed.
+    rewrites (>>drop_oversize (arr2CUDA result)); simpl; eauto.
+    rewrite minus_diag; simpl; eauto.
 Qed.
         
 Theorem compile_AS_ok GA ntrd nblk typ

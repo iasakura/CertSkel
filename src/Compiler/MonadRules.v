@@ -91,6 +91,23 @@ Proof.
   apply H6; constructor.
 Qed.
   
+Lemma gassnInv_imp_s Q Q' :
+  incl (gassn_fc Q') (gassn_fc Q)
+  -> (forall xs, fv_assn (gassn_a Q) xs -> fv_assn (gassn_a Q') xs)
+  -> (forall n' m' M, gassnInv Q n' m' M -> gassnInv Q' n' m' M).
+Proof.
+  unfold gassnInv, gassnOk; simpl.
+  introv ? ? ((? & ? & ?) & ? & ? & ? & ?); splits; jauto.
+  eapply incl_fc_ok; eauto.
+  
+  assert (sat_FC M nil (gassn_fc Q')).
+  { apply rule_module_rec in H6; eauto.
+    intros ? ?; eapply Forall_incl.
+    apply H6; eauto.
+    unfold incl; eauto. }
+  apply sat_FC_strong; eauto.
+Qed.
+    
 Lemma rule_fLet_s Gp R P E e v :
   evalExp E e v
   -> CMsat (Ga (Assn R P E) Gp)
@@ -181,6 +198,20 @@ Lemma rule_equiv_mono_pre_s T (P P' : assn) (Q : T -> assn) Gp G (m : CUDAM T) :
 Proof.
   intros; eapply ST_ok_CMsat, rule_equiv_mono_pre; eauto.
   apply ST_ok_CMsat; eauto.
+Qed.
+
+Lemma rule_ret_s T (v : T) P Q :
+  (forall n m M, gassnInv P n m M -> gassnInv (Q v) n m M)
+  -> (gassn_a P |= gassn_a (Q v))
+  -> CMsat P (ret v) Q.
+Proof.
+  unfold CMsat, ret; simpl; intros.
+  inverts H2; rewrite app_nil_r in *; simpl.
+  splits.
+  - forwards*: H.
+  - eapply rule_host_forward.
+    applys* rule_host_skip.
+    apply H0.
 Qed.
 
 Lemma ST_ok_exec_s T P Q Gp G (gen : CUDAM T) res ss Mp M n m n' m' :
