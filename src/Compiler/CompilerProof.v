@@ -469,19 +469,19 @@ Proof.
     - simpl.
       rewrite !map_app.
       intros [? ?]; splits; eauto.
-      + rewrite subst_env_app; split.
-        * unfold outArr.
-          repeat (apply subst_env_cons2; [rewrite map_flatTup; apply locals_not_in; simpl; eauto|]).  
-          apply subst_env_app1.
-          rewrite out_name_locals.
-          apply subst_env_flatTup; apply locals_disjoint_ls.
-        * do 2 (apply subst_env_cons2; [applys* arrInvVar_nin; apply genenv_ok|]).
-          apply subst_env_cons2.
-          apply inp_len_name_arrInvVar.
-          apply subst_env_app2.
-          rewrite map_length, !flatTup_length; eauto.
-          apply out_name_arrInvVar.          
-          apply subst_env_params.
+      rewrite subst_env_app; split.
+      + unfold outArr.
+        repeat (apply subst_env_cons2; [rewrite map_flatTup; apply locals_not_in; simpl; eauto|]).  
+        apply subst_env_app1.
+        rewrite out_name_locals.
+        apply subst_env_flatTup, locals_disjoint_ls.
+      + do 2 (apply subst_env_cons2; [applys* arrInvVar_nin; apply genenv_ok|]).
+        apply subst_env_cons2.
+        apply inp_len_name_arrInvVar.
+        apply subst_env_app2.
+        rewrite map_length, !flatTup_length; eauto.
+        apply out_name_arrInvVar.          
+        apply subst_env_params.
     - intros [? ?]; splits; eauto.      
       instantiate (1 := vs).
       forwards*: SkelLib.mapM_length; congruence.
@@ -601,19 +601,19 @@ Proof.
     - simpl.
       rewrite !map_app.
       intros [? ?]; splits; eauto.
-      + rewrite subst_env_app; split.
-        * unfold outArr.
-          repeat (apply subst_env_cons2; [rewrite map_flatTup; apply locals_not_in; simpl; eauto|]).  
-          apply subst_env_app1.
-          rewrite out_name_locals.
-          apply subst_env_flatTup; apply locals_disjoint_ls.
-        * do 2 (apply subst_env_cons2; [applys* arrInvVar_nin; apply genenv_ok|]).
-          apply subst_env_cons2.
-          apply inp_len_name_arrInvVar.
-          apply subst_env_app2.
-          rewrite map_length, !flatTup_length; eauto.
-          apply out_name_arrInvVar.          
-          apply subst_env_params.
+      rewrite subst_env_app; split.
+      + unfold outArr.
+        repeat (apply subst_env_cons2; [rewrite map_flatTup; apply locals_not_in; simpl; eauto|]).  
+        apply subst_env_app1.
+        rewrite out_name_locals.
+        apply subst_env_flatTup; apply locals_disjoint_ls.
+      + do 2 (apply subst_env_cons2; [applys* arrInvVar_nin; apply genenv_ok|]).
+        apply subst_env_cons2.
+        apply inp_len_name_arrInvVar.
+        apply subst_env_app2.
+        rewrite map_length, !flatTup_length; eauto.
+        apply out_name_arrInvVar.          
+        apply subst_env_params.
     - intros [? ?]; splits; [..|splits]; eauto.
       forwards*: (Nat.log2_spec ntrd); simpl; omega.
       instantiate (1 := vs); omega.
