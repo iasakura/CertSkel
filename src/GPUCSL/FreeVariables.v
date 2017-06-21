@@ -8,7 +8,10 @@ Inductive fv_assn : assn -> list var -> Prop :=
     (forall v, fv_assn (P v) xs) -> fv_assn (Ex v, P v) xs
 | fv_assn_sep P Q xs ys zs :
     fv_assn P ys -> fv_assn Q zs -> (forall x, In x xs <-> In x ys \/ In x zs) ->
-    fv_assn (P ** Q) xs.
+    fv_assn (P ** Q) xs
+| fv_assn_disj P Q xs ys zs :
+    fv_assn P ys -> fv_assn Q zs -> (forall x, In x xs <-> In x ys \/ In x zs) ->
+    fv_assn (P \\// Q) xs.
 
 Lemma inde_equiv R ls:
   (forall x s h v, In x ls -> sat s h R -> sat (var_upd s x v) h R)
@@ -90,6 +93,16 @@ Proof.
       apply not_in_disjoint; intros; intros Hc; eauto.
       assert (In x0 xs) by (specialize (H1 x0); tauto).
       forwards*: (>>disjoint_not_in_r H2).
+  - intros; apply inde_equiv; unfold sat; simpl; intros.
+    forwards [Hsat | Hsat]: H4.
+    + left; apply IHfv_assn1; eauto.
+      apply not_in_disjoint; intros; intros Hc; eauto.
+      assert (In x0 xs) by (specialize (H1 x0); tauto).
+      forwards*: (>>disjoint_not_in_r H2).
+    + right; apply IHfv_assn2; eauto.
+      apply not_in_disjoint; intros; intros Hc; eauto.
+      assert (In x0 xs) by (specialize (H1 x0); tauto).
+      forwards*: (>>disjoint_not_in_r H2).
 Qed.
 
 Definition has_no_vars (P : assn) : Prop := fv_assn P nil.
@@ -111,6 +124,11 @@ Proof.
     assert (zs = nil) by (destruct zs as [|z zs]; eauto; specialize (H z); simpl in *; tauto).
     substs.
     unfold sat; simpl; intros (h1 & h2 & ? & ? & ? & ?); exists h1 h2; splits; unfold sat in *; jauto.
+  - simpl in *.
+    assert (ys = nil) by (destruct ys as [|y ys]; eauto; specialize (H y); simpl in *; tauto).
+    assert (zs = nil) by (destruct zs as [|z zs]; eauto; specialize (H z); simpl in *; tauto).
+    substs.
+    unfold sat; simpl; intros [? | ?]; [left; apply IHHfv1 | right; apply IHHfv2]; eauto.
 Qed.            
 
 Lemma fv_assn_novars : forall P, has_no_vars P -> fv_assn P nil.
@@ -141,4 +159,11 @@ Proof.
     assert (id (fun v : T => P1 v) v = id (fun v : T => P v) v) by (rewrites* H0).
     eauto.
   - constructor; eauto.
+Qed.
+
+Lemma fv_assn_disj_eq : forall P Q xs, fv_assn (P \\// Q) xs <-> exists ys zs, fv_assn P ys /\ fv_assn Q zs /\ (forall x, In x xs <-> In x ys \/ In x zs).
+Proof.
+  split; intros.
+  - inverts H; do 2 eexists; jauto.
+  - destruct H as (? & ? & ?); econstructor; jauto.
 Qed.
