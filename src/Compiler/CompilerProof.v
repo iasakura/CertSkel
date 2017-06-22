@@ -1,6 +1,6 @@
 Require Import PeanoNat String List LibTactics GPUCSL TypedTerm Monad Grid.
 Require Import Grid Host DepList CUDALib CSLLemma CSLTactics CodeGen Compiler mkMap mkReduce 
-        Correctness MonadRules CodeGenM SeqCompilerProof Program Psatz.
+        Correctness SeqCompiler MonadRules CodeGenM Program Psatz.
 Import Utils.
     
 Open Scope list_scope.
@@ -151,6 +151,13 @@ Proof.
   apply out_params_fst.
 Qed.
 
+Lemma flatTup_map ty T1 T2 (f : T1 -> T2) (xs : typ2Coq T1 ty) :
+  flatTup (maptys f xs) = map f (flatTup xs).
+Proof.
+  induction ty; simpl; eauto.
+  rewrite map_app; congruence.
+Qed.
+
 Lemma out_name_locals typ :
   map fst (flatTup (out_name typ)) = flatTup (outArr typ).
 Proof.
@@ -293,7 +300,6 @@ Proof.
     rewrite prefix_ex in H0; destruct H0 as (? & ?).
     rewrite prefix_ex in H2; destruct H2 as (? & ?).
     rewrite H0 in H; simpl in *.
-    rewrite string_app_assoc in H.
     cbv in H; congruence. 
   - apply IHGA.
 Qed.
@@ -671,7 +677,7 @@ Proof.
       try (now (rewrite IHs; f_equal; eauto)).
       unfold bind, ret; simpl; unfold Monad.bind_opt.
       rewrite IHs1.
-      destruct (Skel.sexpDenote _ _ _ s1 _ _); eauto.
+      destruct (Skel.sexpDenote s1 _ _); eauto.
       destruct t0; eauto.
     Qed.
     rewrite shift_func_GA_ok; eauto; simpl.
@@ -923,7 +929,7 @@ Proof.
 Qed.
 
 Lemma lexp2sexp_ok GA typ le GS aeenv seenv :
-  Skel.sexpDenote GA GS typ (lexp2sexp GA typ le GS) aeenv seenv = Some (Skel.lexpDenote GA typ le aeenv).
+  Skel.sexpDenote (lexp2sexp GA typ le GS) aeenv seenv = Some (Skel.lexpDenote GA typ le aeenv).
 Proof.
   dependent induction le; simpl; eauto.
   rewrite IHle1.
@@ -991,11 +997,11 @@ Proof.
       rewrite Hres.
       unfold ret; simpl; f_equal.
       forwards*: SkelLib.mapM_length.
-      rewrite seq_length, Nat2Z.id in H.
+      rewrite SkelLib.seq_length, Nat2Z.id in H.
       apply (@eq_from_nth _ defval'); eauto.
       intros.
       forwards*: (>>SkelLib.mapM_some i (0%Z) (@defval' t) Hres).
-      rewrite seq_length, Nat2Z.id, option_ret_LI, SkelLib.seq_nth, Nat2Z.id in H1.
+      rewrite SkelLib.seq_length, Nat2Z.id, option_ret_LI, SkelLib.seq_nth, Nat2Z.id in H1.
       destruct lt_dec; [|omega].
       rewrites (>>SkelLib.nth_error_some' (@defval' t)) in H1; [omega|].
       inverts H1; eauto.
@@ -1046,11 +1052,11 @@ Proof.
     rewrite !map_id.
     unfold ret; simpl; f_equal.
     applys* (>>eq_from_nth 0%Z).
-    rewrite map_length, !seq_length; eauto.
-    introv; rewrite map_length, !seq_length; intros.
+    rewrite map_length, !SkelLib.seq_length; eauto.
+    introv; rewrite map_length, !SkelLib.seq_length; intros.
     rewrites (>>nth_map 0%Z).
-    { rewrite seq_length; eauto. }
-    rewrite !seq_nth.
+    { rewrite SkelLib.seq_length; eauto. }
+    rewrite !SkelLib.seq_nth.
     destruct lt_dec; omega.
   - intros; applys* compile_map_ok.
     simpl in *.
@@ -1097,13 +1103,13 @@ Proof.
         simpl.
         forwards*Hmap1': (>>SkelLib.mapM_some i (0%Z) (@defval' t1) Hmap1).
         rewrite !SkelLib.seq_length in Hmap1'; destruct lt_dec; try omega.
-        rewrite seq_nth in Hmap1'; destruct lt_dec; try omega; simpl in *; rewrite Z.add_0_l in Hmap1'.
+        rewrite SkelLib.seq_nth in Hmap1'; destruct lt_dec; try omega; simpl in *; rewrite Z.add_0_l in Hmap1'.
         forwards*Hmap2': (>>SkelLib.mapM_some i (0%Z) (@defval' t2) Hmap2).
         rewrite !SkelLib.seq_length in Hmap2'; destruct lt_dec; try omega.
-        rewrite seq_nth in Hmap2'; destruct lt_dec; try omega; simpl in *; rewrite Z.add_0_l in Hmap2'.
+        rewrite SkelLib.seq_nth in Hmap2'; destruct lt_dec; try omega; simpl in *; rewrite Z.add_0_l in Hmap2'.
         forwards*Hmap3': (>>SkelLib.mapM_some i (0%Z) (@defval' t1, @defval' t2) Hmap3).
         rewrite !SkelLib.seq_length in Hmap3'; destruct lt_dec; try omega.
-        * rewrite seq_nth in Hmap3'; destruct lt_dec; try omega; simpl in *; rewrite Z.add_0_l in Hmap3'.
+        * rewrite SkelLib.seq_nth in Hmap3'; destruct lt_dec; try omega; simpl in *; rewrite Z.add_0_l in Hmap3'.
           rewrite <-Hmap1' in Hmap3'; unfold bind in Hmap3'; simpl in Hmap3'.
           unfold Monad.bind_opt in Hmap3'; simpl in Hmap3.
           rewrite <-Hmap2' in Hmap3'; simpl in Hmap3'.
@@ -1126,14 +1132,14 @@ Proof.
       Qed.
       forwards*: (>>mapM_none 0%Z).
       destruct H2 as [i [Heq3 Hleni]].
-      rewrite seq_length, Z2Nat.inj_min, Nat.min_glb_lt_iff in Hleni.
+      rewrite SkelLib.seq_length, Z2Nat.inj_min, Nat.min_glb_lt_iff in Hleni.
       forwards*Hmap1': (>>SkelLib.mapM_some i (0%Z) (@defval' t1) Hmap1).
       rewrite !SkelLib.seq_length in Hmap1'; destruct lt_dec; try omega.
-      rewrite seq_nth in Hmap1'; destruct lt_dec; try omega; simpl in *; rewrite Z.add_0_l in Hmap1'.
+      rewrite SkelLib.seq_nth in Hmap1'; destruct lt_dec; try omega; simpl in *; rewrite Z.add_0_l in Hmap1'.
       forwards*Hmap2': (>>SkelLib.mapM_some i (0%Z) (@defval' t2) Hmap2).
       rewrite !SkelLib.seq_length in Hmap2'; destruct lt_dec; try omega.
-      rewrite seq_nth in Hmap2'; destruct lt_dec; try omega; simpl in *; rewrite Z.add_0_l in Hmap2'.
-      rewrite seq_nth in Heq3; destruct lt_dec; rewrite Z2Nat.inj_min in *; simpl; try omega.
+      rewrite SkelLib.seq_nth in Hmap2'; destruct lt_dec; try omega; simpl in *; rewrite Z.add_0_l in Hmap2'.
+      rewrite SkelLib.seq_nth in Heq3; destruct lt_dec; rewrite Z2Nat.inj_min in *; simpl; try omega.
       2: rewrite Nat.min_glb_lt_iff in *; omega.
       rewrite Z.add_0_l in Heq3.
       unfold bind in Heq3; simpl in Heq3; unfold Monad.bind_opt in Heq3.

@@ -11,7 +11,6 @@ Require Import CUDALib.
 Require Import CSLTactics CodeGen Correctness.
 Require Import mkMap.
 Require Import mkReduce.
-Require Import CodeGenM.
 
 Section codegen.
   Definition M a := nat -> (a * nat * list cmd).
@@ -314,9 +313,37 @@ Proof.
   intros; forwards*: H; omega.
 Qed.
 
+Lemma incl_nil_r T (xs : list T) : 
+  incl xs nil -> xs = nil.
+Proof.
+  induction xs; simpl; eauto.
+  intros H; unfold incl in H; forwards*: (H a).
+Qed.
+
+Lemma incl_nil_l A (l : list A) : incl nil l.
+Proof.
+  unfold incl; simpl; tauto.
+Qed.
+
+Lemma Forall_incl T (xs ys : list T) P :
+  List.Forall P xs -> incl ys xs -> List.Forall P ys.
+Proof.
+  induction 1; simpl; eauto.
+  - intros H; apply incl_nil_r in H; substs; eauto.
+  - intros Hincl; rewrite Forall_forall in * ; unfold incl in *.
+    intros a Hain.
+    forwards* Hincl': (>>Hincl Hain); destruct Hincl' as [? | Hincl']; substs; eauto.
+Qed.
+
 Lemma fvOk_incl xs ys n :
   fvOk xs n -> incl ys xs -> fvOk ys n.
 Proof. unfold fvOk; eauto using Forall_incl. Qed.
+
+Lemma Forall_app T (xs ys : list T) P :
+  List.Forall P xs -> List.Forall P ys -> List.Forall P (xs ++ ys).
+Proof.
+  induction 1; simpl; eauto.
+Qed.
 
 Lemma fvOk_app xs ys n : fvOk xs n -> fvOk ys n -> fvOk (xs ++ ys) n. 
 Proof. applys* Forall_app. Qed.
@@ -435,6 +462,9 @@ Proof.
     omega..|].
   simpl; apply fvOk_app; eauto.
 Qed.
+
+Lemma incl_cons_lr A (x : A) xs ys : incl xs ys -> incl (x :: xs) (x :: ys).
+Proof. unfold incl; introv; simpl; intuition. Qed.
 
 Lemma rule_fLet_s R (P : Prop) E (e : exp) v :
   (P -> evalExp E e v)
@@ -593,6 +623,13 @@ Proof.
     forwards*: IHxs.
     intros x Hin; specialize (H x); simpl in *; rewrite in_app_iff in *; eauto.
   - intros; apply incl_app; jauto.
+Qed.
+
+Lemma map_flatTup typ (xs : vars typ) vs : 
+  map ent_e (xs |=> vs) = flatTup xs.
+Proof.
+  induction typ; simpl; eauto.
+  rewrite map_app, IHtyp1, IHtyp2; eauto.
 Qed.
 
 Lemma rule_gen_if ty R (P : Prop) E (b : var) v v1 v2 (g1 : M (vars ty)) g2 R1 R2 P1 P2 E1 E2 :
@@ -802,6 +839,14 @@ Proof.
   destruct p; simpl.
   rewrite in_app_iff; eauto.
 Qed.
+
+Class hasDefval A := HD {default : A}.
+Global Instance val_hasDefval : hasDefval val := {default := 0%Z}.
+Global Instance vals_hasDefval T ty (d : hasDefval T) : hasDefval (typ2Coq T ty) :=
+  {default := (fix f ty := match ty return typ2Coq T ty with Skel.TZ | Skel.TBool => default |
+                                   Skel.TTup t1 t2 => (f t1, f t2)
+                           end) ty}.
+Global Instance listA_hasDefval A : hasDefval (list A) := {default := nil}.
 
 Definition get_opt {T} `{_ : hasDefval T} (v : option T) :=
   match v with Some v => v | None => default end. 
@@ -1051,22 +1096,428 @@ Proof.
     introv; prove_fv_assn.
 Qed.
 
+Lemma writes_var_seqs_app c1 c2 l :
+  In l (writes_var (seqs (c1 ++ c2))) <-> 
+  In l (writes_var (seqs c1)) \/ In l (writes_var (seqs c2)).
+Proof.
+  induction c1; simpl; splits; try tauto.
+  all: rewrite !in_app_iff in *.
+  all: rewrite IHc1; intuition.
+Qed.
+
+Ltac compile_sexp_des Hceq :=
+  repeat match type of Hceq with
+  | (_, _, _) = (_, _, _) => inverts Hceq
+  | context [compile_sexp ?se ?aenv ?senv ?n] => destruct (compile_sexp se aenv senv n) as [[? ?] ?] eqn:?
+  | context [LetE ?E ?n] => destruct (LetE E n) as [[? ?] ?] eqn:?
+  | context [LetEs ?E ?n] => destruct (LetEs E n) as [[? ?] ?] eqn:?
+  | context [Reads ?E ?n] => destruct (Reads E n) as [[? ?] ?] eqn:?
+  | context [Read ?E ?n] => destruct (Read E n) as [[? ?] ?] eqn:?
+  | context [gen_op ?op ?v1 ?v2] => destruct (gen_op op v1 v2) as [[? ?] ?] eqn:?
+  | context [hget ?ls ?m] => destruct (hget ls m) as [? ?] eqn:?
+  | context [freshes ?ty ?n] => destruct (freshes ty n) as [? ?] eqn:?
+  end.
+
+Lemma LetE_wr_local e n v m c:
+  LetE e n = (v, m, c)
+  -> forall l, In l (writes_var (seqs c)) -> is_local l.
+Proof.
+  unfold is_local; intros Heq; inverts Heq; simpl.
+  introv [<- | []]; simpl; apply prefix_nil.
+Qed.
+
+Lemma LetEs_wr_local T (e : exps T) n v m c:
+  LetEs e n = (v, m, c)
+  -> forall l, In l (writes_var (seqs c)) -> is_local l.
+Proof.
+  revert e n m c v.
+  induction T; simpl; intros; try now forwards*: LetE_wr_local.
+  unfold ret, bind in H; simpl in H; unfold bind_M in H.
+  destruct (LetEs (fst e) n) as [[? ?] ?] eqn:Heq1.
+  destruct (LetEs (snd e) n0) as [[? ?] ?] eqn:Heq2.
+  inverts H.
+  rewrite !writes_var_seqs_app in H0; simpl in H0.
+  destruct H0 as [? | [? | []]].
+  forwards*: IHT1.
+  forwards*: IHT2.
+Qed.
+
+Lemma Read_wr_local e n v m c:
+  Read e n = (v, m, c)
+  -> forall l, In l (writes_var (seqs c)) -> is_local l.
+Proof.
+  unfold is_local; intros Heq; inverts Heq; simpl.
+  introv [<- | []]; simpl; apply prefix_nil.
+Qed.
+
+Lemma Reads_wr_local T (e : lexps T) n v m c:
+  Reads e n = (v, m, c)
+  -> forall l, In l (writes_var (seqs c)) -> is_local l.
+Proof.
+  revert e n m c v.
+  induction T; simpl; intros; try now forwards*: Read_wr_local.
+  unfold ret, bind in H; simpl in H; unfold bind_M in H.
+  destruct (Reads (fst e) n) as [[? ?] ?] eqn:Heq1.
+  destruct (Reads (snd e) n0) as [[? ?] ?] eqn:Heq2.
+  inverts H.
+  rewrite !writes_var_seqs_app in H0; simpl in H0.
+  destruct H0 as [? | [? | []]].
+  forwards*: IHT1.
+  forwards*: IHT2.
+Qed.
+
+Lemma LetE_ret_local e n v m c:
+  LetE e n = (v, m, c) -> is_local v.
+Proof.
+  unfold is_local; intros Heq; inverts Heq; simpl.
+  apply prefix_nil.
+Qed.
+
+Lemma LetEs_ret_local T (e : exps T) n v m c:
+  LetEs e n = (v, m, c)
+  -> forall l, In l (flatTup v) -> is_local l.
+Proof.
+  revert e n m c v.
+  induction T; simpl; try now (introv Heq [?|[]]; substs; applys* LetE_ret_local).
+  introv Heq Hin.
+  unfold ret, bind in Heq; simpl in Heq; unfold bind_M in Heq.
+  destruct (LetEs (fst e) n) as [[? ?] ?] eqn:Heq1.
+  destruct (LetEs (snd e) n0) as [[? ?] ?] eqn:Heq2.
+  inverts Heq.
+  rewrite in_app_iff in Hin.
+  destruct Hin as [? | ?].
+  forwards*: IHT1.
+  forwards*: IHT2.
+Qed.
+
+Lemma Read_ret_local e n v m c:
+  Read e n = (v, m, c) -> is_local v.
+Proof.
+  unfold is_local; intros Heq; inverts Heq; simpl.
+  apply prefix_nil.
+Qed.
+
+Lemma Reads_ret_local T (e : lexps T) n v m c:
+  Reads e n = (v, m, c)
+  -> forall l, In l (flatTup v) -> is_local l.
+Proof.
+  revert e n m c v.
+  induction T; simpl; try now (introv Heq [?|[]]; substs; applys* Read_ret_local).
+  introv Heq Hin.
+  unfold ret, bind in Heq; simpl in Heq; unfold bind_M in Heq.
+  destruct (Reads (fst e) n) as [[? ?] ?] eqn:Heq1.
+  destruct (Reads (snd e) n0) as [[? ?] ?] eqn:Heq2.
+  inverts Heq.
+  rewrite in_app_iff in Hin.
+  destruct Hin as [? | ?].
+  forwards*: IHT1.
+  forwards*: IHT2.
+Qed.
+
+Lemma barriers_seqs_app c1 c2 :
+  barriers (seqs (c1 ++ c2)) = nil
+  <-> (barriers (seqs c1) = nil /\ barriers (seqs c2) = nil).
+Proof.
+  induction c1; simpl; splits; try tauto.
+  intros H; apply app_eq_nil in H as [-> ?].
+  tauto.
+  intros [H ?]; apply app_eq_nil in H as [-> ?].
+  tauto.
+Qed.
+
+Lemma LetE_barrier e n v m c :
+  LetE e n = (v, m, c)
+  -> barriers (seqs c) = nil.
+Proof.
+  inversion 1; simpl; eauto.
+Qed.
+
+Lemma LetEs_barrier T (e : exps T) n v m c :
+  LetEs e n = (v, m, c)
+  -> barriers (seqs c) = nil.
+Proof.
+  revert e n m c v.
+  induction T; simpl; eauto using LetE_barrier.
+  introv Heq.
+  unfold ret, bind in Heq; simpl in Heq; unfold bind_M in Heq.
+  compile_sexp_des Heq.
+  rewrite !barriers_seqs_app; splits; jauto.
+Qed.
+
+Lemma Read_barrier e n v m c :
+  Read e n = (v, m, c)
+  -> barriers (seqs c) = nil.
+Proof.
+  inversion 1; simpl; eauto.
+Qed.
+
+Lemma Reads_barrier T (e : lexps T) n v m c :
+  Reads e n = (v, m, c)
+  -> barriers (seqs c) = nil.
+Proof.
+  revert e n m c v.
+  induction T; simpl; eauto using Read_barrier.
+  introv Heq.
+  unfold ret, bind in Heq; simpl in Heq; unfold bind_M in Heq.
+  compile_sexp_des Heq.
+  rewrite !barriers_seqs_app; splits; jauto.
+Qed.
+
+Lemma compile_sexp_wr_vars GA GS typ (se : Skel.SExp GA GS typ) avenv svenv :
+  forall n m v c, 
+    compile_sexp se avenv svenv n = (v, m, c)
+    -> forall l, In l (writes_var (seqs c)) -> is_local l.
+Proof.
+  induction se; simpl; unfold bind, ret, gen_if; simpl; unfold bind_M; simpl in *; introv Heq;
+  compile_sexp_des Heq; simpl.
+
+  all: introv; repeat (first [rewrite in_app_iff | rewrite writes_var_seqs_app]; simpl).
+  all: intros Hdis; des_disj Hdis.
+  all: try first [tauto | now forwards*: IHse | now forwards*: IHse1 | 
+                  now forwards*: IHse2 | now forwards*: IHse3 |
+                  now forwards*: LetEs_wr_local | now forwards*: LetE_wr_local |
+                  now forwards*: Reads_wr_local].
+  all: rewrites* assigns_writes in *.
+  all: forwards*(? & ? & ?): locals_pref; substs; unfold is_local; simpl; apply prefix_nil.
+Qed.  
+
+Lemma compile_sexp_ret_vars GA GS typ (se : Skel.SExp GA GS typ) avenv svenv :
+  forall n m v c, 
+    compile_sexp se avenv svenv n = (v, m, c)
+    -> forall l, In l (flatTup v) -> is_local l.
+Proof.
+  induction se; simpl; unfold bind, ret, gen_if; simpl; unfold bind_M; simpl in *; introv Heq;
+  compile_sexp_des Heq; simpl.
+
+  all: introv; repeat (first [rewrite in_app_iff ]; simpl).
+  all: intros Hdis; des_disj Hdis; substs.
+  all: try first [tauto | now forwards*: IHse | now forwards*: IHse1 | 
+                  now forwards*: IHse2 | now forwards*: IHse3 |
+                  now forwards*: LetEs_ret_local | now forwards*: LetE_ret_local |
+                  now forwards*: Reads_ret_local].
+  all: try now (forwards*(? & ? & ?): locals_pref; substs; unfold is_local; simpl; apply prefix_nil).
+  forwards*: IHse; rewrites in_app_iff; eauto.
+  forwards*: IHse; rewrites in_app_iff; eauto.
+Qed.
+
+Ltac no_side_cond tac :=
+  tac; [now auto_star..|idtac].
+
+Lemma compile_sexp_no_barriers GA GS typ (se : Skel.SExp GA GS typ) avenv svenv :
+  forall n m v c, 
+    compile_sexp se avenv svenv n = (v, m, c)
+    -> barriers (seqs c) = nil.
+Proof.
+  induction se; simpl; unfold bind, ret, gen_if, gen_op; simpl; unfold bind_M; simpl in *; introv Heq;
+  compile_sexp_des Heq; simpl.
+  all: repeat (rewrite barriers_seqs_app; simpl).
+  rewrites* (>>LetEs_barrier).
+  rewrites* (>>LetE_barrier).
+  rewrites* (>>IHse1 l).
+  rewrites* (>>IHse2 l0).
+  rewrites* (>>LetEs_barrier).
+  rewrites* (>>IHse).
+  rewrites* (>>Reads_barrier).
+  rewrites* (>>LetE_barrier).
+  repeat rewrites* (>>IHse1 l).
+  repeat rewrites* (>>IHse2 l0).
+  repeat rewrites* (>>IHse3 l1).
+  repeat rewrites* (>>assigns_no_barriers).
+  repeat rewrites* (>>IHse1 l).
+  repeat rewrites* (>>IHse l).
+  repeat rewrites* (>>IHse l).
+  repeat rewrites* (>>IHse1 l).
+Qed.
+
+Lemma evalExps_env n (tid : Fin.t n)  ty (xs : vars ty) vs R R' P P' Env Env' C BS :
+  evalExps Env (v2e xs) vs
+  -> CSL BS tid (Assn R P ((xs |=> vs) ++ Env)) C (Assn R' P' Env')
+  -> CSL BS tid (Assn R P Env) C (Assn R' P' Env').
+Proof.
+  intros.
+  eapply backwardR; eauto.
+  unfold sat; simpl; intros; splits; jauto.
+  rewrite env_assns_app; split; jauto.
+  destruct H1 as (? & ? & HP0).
+  clear H0.
+  induction ty; simpl in *; try now forwards*: evalExp_ok.
+  apply env_assns_app; split; jauto.
+Qed.
+
+Lemma evalExps_app ty Env1 Env2 (es : exps ty) (vs : vals ty) :
+  evalExps Env1 es vs -> evalExps (Env1 ++ Env2) es vs.
+Proof.
+  induction ty; simpl; eauto using evalExp_app1; intros [? ?]; eauto.
+Qed.
 
 Lemma compile_func_ok GA fty (f : Skel.Func GA fty) (func : type_of_ftyp fty) (avar_env : AVarEnv GA) : 
   compile_func f avar_env = func -> func_ok avar_env f func.
 Proof.
   destruct fty; intros Hcp; simpl in *; substs; dependent destruction f; simpl;
   repeat split; introv; unfold evalM.
-  destruct (compile_sexp _ _ _ _) as [[? ?] ?] eqn:Heq; simpl in *;
-  eauto using compile_sexp_no_barrs, compile_sexp_wr_vars, compile_sexp_res_vars, compile_sexp_ok;
-  unfold are_local; [intros Hx ? Heval ?| intros Hx Hy ? Heval Hevaly ?]; apply CSL_prop_prem; intros;
-  [applys* (>>evalExps_env); [apply evalExps_app; apply Heval|];
-   try (applys* (>>evalExps_env); [apply evalExps_app_inv2; apply evalExps_app; apply Hevaly|])..];
-  forwards*Htri: compile_sexp_ok; eauto using resEnv_ok0_is_local; unfold kernelInv, sexpInv, scInv in *; simpl in *;
-  first [eapply rule_conseq; try apply Htri; prove_imp; eauto; simpl in *; try tauto | (* discharging triples *)
-         unfold senv_ok, is_local in *; introv Hin; false;
-         repeat des_mem; simpl in *;
-         try no_side_cond ltac:(forwards* Hin': Hx);
-         try no_side_cond ltac:(forwards* Hin': Hy);
-         unfold lpref in Hin'; simpl in *; rewrite prefix_nil in Hin'; congruence].
+  - destruct compile_sexp as [[? ?] ?]eqn:Heq.
+    intros; forwards*: compile_sexp_wr_vars.
+  - destruct compile_sexp as [[? ?] ?]eqn:Heq.
+    intros; forwards*: compile_sexp_ret_vars.
+  - intros; destruct compile_sexp as [[? ?] ?]eqn:Heq.
+    applys* (>>evalExps_env xs); try evalExps.
+    apply evalExps_app; jauto.
+    forwards*Hok: (>>compile_sexpOk s (xs ::: HNil) (vs ::: HNil) avar_env aptr_env aeval_env 
+                  p resEnv R P).
+    unfold Gsat in *; forwards*(? & ? & Hok'): Hok.
+    { unfold assnInv, sexpInv; eexists.
+      rewrite fv_assn_base_eq.
+      splits; eauto.
+      unfold fvOk; rewrite Forall_forall; introv; rewrite !map_app, !in_app_iff.
+      unfold is_local, lvar in *.
+      intros [? | [? | ?]]; intros.
+      (* + rewrite map_flatTup in H4; substs. *)
+      (*   forwards*: H0; simpl in *.  *)
+      (*   rewrite prefix_nil in H5; congruence. *)
+      + apply in_map_iff in H4 as ([? ?] & ? & ?); substs.
+        simpl in *; substs.
+        forwards*: H1; simpl in *; rewrite prefix_nil in *; congruence.
+      + unfold scInv in H4; simpl in H4.
+        rewrite map_app, in_app_iff in H4; destruct H4 as [|[]].
+        rewrite map_flatTup in H4; substs.
+        forwards*: H0; simpl in *.
+        rewrite prefix_nil in *; congruence.
+      + substs.
+        apply in_map_iff in H4 as ([? ?] & ? & ?); substs; simpl in *; substs.
+        forwards*: aenv_ok_params; simpl in *; congruence. }
+    unfold assnOk in Hok'.
+    eapply rule_conseq; [apply Hok'|unfold kernelInv, sexpInv; prove_imp..].
+    unfold scInv in *; simpl in *; rewrite in_app_iff in *; simpl in *; tauto.
+    simpl in *; rewrites H3; simpl; eauto.
+  - intros; destruct compile_sexp as [[? ?] ?] eqn:Heq; simpl.
+    forwards*: compile_sexp_no_barriers.
+  - destruct compile_sexp as [[? ?] ?]eqn:Heq.
+    intros; forwards*: compile_sexp_wr_vars.
+  - destruct compile_sexp as [[? ?] ?]eqn:Heq.
+    intros; forwards*: compile_sexp_ret_vars.
+  - intros; destruct compile_sexp as [[? ?] ?]eqn:Heq.
+    applys* (>>evalExps_env xs); try evalExps.
+    apply evalExps_app; jauto.
+    applys* (>>evalExps_env ys); try evalExps.
+    apply evalExps_app_inv2, evalExps_app; jauto.
+    forwards*Hok: (>>compile_sexpOk s (ys ::: xs ::: HNil) (vs2 ::: vs1 ::: HNil) avar_env aptr_env aeval_env 
+                  p resEnv R P).
+    unfold Gsat in *; forwards*(? & ? & Hok'): Hok.
+    { unfold assnInv, sexpInv; eexists.
+      rewrite fv_assn_base_eq.
+      splits; eauto.
+      unfold fvOk; rewrite Forall_forall; introv; rewrite !map_app, !in_app_iff.
+      unfold is_local, lvar in *.
+      intros [? | [? | ?]]; intros.
+      (* + rewrite map_flatTup in H4; substs. *)
+      (*   forwards*: H0; simpl in *.  *)
+      (*   rewrite prefix_nil in H5; congruence. *)
+      + apply in_map_iff in H6 as ([? ?] & ? & ?); substs.
+        simpl in *; substs.
+        forwards*: H2; simpl in *; rewrite prefix_nil in *; congruence.
+      + unfold scInv in H6; simpl in H6.
+        rewrite !map_app, !in_app_iff in H6; destruct H6 as [|[|[]]].
+        * rewrite map_flatTup in H6; substs.
+          forwards*: H1; simpl in *.
+          rewrite prefix_nil in *; congruence.
+        * rewrite map_flatTup in H6; substs.
+          forwards*: H0; simpl in *.
+          rewrite prefix_nil in *; congruence.
+      + substs.
+        apply in_map_iff in H6 as ([? ?] & ? & ?); substs; simpl in *; substs.
+        forwards*: aenv_ok_params; simpl in *; congruence. }
+    unfold assnOk in Hok'.
+    eapply rule_conseq; [apply Hok'|unfold kernelInv, sexpInv; prove_imp..].
+    unfold scInv in *; simpl in *; rewrite !in_app_iff in *; simpl in *. tauto.
+    simpl in *; rewrites H5; simpl; eauto.
+  - intros; destruct compile_sexp as [[? ?] ?] eqn:Heq; simpl.
+    forwards*: compile_sexp_no_barriers. 
+Qed.
+
+Lemma nth_error_some T (ls : list T) i d :
+  i < length ls
+  -> List.nth_error ls i = Some (nth i ls d).
+Proof.
+  revert ls; induction i; simpl; destruct ls; simpl in *; intros; try omega.
+  reflexivity.
+  intuition.
+Qed.
+
+Lemma nth_error_some' T (ls : list T) (i : Z) d :
+  (0 <= i < Zn (length ls))%Z
+  -> SkelLib.nth_error ls i = Some (nth (Z.to_nat i) ls d).
+Proof.
+  unfold SkelLib.nth_error; simpl; unfoldM; unfold Monad.bind_opt.
+  intros.
+  unfold SkelLib.Z_to_nat_error; destruct Z_le_dec; try lia; simpl.
+  apply nth_error_some.
+  zify; rewrite Z2Nat.id; lia.
+Qed.
+
+Lemma mapM_some A B (xs : list A) (ys : list B) i d1 d2 f :
+    mapM f xs = Some ys ->
+    Some (nth i ys d2) = if lt_dec i (length xs) then f (nth i xs d1) else Some d2.
+Proof.
+  unfold mapM; revert i ys; induction xs; simpl; introv Heq;
+  destruct i, ys; try inverts Heq; simpl; eauto.
+  - unfold Monad.bind_opt in *.
+    destruct (f a) eqn:Heq1; inverts H0.
+    destruct (sequence _); inverts H1.
+  - unfold Monad.bind_opt in *.
+    destruct (f a) eqn:Heq1; inverts H0.
+    destruct (sequence _) eqn:Heq2; inverts H1; eauto.
+  - unfold Monad.bind_opt in *.
+    destruct (f a) eqn:Heq1; inverts H0.
+    destruct (sequence _) eqn:Heq2; inverts H1; eauto.
+  - unfold Monad.bind_opt in *.
+    destruct (f a) eqn:Heq1; inverts H0.
+    destruct (sequence _) eqn:Heq2; inverts H1; eauto.
+    erewrite IHxs; destruct (lt_dec i (length xs)), (lt_dec (S i) (S (length xs))); try lia;
+    eauto.
+Qed.
+
+Lemma mapM_length A B (xs : list A) (ys : list B) f :
+  mapM f xs = Some ys -> length ys = length xs.
+Proof.
+  revert ys; unfold mapM; induction xs; introv.
+  - inversion 1; eauto.
+  - simpl.
+    unfold Monad.bind_opt; destruct (f a), (@sequence _ _ _); simpl;
+    destruct ys; inversion 1; substs; simpl; rewrite IHxs; eauto.
+Qed.
+
+Lemma compile_AE_ok GA ty (ae : Skel.AE GA ty) (arr : var -> cmd * vars ty) (avar_env : AVarEnv GA) :
+  compile_AE ae avar_env = arr -> ae_ok avar_env ae arr.
+Proof.
+  unfold ae_ok; destruct ae; simpl; intros Hceq Haok.
+  - unfold accessor_of_array in Hceq.
+    forwards*Hok: (>>compile_func_ok (Skel.Fun1 Skel.TZ t) arr Hceq Haok).
+    simpl in *; unfold func_ok1 in *; repeat split; jauto.
+    destruct Hok as (? & ? & Hok & ?).
+    intros; applys* Hok.
+    introv [? | []]; substs; eauto.
+    intros. 
+    inverts H5.
+    unfold bind, ret; simpl.
+    erewrite nth_error_some'.
+    rewrite Nat2Z.id.
+    reflexivity.
+    forwards*: H6; lia.
+  - forwards*: (>>compile_func_ok (Skel.Fun1 Skel.TZ cod) Hceq Haok).
+    unfold func_ok, func_ok1 in *; simpl in *.
+    destruct H as (H1 & H2 & H3 & H4).
+    repeat split; [apply H1| apply H2| idtac | apply H4].
+    intros; applys* H3.
+    intros ? [? | []]; substs; eauto.
+    destruct Z_le_dec; try congruence.
+
+    rewrites* (>>mapM_some i (@defval' cod) H6).
+    forwards*: mapM_length.
+    
+    repeat rewrite SkelLib.seq_length in *.
+    destruct lt_dec; try lia.
+    repeat rewrite SkelLib.seq_nth.
+    destruct lt_dec; eauto.
+    intros; forwards*: H7; eauto.
+    lia.
 Qed.

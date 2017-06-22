@@ -1,4 +1,4 @@
-Require Import Monad DepList GPUCSL TypedTerm Compiler.
+Require Import Monad DepList GPUCSL TypedTerm SeqCompiler Compiler.
 Require Import Program.Equality LibTactics String List.
 Require Import CUDALib CodeGen CSLLemma CSLTactics Correctness mkMap.
 Require Import SkelLib Psatz Host.

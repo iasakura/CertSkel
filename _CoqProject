@@ -9,13 +9,13 @@ src/Compiler/MonadRules.v
 src/Compiler/CodeGenM.v
 src/Compiler/Correctness.v
 src/Compiler/CUDALib.v
-src/Compiler/SeqCompilerProof.v
 src/Compiler/Compiler.v
 src/Compiler/GPUVeLib/CSLTactics.v
 src/Compiler/GPUVeLib/CodeGen.v
 src/Compiler/Skeletons/mkMap.v
 src/Compiler/Skeletons/mkReduce.v
 src/Compiler/Skeletons/Utils.v
+src/Compiler/SeqCompiler.v
 src/GPUCSL/SeqRules.v
 src/GPUCSL/FreeVariables.v
 src/GPUCSL/CSLLemma.v
