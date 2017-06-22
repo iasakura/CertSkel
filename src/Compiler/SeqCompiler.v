@@ -227,7 +227,7 @@ Fixpoint compile_sexp {GA GS : list Skel.Typ} {typ : Skel.Typ}
     ret (r1, r2)
   | Skel.EIf _ _ ty e1 e2 e3 => fun avenv env =>
     do! b <- compile_sexp e1 avenv env in
-    gen_if b (compile_sexp e3 avenv env) (compile_sexp e3 avenv env)
+    gen_if b (compile_sexp e2 avenv env) (compile_sexp e3 avenv env)
   end%list.
 
 Instance eq_type_nat : eq_type nat := {eq_dec := eq_nat_dec}.
@@ -436,8 +436,8 @@ Proof.
   simpl; apply fvOk_app; eauto.
 Qed.
 
-Lemma rule_fLet_s R P E (e : exp) v :
-  evalExp E e v
+Lemma rule_fLet_s R (P : Prop) E (e : exp) v :
+  (P -> evalExp E e v)
   -> Gsat (Assn R P E)
           (LetE e)
           (fun x => (Assn R P (x |-> v :: E))).
@@ -451,7 +451,8 @@ Proof.
     constructor; [|eapply fvOk_weaken; [|eauto]; omega].
     introv Heq.
     apply evar_inj, lpref_inj in Heq; omega.
-  - eapply rule_seq.
+  - apply CSL_prop_prem; intros Hp'.
+    eapply rule_seq.
     apply rule_assign; eauto.
     eapply backward; [|apply rule_skip].
     prove_imp.
@@ -478,30 +479,31 @@ Proof.
   intros; eapply forward; [|apply rule_skip]; eauto.
 Qed.
 
-Lemma rule_fLets_s' ty R P E (e : exps ty) v E' :
-  evalExps E e v
+Lemma rule_fLets_s' ty R (P : Prop) E (e : exps ty) v E' :
+  (P -> evalExps E e v)
   -> Gsat (Assn R P (E' ++ E))
           (LetEs e)
           (fun x => (Assn R P (x |=> v ++ (E' ++ E)))).
 Proof.
-  revert E'; induction ty; intros; try now (apply rule_fLet_s; applys* evalExp_app_ig).
-  inverts H.
+  revert E'; induction ty; intros; try now (apply rule_fLet_s; intros; applys* evalExp_app_ig).
   simpl.
   eapply rule_bind_c.
   applys* IHty1.
+  { intros; forwards*H': H. }
   introv.
   eapply rule_bind_c.
   rewrite app_assoc.
   applys* IHty2.
+  { intros; forwards*: H. }
   intros.
   apply rule_ret_s.
   prove_imp.
   introv; rewrite! fv_assn_base_eq; rewrite <-!app_assoc, !map_app.
-  unfold incl; intros H a; specialize (H a); rewrite !in_app_iff in *; intuition.
+  unfold incl; intros Hin a; specialize (Hin a); rewrite !in_app_iff in *; intuition.
 Qed.
 
-Lemma rule_fLets_s ty R P E (e : exps ty) v :
-  evalExps E e v
+Lemma rule_fLets_s ty R (P : Prop) E (e : exps ty) v :
+  (P -> evalExps E e v)
   -> Gsat (Assn R P E)
           (LetEs e)
           (fun x => (Assn R P (x |=> v ++ E))).
@@ -511,7 +513,7 @@ Proof.
 Qed.
 
 Lemma rule_Read_s R R' (P : Prop) E p l le v :
-  evalLExp E le l
+  (P -> evalLExp E le l)
   -> (P -> R |=R l |->p (p, v) *** R')
   -> Gsat (Assn R P E)
           (Read le)
@@ -526,7 +528,8 @@ Proof.
     constructor; [|eapply fvOk_weaken; [|eauto]; omega].
     introv Heq.
     apply evar_inj, lpref_inj in Heq; omega.
-  - eapply rule_seq.
+  - apply CSL_prop_prem; intros Hp'.
+    eapply rule_seq.
     applys* rule_read; eauto.
     eapply backward; [|apply rule_skip].
     prove_imp.
@@ -542,35 +545,36 @@ Proof.
 Qed.
 
 Lemma rule_Reads_s' ty R R' (P : Prop) E E' p l (le : lexps ty) v :
-  evalLExps E le l
+  (P -> evalLExps E le l)
   -> (P -> R |=R l |=>p (p, v) *** R')
   -> Gsat (Assn R P (E' ++ E))
           (Reads le)
           (fun x => (Assn R P (x |=> v ++ (E' ++ E)))).
 Proof.
-  revert E' R'; induction ty; intros; try now (applys* rule_Read_s; applys* evalLExp_app_ig).
-  inverts H.
+  revert E' R'; induction ty; intros; try now (applys* rule_Read_s; intros; applys* evalLExp_app_ig).
   simpl.
   eapply rule_bind_c.
   applys* IHty1.
-  simpl in H0.
-  intros; forwards*: H0.
-  rewrite <-res_assoc in H4; apply H4.
+  { intros; forwards*: H. }
+  { simpl in H0.
+    intros; forwards*: H0.
+    rewrite <-res_assoc in H3; apply H3. }
   introv.
   eapply rule_bind_c.
   rewrite app_assoc.
   applys* IHty2.
-  simpl in H0; intros; forwards*: H0.
-  rewrite <-res_assoc, res_CA in H4; apply H4.
+  { simpl in H; intros; forwards*: H. }
+  { intros; simpl in H0; forwards*: H0.
+    rewrite <-res_assoc, res_CA in H3; apply H3. }
   intros.
   apply rule_ret_s.
   prove_imp.
   introv; rewrite! fv_assn_base_eq; rewrite <-!app_assoc, !map_app.
-  unfold incl; intros H a; specialize (H a); rewrite !in_app_iff in *; intuition.
+  unfold incl; intros Hin a; specialize (Hin a); rewrite !in_app_iff in *; intuition.
 Qed.
 
 Lemma rule_Reads_s ty R R' (P : Prop) E p l (le : lexps ty) v :
-  evalLExps E le l
+  (P -> evalLExps E le l)
   -> (P -> R |=R l |=>p (p, v) *** R')
   -> Gsat (Assn R P E)
           (Reads le)
@@ -591,8 +595,8 @@ Proof.
   - intros; apply incl_app; jauto.
 Qed.
 
-Lemma rule_gen_if ty R P E (b : var) v v1 v2 (g1 : M (vars ty)) g2 R1 R2 P1 P2 E1 E2 :
-  evalExp E b v
+Lemma rule_gen_if ty R (P : Prop) E (b : var) v v1 v2 (g1 : M (vars ty)) g2 R1 R2 P1 P2 E1 E2 :
+  (P -> evalExp E b v)
   -> Gsat (Assn R (P /\ (v <> 0%Z)) E) g1 (fun x => Assn R1 P1 (x |=> v1 ++ E1))
   -> Gsat (Assn R (P /\ (v = 0%Z)) E) g2 (fun x => Assn R2 P2 (x |=> v2 ++ E2))
   -> Gsat (Assn R P E) (gen_if b g1 g2) (fun x => Assn R1 P1 (x |=> v1 ++ E1) \\// Assn R2 P2 (x |=> v2 ++ E2) ).
@@ -625,7 +629,8 @@ Proof.
     eapply fvOk_weaken; [|eauto]; omega.
   - intros.
     eapply rule_seq.
-    { eapply rule_if_disj; [do 2 constructor; eauto; constructor|..].
+    { apply CSL_prop_prem; intros Hp'.
+      eapply rule_if_disj; [do 2 constructor; eauto; constructor|..].
       - eapply rule_seq; [eauto|].
         eapply forwardR; [eapply rule_assigns|].
         { rewrite fvEs_v2e.
@@ -684,11 +689,19 @@ Proof.
   simpl in *; rewrite in_app_iff; eauto.
 Qed.
 
+Lemma incl_cons_iff A (x : A) xs ys :
+  incl (x :: xs) ys <-> In x ys /\ incl xs ys.
+Proof.
+  unfold incl; simpl; intuition.
+  substs; eauto.
+Qed.
+
 Ltac prove_fv_assn := 
-  repeat first [rewrite fv_assn_base_eq | 
-                rewrite map_app |
-                rewrite incl_app_iff|
-                rewrite map_flatTup]; jauto.
+  repeat (first [rewrite fv_assn_base_eq | 
+                 rewrite map_app |
+                 rewrite incl_app_iff |
+                 rewrite incl_cons_iff |
+                 rewrite map_flatTup]; simpl); jauto.
 
 Lemma compileExp_ok E ty1 ty2 ty3 (op : Skel.BinOp ty1 ty2 ty3) v1 (x1 : vars ty1) v2 (x2 : vars ty2) :
   evalExps E (v2e x1) (sc2CUDA v1)
@@ -775,24 +788,91 @@ Proof.
   lia.
 Qed.
 
+Lemma alen_in GA ty (avar_env : AVarEnv GA) (aptr_env : APtrEnv GA) (aeval_env : AEvalEnv GA) 
+  (m : member ty GA) len (arr : vars ty) :
+  hget avar_env m = (len, arr) 
+  -> In (len |-> Zn (length (hget aeval_env m))) (arrInvVar avar_env aptr_env aeval_env).
+Proof.
+  unfold arrInvVar; induction GA; 
+  dependent destruction m;
+  dependent destruction avar_env;
+  dependent destruction aptr_env;
+  dependent destruction aeval_env; simpl; intros; substs; eauto;
+  repeat rewrite <-app_assoc; simpl; eauto.
+  destruct p; simpl.
+  rewrite in_app_iff; eauto.
+Qed.
+
+Definition get_opt {T} `{_ : hasDefval T} (v : option T) :=
+  match v with Some v => v | None => default end. 
+
+Lemma get_opt_eq T (defval : hasDefval T) (opt : option T) v :
+  opt = Some v -> v = (get_opt opt).
+Proof. intros; substs*. Qed.
+
+Global Instance skelVal_hasDefval (t : Skel.Typ) : hasDefval (Skel.typDenote t) :=
+  {| default := defval' |}.
+
+Arguments Skel.sexpDenote {GA GS t} _ _ _.
+
+Ltac unfoldM := unfold bind, ret; simpl; unfold bind_opt, ret.
+Ltac unfoldM_in H := unfold bind, ret in H; simpl in H; unfold bind_opt, ret in H; simpl in H.
+Ltac destructM H :=
+  unfoldM_in H;
+  match type of H with
+  | None = Some _ => inversion H
+  | Some _ = Some _ => inversion H
+  | ret _ = Some _ => inversion H
+  | match ?t with
+    | Some x => _
+    | None => _
+    end = Some _ => let Heq := fresh "Heq" in destruct t eqn:Heq; simpl in H; destructM H
+  | _ => idtac
+  end.
+
+Lemma rule_prop_weaken T R (P P' : Prop) E (g : M T) Q :
+  (P' -> P)
+  -> Gsat (Assn R P E) g Q 
+  -> Gsat (Assn R P' E) g Q.
+Proof.
+  unfold Gsat, assnInv, assnOk; intros.
+  destruct H1 as (xs & ? & ?).
+  forwards*(? & ? & ?): H0; [exists xs; rewrite fv_assn_base_eq in *; jauto|].
+  splits; jauto.
+  intros; forwards*: (>>H6 ntrd BS tid).
+  eapply backward; [|eauto]; prove_imp.
+Qed.
+
+Lemma rule_forward_c T P P' (gen : M T) Q :
+  Gsat P gen Q
+  -> (P' |= P)
+  -> (forall xs, fv_assn P' xs -> fv_assn P xs)
+  -> Gsat P' gen Q.
+Proof.
+  unfold Gsat, assnInv, assnOk; introv ? ? ? ? ?.
+  destruct H2 as (xs & ? & ?).
+  forwards*(? & (xs' & ? & ?) & ?): H; splits; [omega|exists xs'; splits*|].
+  intros; eapply backward; [|eauto]; eauto.
+Qed.
+
 Lemma compile_sexpOk (GA GS : list Skel.Typ) (typ : Skel.Typ)
       (se : Skel.SExp GA GS typ) 
       (svenv : SVarEnv GS)
       (seenv : SEvalEnv GS)
       (avenv : AVarEnv GA)
       (apenv : APtrEnv GA)
-      (aeenv : AEvalEnv GA) p resEnv v R P :
-  Skel.sexpDenote GA GS typ se aeenv seenv = Some v ->
-  Gsat (sexpInv svenv seenv avenv apenv aeenv R P resEnv p)
+      (aeenv : AEvalEnv GA) p resEnv R (P : Prop) :
+  (P -> exists v, Skel.sexpDenote se aeenv seenv = Some v)
+  -> Gsat (sexpInv svenv seenv avenv apenv aeenv R P resEnv p)
        (compile_sexp se avenv svenv)
-       (fun es => sexpInv svenv seenv avenv apenv aeenv R P (es |=> sc2CUDA v ++ resEnv) p).
+       (fun es => sexpInv svenv seenv avenv apenv aeenv R P (es |=> sc2CUDA (get_opt (Skel.sexpDenote se aeenv seenv)) ++ resEnv) p).
 Proof.
   unfold sexpInv.
-  revert typ v se seenv svenv R P resEnv.
-  induction se; introv Heval; inverts Heval; simpl.
+  revert typ se seenv svenv R P resEnv.
+  induction se; introv Heval; simpl.
   - eapply rule_backward_c.
     apply rule_fLets_s.
-    { apply evalExps_vars.
+    { intros; apply evalExps_vars.
       apply incl_appr, incl_appl.
       unfold incl; intros; eauto using scInv_incl. }
     { simpl; intros ?; prove_imp. }
@@ -800,38 +880,193 @@ Proof.
     prove_fv_assn.
   - eapply rule_backward_c.
     apply rule_fLet_s.
-    { evalExp. }
+    { intros; evalExp. }
     { simpl; intros ?; prove_imp. }
     introv; simpl.
     prove_fv_assn.
-  - destruct (Skel.sexpDenote _ _ _ se1 _ _) eqn:Heq1; [|inverts H0].
-    destruct (Skel.sexpDenote _ _ _ se2 _ _) eqn:Heq2; [|inverts H0].
-    inverts H0.
+  - simpl in Heval.
     eapply rule_bind_c; eauto.
+    { eapply IHse1.
+      intros; forwards*(? & He): Heval.
+      destructM He; jauto. }
     introv.
     eapply rule_bind_c; eauto.
+    { eapply IHse2. 
+      intros; forwards*(? & He): Heval.
+      destructM He; jauto. }
     introv.
     eapply rule_backward_c.
     { apply rule_fLets_s.
-      apply compileExp_ok; evalExps. }
+      intros; apply compileExp_ok; evalExps. }
     + simpl; intros ?; prove_imp.
+      intros; forwards*(? & He): Heval.
+      destructM He; jauto.
     + introv; prove_fv_assn.
-  - destruct (Skel.sexpDenote _ _ _ se _ _) eqn:Heq1; [|inverts H0].
+  - simpl in Heval.
     forwards*(R' & Heq'): (>> arrInvRes_unfold apenv aeenv m p).
-    unfold bind in H0; simpl in H0.    
-    forwards*(i & ? & ?): nth_error_lt_nat.
     eapply rule_bind_c; eauto.
+    { apply IHse; intros; forwards*(v & He): Heval.
+      destructM He; jauto. }
     introv; simpl.
     destruct (hget avenv m) as [alen aname] eqn:Heq.
     eapply rule_backward_c.
-    eapply rule_Reads_s.
-    { apply eval_locs_off; [|evalExp].
-      apply evalLExps_cons_ig, evalLExps_app_ig, evalLExps_app_ig. 
-      applys* aname_eval. }
-    intros.
-    rewrite Heq' in H3.
-    rewrites (>>arrays_unfold i) in H3.
-    { unfold arr2CUDA; rewrite map_length; omega. }
-    rewrite <-!res_assoc in *.
-    rewrite res_CA in H3; apply H3.
+    { eapply rule_Reads_s.
+      { intros; apply eval_locs_off; [|evalExp].
+        apply evalLExps_cons_ig, evalLExps_app_ig, evalLExps_app_ig. 
+        applys* aname_eval. }
+      intros; forwards*(? & He): Heval.
+      destructM He.
+      rewrite Heq' in H0.
+      forwards*(i & ? & ?): nth_error_lt_nat.
+      assert (i = Z.to_nat (get_opt (Skel.sexpDenote se aeenv seenv))).
+      { rewrite Heq0, <-H1; simpl; rewrite Nat2Z.id; eauto. }
+      rewrites (>>arrays_unfold i) in H0.
+      { unfold arr2CUDA; rewrite map_length; omega. }
+      rewrite <-!res_assoc in *.
+      rewrite res_CA in H0; substs. 
+      apply H0. }
+    { intros ?; simpl; prove_imp.
+      { forwards*(? & He): Heval.
+        destructM He.
+        forwards*(i & ? & ?): nth_error_lt_nat; substs.
+        unfold arr2CUDA; rewrites (>>Utils.nth_map (@defval t)); simpl; try omega.
+        rewrite Nat2Z.id; omega.
+        unfold SkelLib.nth_error, SkelLib.Z_to_nat_error in *.
+        unfold bind, ret in *; simpl in *; unfold bind_opt in *.
+        destruct Z_le_dec; try omega.
+        rewrite Nat2Z.id in *.
+        rewrites* (>>SkelLib.nth_error_some (@defval' t)). } }
+    { introv; prove_fv_assn. }
+  - destruct (hget avenv m) as [l aname] eqn:Heq.
+    eapply rule_backward_c; [apply rule_fLet_s|..].
+    { intros; evalExp; forwards*: alen_in. }
     intros ?; simpl; prove_imp.
+    introv; prove_fv_assn.
+  - simpl in Heval.
+    eapply rule_bind_c; [applys* IHse1|]. 
+    { intros; forwards*(? & He): Heval.
+      destructM He; jauto. }
+    introv; simpl.
+    eapply rule_backward_c.
+    { eapply rule_gen_if; [intros; evalExp |..].
+      - eapply rule_prop_weaken.
+        { intros.
+          assert (H': P /\ get_opt (Skel.sexpDenote se1 aeenv seenv) = true); [|apply H'].
+          destruct (get_opt _); splits; jauto. }
+        assert (P /\ get_opt (Skel.sexpDenote se1 aeenv seenv) = true
+                -> exists v2, Skel.sexpDenote se2 aeenv seenv = Some v2).
+        { intros; forwards*(? & He): Heval.
+          destructM He; simpl in *.
+          destruct H; substs; jauto. }
+        eapply rule_backward_c.
+        rewrite app_comm_cons.
+        applys* IHse2.
+        { intros ?; simpl. 
+          instantiate (3 := P /\ get_opt (Skel.sexpDenote se1 aeenv seenv) = true).
+          instantiate (1 := resEnv ++ scInv svenv seenv ++ arrInvVar avenv apenv aeenv).
+          prove_imp; eauto. }
+        { introv; prove_fv_assn. }
+      - eapply rule_prop_weaken.
+        { intros.
+          assert (H': P /\ get_opt (Skel.sexpDenote se1 aeenv seenv) = false); [|apply H'].
+          destruct (get_opt _); splits; jauto; omega. }
+        assert (P /\ get_opt (Skel.sexpDenote se1 aeenv seenv) = false
+                -> exists v3, Skel.sexpDenote se3 aeenv seenv = Some v3).
+        { intros; forwards*(? & He): Heval.
+          destructM He; simpl in *.
+          destruct H; substs; jauto. }
+        eapply rule_backward_c.
+        rewrite app_comm_cons.
+        applys* IHse3.
+        { intros ?; simpl.
+          instantiate (3 := P /\ get_opt (Skel.sexpDenote se1 aeenv seenv) = false).
+          instantiate (1 := resEnv ++ scInv svenv seenv ++ arrInvVar avenv apenv aeenv).
+          prove_imp; eauto. }
+        { introv; prove_fv_assn. } }
+    intros ?; simpl.
+    prove_imp.
+    { forwards*(? & He): Heval; destructM He; simpl in *.
+      destruct H0; destruct t0; try congruence; rewrites* He. }
+    { forwards*(? & He): Heval; destructM He; simpl in *.
+      destruct H0; destruct t0; try congruence; rewrites* He. }
+    introv; simpl; prove_fv_assn.
+    rewrite fv_assn_disj_eq; intros (? & ? & ? & ? & ?).
+    revert H H0; prove_fv_assn.
+    assert (forall ys, incl ys x \/ incl ys x0 -> incl ys xs).
+    { unfold incl; intros ? [? | ?] ?.
+      specialize (H a); specialize (H1 a); intuition.
+      specialize (H a); specialize (H1 a); intuition. }
+    intros; intuition.
+  - eapply rule_bind_c. 
+    { apply IHse1.
+      intros; forwards*(? & He): Heval; destructM He; eexists; eauto. }
+    introv.
+    eapply rule_bind_c.
+    { apply IHse2.
+      intros; forwards*(? & He): Heval; destructM He; eexists; eauto. }
+    introv. 
+    eapply rule_ret_s.
+    { prove_imp; 
+      intros; forwards*(? & He): Heval; destructM He; substs; eauto. }
+    { introv.
+      prove_fv_assn. }
+  - eapply rule_bind_c.
+    { apply IHse.
+      intros; forwards*(? & He): Heval; destructM He; eexists; eauto. }
+    introv. 
+    eapply rule_ret_s.
+    { prove_imp; 
+      intros; forwards*(? & He): Heval; destructM He; substs; eauto. }
+    { introv.
+      prove_fv_assn. }
+  - eapply rule_bind_c.
+    { apply IHse.
+      intros; forwards*(? & He): Heval; destructM He; eexists; eauto. }
+    introv. 
+    eapply rule_ret_s.
+    { prove_imp; 
+      intros; forwards*(? & He): Heval; destructM He; substs; eauto. }
+    { introv.
+      prove_fv_assn. }
+  - eapply rule_bind_c.
+    { apply IHse1.
+      intros; forwards*(? & He): Heval; destructM He; substs; eauto. }
+    introv.
+    eapply rule_backward_c.
+
+    eapply rule_forward_c.
+    applys (>>IHse2 aeenv (get_opt (Skel.sexpDenote se1 aeenv seenv) ::: seenv) P resEnv).
+    intros; forwards*(?&He): Heval; destructM He; jauto.
+    simpl; prove_imp; eauto.
+    unfold scInv in *; simpl in *; rewrite in_app_iff in *; intuition.
+    
+    unfold scInv; simpl.    
+    introv; prove_fv_assn.
+    unfold scInv; simpl.
+
+    intros ?; prove_imp.
+    forwards* (? & He): Heval; destructM He; jauto.
+
+    unfold scInv; simpl.
+    introv; prove_fv_assn.
+Qed.
+
+
+Lemma compile_func_ok GA fty (f : Skel.Func GA fty) (func : type_of_ftyp fty) (avar_env : AVarEnv GA) : 
+  compile_func f avar_env = func -> func_ok avar_env f func.
+Proof.
+  destruct fty; intros Hcp; simpl in *; substs; dependent destruction f; simpl;
+  repeat split; introv; unfold evalM.
+  destruct (compile_sexp _ _ _ _) as [[? ?] ?] eqn:Heq; simpl in *;
+  eauto using compile_sexp_no_barrs, compile_sexp_wr_vars, compile_sexp_res_vars, compile_sexp_ok;
+  unfold are_local; [intros Hx ? Heval ?| intros Hx Hy ? Heval Hevaly ?]; apply CSL_prop_prem; intros;
+  [applys* (>>evalExps_env); [apply evalExps_app; apply Heval|];
+   try (applys* (>>evalExps_env); [apply evalExps_app_inv2; apply evalExps_app; apply Hevaly|])..];
+  forwards*Htri: compile_sexp_ok; eauto using resEnv_ok0_is_local; unfold kernelInv, sexpInv, scInv in *; simpl in *;
+  first [eapply rule_conseq; try apply Htri; prove_imp; eauto; simpl in *; try tauto | (* discharging triples *)
+         unfold senv_ok, is_local in *; introv Hin; false;
+         repeat des_mem; simpl in *;
+         try no_side_cond ltac:(forwards* Hin': Hx);
+         try no_side_cond ltac:(forwards* Hin': Hy);
+         unfold lpref in Hin'; simpl in *; rewrite prefix_nil in Hin'; congruence].
+Qed.

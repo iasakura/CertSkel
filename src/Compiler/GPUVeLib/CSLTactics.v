@@ -3025,9 +3025,9 @@ Proof.
   destruct H as (? & ?); eauto.
 Qed.
 
-Lemma CSL_prop_prem n (tid : Fin.t n) BS R R' (P P' : Prop) Env Env' C :
-  (P -> CSL BS tid (Assn R P Env) C (Assn R' P' Env'))
-  -> CSL BS tid (Assn R P Env) C (Assn R' P' Env').
+Lemma CSL_prop_prem n (tid : Fin.t n) BS R (P : Prop) Env Q C :
+  (P -> CSL BS tid (Assn R P Env) C Q)
+  -> CSL BS tid (Assn R P Env) C Q.
 Proof.
   intros ? ? ?; simpl; unfold sat in *; simpl in *; intros Hsat.
   applys* H.
