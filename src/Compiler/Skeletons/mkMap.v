@@ -60,8 +60,7 @@ Definition mkMap_cmd inv :=
   "i" :T Int ::= "tid" +C "bid" *C "ntrd" ;;
   WhileI inv ("i" <C len) (
     assigns_get t arr_c "i" ;;
-    fst (f_c t) ;;
-    writes (v2gl out +os "i") (v2e (snd (f_c t))) ;;
+    writes_call1 (v2gl out +os "i") f_c t ;;
     "i" ::= "ntrd" *C "nblk" +C "i"
   ).
 
@@ -230,10 +229,13 @@ Proof.
 
   hoare_forward; simplify_remove_var.
   hoare_forward; simplify_remove_var.
-  hoare_forward; simplify_remove_var.
+  eapply rule_seq.
+  applys (>>writes_call1_ok);
+    [eauto| | eauto| eauto| prove_not_local| evalExps| evalLExps| evalExp| eauto |..].
   intros; apply eval_f_ok'; lia.
-  assert (ntrd * nblk <> 0) by nia.
-  hoare_forward.
+  2: intros; sep_cancel'; eauto.
+  intros; simpl; prove_pure.
+
   hoare_forward; simplify_remove_var.
 
   unfold kernelInv; prove_imp.
@@ -311,7 +313,7 @@ Proof.
     apply low_assn_vars; simpl in *; tauto.
   - unfold E, mkMap_cmd.
     instantiate (1 := Hi).
-    unfold assigns_get; repeat prove_typing_cmd.
+    unfold assigns_get, writes_call1; repeat prove_typing_cmd.
   - intros; rewrite !MyVector.init_spec.
     eapply rule_conseq; eauto using mkMap_cmd_ok.
     unfold kernelInv; introv; rewrite assn_var_in; revert s h; prove_imp.    

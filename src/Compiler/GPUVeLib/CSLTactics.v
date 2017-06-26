@@ -1053,6 +1053,7 @@ Lemma ae_assigns GA ty (avenv : AVarEnv GA) apenv aeenv (ae : Skel.AE GA ty) arr
   -> ae_ok avenv ae arr_c
   -> ~ is_local x -> ~ is_param x
   -> ~ is_local ix 
+  -> prefix x (str_of_var ix) = false
   -> (forall (l : var) (v : val), In (l |-> v) resEnv -> ~ is_local l)
   -> evalExp resEnv ix i'
   -> i' = Zn i
@@ -1111,12 +1112,41 @@ Proof.
   repeat rewrite remove_vars_app; prove_imp.
   apply not_in_disjoint; intros.
   rewrite fvEs_v2e.
+  intros Hc; forwards*[Hin|Hin]: H2.
   forwards*: not_is_local_locals.
   unfold is_local in *; simpl in *.
   destruct (prefix "l" x); congruence.
+  substs. 
+  forwards*(? & ? & ?): locals_pref; substs.
+  simpl in *; rewrite prefix_cat in *; congruence.
   apply evalExps_vars.
   apply incl_appl.
   eauto.
+Qed.
+
+Lemma locals_disj x y :
+  prefix x y = false ->
+  prefix y x = false ->
+  forall (z w : string), (x ++ z <> y ++ w)%string.
+Proof.
+  revert y; induction x; simpl in *; intros y Hxy Hyx z w Hc.
+  rewrite prefix_nil in *; congruence.
+  destruct y; simpl in *; try congruence.
+  inverts Hc.
+  destruct Ascii.ascii_dec; try congruence.
+  forwards*: IHx.
+Qed.
+
+Lemma locals_disjoint ty1 ty2 x y n m :
+  prefix x y = false ->
+  prefix y x = false ->
+  disjoint (flatTup (locals x ty1 n)) (flatTup (locals y ty2 m)).
+Proof.
+  intros; apply not_in_disjoint; intros ? Hin1 Hin2.
+  forwards* (? & ? & ?): (>>locals_pref Hin1); substs.
+  forwards* (? & ? & ?): (>>locals_pref Hin2).
+  inverts H1.
+  applys* (>>locals_disj H H0).
 Qed.
 
 Lemma assigns_call2_ok GA dom1 dom2 cod (avenv : AVarEnv GA) apenv aeenv
@@ -1131,6 +1161,8 @@ Lemma assigns_call2_ok GA dom1 dom2 cod (avenv : AVarEnv GA) apenv aeenv
   -> prefix "l" arg2 = false
   -> prefix "l" x = false
   -> prefix "_" x = false
+  -> prefix x arg1 = false -> prefix arg1 x = false
+  -> prefix x arg2 = false -> prefix arg2 x = false
   -> (forall (l : var) (v : val), In (l |-> v) resEnv -> ~ is_local l)
   -> evalExps resEnv (v2e (locals arg1 dom1 0)) (sc2CUDA vs1)
   -> evalExps resEnv (v2e (locals arg2 dom2 0)) (sc2CUDA vs2)
@@ -1156,11 +1188,52 @@ Proof.
   repeat rewrite remove_vars_app; prove_imp.
   apply not_in_disjoint; intros.
   rewrite fvEs_v2e.
-  intros Hc; forwards*: H2.
+  intros Hc; forwards*[?|[?|?]]: H2.
   forwards*: not_is_local_locals.
+  forwards*H': (>>locals_disjoint dom1 cod arg1 x 0 n); eapply disjoint_not_in_r in H'; eauto.
+  forwards*H': (>>locals_disjoint dom2 cod arg2 x 0 n); eapply disjoint_not_in_r in H'; eauto.
   apply evalExps_vars.
   apply incl_appl.
   eauto.
+Qed.
+
+Lemma writes_call1_ok GA dom cod (avenv : AVarEnv GA) apenv aeenv
+      (func : Skel.Func GA (Skel.Fun1 dom cod)) func_c  vs r
+      (ntrd : nat) (tid : Fin.t ntrd)
+      (BS : nat -> Vector.t assn ntrd * Vector.t assn ntrd) 
+      (R : res) (P : Prop) (resEnv : list entry) (p : Qc) arg 
+      les ix iz st j i arr dist ls Res'
+  :
+  aenv_ok avenv
+  -> (P -> Skel.funcDenote GA _ func aeenv vs = Some r)
+  -> func_ok avenv func func_c
+  -> prefix "l" arg = false
+  -> (forall (l : var) (v : val), In (l |-> v) resEnv -> ~ is_local l)
+  -> evalExps resEnv (v2e (locals arg dom 0)) (sc2CUDA vs)
+  -> evalLExps resEnv les ls
+  -> evalExp resEnv ix iz
+  -> iz = Zn i
+  -> (P -> i < Datatypes.length arr /\ dist (st + i) = j)
+  -> (P -> R |=R arrays' ls (ith_vals dist arr j st) 1 *** Res')
+  -> CSL BS tid
+         (kernelInv avenv apenv aeenv R P resEnv p)
+         (writes_call1 (les +os ix) func_c (locals arg dom 0))
+         (kernelInv avenv apenv aeenv (arrays' ls (ith_vals dist (set_nth i arr (sc2CUDA r)) j st) 1 *** Res') P resEnv p).
+Proof.
+  intros ? ? (? & ? & Htri & ?); intros; substs; eauto.
+  eapply rule_seq.
+  forwards*: Htri.
+  intros? Hin; forwards*: (>>not_is_local_locals Hin).
+  
+  eapply kernelInv_inner; eauto.
+  rewrite writes_writes; simpl; tauto.
+  
+  eapply forward; [|eapply rule_writes_arrays']; eauto using locals_disjoint_ls.
+  repeat rewrite remove_vars_app; prove_imp.
+  applys* evalLExps_app_ig.
+  applys* evalExp_app_ig.
+  applys* evalExps_vars.
+  apply incl_appl; eauto.
 Qed.
 
 Lemma ae_ok_tri GA ty (avenv : AVarEnv GA) apenv aeenv (ae : Skel.AE GA ty) arr_c (res0 : Skel.aTypDenote ty) ix 
@@ -1204,174 +1277,149 @@ Proof.
   intros ? (? & ? & ? & ?); eauto.
 Qed.      
 
-Lemma disjoint_user_local_vars_ae GA ty (avenv : AVarEnv GA) (arr : Skel.AE GA ty) arr_c t n i:
-  aenv_ok avenv 
-  -> prefix "l" t = false
-  -> ae_ok avenv arr arr_c
-  -> disjoint (flatTup (locals t ty n)) (flatTup (snd (arr_c i))).
-Proof.
-  intros.
-  apply not_in_disjoint; introv Hin Hc.
-  destruct H1 as (? & ? & ? & ?); eauto.
-  forwards*: H2; unfold is_local in *.
-  forwards* (? & ? & ?): locals_pref; substs; simpl in *.
-  destruct t; simpl in *.
-  destruct x0; simpl in *; destruct Ascii.ascii_dec; try congruence.
-  destruct Ascii.ascii_dec; simpl in *.
-  rewrite prefix_nil in *; congruence.
-  congruence.
-Qed.
+(* Lemma disjoint_user_local_vars_ae GA ty (avenv : AVarEnv GA) (arr : Skel.AE GA ty) arr_c t n i: *)
+(*   aenv_ok avenv  *)
+(*   -> prefix "l" t = false *)
+(*   -> ae_ok avenv arr arr_c *)
+(*   -> disjoint (flatTup (locals t ty n)) (flatTup (snd (arr_c i))). *)
+(* Proof. *)
+(*   intros. *)
+(*   apply not_in_disjoint; introv Hin Hc. *)
+(*   destruct H1 as (? & ? & ? & ?); eauto. *)
+(*   forwards*: H2; unfold is_local in *. *)
+(*   forwards* (? & ? & ?): locals_pref; substs; simpl in *. *)
+(*   destruct t; simpl in *. *)
+(*   destruct x0; simpl in *; destruct Ascii.ascii_dec; try congruence. *)
+(*   destruct Ascii.ascii_dec; simpl in *. *)
+(*   rewrite prefix_nil in *; congruence. *)
+(*   congruence. *)
+(* Qed. *)
 
-Lemma disjoint_user_local_ae GA ty (avenv : AVarEnv GA) (arr : Skel.AE GA ty) arr_c t n i :
-  aenv_ok avenv 
-  -> prefix "l" t = false
-  -> ae_ok avenv arr arr_c
-  -> disjoint (flatTup (locals t ty n)) (fv_Es (v2e (snd (arr_c i)))).
-Proof.
-  rewrite fvEs_v2e; apply disjoint_user_local_vars_ae.
-Qed.
+(* Lemma disjoint_user_local_ae GA ty (avenv : AVarEnv GA) (arr : Skel.AE GA ty) arr_c t n i : *)
+(*   aenv_ok avenv  *)
+(*   -> prefix "l" t = false *)
+(*   -> ae_ok avenv arr arr_c *)
+(*   -> disjoint (flatTup (locals t ty n)) (fv_Es (v2e (snd (arr_c i)))). *)
+(* Proof. *)
+(*   rewrite fvEs_v2e; apply disjoint_user_local_vars_ae. *)
+(* Qed. *)
 
-Lemma disjoint_user_local_vars_func1 GA dom cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun1 dom cod)) func_c t n i:
-  aenv_ok avenv 
-  -> prefix "l" t = false
-  -> func_ok avenv f func_c
-  -> disjoint (flatTup (locals t cod n)) (flatTup (snd (func_c i))).
-Proof.
-  intros.
-  apply not_in_disjoint; introv Hin Hc.
-  destruct H1 as (? & ? & ? & ?); eauto.
-  forwards*: H2; unfold is_local in *.
-  forwards* (? & ? & ?): locals_pref; substs; simpl in *.
-  destruct t; simpl in *.
-  destruct x0; simpl in *; destruct Ascii.ascii_dec; try congruence.
-  destruct Ascii.ascii_dec; simpl in *.
-  rewrite prefix_nil in *; congruence.
-  congruence.
-Qed.
+(* Lemma disjoint_user_local_vars_func1 GA dom cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun1 dom cod)) func_c t n i: *)
+(*   aenv_ok avenv  *)
+(*   -> prefix "l" t = false *)
+(*   -> func_ok avenv f func_c *)
+(*   -> disjoint (flatTup (locals t cod n)) (flatTup (snd (func_c i))). *)
+(* Proof. *)
+(*   intros. *)
+(*   apply not_in_disjoint; introv Hin Hc. *)
+(*   destruct H1 as (? & ? & ? & ?); eauto. *)
+(*   forwards*: H2; unfold is_local in *. *)
+(*   forwards* (? & ? & ?): locals_pref; substs; simpl in *. *)
+(*   destruct t; simpl in *. *)
+(*   destruct x0; simpl in *; destruct Ascii.ascii_dec; try congruence. *)
+(*   destruct Ascii.ascii_dec; simpl in *. *)
+(*   rewrite prefix_nil in *; congruence. *)
+(*   congruence. *)
+(* Qed. *)
 
-Lemma disjoint_user_local_func1 GA dom cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun1 dom cod)) func_c t n i:
-  aenv_ok avenv 
-  -> prefix "l" t = false
-  -> func_ok avenv f func_c
-  -> disjoint (flatTup (locals t cod n)) (fv_Es (v2e (snd (func_c i)))).
-Proof.
-  rewrite fvEs_v2e; apply disjoint_user_local_vars_func1.
-Qed.
+(* Lemma disjoint_user_local_func1 GA dom cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun1 dom cod)) func_c t n i: *)
+(*   aenv_ok avenv  *)
+(*   -> prefix "l" t = false *)
+(*   -> func_ok avenv f func_c *)
+(*   -> disjoint (flatTup (locals t cod n)) (fv_Es (v2e (snd (func_c i)))). *)
+(* Proof. *)
+(*   rewrite fvEs_v2e; apply disjoint_user_local_vars_func1. *)
+(* Qed. *)
 
-Lemma disjoint_user_local_vars_func2 GA dom1 dom2 cod (avenv : AVarEnv GA)
-      (f : Skel.Func GA (Skel.Fun2 dom1 dom2 cod)) func_c t n x y:
-  aenv_ok avenv 
-  -> prefix "l" t = false
-  -> func_ok avenv f func_c
-  -> disjoint (flatTup (locals t cod n)) (flatTup (snd (func_c x y))).
-Proof.
-  intros.
-  apply not_in_disjoint; introv Hin Hc.
-  destruct H1 as (? & ? & ? & ?); eauto.
-  forwards*: H2; unfold is_local in *.
-  forwards* (? & ? & ?): locals_pref; substs; simpl in *.
-  destruct t; simpl in *.
-  destruct x1; simpl in *; destruct Ascii.ascii_dec; try congruence.
-  destruct Ascii.ascii_dec; simpl in *.
-  rewrite prefix_nil in *; congruence.
-  congruence.
-Qed.
+(* Lemma disjoint_user_local_vars_func2 GA dom1 dom2 cod (avenv : AVarEnv GA) *)
+(*       (f : Skel.Func GA (Skel.Fun2 dom1 dom2 cod)) func_c t n x y: *)
+(*   aenv_ok avenv  *)
+(*   -> prefix "l" t = false *)
+(*   -> func_ok avenv f func_c *)
+(*   -> disjoint (flatTup (locals t cod n)) (flatTup (snd (func_c x y))). *)
+(* Proof. *)
+(*   intros. *)
+(*   apply not_in_disjoint; introv Hin Hc. *)
+(*   destruct H1 as (? & ? & ? & ?); eauto. *)
+(*   forwards*: H2; unfold is_local in *. *)
+(*   forwards* (? & ? & ?): locals_pref; substs; simpl in *. *)
+(*   destruct t; simpl in *. *)
+(*   destruct x1; simpl in *; destruct Ascii.ascii_dec; try congruence. *)
+(*   destruct Ascii.ascii_dec; simpl in *. *)
+(*   rewrite prefix_nil in *; congruence. *)
+(*   congruence. *)
+(* Qed. *)
 
-Lemma disjoint_user_local_func2 GA dom1 dom2 cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun2 dom1 dom2 cod)) func_c t n x y:
-  aenv_ok avenv 
-  -> prefix "l" t = false
-  -> func_ok avenv f func_c
-  -> disjoint (flatTup (locals t cod n)) (fv_Es (v2e (snd (func_c x y)))).
-Proof.
-  rewrite fvEs_v2e; apply disjoint_user_local_vars_func2.
-Qed.
+(* Lemma disjoint_user_local_func2 GA dom1 dom2 cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun2 dom1 dom2 cod)) func_c t n x y: *)
+(*   aenv_ok avenv  *)
+(*   -> prefix "l" t = false *)
+(*   -> func_ok avenv f func_c *)
+(*   -> disjoint (flatTup (locals t cod n)) (fv_Es (v2e (snd (func_c x y)))). *)
+(* Proof. *)
+(*   rewrite fvEs_v2e; apply disjoint_user_local_vars_func2. *)
+(* Qed. *)
 
-Lemma not_in_user_local_vars_ae GA ty (avenv : AVarEnv GA) (arr : Skel.AE GA ty) arr_c (t : var) i:
-  aenv_ok avenv 
-  -> prefix "l" (str_of_var t) = false
-  -> ae_ok avenv arr arr_c
-  -> ~ In t (flatTup (snd (arr_c i))).
-Proof.
-  intros.
-  destruct H1 as (? & ? & ? & ?); eauto.
-  intros Hc; forwards*: H2; unfold is_local in *; congruence.
-Qed.
+(* Lemma not_in_user_local_vars_ae GA ty (avenv : AVarEnv GA) (arr : Skel.AE GA ty) arr_c (t : var) i: *)
+(*   aenv_ok avenv  *)
+(*   -> prefix "l" (str_of_var t) = false *)
+(*   -> ae_ok avenv arr arr_c *)
+(*   -> ~ In t (flatTup (snd (arr_c i))). *)
+(* Proof. *)
+(*   intros. *)
+(*   destruct H1 as (? & ? & ? & ?); eauto. *)
+(*   intros Hc; forwards*: H2; unfold is_local in *; congruence. *)
+(* Qed. *)
 
-Lemma not_in_user_local_ae GA ty (avenv : AVarEnv GA) (arr : Skel.AE GA ty) arr_c (t : var) i :
-  aenv_ok avenv 
-  -> prefix "l" (str_of_var t) = false
-  -> ae_ok avenv arr arr_c
-  -> ~ In t (fv_Es (v2e (snd (arr_c i)))).
-Proof.
-  rewrite fvEs_v2e; apply not_in_user_local_vars_ae.
-Qed.
+(* Lemma not_in_user_local_ae GA ty (avenv : AVarEnv GA) (arr : Skel.AE GA ty) arr_c (t : var) i : *)
+(*   aenv_ok avenv  *)
+(*   -> prefix "l" (str_of_var t) = false *)
+(*   -> ae_ok avenv arr arr_c *)
+(*   -> ~ In t (fv_Es (v2e (snd (arr_c i)))). *)
+(* Proof. *)
+(*   rewrite fvEs_v2e; apply not_in_user_local_vars_ae. *)
+(* Qed. *)
 
-Lemma not_in_user_local_vars_func1 GA dom cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun1 dom cod)) func_c t i:
-  aenv_ok avenv 
-  -> prefix "l" (str_of_var t) = false
-  -> func_ok avenv f func_c
-  -> ~In t (flatTup (snd (func_c i))).
-Proof.
-  intros.
-  destruct H1 as (? & ? & ? & ?); eauto.
-  intros Hc; forwards*: H2; unfold is_local in *; congruence.
-Qed.
+(* Lemma not_in_user_local_vars_func1 GA dom cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun1 dom cod)) func_c t i: *)
+(*   aenv_ok avenv  *)
+(*   -> prefix "l" (str_of_var t) = false *)
+(*   -> func_ok avenv f func_c *)
+(*   -> ~In t (flatTup (snd (func_c i))). *)
+(* Proof. *)
+(*   intros. *)
+(*   destruct H1 as (? & ? & ? & ?); eauto. *)
+(*   intros Hc; forwards*: H2; unfold is_local in *; congruence. *)
+(* Qed. *)
 
-Lemma not_in_user_local_func1 GA dom cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun1 dom cod)) func_c t i:
-  aenv_ok avenv 
-  -> prefix "l" (str_of_var t) = false
-  -> func_ok avenv f func_c
-  -> ~ In t (fv_Es (v2e (snd (func_c i)))).
-Proof.
-  rewrite fvEs_v2e; apply not_in_user_local_vars_func1.
-Qed.
+(* Lemma not_in_user_local_func1 GA dom cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun1 dom cod)) func_c t i: *)
+(*   aenv_ok avenv  *)
+(*   -> prefix "l" (str_of_var t) = false *)
+(*   -> func_ok avenv f func_c *)
+(*   -> ~ In t (fv_Es (v2e (snd (func_c i)))). *)
+(* Proof. *)
+(*   rewrite fvEs_v2e; apply not_in_user_local_vars_func1. *)
+(* Qed. *)
 
-Lemma not_in_user_local_vars_func2 GA dom1 dom2 cod (avenv : AVarEnv GA)
-      (f : Skel.Func GA (Skel.Fun2 dom1 dom2 cod)) func_c t x y:
-  aenv_ok avenv 
-  -> prefix "l" (str_of_var t) = false
-  -> func_ok avenv f func_c
-  -> ~ In t (flatTup (snd (func_c x y))).
-Proof.
-  intros.
-  destruct H1 as (? & ? & ? & ?); eauto.
-  intros Hc; forwards*: H2; unfold is_local in *; congruence.
-Qed.
+(* Lemma not_in_user_local_vars_func2 GA dom1 dom2 cod (avenv : AVarEnv GA) *)
+(*       (f : Skel.Func GA (Skel.Fun2 dom1 dom2 cod)) func_c t x y: *)
+(*   aenv_ok avenv  *)
+(*   -> prefix "l" (str_of_var t) = false *)
+(*   -> func_ok avenv f func_c *)
+(*   -> ~ In t (flatTup (snd (func_c x y))). *)
+(* Proof. *)
+(*   intros. *)
+(*   destruct H1 as (? & ? & ? & ?); eauto. *)
+(*   intros Hc; forwards*: H2; unfold is_local in *; congruence. *)
+(* Qed. *)
 
-Lemma not_in_user_local_func2 GA dom1 dom2 cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun2 dom1 dom2 cod)) func_c t x y:
-  aenv_ok avenv 
-  -> prefix "l" (str_of_var t) = false
-  -> func_ok avenv f func_c
-  -> ~In t (fv_Es (v2e (snd (func_c x y)))).
-Proof.
-  rewrite fvEs_v2e; apply not_in_user_local_vars_func2.
-Qed.
+(* Lemma not_in_user_local_func2 GA dom1 dom2 cod (avenv : AVarEnv GA) (f : Skel.Func GA (Skel.Fun2 dom1 dom2 cod)) func_c t x y: *)
+(*   aenv_ok avenv  *)
+(*   -> prefix "l" (str_of_var t) = false *)
+(*   -> func_ok avenv f func_c *)
+(*   -> ~In t (fv_Es (v2e (snd (func_c x y)))). *)
+(* Proof. *)
+(*   rewrite fvEs_v2e; apply not_in_user_local_vars_func2. *)
+(* Qed. *)
 
-
-Lemma locals_disj x y :
-  prefix x y = false ->
-  prefix y x = false ->
-  forall (z w : string), (x ++ z <> y ++ w)%string.
-Proof.
-  revert y; induction x; simpl in *; intros y Hxy Hyx z w Hc.
-  rewrite prefix_nil in *; congruence.
-  destruct y; simpl in *; try congruence.
-  inverts Hc.
-  destruct Ascii.ascii_dec; try congruence.
-  forwards*: IHx.
-Qed.
-
-Lemma locals_disjoint ty1 ty2 x y n m :
-  prefix x y = false ->
-  prefix y x = false ->
-  disjoint (flatTup (locals x ty1 n)) (flatTup (locals y ty2 m)).
-Proof.
-  intros; apply not_in_disjoint; intros ? Hin1 Hin2.
-  forwards* (? & ? & ?): (>>locals_pref Hin1); substs.
-  forwards* (? & ? & ?): (>>locals_pref Hin2).
-  inverts H1.
-  applys* (>>locals_disj H H0).
-Qed.
 
 Lemma str_app_nil_r s :
   (s ++ "" = s)%string.
@@ -1479,12 +1527,12 @@ Proof.
 Qed.
 
 Ltac simplify_remove_var :=
-  let tac := now first [applys* disjoint_user_local_vars_ae |
-                        applys* disjoint_user_local_vars_func1 |
-                        applys* disjoint_user_local_vars_func2 |
-                        applys* not_in_user_local_vars_ae |
-                        applys* not_in_user_local_vars_func1 |
-                        applys* not_in_user_local_vars_func2 |
+  let tac := now first [(* applys* disjoint_user_local_vars_ae | *)
+                        (* applys* disjoint_user_local_vars_func1 | *)
+                        (* applys* disjoint_user_local_vars_func2 | *)
+                        (* applys* not_in_user_local_vars_ae | *)
+                        (* applys* not_in_user_local_vars_func1 | *)
+                        (* applys* not_in_user_local_vars_func2 | *)
                         simpl; applys* locals_not_in |
                         applys* locals_disjoint] in
   repeat (first [
@@ -1699,7 +1747,7 @@ Ltac hoare_forward_prim' :=
         applys (>>ae_ok_tri Haok Hok);
           [prove_not_local| eauto with pure_lemma |prove_not_local | evalExp| prove_pure|..]
       | [Haok : aenv_ok ?avar_env, Hok : ae_ok _ ?arr ?arr_c |- CSL _ _ ?P (assigns_get ?xs ?arr_c _) ?Q] =>
-        applys (>>ae_assigns Haok Hok); try (now (prove_not_local)); 
+        applys (>>ae_assigns Haok Hok); try (now (prove_not_local)); try (now (simpl; congruence));
         [eauto with pure_lemma | evalExp | solve_zn | prove_pure|..]
       | [Haok : aenv_ok ?avar_env, Hfok : func_ok _ ?f ?f_c |- CSL _ _ ?P (fst (?f_c _)) ?Q] =>
         idtac "ok";

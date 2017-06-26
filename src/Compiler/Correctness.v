@@ -84,7 +84,7 @@ Definition func_ok1 {GA dom cod} (avar_env : AVarEnv GA)
   -> (* func only writes to local variables *)
      (forall x l, In l (writes_var (fst (func x))) -> is_local l) /\
      (* func only returs to local variables or parameter *)
-     (forall x l, In l (flatTup (snd (func x))) -> is_local l) /\
+     (forall x l, In l (flatTup (snd (func x))) -> is_local l \/ In l (flatTup x)) /\
      (* functional correctenss *)
      (forall ntrd (tid : Fin.t ntrd) BS xs vs res aptr_env aeval_env R (P : Prop) resEnv p,
          (forall l, In l (flatTup xs) -> ~is_local l)
@@ -104,7 +104,7 @@ Definition func_ok2 {GA dom1 dom2 cod} (avar_env : AVarEnv GA)
   -> (* func only writes to local variables *)
      (forall x y l, In l (writes_var (fst (func x y))) -> is_local l) /\
      (* func only returs to local variables or parameter *)
-     (forall x y l, In l (flatTup (snd (func x y))) -> is_local l) /\
+     (forall x y l, In l (flatTup (snd (func x y))) -> is_local l \/ In l (flatTup x) \/ In l (flatTup y)) /\
      (* functional correctenss *)
      (forall ntrd (tid : Fin.t ntrd) BS xs ys vs1 vs2 res aptr_env aeval_env R (P : Prop) resEnv p,
          (forall l, In l (flatTup xs) -> ~is_local l)
@@ -147,7 +147,7 @@ Definition ae_ok {GA ty} (avar_env : AVarEnv GA) (ae : Skel.AE GA ty) (arr : var
   -> (* func only writes to local variables *)
      (forall x l, In l (writes_var (fst (arr x))) -> is_local l) /\
      (* func only returs to local variables or parameter *)
-     (forall x l, In l (flatTup (snd (arr x))) -> is_local l) /\
+     (forall x l, In l (flatTup (snd (arr x))) -> is_local l \/ l = x) /\
      (* functional correctenss *)
      (forall ntrd (tid : Fin.t ntrd) BS ix i res aptr_env aeval_env R (P : Prop) resEnv p,
          ~is_local ix
