@@ -346,6 +346,7 @@ Proof.
   apply Nat.pow_le_mono_r; lia.
 Qed.
 
+Hint Rewrite map_length : pure.
 Notation gid := (nf tid + nf bid * ntrd).
 
 Lemma reduce_body_ok n :
@@ -1831,16 +1832,15 @@ End CorrectnessOfResult.
 
 Lemma mkReduce_ok M G (GA : list Skel.Typ) (typ : Skel.Typ) (ntrd : nat)
       (arr_c : var -> cmd * vars typ) (func_c : vars typ -> vars typ -> cmd * vars typ)
-      pars tag avar_env :
-  aenv_ok avar_env
+      pars tag avar_env arr (func : Skel.Func GA (Skel.Fun2 typ typ typ)) :
+  aenv_ok avar_env -> ae_ok avar_env arr arr_c -> func_ok avar_env func func_c 
   -> let e_b := S (log2 ntrd) in
      interp_kfun M G (mkReduce GA typ ntrd arr_c func_c)
                  (FS pars tag 
-                     (All nblk aptr_env aeval_env arr (func : Skel.Func GA (Skel.Fun2 typ typ typ)) f_tot
+                     (All nblk aptr_env aeval_env f_tot
                           arr_res result outp outs,
                       FDbl (kernelInv avar_env aptr_env aeval_env (arrays (val2gl outp) outs 1)
                                       (ntrd <> 0 /\ nblk <> 0 /\ ntrd <= 2 ^ e_b /\ e_b <> 0 /\
-                                       ae_ok avar_env arr arr_c /\ func_ok avar_env func func_c /\
                                        Skel.aeDenote GA typ arr aeval_env = Some arr_res /\
                                        reduceM
                                          (Skel.funcDenote GA (Skel.Fun2 typ typ typ) func aeval_env) arr_res = Some result /\
@@ -1859,9 +1859,9 @@ Lemma mkReduce_ok M G (GA : list Skel.Typ) (typ : Skel.Typ) (ntrd : nat)
                                                reduceM (Skel.funcDenote GA (Skel.Fun2 typ typ typ) func aeval_env) arr_res /\ length vs = nblk) 1
                  ))).
 Proof.
-  intros Havok e_b n Hctx; unfold interp_kfun_n_simp.
+  intros Havok f_ok arr_ok e_b n Hctx; unfold interp_kfun_n_simp.
   subst e_b.
-  intros nblk aptr_env aeval_env arr f f_tot arr_res result outp outs.
+  intros nblk aptr_env aeval_env  f_tot arr_res result outp outs.
 
   eapply (CSLkfun_threads_vars ntrd nblk (fun n m => _) (fun n m => _) (fun n m => _)).
   { intros ? ?; prove_imp; try tauto.
@@ -1907,7 +1907,7 @@ Proof.
                                (Datatypes.length arr_res - j * ntrd0) ntrd0)
                             (S (log2 ntrd0)) 0))).
   unfold kernelInv' in *; revert s h H; prove_imp.
-  assert (Hfeq : Skel.funcDenote GA _ f aeval_env = fun x y => Some (f_tot x y)) by
+  assert (Hfeq : Skel.funcDenote GA _ func aeval_env = fun x y => Some (f_tot x y)) by
       (extensionality l; extensionality l'; eauto); eauto.
   repeat rewrite Hfeq.
   Lemma sum_of_f_opt_reduceM T d (f : T -> T -> T) (g : list T) :

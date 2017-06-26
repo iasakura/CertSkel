@@ -1,9 +1,10 @@
 Require Import Psatz Classical SetoidClass Qcanon.
 Require Import LibTactics.
-Require Import PHeap Lang Default.
+Require Import PHeap Lang.
 Require Import String.
 Require Import List.
 
+Notation val := Z.
 Arguments Z.add _ _ : simpl never.
 
 Coercion Var : string >-> var.
@@ -31,12 +32,12 @@ Inductive res :=
 | Star : res -> res -> res
 | TT : res.
 
-(* Definition loc2lexp (v : loc) := *)
-(*   match v with *)
-(*   | Loc p v => Loff p v *)
-(*   end. *)
+Definition loc2lexp (v : loc) :=
+  match v with
+  | Loc p v => Addr p v
+  end.
 
-(* Coercion loc2lexp : loc >-> loc_exp. *)
+Coercion loc2lexp : loc >-> loc_exp.
 
 Fixpoint res_denote R (h : pheap) :=
   match R with
@@ -77,7 +78,7 @@ Notation "P '|=R' Q" := (forall (h : pheap), sat_res h P -> sat_res h Q) (at lev
 
 Arguments sat_res h R : simpl never.
 
-Eval simpl in sat_res _ ((SLoc 1) |->p (1, VZ 3%Z)).
+Eval simpl in sat_res _ ((SLoc 1) |->p (1, 3%Z)).
 
 (*
 Res : an assertion for resource
@@ -91,7 +92,7 @@ Inductive assn :=
 | Assn (Res : res) (P : Prop) (Env : list entry) : assn
 | Ex_assn {T : Type} (P : T -> assn) : assn
 | Star_assn (P Q : assn) : assn
-| BEval_assn (be : exp) (b : bool) : assn (* used only for the while rule *)
+| BEval_assn (be : bexp) (b : bool) : assn (* used only for the while rule *)
 | Disj_assn (P Q : assn) : assn
 | Emp_assn : assn.
 
@@ -100,9 +101,7 @@ Fixpoint assn_denote (P : assn) s h : Prop :=
   | Assn R P Env => res_denote R h /\ P /\ env_assns_denote Env s
   | Ex_assn P => exists x, assn_denote (P x) s h
   | Star_assn P Q => exists h1 h2, assn_denote P s h1 /\ assn_denote Q s h2 /\ pdisj h1 h2 /\ phplus h1 h2 = h
-  | BEval_assn be b =>
-    (exists v, edenote be s = Some (VZ v) /\ if b then v <> 0%Z else v = 0%Z) /\
-    (forall l, this h l = None)
+  | BEval_assn be b => bdenot be s = b /\ (forall l, this h l = None)
   | Disj_assn P Q => assn_denote P s h \/ assn_denote Q s h
   | Emp_assn => forall l, this h l = None
   end.
@@ -140,322 +139,119 @@ Proof.
   split; intros (h1 & h2 & ? & ? & ? & ?); exists h1 h2; splits; try apply H; try apply H'; eauto.
 Qed.
 
+Inductive evalExp : list entry -> exp -> val -> Prop :=
+| SEval_num env n : evalExp env (Enum n) n
+| SEval_Ebinop env op e1 v1 e2 v2 :
+    evalExp env e1 v1 -> evalExp env e2 v2 ->
+    evalExp env (Ebinop op e1 e2) (binop_exp_denot op v1 v2)%Z
+| SEval_var env e v : In (Ent e v) env -> evalExp env e v.
+
+Lemma env_denote_in Env x v :
+  In (Ent x v) Env -> forall s, env_assns_denote Env s -> s x = v.
+Proof.
+  induction Env; simpl; try tauto;
+  destruct 1; destruct 1; substs; eauto.
+Qed.  
+
+Lemma evalExp_ok (Env : list entry) (e : exp) (v : val) :
+  evalExp Env e v -> 
+  forall s, env_assns_denote Env s -> edenot e s = v.
+Proof.
+  induction 1; simpl;
+  intros; unfold sat in *;
+  try forwards*: IHevalExp1;
+  try forwards*: IHevalExp2;
+  try forwards*: IHevalExp;
+  simpl in *; try congruence;
+  substs; auto.
+  applys* env_denote_in.
+Qed.
+
 Definition loc_off l i := 
   match l with
   | Loc p e => Loc p (e + i)
   end%Z.
 
-Inductive evalExp : list entry -> exp -> val -> Prop :=
-| SEval_num env n : evalExp env (Enum n) (VZ n)
-| SEval_Ebinop_arith env op e1 v1 e2 v2 v :
-    evalExp env e1 (VZ v1) ->
-    evalExp env e2 (VZ v2) ->
-    binop_arith_denote op v1 v2 = Some v ->
-    evalExp env (Ebinop (OP_arith op) e1 e2) (VZ v)
-| SEval_Ebinop_comp env op e1 v1 e2 v2 :
-    evalExp env e1 (VZ v1) ->
-    evalExp env e2 (VZ v2) ->
-    evalExp env (Ebinop (OP_comp op) e1 e2) (VZ (binop_comp_denote op v1 v2))
-| SEval_Ebinop_bool env op e1 p1 e2 p2 :
-    evalExp env e1 (VZ p1) ->
-    evalExp env e2 (VZ p2) ->
-    evalExp env (Ebinop (OP_bool op) e1 e2) (VZ (binop_bool_denote op p1 p2))
-| SEval_Eunop_bool env op e p :
-    evalExp env e (VZ p) ->
-    evalExp env (Eunop op e) (VZ (unop_denote op p))
-| SEval_Eoff env loc l off o :
-    evalExp env loc (VPtr l) ->
-    evalExp env off (VZ o) ->
-    evalExp env (Eoff loc off) (VPtr (loc_off l o))
-| SEval_var env e v : In (Ent e v) env -> evalExp env e v.
+Notation "le +o e" := (loc_offset le e) (at level 50, left associativity).
 
-Ltac evalExp' := 
-  repeat match goal with
-  | [|- evalExp _ _ _] => econstructor
-  end;
-  simpl;
-  (* try to solve variable evaluation *)
-  (repeat rewrite in_app_iff; simpl; repeat rewrite <-app_assoc; eauto 20);
-  (* try to solve arithmetic side-condition of _ / _ and _ mod _ *)
-  try match goal with
-  | [|- (if ?b then None else Some _) = Some _ ] =>
-    destruct b; [false; try lia|eauto]
-  | [|- (if ?b then Some _ else None) = Some _ ] =>
-    destruct b; [false; try lia|eauto]
-  end.
+Inductive evalLExp : list entry -> loc_exp -> loc -> Prop :=
+| SEval_addr env e p v : 
+    evalExp env e v ->
+    evalLExp env (Addr p e) (Loc p v)
+| SEval_off env e1 e2 v1 v2 :
+    evalLExp env e1 v1 ->
+    evalExp env e2 v2 ->
+    evalLExp env (e1 +o e2) (loc_off v1 v2).
 
-Ltac evalExp :=
-  let t := fresh "tmp" in
-  evar (t : val);
-    lazymatch goal with
-    | [|- evalExp _ _ ?x] => cutrewrite (x = t); [unfold t; evalExp'|unfold t; simpl; eauto]
-    end.
-
-Section evalExp_test.
-  Variable x y z w p q r a1 a2 : var.
-  Variable va1 va2 vx vy vz vw : Z.
-  Variable P Q R : Z.
-  
-  Notation env := (x |-> vx :: y |-> vy :: z |-> vz :: w |-> vw ::
-                   p |-> P :: q |-> Q :: r |-> R :: 
-                   a1 |-> GLoc va1 :: a2 |-> SLoc va2 :: nil).
-  
-  Example evalExp_test1 :
-    evalExp env (x +C y -C z) (VZ (vx + vy - vz)).
-  Proof.
-    evalExp.
-  Qed.
-
-  Example evalExp_test2 :
-    vz <> 0%Z ->
-    evalExp env ((x +C y) /C z) ((vx + vy) / vz)%Z.
-  Proof.
-    intros; evalExp.
-  Qed.
-
-  Example evalExp_test3 :
-    vz <> 0%Z -> vw <> 0%Z
-    -> evalExp env ((x +C y) /C z %C w) ((vx + vy) / vz mod vw)%Z.
-  Proof.
-    intros; evalExp.
-  Qed.
-
-  Example evalExp_test4 :
-    vw <> 0%Z
-    -> evalExp env (x +C y <C z %C w) (CUDA_lt (vx + vy) (vz mod vw)).
-  Proof.
-    intros; evalExp.
-  Qed.
-
-  Example evalExp_test5 :
-    evalExp env (p &&C q ||C !C r) (CUDA_or (CUDA_and P Q) (CUDA_not R)).
-  Proof.
-    intros.
-    evalExp.
-  Qed.
-
-  Example evalExp_test6 :
-    evalExp env (a1 +o x +C y) (GLoc (va1 + (vx + vy))).
-  Proof.
-    evalExp.
-  Qed.
-
-  (* remove test cases from enviroment  *)
-  Reset evalExp_test1.
-End evalExp_test.
-
-Lemma env_denote_in Env x v :
-  In (Ent x v) Env -> forall s, env_assns_denote Env s -> (s x) = v.
+Lemma ledenot_id (l : loc) s : ledenot l s = l.
 Proof.
-  induction Env; simpl; try tauto;
-  destruct 1; destruct 1; substs; eauto.
+  destruct l; auto.
 Qed.
 
-Lemma evalExp_ok (Env : list entry) (e : exp) (v : val) :
-  evalExp Env e v -> 
-  forall s, env_assns_denote Env s ->
-            edenote e s = Some v.
+Lemma evalLExp_ok (Env : list entry) (e : loc_exp) (v : loc) :
+  evalLExp Env e v ->
+  forall s, env_assns_denote Env s -> ledenot e s = v.
 Proof.
-  intros H; induction H; simpl; intros ? ?;
-  intros; unfold sat in *;
-  try rewrites* IHevalExp1;
-  try rewrites* IHevalExp2;
-  try rewrites* IHevalExp;
-  simpl in *; try congruence;
-  substs; auto.
-  - rewrite H1; eauto.
-  - destruct l; eauto.
-  - rewrites* (>>env_denote_in H).
+  induction 1; simpl.
+  - intros; forwards*: evalExp_ok; simpl in *; congruence.
+  - unfold sat in *; intros; unfold loc_off.
+    rewrites* IHevalLExp.
+    rewrites* (>>evalExp_ok e2 s).
 Qed.
 
-(* Definition binop_comp_denote_prop (op : binop_comp) v1 v2 := *)
-(*   match op with *)
-(*     | OP_eq => v1 = v2 *)
-(*     | OP_lt => v1 < v2 *)
-(*   end%Z. *)
+Definition binop_comp_denot_prop (op : binop_comp) :=
+  match op with
+  | OP_beq => fun x y => x = y
+  | OP_blt => fun x y => x < y
+  end%Z.
 
-(* Definition binop_bool_denote_prop (op : binop_bool) p1 p2 := *)
-(*   match op with *)
-(*     | OP_and => p1 /\ p2 *)
-(*     | OP_or => p1 \/ p2 *)
-(*   end%Z. *)
+Definition binop_bool_denot_prop (op : binop_bool) :=
+  match op with
+  | OP_and => fun x y => x /\ y
+  | OP_or => fun x y => x \/ y
+  end%Z.
 
-Definition eq_vp v P := v <> 0%Z <-> P.
+Definition unop_bool_denot_prop (op : unop_bool) :=
+  match op with
+  | OP_not => fun x => ~ x
+  end%Z.
 
-(* Lemma binop_comp_denote_prop_ok op v1 v2 : *)
-(*   eq_vp (binop_comp_denote op v1 v2) (binop_comp_denote_prop op v1 v2). *)
-(* Proof. *)
-(*   destruct op; simpl; unfold CUDA_eq, CUDA_lt; *)
-(*     match goal with |- context [if ?b then _ else _] => destruct b end; *)
-(*     split; try tauto; try lia. *)
-(* Qed. *)
+Inductive evalBExp : list entry -> bexp -> Prop -> Prop :=
+| SEval_comp env op e1 e2 v1 v2 : 
+    evalExp env e1 v1 ->
+    evalExp env e2 v2 ->
+    evalBExp env (Bcomp op e1 e2) (binop_comp_denot_prop op v1 v2)
+| Seval_bool env op b1 b2 p1 p2 :
+    evalBExp env b1 p1 ->
+    evalBExp env b2 p2 ->
+    evalBExp env (Bbool op b1 b2) (binop_bool_denot_prop op p1 p2)
+| Seval_unop env op b1 p1 :
+    evalBExp env b1 p1 ->
+    evalBExp env (Bunary op b1) (unop_bool_denot_prop op p1).
 
-(* Lemma binop_bool_denote_prop_ok op v1 v2 p1 p2 : *)
-(*   eq_vp v1 p1 -> eq_vp v2 p2 *)
-(*   -> eq_vp (binop_bool_denote op v1 v2) (binop_bool_denote_prop op p1 p2). *)
-(* Proof. *)
-(*   unfold eq_vp; *)
-(*   destruct op; simpl; unfold CUDA_and, CUDA_or; *)
-(*   match goal with |- context [if ?b then _ else _] => destruct b end; *)
-(*   split; try tauto; try lia. *)
-(* Qed. *)
-    
-(* Definition unop_bool_denote_prop (op : unop) p := *)
-(*   match op with *)
-(*     | OP_not => ~p *)
-(*   end%Z. *)
-
-(* Lemma unop_bool_denote_prop_ok op v p : *)
-(*   eq_vp v p -> eq_vp (unop_denote op v) (unop_bool_denote_prop op p). *)
-(* Proof. *)
-(*   unfold eq_vp; destruct op; simpl; unfold CUDA_not; destruct v; simpl; split; try tauto; try lia. *)
-(*   all: assert p by (apply H; congruence); tauto. *)
-(* Qed.   *)
-
-Inductive Z2Prop : Z -> Prop -> Prop :=
-| val2Prop_and v1 v2 p1 p2 :
-    Z2Prop v1 p1 -> Z2Prop v2 p2 -> Z2Prop (CUDA_and v1 v2) (p1 /\ p2)
-| val2Prop_or v1 v2 p1 p2 :
-    Z2Prop v1 p1 -> Z2Prop v2 p2 -> Z2Prop (CUDA_or v1 v2) (p1 \/ p2)
-| val2Prop_not v1 p1 :
-    Z2Prop v1 p1 -> Z2Prop (CUDA_not v1) (~ p1)
-| val2Prop_lt v1 v2 :
-    Z2Prop (CUDA_lt v1 v2) (v1 < v2)%Z
-| val2Prop_eq v1 v2 :
-    Z2Prop (CUDA_eq v1 v2) (v1 = v2)%Z
-| val2Prop_id v p : eq_vp v p -> Z2Prop v p.
-    
-Lemma Z2Prop_ok v p : Z2Prop v p -> eq_vp v p.
+Lemma evalBExp_ok (Env : list entry) (e : bexp) (p : Prop) :
+  forall s, 
+    evalBExp Env e p ->
+    (env_assns_denote Env s) ->
+    ((bdenot e s = true) <-> p).
 Proof.
-  induction 1; unfold eq_vp, CUDA_and, CUDA_or, CUDA_not, CUDA_lt, CUDA_eq in *;
-    try match goal with |- context [if ?b then _ else _] => destruct b end; split; try tauto; try lia.
+  intros s.
+  induction 1; intros; simpl.
+  - forwards*: (>>evalExp_ok e1); simpl in *; substs.
+    forwards*: (>>evalExp_ok e2); simpl in *; substs.
+    destruct op; split; simpl; lazymatch goal with [|- context [if ?b then _ else _]] => destruct b end; try congruence.
+  - destruct op; simpl;
+    rewrites* <-(>>IHevalBExp1); rewrites*<-(>>IHevalBExp2);
+    destruct (bdenot b1 s), (bdenot b2 s); split; intros;
+    try lazymatch goal with
+      | [H : _ /\ _ |- _] => destruct H
+      | [H : _ \/ _ |- _] => destruct H
+      end;
+    simpl in *; try congruence; eauto.
+  - destruct op; simpl.
+    rewrites* <-(>>IHevalBExp).
+    destruct (bdenot b1 s); simpl; split; intros; try congruence.
 Qed.
-
-Definition evalExp2Prop (E : list entry) (e : exp)  (p : Prop) : Prop :=
-  exists v, evalExp E e (VZ v) /\ Z2Prop v p.
-
-Create HintDb Z2Prop.
-Hint Resolve val2Prop_and val2Prop_or val2Prop_not val2Prop_lt val2Prop_eq : Z2Prop.
-
-Ltac Z2Prop :=
-  match goal with
-  | |- Z2Prop _ _ => (repeat try first [apply val2Prop_and |
-                                       apply val2Prop_or |
-                                       apply val2Prop_not |
-                                       apply val2Prop_lt |
-                                       apply val2Prop_eq ]);
-                     try (apply val2Prop_id; eauto)
-  end.
-
-Ltac evalExp2Prop :=
-  match goal with
-  | |- evalExp2Prop _ _ _ =>
-    eexists; split; [evalExp|]; Z2Prop
-  end.
-
-Section evalExp2Prop_test.
-  Variable x y z w P Q R : var.
-  Variable vx vy vz vw vr : Z.
-
-  Notation env := (x |-> vx :: y |-> vy :: z |-> vz :: w |-> vw ::
-                   P |-> (CUDA_lt vx vy) :: Q |-> (CUDA_eq vz vw) :: R |-> vr :: nil).
-
-  Example test1 :
-    evalExp2Prop env (x +C y <C z *C w) (vx + vy < vz * vw)%Z.
-  Proof.
-    evalExp2Prop.
-  Qed.
-
-  Example test2 :
-    evalExp2Prop env (x <C y &&C y <C z ||C z ==C w) (vx < vy /\ vy < vz \/ vz = vw)%Z.
-  Proof.
-    evalExp2Prop.
-  Qed.
-
-  Example test3 :
-    evalExp2Prop env (P ||C Q &&C Q) (vx < vy \/ vz = vw /\ vz = vw)%Z.
-  Proof.
-    evalExp2Prop.
-  Qed.
-
-  Example test4 :
-    eq_vp vr False -> evalExp2Prop env (P &&C R) (vx < vy /\ False)%Z.
-  Proof.
-    intros; evalExp2Prop.
-  Qed.
-
-  Reset test1.
-End evalExp2Prop_test.
-
-(* Lemma ledenot_id (l : loc) s : ledenot l s = l. *)
-(* Proof. *)
-(*   destruct l; auto. *)
-(* Qed. *)
-
-(* Lemma evalLExp_ok (Env : list entry) (e : loc_exp) (v : loc) : *)
-(*   evalLExp Env e v -> *)
-(*   forall s, env_assns_denote Env s -> ledenote e s = Some v. *)
-(* Proof. *)
-(*   inversion 1; simpl. *)
-(*   unfold sat in *; intros; unfold loc_off. *)
-(*   rewrites* (>>evalExp_ok e1 s). *)
-(*   rewrites* (>>evalExp_ok e2 s); simpl. *)
-(*   destruct v1; eauto. *)
-(* Qed. *)
-
-(* Definition binop_comp_denot_prop (op : binop_comp) := *)
-(*   match op with *)
-(*   | OP_beq => fun x y => x = y *)
-(*   | OP_blt => fun x y => x < y *)
-(*   end%Z. *)
-
-(* Definition binop_bool_denot_prop (op : binop_bool) := *)
-(*   match op with *)
-(*   | OP_and => fun x y => x /\ y *)
-(*   | OP_or => fun x y => x \/ y *)
-(*   end%Z. *)
-
-(* Definition unop_bool_denot_prop (op : unop_bool) := *)
-(*   match op with *)
-(*   | OP_not => fun x => ~ x *)
-(*   end%Z. *)
-
-(* Inductive evalBExp : list entry -> bexp -> Prop -> Prop := *)
-(* | SEval_comp env op e1 e2 v1 v2 : *)
-(*     evalExp env e1 v1 -> *)
-(*     evalExp env e2 v2 -> *)
-(*     evalBExp env (Bcomp op e1 e2) (binop_comp_denot_prop op v1 v2) *)
-(* | Seval_bool env op b1 b2 p1 p2 : *)
-(*     evalBExp env b1 p1 -> *)
-(*     evalBExp env b2 p2 -> *)
-(*     evalBExp env (Bbool op b1 b2) (binop_bool_denot_prop op p1 p2) *)
-(* | Seval_unop env op b1 p1 : *)
-(*     evalBExp env b1 p1 -> *)
-(*     evalBExp env (Bunary op b1) (unop_bool_denot_prop op p1). *)
-
-(* Lemma evalBExp_ok (Env : list entry) (e : bexp) (p : Prop) : *)
-(*   forall s,  *)
-(*     evalBExp Env e p -> *)
-(*     (env_assns_denote Env s) -> *)
-(*     ((bdenot e s = true) <-> p). *)
-(* Proof. *)
-(*   intros s. *)
-(*   induction 1; intros; simpl. *)
-(*   - forwards*: (>>evalExp_ok e1); simpl in *; substs. *)
-(*     forwards*: (>>evalExp_ok e2); simpl in *; substs. *)
-(*     destruct op; split; simpl; lazymatch goal with [|- context [if ?b then _ else _]] => destruct b end; try congruence. *)
-(*   - destruct op; simpl; *)
-(*     rewrites* <-(>>IHevalBExp1); rewrites*<-(>>IHevalBExp2); *)
-(*     destruct (bdenot b1 s), (bdenot b2 s); split; intros; *)
-(*     try lazymatch goal with *)
-(*       | [H : _ /\ _ |- _] => destruct H *)
-(*       | [H : _ \/ _ |- _] => destruct H *)
-(*       end; *)
-(*     simpl in *; try congruence; eauto. *)
-(*   - destruct op; simpl. *)
-(*     rewrites* <-(>>IHevalBExp). *)
-(*     destruct (bdenot b1 s); simpl; split; intros; try congruence. *)
-(* Qed. *)
 
 Definition remove_var (Env : list entry) (x : var) :=
   filter (fun e => if var_eq_dec x (ent_e e) then false else true) Env.
@@ -472,22 +268,22 @@ Fixpoint fv_E (e : exp) :=
   match e with
     | Evar v => v :: nil
     | Enum n => nil
-    | Eunop op e => fv_E e
     | Ebinop op e1 e2 => fv_E e1 ++ fv_E e2
-    | Eoff loc off => fv_E loc ++ fv_E off
   end.
 
-(* Definition fv_lE (e : loc_exp) := *)
-(*   match e with *)
-(*   | e1 +o e2 => fv_E e1 ++ fv_E e2 *)
-(*   end. *)
+Fixpoint fv_lE (e : loc_exp) :=
+  match e with
+  | Sh e
+  | Gl e => fv_E e
+  | e1 +o e2 => fv_lE e1 ++ fv_E e2
+  end.
 
-(* Fixpoint fv_B (e : bexp) := *)
-(*   match e with *)
-(*   | Bcomp op e1 e2 => fv_E e1 ++ fv_E e2 *)
-(*   | Bbool op b1 b2 => fv_B b1 ++ fv_B b2 *)
-(*   | Bunary op b => fv_B b *)
-(*   end. *)
+Fixpoint fv_B (e : bexp) :=
+  match e with
+  | Bcomp op e1 e2 => fv_E e1 ++ fv_E e2
+  | Bbool op b1 b2 => fv_B b1 ++ fv_B b2
+  | Bunary op b => fv_B b
+  end.
 
 Fixpoint disjoint {T : Type} (l1 l2 : list T) :=
   match l1 with
@@ -531,7 +327,6 @@ Lemma disjoint_inde_env (Env : list entry) xs :
 Proof.
   induction Env as [|[x v] Env]; introv Hinde ?; simpl; eauto.
   unfold inde_env in *; simpl in Hinde.
-  unfold ent_assn_denote; simpl.
   unfold var_upd in *; destruct var_eq_dec; intros [? ?]; split; jauto.
   substs; tauto.
 Qed.
@@ -867,14 +662,14 @@ Lemma sep_comm (P Q : assn) : (P ** Q) == (Q ** P).
 Proof.
   intros s h; split; simpl;
   intros (h1 & h2 & ? & ? & ? & ?); exists h2 h1; splits; jauto;
-  rewrites* @phplus_comm.
+  rewrites* phplus_comm.
 Qed.
 
 Lemma res_comm (P Q : res) : (P *** Q) == (Q *** P).
 Proof.
   intros h; split; simpl;
   intros (h1 & h2 & ? & ? & ? & ?); exists h2 h1; splits; jauto;
-  rewrites* @phplus_comm.
+  rewrites* phplus_comm.
 Qed.
 
 Lemma sep_CA (P Q R : assn) : (P ** Q ** R) == (Q ** P ** R).
@@ -969,7 +764,7 @@ Lemma array_unfold i (arr : list val) ptr p:
   i < length arr -> 
   (array ptr arr p) ==
   ((array ptr (firstn i arr) p) ***
-   (loc_off ptr (Zn i) |->p (p, nth i arr (VZ 0%Z))) ***
+   (loc_off ptr (Zn i) |->p (p, nth i arr 0%Z)) ***
    (array (loc_off ptr (Z.succ (Zn i))) (skipn (S i) arr) p)).
 Proof.
   simpl; unfold equiv_sep, sat_res, sat;
@@ -1133,6 +928,9 @@ Qed.
 (* Qed.     *)
 
 Notation skip arr n i := (ith_vals (fun x => x mod n) arr i 0).
+Notation get v i := (nth i v 0%Z).
+Definition option_get {T : Type} (x : option T) d := match x with Some x => x | None => d end.
+Notation get' v i := (option_get (nth i v 0%Z) 0%Z).
 
 Lemma ith_vals_length (T : Type) dist (arr : list T) i s :
   length (ith_vals dist arr i s) = length arr.
@@ -1469,44 +1267,89 @@ Lemma ith_vals_set_nth0 T dist ls (x : T) i j:
   set_nth i (ith_vals dist ls j 0) (Some x).
 Proof. intros; substs; forwards*: (>>ith_vals_set_nth x 0). Qed.
 
-Inductive removed_list {A} (t : A) : list A -> list A -> Prop :=
-| nil_removed : removed_list t nil nil 
-| cons_eq_removed xs x ys :
-    x = t
-    -> removed_list t xs ys
-    -> removed_list t (x :: xs) ys
-| cons_neq_removed xs x ys :
-    x <> t
-    -> removed_list t xs ys
-    -> removed_list t (x :: xs) (x :: ys).
+(* Lemma rule_write_array'  ntrd BS *)
+(*       (tid : Fin.t ntrd) (le : loc_exp) (l : loc)  *)
+(*       (Env : list entry) (P : Prop) (Res Res' : res) (arr : list val) dist ix i iz j e v st: *)
+(*   evalLExp Env le l -> *)
+(*   evalExp Env ix iz -> *)
+(*   Res |=R array' l (ith_vals dist arr j st) 1 *** Res' -> *)
+(*   evalExp Env e v -> *)
+(*   iz = Zn i -> *)
+(*   (P -> i < length arr /\ dist (st + i) = j) -> *)
+(*   CSL BS tid *)
+(*       (Assn Res P Env) *)
+(*       ([le +o ix] ::= e) *)
+(*       (Assn (array' l (ith_vals dist (set_nth i arr v) j st) 1 *** Res') P Env). *)
+(* Proof. *)
+(*   intros. *)
+(*   eapply forward; [|applys (>>rule_write (loc_off l iz) (nth i arr 0%Z) )]. *)
+(*   2: constructor; eauto. *)
+(*   2: eauto. *)
+(*   Focus 2. *)
+(*   { intros s h Hp Hres. *)
+(*     apply H1 in Hres. *)
+(*     rewrites* (array'_unfold i (ith_vals dist arr j st) l 1) in Hres; [|rewrites* ith_vals_length]. *)
+(*     repeat rewrite <-res_assoc in *; substs. *)
+(*     rewrite res_CA in Hres. *)
+(*     rewrite (nth_skip _ 0%Z) in Hres. *)
+(*     forwards*: H4. *)
+(*     destruct Nat.eq_dec, (lt_dec i (length arr)); try now (simpl in *; omega). *)
+(*     subst; unfold sat in *; sep_cancel; eauto. } Unfocus. *)
+(*   unfold Assn; intros s h ?; unfold sat in *. *)
+(*   sep_split_in H5; sep_split; eauto. *)
+(*   fold_res_sat. *)
+(*   rewrites* (>>array'_unfold i l 1%Qc); [rewrite ith_vals_length, length_set_nth; tauto|]. *)
+(*   unfold_conn_in HP; forwards*[? ?]: H4; substs. *)
+(*   repeat rewrite <-res_assoc in *; substs. *)
+(*   rewrite (nth_skip _ 0%Z); destruct Nat.eq_dec; try (simpl in *; omega). *)
+(*   destruct lt_dec; try (unfold_conn_all; tauto). *)
+(*   2:rewrite length_set_nth in *; tauto. *)
+(*   rewrite nth_set_nth; destruct (Nat.eq_dec i i), (lt_dec i (length arr)); try omega. *)
+(*   subst; unfold sat in *; repeat sep_cancel; eauto. *)
+(*   rewrites* ith_vals_set_nth. *)
+(*   rewrite firstn_set_nth_ignore. *)
+(*   rewrite skipn_set_nth_ignore. *)
+(*   rewrite res_CA in H5. *)
+(*   eauto. *)
+(* Qed. *)
 
-Lemma removed_exists A (x : A) xs :
-  exists ys, removed_list x xs ys.
-Proof.
-  induction xs.
-  - exists (@nil A); constructor.
-  - destruct IHxs as [ys IH].
-    assert (x = a \/ x <> a) as [Heq | Heq] by tauto.
-    + exists ys; apply cons_eq_removed; eauto.
-    + exists (a :: ys); apply cons_neq_removed; eauto.
-Qed.    
+(* Lemma rule_write_sarray'  ntrd BS *)
+(*       (tid : Fin.t ntrd) (le : loc_exp) (l : loc) (Env : list entry)  *)
+(*       (P : Prop) (Res Res' : res) (arr : list val) ix i iz d j e v: *)
+(*   evalLExp Env le l -> *)
+(*   evalExp Env ix iz -> *)
+(*   Res |=R array' l (skip arr d j) 1 *** Res' -> *)
+(*   evalExp Env e v -> *)
+(*   iz = Zn i -> *)
+(*   (P -> i < length arr /\ i mod d = j) -> *)
+(*   CSL BS tid *)
+(*       (Assn Res P Env) *)
+(*       ([le +o ix] ::= e) *)
+(*       (Assn ((array' l (skip (set_nth i arr v) d j) 1) *** Res') P Env). *)
+(* Proof. *)
+(*   intros; applys* rule_write_array'. *)
+(* Qed. *)
 
-Lemma removed_incl A (x : A) xs ys :
-  removed_list x xs ys -> incl ys xs.
-Proof.
-  induction 1; unfold incl; simpl; eauto.
-  introv [? | ?]; eauto.
-Qed.
+Lemma Ent_eq_dec (e1 e2 : entry) : {e1 = e2} + {e1 <> e2}.
+Proof. repeat decide equality. Qed.
 
-Lemma remove_var_cons x Env Env' :
-  removed_list x Env Env' ->
-  forall s, ent_assn_denote x s /\ env_assns_denote Env' s ->
+(* Lemma env_assns_emp Env s h: *)
+(*   env_assns_denote Env s h -> emp s h. *)
+(* Proof. *)
+(*   induction Env; simpl; eauto. *)
+(*   intros [? ?]; eauto. *)
+(* Qed. *)
+
+Lemma remove_var_cons x Env :
+  forall s, ent_assn_denote x s /\ env_assns_denote (remove Ent_eq_dec x Env) s ->
   env_assns_denote Env s.
 Proof.
-  induction 1; simpl.
+  induction Env; simpl.
   - intros s [? ?]; eauto.
-  - intros; split; eauto; destruct H; jauto.
-  - intros s (? & ? & ?); split; eauto.
+  - destruct Ent_eq_dec; simpl; substs.
+    + intros; split; eauto.
+      destruct H; eauto.
+    + intros s (? & ? & ?); split; eauto.
 Qed.
 
 Lemma in_remove T dec (a : T) x l :
@@ -1528,21 +1371,13 @@ Proof.
       false; eapply H; simpl; eauto. }
     subst; simpl; eauto.
   - simpl; intros H s Hsat; destruct Hsat as [? Hsat].
-    forwards*(Env2' & ?): (>>removed_exists (x |-> v) Env2).
-    applys* (>>remove_var_cons (x |-> v)); simpl.
+    applys (>>remove_var_cons (x |-> v)); simpl.
     split; eauto.
     apply IHEnv1; eauto.
     unfold incl; intros.
-    forwards*?: (>>removed_incl H1); unfold incl in *.
-    forwards*: H3.
+    forwards*(? & ?): in_remove.
     forwards*[? | ?]: H; substs.
-    Lemma removed_nIn A (x : A) xs ys :
-      removed_list x xs ys -> ~In x ys.
-    Proof.
-      induction 1; simpl; eauto.
-      intros [? | ?]; eauto.
-    Qed.
-    forwards*: removed_nIn.
+    congruence.
 Qed.
 
 Lemma Assn_imply (Res1 Res2 : res) (P1 P2 : Prop) Env1 Env2 :
@@ -1670,7 +1505,7 @@ Proof.
   f_equal; destruct hdis as [hdis1 hdis2], hdis' as [hdis1' hdis2'].
   - rewrite (pp ph1 ph2 (phplus_pheap hdis2) (phplus_pheap hdis2')); eauto.
   - rewrite padd_left_comm in heq at 1; try tauto.
-    rewrite (@padd_left_comm _  ph2 ph2' h2') in heq; try tauto.
+    rewrite (@padd_left_comm _ ph2 ph2' h2') in heq; try tauto.
     pose proof (pdisjE2 hdis1 hdis2) as dis12; pose proof (pdisjE2 hdis1' hdis2') as dis12'.
     rewrite (pq ph1' ph2' (phplus_pheap dis12) (phplus_pheap dis12')); simpl in *; eauto; 
     apply pdisj_padd_comm; eauto.
@@ -1971,7 +1806,7 @@ Proof.
   unfold sat; simpl; split.
   - intros (h1 & h2 & ? & ? & ? & ?); simpl in *; splits; jauto.
     cutrewrite (h = h2); substs; eauto.
-    assert (h1 = emp_ph loc) by (forwards*: @emp_is_emp); substs.
+    assert (h1 = emp_ph loc) by (forwards*: emp_is_emp); substs.
     rewrite phplus_emp1 in H2; substs.
     destruct h, h2; apply pheap_eq; simpl in *; eauto.
   - intros (? & ? & ?); exists (emp_ph loc) h; splits; jauto.

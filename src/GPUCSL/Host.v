@@ -20,8 +20,8 @@ Inductive stmt :=
 | host_iLet : var -> exp -> stmt
 | host_invoke : string -> exp -> exp -> list exp -> stmt
 | host_seq : stmt -> stmt -> stmt
-| host_while : exp -> stmt -> stmt
-| host_if : exp -> stmt -> stmt -> stmt
+| host_while : bexp -> stmt -> stmt
+| host_if : bexp -> stmt -> stmt -> stmt
 (* runtime expression representing kernel execution *)
 | host_exec_ker : forall ntrd nblk,
     Vector.t (klist ntrd) nblk
@@ -51,13 +51,13 @@ Record State := St {
   st_heap : simple_heap
 }.
 
-Fixpoint alloc_heap (start : nat) (vs : list val) : simple_heap :=
+Fixpoint alloc_heap (start : nat) (vs : list Z) : simple_heap :=
   match vs with
   | nil => fun x => None
   | v :: vs => fun l => if Z.eq_dec l (Zn start) then Some v else alloc_heap (S start) vs l
   end.
 
-Fixpoint bind_params (stk : stack) (xs : list var) (vs : list val) : Prop :=
+Fixpoint bind_params (stk : stack) (xs : list var) (vs : list Z) : Prop :=
   match xs, vs with
   | nil, nil => True
   | x :: xs, v :: vs => bind_params stk xs vs /\ stk x = v
@@ -105,19 +105,19 @@ Instance var_eq_type : eq_type var := {|
 
 Inductive stmt_step : GModule -> stmt -> State -> stmt -> State -> Prop :=
 | Exec_alloc kenv (x : var) e (gst : State) start vs :
-    edenote e (st_stack gst) = Some (VZ (Z.of_nat (length vs))) ->
+    edenot e (st_stack gst) = (Z.of_nat (length vs)) ->
     hdisj (st_heap gst) (alloc_heap start vs) ->
     stmt_step kenv (host_alloc x e) gst
-              host_skip (St (var_upd (st_stack gst) x (VPtr (GLoc (Z.of_nat start))))
+              host_skip (St (var_upd (st_stack gst) x (Z.of_nat start))
                             (hplus (st_heap gst) (alloc_heap start vs)))
 | Exec_iLet kenv x e (gst : State) n :
-    edenote e (st_stack gst) = Some n ->
+    edenot e (st_stack gst) = n ->
     stmt_step kenv (host_iLet x e) gst
               host_skip (St (var_upd (st_stack gst) x n) (st_heap gst))
 | Exec_invoke ent nt enb nb kenv tst shp kerID ker args vs gst stk :
-    edenote ent (st_stack gst) = Some (VZ (Zn nt)) ->
-    edenote enb (st_stack gst) = Some (VZ (Zn nb)) ->
-    List.Forall2 (fun a v => edenote a (st_stack gst) = Some v) args vs ->
+    edenot ent (st_stack gst) = Zn nt ->
+    edenot enb (st_stack gst) = Zn nb ->
+    List.Forall2 (fun a v => edenot a (st_stack gst) = v) args vs ->
     func_disp kenv kerID = Some (Kern ker) ->
     init_GPU nt nb (body_of ker) tst shp stk ->
     bind_params stk (map fst (params_of ker)) vs ->
@@ -136,7 +136,7 @@ Inductive stmt_step : GModule -> stmt -> State -> stmt -> State -> Prop :=
               (host_skip) (St s h)
 | Exec_call kenv x st fn hf args vs new_stk :
     func_disp kenv fn = Some (Host hf)
-    -> List.Forall2 (fun a v => edenote a (st_stack st) = Some v) args vs
+    -> List.Forall2 (fun a v => edenot a (st_stack st) = v) args vs
     -> bind_params new_stk (map fst (host_params hf)) vs
     -> stmt_step kenv 
                  (host_call x fn args) st
@@ -149,20 +149,16 @@ Inductive stmt_step : GModule -> stmt -> State -> stmt -> State -> Prop :=
 | Exec_hfun_end kenv ret_st x ret st :
     stmt_step kenv
               (host_exec_hfun host_skip ret x ret_st) st
-              host_skip (St (var_upd ret_st x (st_stack st ret)) (st_heap st))
+              host_skip (St (var_upd ret_st x (edenot ret (st_stack st))) (st_heap st))
 | Exec_seq1 kenv s1 s2 s1' st1 st2 :
     stmt_step kenv s1 st1 s1' st2  ->
     stmt_step kenv (host_seq s1 s2) st1 (host_seq s1' s2) st2
 | Exec_seq2 kenv s st :
     stmt_step kenv (host_seq host_skip s) st s st
-| Exec_if1 kenv e s1 s2 st v:
-    edenote e (st_stack st) = Some (VZ v)
-    -> v <> 0%Z
-    -> stmt_step kenv (host_if e s1 s2) st s1 st
-| Exec_if2 kenv e s1 s2 st v :
-    edenote e (st_stack st) = Some (VZ v)
-    -> v = 0%Z
-    -> stmt_step kenv (host_if e s1 s2) st s2 st
+| Exec_if1 kenv e s1 s2 st :
+    bdenot e (st_stack st) = true -> stmt_step kenv (host_if e s1 s2) st s1 st
+| Exec_if2 kenv e s1 s2 st :
+    bdenot e (st_stack st) = false -> stmt_step kenv (host_if e s1 s2) st s2 st
 | Exec_while kenv e s st :
     stmt_step kenv (host_while e s) st (host_if e (host_seq s (host_while e s)) host_skip) st.
 End VecNot.
@@ -170,14 +166,9 @@ End VecNot.
 (* TODO: check e >= 0 in alloc(e) *)
 Inductive aborts_h : GModule -> stmt -> stack -> simple_heap -> Prop :=
   | aborts_host_seq : forall ke p p' s h, aborts_h ke p s h -> aborts_h ke (host_seq p p') s h
-  | aborts_kernel_invk_param : forall ke kid en em args s h, 
-      (edenote en s = None \/  
-       edenote em s = None \/
-       (exists e, List.In e args /\ edenote e s = None)) ->
-      aborts_h ke (host_invoke kid en em args) s h
-  | aborts_kernel_invk_0 : forall ke kid en n em m args s h,
-      edenote en s = Some (VZ (Zn n)) ->
-      edenote em s = Some (VZ (Zn m)) ->
+  | aborts_kernel_invk : forall ke kid en n em m args s h,
+      edenot en s = Zn n ->
+      edenot em s = Zn m ->
       func_disp ke kid = None \/
       (exists f, func_disp ke kid = Some (Host f)) \/
       n = 0 \/ m = 0 \/
@@ -186,9 +177,6 @@ Inductive aborts_h : GModule -> stmt -> stack -> simple_heap -> Prop :=
   | aborts_kernel_exec : forall kenv ntrd nblk tst shp s h,
       (abort_g (Gs tst shp h) \/ bdiv_g ntrd nblk tst shp (htop h)) ->
       aborts_h kenv (host_exec_ker ntrd nblk tst shp) s h
-  | aborts_hfun_call_param : forall x ke fn args s h, 
-      ((exists e, List.In e args /\ edenote e s = None)) ->
-      aborts_h ke (host_call x fn args) s h
   | aborts_hfun_call : forall x ke fn args s h,
       func_disp ke fn = None \/
       (exists f, func_disp ke fn = Some (Kern f)) \/
@@ -196,16 +184,7 @@ Inductive aborts_h : GModule -> stmt -> stack -> simple_heap -> Prop :=
       aborts_h ke (host_call x fn args) s h
   | aborts_hfun_exec : forall kenv body ret_stk ret x s h,
       aborts_h kenv body s h
-      -> aborts_h kenv (host_exec_hfun body ret x ret_stk) s h
-  | aborts_alloc : forall kenv x e s h,
-      edenote e s = None->
-      aborts_h kenv (host_alloc x e) s h
-  | aborts_iLet : forall kenv x e s h,
-      edenote e s = None->
-      aborts_h kenv (host_iLet x e) s h
-  | aborts_If : forall kenv e s1 s2 s h,
-      edenote e s = None ->
-      aborts_h kenv (host_if e s1 s2) s h.
+      -> aborts_h kenv (host_exec_hfun body ret x ret_stk) s h.
 
 Notation zpheap := (gen_pheap Z).
 
@@ -280,8 +259,7 @@ Definition CSLkfun_n_simp (P : assn) (f : kernel) (Q : assn) (n : nat) :=
     -> safe_ng ntrd nblk n tst shs h Q.
 
 Lemma CSLkfun_threads_vars ntrd nblk P p Q n :
-  (forall nt nb, P nt nb |= Assn TT True
-                   ("ntrd" |-> (VZ (Zn nt)) :: "nblk" |-> (VZ (Zn nb)) :: nil)) ->
+  (forall nt nb, P nt nb |= Assn TT True ("ntrd" |-> Zn nt :: "nblk" |-> Zn nb :: nil)) ->
   (forall ntrd nblk, CSLkfun_n_simp' ntrd nblk (P ntrd nblk) (p ntrd nblk) (Q ntrd nblk) n) ->
   CSLkfun_n_simp (P ntrd nblk) (p ntrd nblk) (Q ntrd nblk) n.
 Proof.
@@ -289,11 +267,7 @@ Proof.
   inverts H3.
   forwards*: H.
   unfold sat in H3; simpl in H3.
-  unfold ent_assn_denote in *; simpl in *.
-  destruct H3 as (? & ? & ? & ? & ?).
-  assert (Zn ntrd = Zn ntrd0) by congruence.
   assert (ntrd = ntrd0) by omega.
-  assert (Zn nblk = Zn nblk0) by congruence.
   assert (nblk = nblk0) by omega.
   substs.
   eapply H0; eauto.
@@ -316,7 +290,7 @@ Fixpoint interp_ftri (fs : FTri) (k : assn -> (val -> assn) -> Prop) : Prop :=
   end.
 
 Definition interp_kfun_n_simp k (fs : FSpec) n :=
-  interp_ftri (fs_tri fs) (fun P Q => CSLkfun_n_simp P k (Q (VZ 0%Z)) n).
+  interp_ftri (fs_tri fs) (fun P Q => CSLkfun_n_simp P k (Q 0%Z) n).
 
 Definition interp_hfun_n_simp h (fs : FSpec) n :=
   interp_ftri (fs_tri fs) (fun P Q => CSLhfun_n_simp P h Q n).
@@ -454,7 +428,7 @@ Inductive inst_spec : FTri -> assn -> (val -> assn) -> Prop :=
 (* (y = v)[vs/xs], if variable remains in sustituted pred, it cannot holds *)
 Fixpoint subst_ent (y : var) (v : val) (xs : list var) (vs : list val) : Prop :=
   match xs, vs with
-  | x :: xs, v' :: vs => if var_eq_dec x y then v' = v else subst_ent y v xs vs
+  | x :: xs, v' :: vs => if var_eq_dec x y then v = v' else subst_ent y v xs vs
   | _, _ => False
   end.
 
@@ -473,13 +447,14 @@ Proof.
 Qed.
 
 Lemma subst_ent_bind_params y v xs vs s :
-  subst_ent y v xs vs (* (y = x)[vs/xs] *)
-  -> bind_params s xs vs (* s(xs) = vs *)
-  -> (s y) = v.
+  subst_ent y v xs vs
+  -> bind_params s xs vs 
+  -> (s y = v).
 Proof.
   revert vs; induction xs as [|x xs]; simpl; try tauto.
   intros [|v' vs]; try tauto.
-  destruct var_eq_dec; intros Hbin Heq; substs; inverts Heq; jauto.
+  destruct var_eq_dec; substs; jauto.
+  intros ? [? ?]; cbv; congruence.
 Qed.
 
 Lemma subst_env_bind_params E xs vs s : 
@@ -582,12 +557,12 @@ Qed.
 
 Lemma initGPU_ntrd nt nb body tst shp stk: 
   init_GPU nt nb body tst shp stk ->
-  stk "ntrd" = VZ (Zn nt).
+  stk "ntrd" = Zn nt.
 Proof. inversion 1; eauto. Qed.
 
 Lemma initGPU_nblk nt nb body tst shp stk: 
   init_GPU nt nb body tst shp stk ->
-  stk "nblk" = VZ (Zn nb).
+  stk "nblk" = Zn nb.
 Proof. inversion 1; eauto. Qed.
 
 Definition evalExpseq E (es : list exp) (vs : list val) := Forall2 (fun e v => evalExp E e v) es vs.
@@ -673,27 +648,6 @@ Proof.
   [do 3 eexists|do 2 eexists]; split; eauto.
 Qed.
 
-Lemma Forall2_In1 A B P (xs : list A) (ys : list B) x :
-  Forall2 P xs ys 
-  -> In x xs
-  -> exists y, In y ys /\ P x y.
-Proof.
-  revert ys; induction 1; simpl; try tauto.
-  intros [? | Hin]; substs.
-  - exists y; splits; eauto.
-  - forwards* (? & ? & ?): IHForall2.
-Qed.
-
-Lemma evalExpseq_ok s E es vs :
-  env_assns_denote E s
-  -> evalExpseq E es vs
-  -> Forall2 (fun e v => edenote e s = Some v) es vs.
-Proof.
-  induction 2; intros.
-  - constructor.
-  - forwards* ?: evalExp_ok.
-Qed.
-
 Lemma rule_invk (G : FC) (fn : string) (nt nb : nat) (es : list exp)
       (vs : list val)
       fs ent ntrd enb nblk
@@ -705,52 +659,44 @@ Lemma rule_invk (G : FC) (fn : string) (nt nb : nat) (es : list exp)
   -> In (fn, fs) G
   -> length es = length (fs_params fs)
   -> (P -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) Q)
-  -> has_no_vars (Q (VZ 0%Z))
-  -> (P -> evalExpseq E (enb :: ent :: es) (VZ (Zn nblk) :: VZ (Zn ntrd) :: vs))
+  -> has_no_vars (Q 0%Z)
+  -> evalExpseq E (enb :: ent :: es) (Zn nblk :: Zn ntrd :: vs)
   -> ntrd <> 0 -> nblk <> 0
-  -> (P -> subst_env Epre (Var "nblk" :: Var "ntrd" :: fs_params fs) 
-                     (VZ (Zn nblk) :: VZ (Zn ntrd) :: vs))
+  -> (P -> subst_env Epre (Var "nblk" :: Var "ntrd" :: fs_params fs) (Zn nblk :: Zn ntrd :: vs))
   -> (P -> Ppre)
   -> (P -> R |=R Rpre *** RF)
   -> CSLh G
             (Assn R P E)
             (host_invoke fn ent enb es)
-            (Assn RF P E ** Q (VZ 0%Z)).
+            (Assn RF P E ** Q 0%Z).
 Proof.
   intros Hfcok Htag Hinfn Harg Hinst HQvar Heval Hntrd Hnblk Hsubst Hp Hr n HFC s h Hsat.
   forwards*: (fc_ok_func_disp).
   rewrite Htag in H; destruct H as (xs & body & Hdisp & Hxsps).
   rewrite <-Hxsps, map_length in *.
-  hnf in Hsat; simpl in Hsat; forwards*Heval': Heval.
-  inverts Heval' as Henb Heval'.
-  inverts Heval' as Hent Heval''.
+  inverts Heval as Henb Heval.
+  inverts Heval as Hent Heval.
   destruct n; simpl; eauto.
   splits; eauto.
   - inversion 1.
   - introv Hdisj Htoh Habort.
     inverts Habort as Hent0 Henb0 Habort.
-    { destruct Hsat as (? & ? & Henv).
-      forwards*: (>>evalExp_ok Hent).
-      forwards*: (>>evalExp_ok Henb).
-      destruct Hent0 as [? | [? | (e & Hin & ?)]]; try congruence.
-      forwards* (? & ? & ?): (>>Forall2_In1 Heval'' Hin); try congruence.
-      forwards* ?: (>>evalExp_ok); try congruence. }
     destruct Habort as [? | [ [? ?] | [Hn0 | [Hm0 | Hcallab] ]]]; try congruence.
     + unfold sat in Hsat; simpl in Hsat.
-      forwards* ?: (>>evalExp_ok Hent).
-      simpl in *; substs.
-      assert (Zn ntrd = Zn 0) by congruence; lia.
+      forwards* Hent': (>>evalExp_ok Hent).
+      hnf in Hent'; simpl in Hent'; substs.
+      rewrite Hent', Nat2Z.inj_iff in Hent0; eauto.
     + unfold sat in Hsat; simpl in Hsat. 
-      forwards*: (>>evalExp_ok Henb).
-      simpl in *; substs.
-      assert (Zn nblk = Zn 0) by congruence; lia.
+      forwards* Henb': (>>evalExp_ok Henb).
+      hnf in Henb'; simpl in Henb'; substs.
+      rewrite Henb', Nat2Z.inj_iff in Henb0; eauto.
     + forwards* Hc: (>> Hcallab Hdisp); simpl in Hc.
   - introv Hdis Htoh Hstep.
     simpl in HFC; rewrite <-minus_n_O in HFC.
     unfold interp_FC_n, interp_f_n in HFC; rewrite Forall_forall in HFC.
     forwards* Hfn: (>>HFC Hinfn); rewrite Hdisp in Hfn.
     forwards* Hfn': (>>interp_fs_inst Hfn Hinst).
-    (* { unfold sat in Hsat; simpl in *; jauto. } *)
+    { unfold sat in Hsat; simpl in *; jauto. }
     simpl in Hfn'.
     unfold CSLkfun_n_simp in Hfn'; simpl in Hfn'.
     inverts Hstep as Hent' Henb' Heval' Hdisp' Hinit Hbnd; simpl in *.
@@ -760,23 +706,27 @@ Proof.
     forwards* (h1' & h2' & ? & ? & Heq12'): (>> phplus_gheap  Heq12); substs.
     assert (Heq : nb0 = nblk); [ | subst nb0 ].
     { unfold sat in Hsat; simpl in Hsat.
-      forwards*: (>>evalExp_ok Henb); simpl in *; substs.
-      assert (Zn nb0 = Zn nblk) by congruence; lia. }
+      forwards* Henb'': (>>evalExp_ok Henb).
+      hnf in Henb''; simpl in Henb''; substs.
+      rewrite Henb'', Nat2Z.inj_iff in Henb'; eauto. }
     assert (Heq : nt0 = ntrd); [ | subst nt0 ].
     { unfold sat in Hsat; simpl in Hsat.
-      forwards*: (>>evalExp_ok Hent); simpl in *; substs.
-      assert (Zn nt0 = Zn ntrd) by congruence; lia. }
+      forwards* Hent'': (>>evalExp_ok Hent).
+      hnf in Hent''; simpl in Hent''; substs.
+      rewrite Hent'', Nat2Z.inj_iff in Hent'; substs; eauto. }
     forwards* Hsafe: (>>Hfn' h1' Hinit Hbnd).
     (* Proof that precond holds *)
     { unfold sat; simpl; splits; jauto.
       forwards*Henv: Hsubst.
-      applys* (>>subst_env_bind_params).
+      applys* (>>subst_env_bind_params Henv).
       repeat split; eauto using initGPU_ntrd, initGPU_nblk.
-      repeat constructor.
-      forwards*?: evalExpseq_ok.      
+      simpl in Hsubst.
       cutrewrite (vs = vs0); eauto.
-      generalize H vs0 Heval'; clear; induction 1; intros ? Heval; inverts Heval; eauto.
-      forwards*: IHForall2; substs; congruence. }
+      destruct Hsat as (_ & _ & HP).
+      revert Heval Heval' HP; clear.
+      intros H; revert vs0; induction H; inversion 1; intros; substs; eauto.
+      forwards*: evalExp_ok.
+      f_equal; eauto. }
     (* h **                                     hF -> 
        h1' ** (h2' : framed w.r.t. fun exec. ) ** hF -> *)
     exists h; splits; eauto.
@@ -792,7 +742,7 @@ Lemma safe_nh_exec_hfun n s (h1 h2 : zpheap) (disj : pdisj h1 h2) body ret x s_r
   -> sat_res (as_gheap h2) R 
   -> env_assns_denote E s_ret
   -> (forall v, has_no_vars (Q v))
-  -> safe_nh n s (phplus_pheap disj) (host_exec_hfun body ret x s_ret)
+  -> safe_nh n s (@phplus_pheap val h1 h2 disj) (host_exec_hfun body ret x s_ret)
              (Ex v, Assn R P (x |-> v :: (remove_var E x)) ** Q v).
 Proof.
   revert s h1 h2 disj body; induction n; simpl; introv; eauto.
@@ -824,7 +774,7 @@ Proof.
         forwards* Hsat: Hskip.
         exists (s ret).
         exists (as_gheap h2) (as_gheap h1); splits; jauto; fold_sat.
-        -- splits; simpl; unfold ent_assn_denote; simpl; jauto.
+        -- splits; simpl; jauto.
            splits; [unfold var_upd; destruct var_eq_dec; congruence|].
            applys* (>>disjoint_inde_env (x :: nil)); simpl; eauto.
            ++ apply remove_var_inde.
@@ -850,7 +800,7 @@ Lemma rule_call (G : FC) x (fn : string) (es : list exp)
   -> length es = length (fs_params fs)
   -> (P -> inst_spec (fs_tri fs) (Assn Rpre Ppre Epre) Q)
   -> (forall v, has_no_vars (Q v))
-  -> (P -> evalExpseq E es vs)
+  -> List.Forall2 (fun e v => evalExp E e v) es vs
   -> (P -> subst_env Epre (fs_params fs) vs)
   -> (P -> Ppre)
   -> (P -> R |=R Rpre *** RF)
@@ -868,10 +818,6 @@ Proof.
   - inversion 1.
   - introv Hdisj Htoh Habort.
     inverts Habort as Habort.
-    { destruct Hsat as (? & ? & Henv).
-      destruct Habort as (e & Hin & ?); try congruence.
-      forwards* (? & ? & Heval'): (>>Forall2_In1 Heval Hin); try congruence.
-      forwards* ?: (>>evalExp_ok Heval'); try congruence. }
     destruct Habort as [? | [ [? ?] | Hcallab] ]; try congruence.
     forwards* Hc: (>> Hcallab Hdisp); simpl in Hc.
   - introv Hdis Htoh Hstep.
@@ -891,10 +837,12 @@ Proof.
     (* Proof that precond holds *)
     { unfold sat; splits; jauto.
       applys* subst_env_bind_params.
-      forwards*: evalExpseq_ok.
       cutrewrite (vs = vs0); eauto.
-      generalize H vs0 Heval'; clear; induction 1; intros ? Heval; inverts Heval; eauto.
-      forwards*: IHForall2; substs; congruence. }
+      destruct Hsat as (_ & _ & HP).
+      revert Heval Heval' HP; clear.
+      intros H; revert vs0; induction H; inversion 1; intros; substs; eauto.
+      forwards*: evalExp_ok.
+      f_equal; eauto. }
     (* h **                                     hF -> 
        h1' ** (h2' : framed w.r.t. fun exec. ) ** hF -> *)
     exists h; splits; eauto.
@@ -922,23 +870,21 @@ Proof.
   - introv ? ? Hc; inverts Hc.
 Qed.
 
-Lemma rule_host_let G R (P : Prop) E x e v : 
-  (P -> evalExp E e v)
+Lemma rule_host_let G R P E x e v : 
+  evalExp E e v
   -> CSLh G (Assn R P E) (host_iLet x e) (Assn R P ((x |-> v) :: (remove_var E x))).
 Proof.
   intros Heval n _ s h Hsat; destruct n; simpl; eauto; splits. 
   - inversion 1.
   - introv Hdis Heq Hc; inverts Hc.
-    hnf in Hsat; forwards*: evalExp_ok; congruence.
   - introv Hdis Heq Hstep.
     inverts Hstep.
     exists h; splits; eauto.
     apply safe_nh_skip.
     unfold sat in Hsat |- *; simpl in Hsat.
     simpl; splits; jauto.
-    + forwards*: evalExp_ok.
-      unfold var_upd; destruct var_eq_dec; try congruence.
-      simpl in *; congruence.
+    + unfold var_upd; destruct var_eq_dec; try congruence.
+      forwards*: evalExp_ok.
     + applys* (>>disjoint_inde_env (x :: nil)); simpl; eauto.
       apply remove_var_inde; simpl; eauto.
       applys* remove_var_imp.
@@ -1000,22 +946,21 @@ Proof.
   destruct l as [[|] ?]; eauto.
 Qed.
 
-Lemma rule_host_alloc G R (P : Prop) E x e size : 
-  (P -> evalExp E e (VZ (Zn size)))
+Lemma rule_host_alloc G R P E x e size : 
+  evalExp E e (Zn size)
   -> CSLh G (Assn R P E)
             (host_alloc x e)
-            (Ex p vs, Assn (array p vs 1 *** R) (length vs = size /\ P) ((x |-> (VPtr p)) :: (remove_var E x))).
+            (Ex p vs, Assn (array (GLoc p) vs 1 *** R) (length vs = size /\ P) ((x |-> p) :: (remove_var E x))).
 Proof.
   intros Heval n _ s h Hsat; destruct n; simpl; eauto; splits. 
   - inversion 1.
   - introv Hdis Heq Hc; inverts Hc.
-    hnf in Hsat; forwards*: evalExp_ok; congruence.
   - introv Hdis Heq Hstep.
     inverts Hstep as Heval' Hdis'; simpl in *.
     unfold sat in Hsat; simpl in Hsat.
-    forwards*Heval'': evalExp_ok; simpl in Heval''.
+    forwards* Heval'': evalExp_ok; simpl in Heval''.
     assert (size = length vs); [|subst size].
-    { assert (Zn (length vs) = Zn size) by congruence; lia. }
+    { rewrite Heval'' in Heval'; rewrite Nat2Z.inj_iff in Heval'; eauto. }
     pose (htop (alloc_heap start vs)) as h_alc.
     forwards* Heq': ptoheap_eq.
     lets Hdis_alc: Hdis'.
@@ -1034,7 +979,7 @@ Proof.
       apply ptoheap_plus; eauto using hdisjC.
       apply ptoheap_htop.
     + apply safe_nh_skip.
-      exists (GLoc (Zn start)) vs.
+      exists (Zn start) vs.
       unfold sat in Hsat |- *; simpl in Hsat.
       simpl; splits; jauto.
       -- exists (as_gheap h_alc) (as_gheap h); splits; jauto.
@@ -1141,3 +1086,4 @@ End Rules.
 
 Notation "'All' x .. y ',' tri" := (FAll _ (fun x => .. (FAll _ (fun y => tri)) ..))
                                      (at level 200, x binder, y binder, tri at level 200).
+

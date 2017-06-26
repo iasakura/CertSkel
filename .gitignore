@@ -8,7 +8,7 @@
 *.annot
 *.merlin
 *.bak
+*.aux
 extracted
-repo
-tlc
-Makefile
+Makefile.coq
+.lia.cache

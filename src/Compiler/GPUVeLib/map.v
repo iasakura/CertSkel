@@ -1,4 +1,4 @@
-Require Import GPUCSL LibTactics Psatz CSLLemma SetoidClass PeanoNat CUDALib Utils Default.
+Require Import GPUCSL LibTactics Psatz CSLLemma SetoidClass PeanoNat Utils.
 Require Import CSLLemma CSLTactics.
 
 Section map.
@@ -20,17 +20,17 @@ Notation BID := (Var "bid").
 Definition map inv :=
   I :T Int ::= TID +C BID *C Zn ntrd;;
   WhileI inv (I <C L) (
-    T :T Int ::= [ARR +o I] ;;
-    [OUT +o I] ::= T ;;
+    T :T Int ::= [Gl ARR +o I] ;;
+    [Gl OUT +o I] ::= T ;;
     I ::= Zn ntrd *C Zn nblk +C I
   ).
 
 Notation arri a := (skip a (ntrd * nblk) (nf tid + nf bid * ntrd)).
 
-Definition inv' (arr out : loc) (varr vout : list Z) :=
+Definition inv' arr out varr vout :=
   Ex j i,
-    Assn (array' arr (arri (z2v varr)) 1%Qc ***
-          array' out (arri (firstn i (z2v varr) ++ skipn i (z2v vout))) 1%Qc)
+    Assn (array' (GLoc arr) (arri varr) 1%Qc ***
+          array' (GLoc out) (arri (firstn i varr ++ skipn i vout)) 1%Qc)
           (i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) /\
            i < length varr + ntrd * nblk /\
            length varr = length vout)
@@ -59,19 +59,19 @@ Ltac t :=
                    | [|- context [if ?b then _ else _]] => destruct b; substs; eauto; try (false; lia); try lia
                    | [H : context [if ?b then _ else _] |- _] => destruct b; substs; eauto; try (false; lia); try lia
                    end;
-             do 2 f_equal; first [lia | congruence]). 
+             do 2 f_equal; lia). 
 
 
-Lemma loop_inv_ok i j (varr vout : list Z) :
-  i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd)
-  -> i < length varr + ntrd * nblk
-  -> length varr = length vout
-  -> (Zn i < Zn (length varr))%Z
-  -> arri (set_nth i (firstn i (z2v varr) ++ skipn i (z2v vout)) (nth i (z2v varr) 0%Z)) =
-  arri (firstn (ntrd * nblk + i) (z2v varr) ++ skipn (ntrd * nblk + i) (z2v vout)).
+Lemma loop_inv_ok i j vs (varr vout : list val) :
+  i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
+  vs = firstn i varr ++ skipn i vout ->
+  (Zn i < Zn (length varr))%Z ->
+  length varr = length vout ->
+  arri (set_nth i vs (get varr i)) =
+  arri (firstn (ntrd * nblk + i) varr ++ skipn (ntrd * nblk + i) vout).
 Proof.
   intros; substs.
-  applys (>>(@eq_from_nth) (@None val)).
+  applys (>>(@eq_from_nth) (@None Z)).
   { t. }
   { intros i; repeat autorewrite with pure; simpl in *.
     destruct lt_dec; [|false; lia]; intros H.
@@ -81,44 +81,43 @@ Proof.
     assert (j * (ntrd * nblk) + (nf tid + nf bid * ntrd) < i < S j * (ntrd * nblk) + (nf tid + nf bid * ntrd) ->
             i mod (ntrd * nblk) <> nf tid + nf bid * ntrd).
     { intros; applys (>>mod_between j); eauto with pure_lemma. }
-    Time t. }
+    Time admit. }
 Qed.
 
-Lemma before_loop_ok (varr vout : list Z) :
+Lemma before_loop_ok (varr vout : list val) :
   nf tid < ntrd ->
   nf tid + nf bid * ntrd < ntrd * nblk ->
-  length varr = length vout
-  -> arri (z2v vout) =
-     arri (firstn (nf tid + nf bid * ntrd) (z2v varr) ++ skipn (nf tid + nf bid * ntrd) (z2v vout)).
+  length varr = length vout ->
+  arri vout =
+  arri (firstn (nf tid + nf bid * ntrd) varr ++ skipn (nf tid + nf bid * ntrd) vout).
 Proof.
-  intros; applys (>>(@eq_from_nth) (@None val)).
+  intros; applys (>>(@eq_from_nth) (@None Z)).
   { t. }
   { intros.
     repeat autorewrite with pure; simpl in *.
     assert (i < nf tid + nf bid * ntrd -> (i mod (ntrd * nblk)) <> nf tid + nf bid * ntrd).
     { intros; rewrite Nat.mod_small; eauto; try lia. }
-  Time t. }
+  Time admit. }
 Qed.
 
-Lemma after_loop_ok (varr vout : list Z) i j :
-  i = j * (ntrd * nblk) + (nf tid + nf bid * ntrd)
-  -> i < length varr + ntrd * nblk
-  -> length varr = length vout
-  -> ~ (Zn i < Zn (length varr))%Z
-  -> arri (firstn i (z2v varr) ++ skipn i (z2v vout)) = arri (z2v varr).
+Lemma after_loop_ok (varr vout : list val) vs i :
+  ~(Zn i < Zn (length varr))%Z ->
+  length varr = length vout ->
+  vs = firstn i varr ++ skipn i vout ->
+  arri vs = arri varr.
 Proof.
   intros; substs; eapply (@eq_from_nth _ None).
   { t. }
   intros i'; repeat autorewrite with pure; simpl; intros ?.
-  Time t.
+  Time admit.
 Qed.
 
 Hint Resolve loop_inv_ok before_loop_ok after_loop_ok : pure_lemma.
 
-Lemma map_ok BS arr out (varr vout : list Z) : 
+Lemma map_ok BS arr out varr vout : 
   CSL BS tid 
-      (Assn (array' arr (arri (z2v varr)) 1%Qc ***
-             array' out (arri (z2v vout)) 1%Qc)
+      (Assn (array' (GLoc arr) (arri varr) 1%Qc ***
+             array' (GLoc out) (arri vout) 1%Qc)
             (length varr = length vout)
             (TID |-> Zn (nf tid) ::
              BID |-> Zn (nf bid) ::
@@ -126,8 +125,8 @@ Lemma map_ok BS arr out (varr vout : list Z) :
              ARR |-> arr ::
              OUT |-> out :: nil))
       (map (inv' arr out varr vout))
-      (Assn (array' arr (arri (z2v varr)) 1%Qc ***
-             array' out (arri (z2v varr)) 1%Qc)
+      (Assn (array' (GLoc arr) (arri varr) 1%Qc ***
+             array' (GLoc out) (arri varr) 1%Qc)
             True
             (L   |-> Zn (length varr) ::
              ARR |-> arr ::
@@ -139,7 +138,7 @@ Proof.
   assert (ntrd <> 0) by eauto.
   hoare_forward.
   hoare_forward.
-  hoare_forward.
+  hoare_forward. 
   hoare_forward.
   hoare_forward.
   prove_imp; eauto with pure_lemma.

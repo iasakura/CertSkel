@@ -1,4 +1,4 @@
-Require Import String DepList Default GPUCSL LibTactics TypedTerm.
+Require Import String DepList GPUCSL LibTactics TypedTerm.
 
 Fixpoint typ2Coq T ty :=
   match ty with
@@ -12,6 +12,7 @@ Definition vals ty := typ2Coq val ty.
 Definition locs ty := typ2Coq loc ty.
 Definition ctys ty := typ2Coq (option CTyp) ty.
 Definition exps ty := typ2Coq exp ty.
+Definition lexps ty := typ2Coq loc_exp ty.
 Definition vartys ty := typ2Coq (var * CTyp) ty.
 
 Fixpoint nat2str (n : nat) : string :=
@@ -49,7 +50,7 @@ Fixpoint locals pref ty i : vars ty :=
 Definition arr_params' pref ty i := locals pref ty i.
 Fixpoint with_PTyp {ty} : vars ty -> vartys ty :=
   match ty return vars ty -> vartys ty with
-  | Skel.TBool => fun x => (x, Ptr Int)
+  | Skel.TBool => fun x => (x, Ptr Bool)
   | Skel.TZ => fun x => (x, Ptr Int)
   | Skel.TTup t1 t2 => fun xs => (with_PTyp (fst xs), with_PTyp (snd xs))
   end.
@@ -89,7 +90,7 @@ Fixpoint assigns {ty : Skel.Typ} :=
 
 (* A generating function xs := pl arr + ix. pl denotes array is on shared / global memory *)
 Fixpoint reads {ty : Skel.Typ} :=
-  match ty return vars ty -> ctys ty -> exps ty -> cmd with
+  match ty return vars ty -> ctys ty -> lexps ty -> cmd with
   | Skel.TBool | Skel.TZ => fun x ty e => x ::T ty ::= [e]
   | Skel.TTup t1 t2 => fun xs ctys es => 
     reads (fst xs) (fst ctys) (fst es) ;; reads (snd xs) (snd ctys) (snd es)
@@ -97,15 +98,15 @@ Fixpoint reads {ty : Skel.Typ} :=
 
 (* A generating function pl arr + ix := es. pl denotes array is on shared / global memory *)
 Fixpoint writes {ty : Skel.Typ} :=
-  match ty return exps ty -> exps ty -> cmd with
+  match ty return lexps ty -> exps ty -> cmd with
   | Skel.TBool | Skel.TZ => fun le e  => [le] ::= e
   | Skel.TTup t1 t2 => fun les es => 
     writes (fst les) (fst es) ;; writes (snd les) (snd es)
   end.
 
 Fixpoint locs_offset {ty} :=
-  match ty return exps ty -> exp -> exps ty with
-  | Skel.TBool | Skel.TZ => Eoff
+  match ty return lexps ty -> exp -> lexps ty with
+  | Skel.TBool | Skel.TZ => loc_offset
   | Skel.TTup t1 t2 => fun l off => (locs_offset (fst l) off, locs_offset (snd l) off)
   end.
 
@@ -119,15 +120,14 @@ Fixpoint maptys {ty T1 T2} (f : T1 -> T2) :=
   end.
 
 Definition v2e {ty} : vars ty -> exps ty := @maptys ty _ _ Evar.
-Definition l2val {ty} : locs ty -> vals ty := @maptys ty _ _ VPtr.
-(* Definition e2sh {ty} : exps ty -> lexps ty := @maptys ty _ _ Sh. *)
-(* Definition e2gl {ty} : exps ty -> lexps ty := @maptys ty _ _ Gl. *)
-(* Definition v2sh {ty} (xs : vars ty) : lexps ty := (e2sh (v2e xs)). *)
-(* Definition v2gl {ty} (xs : vars ty) : lexps ty := (e2gl (v2e xs)). *)
+Definition e2sh {ty} : exps ty -> lexps ty := @maptys ty _ _ Sh.
+Definition e2gl {ty} : exps ty -> lexps ty := @maptys ty _ _ Gl.
+Definition v2sh {ty} (xs : vars ty) : lexps ty := (e2sh (v2e xs)).
+Definition v2gl {ty} (xs : vars ty) : lexps ty := (e2gl (v2e xs)).
 
 Fixpoint ty2ctys ty :=
   match ty return ctys ty with
-  | Skel.TBool => Some Int
+  | Skel.TBool => Some Bool
   | Skel.TZ => Some Int
   | Skel.TTup t1 t2 => (ty2ctys t1, ty2ctys t2)
   end.
@@ -233,18 +233,10 @@ Fixpoint flatten_avars {GA : list Skel.Typ}
 
 Fixpoint addTyp {ty} :=
   match ty return vars ty -> vartys ty with 
-  | Skel.TBool => fun x => (x, Int)
+  | Skel.TBool => fun x => (x, Bool)
   | Skel.TZ => fun x => (x, Int)
   | Skel.TTup t1 t2 => fun xs => (addTyp (fst xs), addTyp (snd xs))
   end.
 
 Definition sh_decl len typ pref st :=
   flatTup (maptys (fun sv => Grid.SD (fst sv) (snd sv) len) (addTyp (locals pref typ st))).
-
-Global Instance vals_hasDefval T ty {_ : hasDefval T} : hasDefval (typ2Coq T ty) :=
-  {default := (fix f ty := match ty return typ2Coq T ty with Skel.TZ | Skel.TBool => default |
-                                   Skel.TTup t1 t2 => (f t1, f t2)
-                           end) ty}.
-
-(* lift a list of integer to a list of val *)
-Notation z2v := (List.map VZ).

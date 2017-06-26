@@ -21,14 +21,14 @@ Record Sdecl := SD {
 
 Inductive decl_sh : list Sdecl -> stack -> simple_heap -> Prop :=
 | decl_nil : forall stk, decl_sh nil stk (fun _ => None) 
-| decl_cons : forall ds stk sh v cty len loc (f : nat -> val),
+| decl_cons : forall ds stk sh v cty len loc (f : nat -> Z),
     decl_sh ds stk sh ->
     (forall i, i < len -> sh (loc + Z.of_nat i)%Z = None) ->
-    decl_sh (SD v cty len :: ds) (fun v' => if var_eq_dec v' v then VPtr (SLoc loc) else stk v')
+    decl_sh (SD v cty len :: ds) (fun v' => if var_eq_dec v' v then loc else stk v')
             (fun l => if Z_range_dec loc l (loc + Z.of_nat len) then Some (f (Z.to_nat (l - loc)))
                       else sh l).
 
-Definition sh_val := (nat -> val)%type.
+Definition sh_val := (nat -> Z)%type.
 
 Definition sh_ok (sh_decl : list Sdecl) (locs : list Z) (fs : list sh_val) :=
   length sh_decl = length fs /\ length sh_decl = length locs.
@@ -36,7 +36,7 @@ Definition sh_ok (sh_decl : list Sdecl) (locs : list Z) (fs : list sh_val) :=
 Fixpoint sh_spec (sh_decl : list Sdecl) (locs : list Z) (fs : list sh_val) : assn :=
   match sh_decl, locs, fs with
   | SD sh _ len :: sh_decl, l :: locs, f :: fs =>
-    Assn (array (SLoc l) (ls_init 0 len f) 1%Qc) True (sh |-> VPtr (SLoc l) :: nil) ** sh_spec sh_decl locs fs
+    Assn (array (SLoc l) (ls_init 0 len f) 1%Qc) True (sh |-> l :: nil) ** sh_spec sh_decl locs fs
   | _, _, _ => Emp_assn
   end.
 
@@ -61,7 +61,7 @@ Definition heap_of_sheap (h : simple_heap) :=
       | SLoc l => None
     end.
 
-Definition default_stack : stack := fun x => VZ 0%Z.
+Definition default_stack : stack := fun x => 0%Z.
 
 Import VectorNotations.
 
@@ -215,7 +215,7 @@ Section For_List_Notation.
             destruct H as (? & [(h1 & h2 & ?)]).
             forwards* (? & h3 & h4 & ?): (>>IHsdec h2 locs).
             { exists shv; simpl.
-              exists (@emp_ph loc) h2; splits; jauto.
+              exists (emp_ph loc) h2; splits; jauto.
               apply disj_emp2. }
             simpl in *.
             exists (f :: x1)%list; simpl.
@@ -223,7 +223,7 @@ Section For_List_Notation.
             exists h1 h2; repeat split; try tauto; jauto.
             cutrewrite (h2 = h4); [jauto|].
             destruct H2 as (? & ? & ? & Heq).
-            cutrewrite (h3 = @emp_ph loc) in Heq; [rewrite phplus_emp1 in Heq; destruct h2, h4; apply pheap_eq; eauto|].
+            cutrewrite (h3 = emp_ph loc) in Heq; [rewrite phplus_emp1 in Heq; destruct h2, h4; apply pheap_eq; eauto|].
             destruct h3; apply pheap_eq; extensionality v; jauto.
         Qed.
 
@@ -457,7 +457,7 @@ Section For_List_Notation.
       apply HQ.
 
 
-      Lemma emp_emp_ph (s : stack) : sat s (@emp_ph loc) Emp_assn.
+      Lemma emp_emp_ph (s : stack) : sat s (emp_ph loc) Emp_assn.
       Proof.
         unfold sat; simpl; eauto.
       Qed.
@@ -501,7 +501,7 @@ Section For_List_Notation.
         disj_eq hs h -> disj_eq (Vector.map as_gheap hs) (as_gheap h).
       Proof.
         dependent induction hs; intros Heq; inversion Heq; subst.
-        - assert (as_gheap (@emp_ph Z) = @emp_ph loc).
+        - assert (as_gheap (emp_ph Z) = emp_ph loc).
           { apply pheap_eq; extensionality l; destruct l as [[|]l]; unfold emp_h; eauto. }
           rewrite H; constructor.
         - apply Eqdep.EqdepTheory.inj_pair2 in H2; subst.
@@ -963,13 +963,11 @@ Section For_List_Notation.
           split; intros; subst; eauto; try congruence.
           - apply IHred; auto; intros Ha; apply Hna; constructor; eauto.
           - apply IHred; auto; intros Ha; apply Hna; constructor; eauto.
-          - unfold upd; simpl.
-            destruct (eq_dec l0 l); eauto; try congruence.
-            destruct H; simpl in H; destruct (h l0); inversion H; subst; eexists; eauto.
-          - unfold upd in *; simpl in *.
-            destruct (eq_dec l0 l); eauto; try congruence.
-            destruct H; simpl in H; destruct (h l0) eqn:Heq; [inversion H; subst; eexists; eauto|].
-            elimtype False; apply Hna; applys* aborts_Write_acc; simpl; substs; eauto.
+          - unfold upd; simpl; destruct (eq_dec l (ledenot e1 s)); eauto; try congruence.
+            destruct H; simpl in H; destruct (h l); inversion H; subst; eexists; eauto.
+          - unfold upd in *; simpl in *; destruct (eq_dec l (ledenot e1 s)); eauto; try congruence.
+            destruct H; simpl in H; destruct (h l) eqn:Heq; [inversion H; subst; eexists; eauto|].
+            elimtype False; apply Hna; constructor; subst; eauto.
         Qed.
 
         Lemma dom_eq_phplus (h1 h2 h h' : pheap) :
@@ -1048,7 +1046,7 @@ Section For_List_Notation.
         Lemma pts_dom_eq (h1 h2 : pheap) stk e1 e2 P E p :
           dom_eqp h1 h2 ->
           sat stk h1 (Assn (e1 |->p (p, e2)) P E) ->
-          sat stk h2 (Ex v : val, Assn (e1 |->p (p, v)) P E).
+          sat stk h2 (Ex v : Z, Assn (e1 |->p (p, v)) P E).
         Proof.
           intros H Hsat; simpl in *.
           destruct Hsat as (Hsat & ?); simpl in Hsat.
@@ -1070,7 +1068,7 @@ Section For_List_Notation.
             specialize (H l); unfold dom_eq, dom_eqp, htop, htop' in *; simpl in *.
             destruct (this h1 l) as [[? ?]|], (this h2 l) as [[? ?]|]; try congruence.
             specialize (H q); destruct H.
-            forwards [v' ?]: H2; [eauto|congruence].
+            forwards [v ?]: H2; [eauto|congruence].
         Qed.
 
         Lemma is_arr_dom_eq P E p stk n f : forall (h1 h2 : pheap) s e,
@@ -1080,7 +1078,7 @@ Section For_List_Notation.
         Proof.
           unfold dom_eq.
           induction n; simpl; intros.
-          - rewrite ex_sat; (exists (fun _:nat => VZ 0%Z)).
+          - rewrite ex_sat; (exists (fun _:nat => 0%Z)).
             destruct H0 as [H0 ?]; splits; jauto.
             unfold dom_eqp, dom_eq, htop, htop' in *; simpl in *.
             introv.
@@ -1100,19 +1098,19 @@ Section For_List_Notation.
             destruct Nat.eq_dec; try congruence; simpl in *; jauto.
             Close Scope Qc_scope.
             Require Import SetoidClass.
-            Lemma is_array_change (f1 f2 : nat -> val) n p:
+            Lemma is_array_change (f1 f2 : nat -> Z) n p:
               forall e s, (forall x, x < n -> f1 (x + s) = f2(x + s)) ->
                           array e (ls_init s n f1) p == array e (ls_init s n f2) p.
             Proof.
               induction n; simpl; intros e s Hf; try reflexivity.
               intros stc; rewrite IHn.
               cutrewrite (f1 s = f2 s); [reflexivity|].
-              pose proof (Hf 0); rewrite plus_O_n in H; rewrite H; eauto; omega.
-              intros x Hx; rewrite <-Nat.add_succ_comm; apply Hf; eauto; omega.
+              pose proof (Hf 0); rewrite plus_O_n in H; rewrite H; omega.
+              intros x Hx; rewrite <-Nat.add_succ_comm; apply Hf; omega.
             Qed.
             destruct Hsat2 as [Hsat2 ?].
             eapply is_array_change; [|exact Hsat2].
-            intros x Hxn; destruct Nat.eq_dec; eauto; omega.
+            intros x Hxn; destruct Nat.eq_dec; omega.
         Qed.
 
         Lemma shspec_dom_eq stk sdec locs : forall (h1 h2 : pheap),
@@ -1336,9 +1334,9 @@ Inductive init_GPU : program
     (* bind_params stk (params_of ker) args -> *)
     (forall i j, decl_sh (get_sh_decl ker) (snd tst[@j][@i]) shp[@j]) ->
     (forall i j, fst tst[@j][@i]             = get_cmd ker) ->
-    stk (Var "nblk") = VZ (Z.of_nat nblk) -> stk (Var "ntrd") = VZ (Z.of_nat ntrd) ->
-    (forall i j, snd tst[@j][@i] (Var "tid") = VZ (Z.of_nat (nf i))) ->
-    (forall i j, snd tst[@j][@i] (Var "bid") = VZ (Z.of_nat (nf j))) ->
+    stk (Var "nblk") = Z.of_nat nblk -> stk (Var "ntrd") = Z.of_nat ntrd ->
+    (forall i j, snd tst[@j][@i] (Var "tid") = Z.of_nat (nf i)) ->
+    (forall i j, snd tst[@j][@i] (Var "bid") = Z.of_nat (nf j)) ->
     (forall i j v, v <> Var "tid" -> v <> Var "bid" -> snd tst[@j][@i] v = stk v) ->
     init_GPU ker tst shp stk.
 
@@ -1411,7 +1409,7 @@ Proof.
     exists (f :: shvs).
     rewrite sat_pure_l; splits; simpl; try omega; jauto.
     simpl.
-    exists ph1 (htop (as_sheap sh)); repeat split; simpl; unfold ent_assn_denote; simpl; eauto.
+    exists ph1 (htop (as_sheap sh)); repeat split; simpl; eauto.
     2: destruct var_eq_dec; congruence. 
     (* Lemma is_array_inde v n f s: *)
     (*   indeP (fun s1 s2 => s1 v = s2 v) (is_array (Sh v) n f s). *)
@@ -1423,7 +1421,7 @@ Proof.
 
     Focus 2.
     { assert (low_eq (fun v => if in_dec var_eq_dec v (map SD_var ds) then Lo else Hi)
-                     stk (fun v' => if var_eq_dec v' v then VPtr (SLoc loc) else stk v')).
+                     stk (fun v' => if var_eq_dec v' v then loc else stk v')).
       { intros v' Hlo; destruct var_eq_dec; eauto.
         destruct in_dec; try congruence; subst v'.
         simpl in Hdisj; tauto. }
@@ -1441,7 +1439,7 @@ Proof.
         revert locs svs; induction sdec as [| [? ? ?] ?]; intros [|l locs] [|f svs]; simpl; eauto using emp_inde.
         introv Hsat Heq HLo.
         unfold sat in *; simpl in *.
-        unfold low_eq in Heq; unfold ent_assn_denote; simpl; rewrites* <-Heq.
+        unfold low_eq in Heq; rewrites* <-Heq.
         destruct Hsat as (h1 & h2 & ? & ? & ?); exists h1 h2; repeat split; jauto.
       Qed.
       
@@ -1518,7 +1516,7 @@ Theorem rule_grid (P : assn) Ps C Qs (Q : assn) sh_decl :
   (forall bid locs,
       let sinv := sh_inv sh_decl locs in
       let sinv' := sh_inv' sh_decl locs in
-      CSLp ntrd Env (Ps[@bid] ** sinv ** (Assn Emp True (BID |-> (VZ (zf bid)) :: nil))) 
+      CSLp ntrd Env (Ps[@bid] ** sinv ** (Assn Emp True (BID |-> zf bid :: nil))) 
            C 
            (Qs[@bid] ** sinv')) ->
   Aistar_v Qs |= Q ->
@@ -1608,7 +1606,7 @@ Proof.
   applys* (>>safe_gl sh_decl locs); simpl; eauto.
   - intros bid; unfold CSLp in Htri.
     assert (forall tid, fst tst[@bid][@tid] = C) by eauto.
-    assert (forall tid, snd tst[@bid][@tid] TID = (VZ (zf tid))) by eauto.
+    assert (forall tid, snd tst[@bid][@tid] TID = zf tid) by eauto.
     assert (Hlowl2 : low_eq_l2 Env (Vector.map (fun s => snd s) tst[@bid])).
     { apply leq_low_eq_l2; introv Hneq; unfold low_eq; introv Hlox.
       erewrite !nth_map; [|reflexivity..].
@@ -1669,7 +1667,7 @@ Proof.
     + simpl; rewrite phplus_comm; eauto.
     + (* BID === bid *)
       simpl.
-      specialize (Hstkr i); unfold ent_assn_denote; simpl; rewrite <-Hstkr; eauto.
+      specialize (Hstkr i); rewrite <-Hstkr; eauto.
       erewrite nth_map; [|reflexivity]; eauto.
   - introv.
     (* rewrite Vector.const_nth; eauto. *)

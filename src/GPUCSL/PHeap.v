@@ -21,22 +21,14 @@ Unset Strict Implicit.
 
 Require Import Classes.EquivDec.
 
-Inductive PL := Shared | Global.
-
-Inductive loc := Loc (pl : PL) (l : Z).
-
-Inductive val :=
-| VZ (n : Z)
-| VPtr (l : loc).
-
 Class eq_type A :=
   { eq_dec : forall x y : A, {x = y} + {x <> y}}.
 
 Section Loc.
-Variable (loc : Type).
+Variable loc : Type.
 Context {loc_eq_dec : eq_type loc}.
 
-Definition gen_pheap' := loc -> option (Qc * val).
+Definition gen_pheap' := loc -> option (Qc * Z).
 
 Definition is_pheap (h : gen_pheap') : Prop :=
   forall x, match h x with
@@ -92,10 +84,10 @@ Qed.
 (*   repeat decide equality. *)
 (* Qed. *)
 
-Definition ph_upd (h : gen_pheap') (x : loc) (v : val) : gen_pheap' :=
+Definition ph_upd (h : gen_pheap') (x : loc) (v : Z) : gen_pheap' :=
   fun (x' : loc) => if eq_dec x x' then Some (full_p, v) else h x'.
 
-Lemma ph_upd_ph (h : gen_pheap) (x : loc) (v : val) : is_pheap (ph_upd h x v).
+Lemma ph_upd_ph (h : gen_pheap) (x : loc) (v : Z) : is_pheap (ph_upd h x v).
 Proof.
   destruct h as [h ph]; simpl.
   unfold is_pheap, ph_upd; intros y; destruct (eq_dec x y).
@@ -103,7 +95,7 @@ Proof.
   - specialize (ph y); eauto.
 Qed.
 
-Definition ph_upd2 (h : gen_pheap) (x : loc) (v : val) : gen_pheap :=
+Definition ph_upd2 (h : gen_pheap) (x : loc) (v : Z) : gen_pheap :=
   @Pheap (ph_upd h x v) (ph_upd_ph h x v).
 
 Definition empty_p := 0.
@@ -125,7 +117,7 @@ Proof.
   auto using frac_contra1.
 Qed.
 
-Lemma pdisj_upd : forall (h h' : gen_pheap) (x : loc) (v w : val), this h x = Some (full_p, w) -> 
+Lemma pdisj_upd : forall (h h' : gen_pheap) (x : loc) (v w : Z), this h x = Some (full_p, w) -> 
   (pdisj (ph_upd h x v) h' <-> pdisj h h').
 Proof.
   destruct h as [h iph].
@@ -323,7 +315,7 @@ Proof.
   eapply padd_cancel; eauto.
 Qed.
 
-Definition heap := loc -> option val.
+Definition heap := loc -> option Z.
 
 Definition ptoheap (ph : gen_pheap') (h : heap) : Prop :=
   forall (x : loc), match ph x with
@@ -389,14 +381,14 @@ Proof.
   try tauto; try congruence.
 Qed.
 
-Lemma pheap_disj_eq (h1 h2 : gen_pheap) (v : loc) (v1 v2 : val) (q1 q2 : Qc) :
+Lemma pheap_disj_eq (h1 h2 : gen_pheap) (v : loc) (v1 v2 : Z) (q1 q2 : Qc) :
   pdisj h1 h2 -> this h1 v = Some (q1, v1) -> this h2 v = Some (q2, v2) -> v1 = v2.
 Proof.
   intros hdis h1v h2v.
   specialize (hdis v); rewrite h1v, h2v in hdis; intuition; eauto.
 Qed.
 
-Lemma pheap_disj_disj (h1 h2 : gen_pheap) (v1 v2 : loc) (v1' v2' v1'' v2'' : val) :
+Lemma pheap_disj_disj (h1 h2 : gen_pheap) (v1 v2 : loc) (v1' v2' v1'' v2'' : Z) :
   pdisj h1 h2 -> this h1 v1 = Some (full_p, v1') -> this h2 v2 = Some (full_p, v2') ->
   pdisj (ph_upd2 h1 v1 v1'') (ph_upd2 h2 v2 v2'').
 Proof.
@@ -819,7 +811,7 @@ Proof.
   destruct (h1 x), (h2 x), (hF x); destruct Hdis1, Hdis2; try congruence.
 Qed.
 
-Lemma hplus_map (h1 h2 : heap) (x : loc) (v : val) :
+Lemma hplus_map (h1 h2 : heap) (x : loc) (v : Z) :
   hdisj h1 h2 -> hplus h1 h2 x = Some v -> 
   (h1 x = Some v /\ h2 x = None) \/ (h1 x = None /\ h2 x = Some v).
 Proof.
@@ -829,7 +821,7 @@ Qed.
 
 Definition upd A (f: loc -> A) x y a := if eq_dec a x then y else f a.
 
-Lemma hplus_upd (h1 h2 hF : heap) (x : loc) (v : val) :
+Lemma hplus_upd (h1 h2 hF : heap) (x : loc) (v : Z) :
   hdisj h1 hF -> hdisj h2 hF -> upd (hplus h1 hF) x (Some v) = hplus h2 hF ->
   upd h1 x (Some v) = h2 \/ (exists v', hF x = Some v').
 Proof.

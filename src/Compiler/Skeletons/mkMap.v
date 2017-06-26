@@ -60,8 +60,7 @@ Definition mkMap_cmd inv :=
   "i" :T Int ::= "tid" +C "bid" *C "ntrd" ;;
   WhileI inv ("i" <C len) (
     assigns_get t arr_c "i" ;;
-    fst (f_c t) ;;
-    writes (v2gl out +os "i") (v2e (snd (f_c t))) ;;
+    writes_call1 (v2gl out +os "i") f_c t ;;
     "i" ::= "ntrd" *C "nblk" +C "i"
   ).
 
@@ -230,10 +229,13 @@ Proof.
 
   hoare_forward; simplify_remove_var.
   hoare_forward; simplify_remove_var.
-  hoare_forward; simplify_remove_var.
+  eapply rule_seq.
+  applys (>>writes_call1_ok);
+    [eauto| | eauto| eauto| prove_not_local| evalExps| evalLExps| evalExp| eauto |..].
   intros; apply eval_f_ok'; lia.
-  assert (ntrd * nblk <> 0) by nia.
-  hoare_forward.
+  2: intros; sep_cancel'; eauto.
+  intros; simpl; prove_pure.
+
   hoare_forward; simplify_remove_var.
 
   unfold kernelInv; prove_imp.
@@ -311,7 +313,7 @@ Proof.
     apply low_assn_vars; simpl in *; tauto.
   - unfold E, mkMap_cmd.
     instantiate (1 := Hi).
-    unfold assigns_get; repeat prove_typing_cmd.
+    unfold assigns_get, writes_call1; repeat prove_typing_cmd.
   - intros; rewrite !MyVector.init_spec.
     eapply rule_conseq; eauto using mkMap_cmd_ok.
     unfold kernelInv; introv; rewrite assn_var_in; revert s h; prove_imp.    
@@ -398,13 +400,13 @@ Proof.
 Qed.
 End mkMap.
  
-Lemma mkMap_ok M G GA dom cod arr_c (f_c : vars dom -> cmd * vars cod) pars tag avar_env :
-  aenv_ok avar_env
+Lemma mkMap_ok M G GA dom cod arr_c (f_c : vars dom -> cmd * vars cod) pars tag avar_env arr (f : Skel.Func GA (Skel.Fun1 dom cod)) :
+  aenv_ok avar_env -> ae_ok avar_env arr arr_c -> func_ok avar_env f f_c
   -> interp_kfun M G (mkMap GA dom cod arr_c f_c)
               (FS pars tag
-                  (All ntrd nblk aptr_env aeval_env arr (f : Skel.Func GA (Skel.Fun1 dom cod)) arr_res result outp outs,
+                  (All ntrd nblk aptr_env aeval_env arr_res result outp outs,
                    FDbl (kernelInv avar_env aptr_env aeval_env (arrays (val2gl outp) outs 1)
-                                   (ntrd <> 0 /\ nblk <> 0 /\ ae_ok avar_env arr arr_c /\ func_ok avar_env f f_c /\
+                                   (ntrd <> 0 /\ nblk <> 0 /\ 
                                     Skel.aeDenote GA dom arr aeval_env = Some arr_res /\
                                     Monad.mapM (Skel.funcDenote GA (Skel.Fun1 dom cod) f aeval_env) arr_res = Some result /\
                                     Datatypes.length outs = Datatypes.length result)
@@ -412,8 +414,8 @@ Lemma mkMap_ok M G GA dom cod arr_c (f_c : vars dom -> cmd * vars cod) pars tag 
                                     inp_len_name |-> Zn (Datatypes.length arr_res) :: outArr cod |=> outp) 1)
                         (fun _ => kernelInv' aptr_env aeval_env (arrays (val2gl outp) (arr2CUDA result) 1) True 1)))%nat.
 Proof.
-  intros Havok n Hctx; unfold interp_kfun_n_simp; simpl.
-  intros ntrd nblk aptr_env aeval_env arr f result eval_map_ok outp outs.
+  intros Havok ? ? n Hctx; unfold interp_kfun_n_simp; simpl.
+  intros ntrd nblk aptr_env aeval_env result eval_map_ok outp outs.
   eapply (CSLkfun_threads_vars ntrd nblk (fun n m => _) (fun n m => _) (fun n m => _)).
   { unfold kernelInv; simpl.
     intros ? ?; prove_imp; try tauto.
