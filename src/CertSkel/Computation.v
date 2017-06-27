@@ -645,7 +645,12 @@ Ltac prove_equiv1 :=
   repeat (lazymatch goal with
            | [x : DepList.hlist _ _ |- _] => dependent destruction x
            end);
-  simpl; unfold len; repeat (destruct Z_le_dec); try omega; eauto.
+  simpl; unfold len; repeat (destruct Z_le_dec); try omega; eauto;
+  try now (unfold bind, ret; simpl in *; unfold bind_opt;
+  repeat (lazymatch goal with
+           | |- context [match ?t with Some _ => _ | _ => _ end] => destruct t
+           end);
+  eauto).
 
   (* unfold equivGI1; simpl; intros; auto; *)
   (* repeat (destruct Z_le_dec; try omega); *)
