@@ -4,3 +4,4 @@
 min_idx.v
 stencil2D.v
 vecadd2.v
+dot.v

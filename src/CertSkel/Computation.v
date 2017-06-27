@@ -729,6 +729,12 @@ Ltac let_intro_pure f T ans :=
   | fun x => reduceM (@?op x) (@?arg1 x) =>
     let arg1' := let_intro_pure arg1 T ans in
     constr:(fun k x => arg1' (fun t1 => do! t2 <- (reduceM (op x) t1) in k t2) x)
+  | fun x => do! t <- (@?f' x) in (@?f'' x t) =>
+    let f' := let_intro_pure f' T ans in
+    let f'' := eval cbv beta in (fun x => f'' (myfst x) (mysnd x)) in
+    let f'' := let_intro_pure f'' T ans in
+    constr:(fun k x => f' (fun t1 => f'' k (x, t1)) x)
+  | fun x => ret (@?func x) => constr:(fun (k : _ -> ans) x => k (func x))
   | fun x => @?func x => constr:(fun (k : _ -> ans) x => k (f x))
   end.
 
@@ -758,8 +764,9 @@ Ltac let_intro := lazymatch goal with
   let ans := match type of func' with _ -> ?ans => ans end in
   idtac "res of uncurry_func" T ans func';
   let t := let_intro_pure func' T ans in 
-  idtac t;
-  let t' := constr:(t ret) in
+  (* let t := eval cbv beta in t in  *)
+  idtac "res of let_intro_pure" t;
+  let t' := constr:(t (ret (f:=comp))) in
   let t' := eval cbv beta in t' in 
   curry_func t' ltac:(fun t' =>
   cutrewrite (func = t');
