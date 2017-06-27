@@ -26,7 +26,7 @@ int __main(int, int*, int, int*, int, int*);
 int dot(int len, int* arr1, int* arr2) {
     int sum = 0;
     for (int i = 0; i < len; i++) {
-        sum += arr1[i] + arr2[i];
+        sum += arr1[i] * arr2[i];
     }
     return sum;
 }
