@@ -3,7 +3,7 @@ Require Import Compiler Ext Extract Host CompilerProof LibTactics.
 Open Scope Z_scope.
 
 Definition dot (xs ys : list Z) : comp (list Z)
-  := do! t <- mapM (fun xy => ret (fst xy * snd xy)) (zip xs ys) : comp _ in
+  := do! t <- mapM (fun xy => ret (fst xy * snd xy)) (zip xs ys) in
      reduceM (fun x y => ret (x + y)) t.
 
 Definition dot_GPGPU :
