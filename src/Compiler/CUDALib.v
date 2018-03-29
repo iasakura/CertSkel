@@ -74,13 +74,13 @@ Definition out_name (ty : Skel.Typ) :=
 Definition outArr ty := locals "_arrOut" ty 0.
 Definition inp_len_name := Var (name_of_len "Inp").
 
-Fixpoint foldTup {ty : Skel.Typ} {coqTy A : Type} (sing : coqTy -> A) (f : A -> A -> A) :=
+Fixpoint foldTup {ty : Skel.Typ} {coqTy A : Type} (sing : coqTy -> A) (f : A -> A -> A) : typ2Coq coqTy ty -> A :=
   match ty return typ2Coq coqTy ty -> A with
   | Skel.TBool | Skel.TZ => fun x => sing x
   | Skel.TTup _ _ => fun xs => f (foldTup sing f (fst xs)) (foldTup sing f (snd xs))
   end.
 
-Fixpoint assigns {ty : Skel.Typ} := 
+Fixpoint assigns {ty : Skel.Typ} : vars ty -> ctys ty -> exps ty -> cmd := 
   match ty return vars ty -> ctys ty -> exps ty -> cmd with
   | Skel.TBool | Skel.TZ => fun x ty e => x ::T ty ::= e
   | Skel.TTup t1 t2 => fun xs ctys es => 
@@ -89,7 +89,7 @@ Fixpoint assigns {ty : Skel.Typ} :=
   end.
 
 (* A generating function xs := pl arr + ix. pl denotes array is on shared / global memory *)
-Fixpoint reads {ty : Skel.Typ} :=
+Fixpoint reads {ty : Skel.Typ} : vars ty -> ctys ty -> lexps ty -> cmd :=
   match ty return vars ty -> ctys ty -> lexps ty -> cmd with
   | Skel.TBool | Skel.TZ => fun x ty e => x ::T ty ::= [e]
   | Skel.TTup t1 t2 => fun xs ctys es => 
@@ -97,14 +97,14 @@ Fixpoint reads {ty : Skel.Typ} :=
   end.
 
 (* A generating function pl arr + ix := es. pl denotes array is on shared / global memory *)
-Fixpoint writes {ty : Skel.Typ} :=
+Fixpoint writes {ty : Skel.Typ} : lexps ty -> exps ty -> cmd :=
   match ty return lexps ty -> exps ty -> cmd with
   | Skel.TBool | Skel.TZ => fun le e  => [le] ::= e
   | Skel.TTup t1 t2 => fun les es => 
     writes (fst les) (fst es) ;; writes (snd les) (snd es)
   end.
 
-Fixpoint locs_offset {ty} :=
+Fixpoint locs_offset {ty} : lexps ty -> exp -> lexps ty :=
   match ty return lexps ty -> exp -> lexps ty with
   | Skel.TBool | Skel.TZ => loc_offset
   | Skel.TTup t1 t2 => fun l off => (locs_offset (fst l) off, locs_offset (snd l) off)
@@ -112,7 +112,7 @@ Fixpoint locs_offset {ty} :=
 
 Infix "+os" := (locs_offset) (at level 50, left associativity).
 
-Fixpoint maptys {ty T1 T2} (f : T1 -> T2) :=
+Fixpoint maptys {ty T1 T2} (f : T1 -> T2) : typ2Coq T1 ty -> typ2Coq T2 ty :=
   match ty return typ2Coq T1 ty -> typ2Coq T2 ty with
   | Skel.TBool | Skel.TZ => fun x => f x
   | Skel.TTup t1 t2 => fun xs =>
@@ -125,7 +125,7 @@ Definition e2gl {ty} : exps ty -> lexps ty := @maptys ty _ _ Gl.
 Definition v2sh {ty} (xs : vars ty) : lexps ty := (e2sh (v2e xs)).
 Definition v2gl {ty} (xs : vars ty) : lexps ty := (e2gl (v2e xs)).
 
-Fixpoint ty2ctys ty :=
+Fixpoint ty2ctys ty : ctys ty :=
   match ty return ctys ty with
   | Skel.TBool => Some Bool
   | Skel.TZ => Some Int
@@ -231,7 +231,7 @@ Fixpoint flatten_avars {GA : list Skel.Typ}
     ((x, ty) :: flatTup ls) ++ flatten_avars xs
   end.
 
-Fixpoint addTyp {ty} :=
+Fixpoint addTyp {ty} : vars ty -> vartys ty :=
   match ty return vars ty -> vartys ty with 
   | Skel.TBool => fun x => (x, Bool)
   | Skel.TZ => fun x => (x, Int)

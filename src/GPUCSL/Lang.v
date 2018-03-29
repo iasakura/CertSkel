@@ -11,6 +11,7 @@ Require ClassicalFacts.
 Require Export FunctionalExtensionality.
 Require Export ProofIrrelevance.
 Require Import String.
+Require Import LibTactics.
 
 Require Export Coq.ZArith.BinInt.
 
@@ -278,23 +279,18 @@ Proof.
   - econstructor; eauto.
     destruct ss, ss'. 
     repeat match goal with | [ H : (_, _) = (_, _) |- _ ] => inversion H; clear H end; subst.
-    rewrite <-H4, H6.
-    cutrewrite (h1 = h2); [eauto | apply (hplus_cancel_l (h := h) hdis1 hdis2); eauto].
+    rewrites* (>>hplus_cancel_l H7).
   - apply (@red_Read _ _ _ _ _ s1 h1 v); eauto;
     destruct ss as [s1' h1F], ss' as [s2' h2F];
     repeat match goal with  | [ H : (_, _) = (_, _) |- _ ] => inversion H; clear H end; subst.
     + rewrite H7 in RD.
       destruct (hplus_map hdis1 RD) as [[? ?]| [? ?]]; [congruence|].
       contradict naborts; constructor; subst; eauto.
-    + cut (h2 = h1 /\ s2 = var_upd s1 x v); [intros [? ?]; rewrite <-H4; subst; eauto|].
-      split; [eapply (hplus_cancel_l hdis2); eauto | congruence].
+    + rewrites* (>>hplus_cancel_l H7).
   - apply (@red_Write _ _ _ _ s1 h1); eauto.
     destruct ss as [sx hx], ss' as [sx' hx'].
     repeat match goal with | [ H : (_, _) = (_, _) |- _ ] => inversion H; clear H end; subst.
-    cut (s2 = s1 /\ h2 = upd h1 (ledenot e1 s1) (Some (edenot e2 s1))); 
-      [intros [? ?]; subst; eauto|].
-    split; [congruence|].
-    rewrite <-H6; rewrite H7 in H5.
+    cut (h2 = upd h1 (ledenot e1 s1) (Some (edenot e2 s1))); [intros; subst; eauto|].
     destruct (hplus_upd hdis1 hdis2 H5) as [? | [hFx ?]]; eauto.
     contradict naborts; constructor; simpl; destruct (hdis1 (ledenot e1 s1)); congruence.
 Qed.
@@ -347,11 +343,11 @@ Module PLang.
     (at level 40, st at level 39, c' at level 39).
 
   Hint Resolve pdisjC.
-  Lemma Q1 (q1 q2 q : Qc) : q1 + q2 = q -> q1 = q - q2.
+  Lemma Q1 (q1 q2 q : Qc) : (q1 + q2 = q -> q1 = q - q2)%Qc.
   Proof. intros H; rewrite <-H; ring. Qed.
   Hint Rewrite Q1.
 
-  Lemma Q2 (q1 q2 q : Qc) : q1 + q2 = q -> q2 = q - q1.
+  Lemma Q2 (q1 q2 q : Qc) : (q1 + q2 = q -> q2 = q - q1)%Qc.
   Proof. intros H; rewrite <-H; ring. Qed.
   Hint Rewrite Q2.
 
@@ -379,7 +375,7 @@ Module PLang.
       rewrite have1 in *.
       destruct (phF x) as [[pF vF]|]; intuition.
       + apply (Qcle_minus_iff (full_p + pF) 1) in H8.
-        cutrewrite (1 + -(full_p + pF) = -pF) in H8; [|unfold full_p; field].
+        cutrewrite (1 + -(full_p + pF) = -pF)%Qc in H8; [|unfold full_p; field].
         apply Qcopp_le_compat in H8; ring_simplify in H8.
         apply Qcle_not_lt in H8; tauto.
       + destruct (ph2 x) as [[p2 v2]|]; try congruence.
@@ -392,10 +388,10 @@ Module PLang.
       apply Q1 in H9; apply Q1 in H11.
       destruct (h y) as [? | ]; inversion H12; inversion H10; congruence.
       rewrite H7 in H5.
-      assert (q + full_p - full_p = full_p - full_p) by (rewrite H5; ring).
+      assert (q + full_p - full_p = full_p - full_p)%Qc by (rewrite H5; ring).
       ring_simplify in H4; rewrite H4 in H; inversion H.
       rewrite H5 in H7.
-      assert (q0 + full_p - full_p = full_p - full_p) by (rewrite H7; ring).
+      assert (q0 + full_p - full_p = full_p - full_p)%Qc by (rewrite H7; ring).
       ring_simplify in H4; rewrite H4 in H; inversion H.
   Qed.
 
@@ -433,7 +429,7 @@ Module PLang.
     - inversion red2; subst;
       repeat (match goal with [H : (_, _) = (_, _) |- _ ] => inversion H; subst; clear H end).
       unfold access_ok in *; simpl in *.
-      remember (ledenot e s0) as vad.
+      remember (ledenot e s) as vad.
       assert (ph1' = ph2) by (eapply phplus_cancel_toheap; eauto).
       assert (ph2' = ph2) by (eapply phplus_cancel_toheap; eauto).
       cutrewrite (v = v0); [split; congruence |].
@@ -451,7 +447,7 @@ Module PLang.
       assert (s1' = s2') by congruence; subst.
       assert (ph1' = ph2'); [| subst; eauto].
       inversion EQ3; inversion EQ0; inversion peq2; inversion EQ2; inversion EQ1. 
-      subst. rewrite H8 in *.
+      subst. 
       unfold write_ok in *; simpl in *.
       destruct wok1 as [v1' H1], wok2 as [v2' H2].
       remember (ledenot e1 s) as addr. clear Heqaddr.
@@ -564,7 +560,7 @@ Module BigStep.
                   (x ::T cty ::= [e]) / st || None / st'
   | eval_Write : forall (e1 : loc_exp) (e2 : exp) (ss ss' : pstate) (s : stack) (h : pheap) (v : Z),
                    (ss = (s, h)) ->
-                   this h (ledenot e1 s) = Some (1, v) ->
+                   this h (ledenot e1 s) = Some (1%Qc, v) ->
                    (ss' = (s, ph_upd2 h (ledenot e1 s) (edenot e2 s))) ->
                    (Cwrite e1 e2) / ss || None / ss'
   | eval_Barrier : forall ss j,
@@ -693,7 +689,7 @@ Section ParSem.
         red_k ks ks'.
   Import VectorNotations.
   Definition abort_k (ks : kstate) :=
-    exists tid : Fin.t ntrd, 
+    exists (tid : Fin.t ntrd), 
       let (c, s) := (fst ks)[@tid] in aborts c (s, snd ks).
 End ParSem.
 
@@ -1136,7 +1132,7 @@ Section GlobalSemantics.
     ((blks gs)[@bid], (sh_gl_heap (sh_hp gs)[@bid] (gl_hp gs))).
 
   Definition abort_g (gs : g_state) :=
-    exists gid : Fin.t nblk,  abort_k (bs_of_gs gs gid).
+    exists (gid : Fin.t nblk), abort_k (bs_of_gs gs gid).
   
   Reserved Notation "gs '==>g' gs'" (at level 40).
   Inductive red_g : g_state -> g_state -> Prop :=

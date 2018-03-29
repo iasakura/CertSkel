@@ -27,7 +27,7 @@ Fixpoint evalExps {ty : Skel.Typ} (Env : list entry) :=
 
 (* Notation "e1 ==lt e2" := (eq_ltup e1 e2) (at level 70, right associativity). *)
 
-Fixpoint evalLExps {ty : Skel.Typ} (Env : list entry) :=
+Fixpoint evalLExps {ty : Skel.Typ} (Env : list entry) : lexps ty -> locs ty -> Prop :=
   match ty return lexps ty -> locs ty -> Prop with
   | Skel.TBool | Skel.TZ => fun e v => evalLExp Env e v
   | Skel.TTup _ _ => fun es vs => evalLExps Env (fst es) (fst vs) /\ evalLExps Env (snd es) (snd vs)
@@ -178,7 +178,7 @@ Proof.
   apply not_in_remove_var.
 Qed.
 
-Fixpoint EEq_tup {ty : Skel.Typ}  :=
+Fixpoint EEq_tup {ty : Skel.Typ} : vars ty -> vals ty -> _  :=
   match ty return vars ty -> vals ty -> _ with
   | Skel.TBool | Skel.TZ => fun x v => Ent x v :: nil
   | Skel.TTup _ _ => fun xs vs =>
@@ -187,14 +187,14 @@ Fixpoint EEq_tup {ty : Skel.Typ}  :=
 
 Notation "x |=> v" := (EEq_tup x v) (at level 58).
 
-Fixpoint fv_Es {ty : Skel.Typ} := 
+Fixpoint fv_Es {ty : Skel.Typ} : exps ty -> list var := 
   match ty return exps ty -> list var with
   | Skel.TBool | Skel.TZ => fun e => fv_E e
   | Skel.TTup _ _ => fun es => 
     fv_Es (fst es) ++ fv_Es (snd es)
   end.
 
-Fixpoint fv_lEs {ty : Skel.Typ} := 
+Fixpoint fv_lEs {ty : Skel.Typ} : lexps ty -> list var := 
   match ty return lexps ty -> list var with
   | Skel.TBool | Skel.TZ => fun le => fv_lE le
   | Skel.TTup _ _ => fun les => 
@@ -372,7 +372,7 @@ Proof.
   apply evalExps_removes; tac.
 Qed.
 
-Fixpoint Mpss {ty : Skel.Typ} :=
+Fixpoint Mpss {ty : Skel.Typ} : locs ty -> Qc -> vals ty -> res :=
   match ty return locs ty -> Qc -> vals ty -> res with
   | Skel.TBool | Skel.TZ => fun l p v => l |->p (p, v)
   | Skel.TTup _ _ => fun ls p vs => 

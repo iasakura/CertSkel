@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
+#include <iostream>
 
 #define check(call) {                           \
   call;\
@@ -77,10 +78,10 @@ int main(int argc, char** argv) {
     check(__main(n, out_d, n, in_d1, n, in_d2));
 
     measure ("certskel dot", {
-       len = __main(n, out_d, n, in_d1, n, in_d2);
+       check(len = __main(n, out_d, n, in_d1, n, in_d2));
        out_h = (int*)malloc(sizeof(int) * len);
-       check(cudaMemcpy(out_h, out_d, sizeof(int) * len, cudaMemcpyDeviceToHost));
     });
+    check(cudaMemcpy(out_h, out_d, sizeof(int) * len, cudaMemcpyDeviceToHost));
 
     printf("len = %d\n", len);
     for (int i = 0; i < len; i++) {

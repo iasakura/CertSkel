@@ -16,7 +16,7 @@ Fixpoint fold_hlist {A B C} (ls : list A) (g : B -> C -> C) (d : C) :=
 
 (* Bad naming: convert TypedIR level value to CUDA level value
  *)
-Fixpoint sc2CUDA {ty} :=
+Fixpoint sc2CUDA {ty} : Skel.typDenote ty -> vals ty :=
   match ty return Skel.typDenote ty -> vals ty with
   | Skel.TBool => fun b => if b then 1 else 0
   | Skel.TZ => fun n => n
@@ -126,7 +126,7 @@ Definition func_ok {GA fty} (avar_env : AVarEnv GA) :=
   | Skel.Fun2 dom1 dom2 cod => fun f func => func_ok2 avar_env f func 
   end.
 
-Fixpoint defval' {ty} :=
+Fixpoint defval' {ty} : Skel.typDenote ty :=
   match ty return Skel.typDenote ty with
   | Skel.TBool => false
   | Skel.TZ => 0%Z
@@ -136,7 +136,6 @@ Fixpoint defval' {ty} :=
 Lemma defval_sc2CUDA ty : (@defval ty) = sc2CUDA (@defval' ty). 
 Proof.
   induction ty; simpl; try congruence.
-  rewrite IHty1, IHty2; eauto.
 Qed.
 
 Notation gets' arr i := (nth i arr defval').

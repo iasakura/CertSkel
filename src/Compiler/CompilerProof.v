@@ -770,14 +770,13 @@ Proof.
             (Init.Nat.min ((Datatypes.length arr_res + ntrd - 1) / ntrd)
                nblk) vs1)).
         rewrite firstn_length'.
-        destruct H1 as (vslen & _).
+        destruct H3 as (vslen & Hlen).
         destruct le_dec.
         * rewrite Nat2Z.inj_min.
           rewrite div_Zdiv; eauto.
           do 3 f_equal.
           zify; omega.
-        * destruct H3 as (? & Hlen).
-          rewrite Hlen in *; false; eauto using Nat.le_min_r.
+        * rewrite Hlen in *; false; eauto using Nat.le_min_r.
       + rewrite subst_env_app; split.
         * unfold outArr.
           repeat (apply subst_env_cons2; [rewrite map_flatTup; apply locals_not_in; simpl; eauto|]).  
@@ -937,87 +936,88 @@ Proof.
   rewrite IHle2; eauto.
 Qed.
 
-Lemma zip_AE_ok GA typ1 typ2 (arr1 : Skel.AE GA typ1) (arr2 : Skel.AE GA typ2) aeenv :
-  Skel.aeDenote _ _ (zip_AE arr1 arr2) aeenv =
-  (do! a1 <- Skel.aeDenote _ _ arr1 aeenv in
-   do! a2 <- Skel.aeDenote _ _ arr2 aeenv in
-   ret (SkelLib.zip a1 a2)).
+Lemma darr_of_arr_ok GA typ (arr : Skel.AE GA typ) f len :
+  darr_of_arr arr = (f, len)
+  -> Skel.aeDenote _ _ arr = Skel.aeDenote _ _ (Skel.DArr _ _ (Skel.F1 _ _ _ f) len).
 Proof.
-  unfold zip_AE.
-  Lemma darr_of_arr_ok GA typ (arr : Skel.AE GA typ) f len :
-    darr_of_arr arr = (f, len)
-    -> Skel.aeDenote _ _ arr = Skel.aeDenote _ _ (Skel.DArr _ _ (Skel.F1 _ _ _ f) len).
-  Proof.
-    destruct arr; intros H; inverts H; simpl.
-    - extensionality l.
-      destruct Z_le_dec; [|false; forwards*: Zle_0_nat].
-
-      Lemma mapM_ex_some A B (f : A -> option B) l :
-        Forall (fun x => exists t, x = Some t) (map f l) 
-        -> exists t, mapM f l = Some t.
-      Proof.
-        induction l; simpl; intros H; inverts H.
-        - eexists; reflexivity.
-        - destruct H2.
-          destruct IHl; eauto.
-          exists (x :: x0).
-          unfold mapM; simpl.
-          unfold bind; simpl; unfold Monad.bind_opt.
-          rewrite H.
-          unfold mapM in H0; rewrite H0; eauto.
-      Qed.
-      forwards* (res & Hres): (>>mapM_ex_some
-                                 (fun i : val => do! v <- ret i in SkelLib.nth_error (hget l m) v)
-                                 (SkelLib.seq 0 (G.Zn (Datatypes.length (hget l m))))).
-      rewrite Forall_forall; intros.
-      rewrite in_map_iff in H; destruct H as (? & ? & ?).
-      unfold SkelLib.seq in H0.
-      Lemma option_ret_LI A B (v : A) (f : A -> option B) :
-        (do! x <- ret v in f x) = f v.
-      Proof.
-        unfold ret, bind; simpl; eauto.
-      Qed.
-      rewrite option_ret_LI in H.
-      Lemma seq'_In i s n :
-        In i (SkelLib.seq' s n) -> (s <= i < s + Zn n)%Z.
-      Proof.
-        revert s; induction n; simpl; try tauto.
-        intros.
-        rewrite Zpos_P_of_succ_nat.
-        destruct H; [substs; nia|].
-        apply IHn in H.
-        omega.
-      Qed.
-      apply seq'_In in H0.
-      forwards*: (>>nth_error_some' (hget l m) x0 (@defval' t)).
-      rewrite Nat2Z.id in *.
-      omega.
-      substs; eexists; eauto.
-      unfold SkelLib.comp in *.
-      rewrite Hres.
-      unfold ret; simpl; f_equal.
-      forwards*: SkelLib.mapM_length.
-      rewrite SkelLib.seq_length, Nat2Z.id in H.
-      apply (@eq_from_nth _ defval'); eauto.
+  destruct arr; intros H; inverts H; simpl.
+  - extensionality l.
+    destruct Z_le_dec; [|false; forwards*: Zle_0_nat].
+    
+    Lemma mapM_ex_some A B (f : A -> option B) l :
+      Forall (fun x => exists t, x = Some t) (map f l)
+      -> exists t, mapM f l = Some t.
+    Proof.
+      induction l; simpl; intros H; inverts H.
+      - eexists; reflexivity.
+      - destruct H2.
+        destruct IHl; eauto.
+        exists (x :: x0).
+        unfold mapM; simpl.
+        unfold bind; simpl; unfold Monad.bind_opt.
+        rewrite H.
+        unfold mapM in H0; rewrite H0; eauto.
+    Qed.
+    forwards* (res & Hres): (>>mapM_ex_some
+                               (fun i : val => do! v <- ret i in SkelLib.nth_error (hget l m) v)
+                               (SkelLib.seq 0 (G.Zn (Datatypes.length (hget l m))))).
+    rewrite Forall_forall; intros.
+    rewrite in_map_iff in H; destruct H as (? & ? & ?).
+    unfold SkelLib.seq in H0.
+    Lemma option_ret_LI A B (v : A) (f : A -> option B) :
+      (do! x <- ret v in f x) = f v.
+    Proof.
+      unfold ret, bind; simpl; eauto.
+    Qed.
+    rewrite option_ret_LI in H.
+    Lemma seq'_In i s n :
+      In i (SkelLib.seq' s n) -> (s <= i < s + Zn n)%Z.
+    Proof.
+      revert s; induction n; simpl; try tauto.
       intros.
-      forwards*: (>>SkelLib.mapM_some i (0%Z) (@defval' t) Hres).
-      rewrite SkelLib.seq_length, Nat2Z.id, option_ret_LI, SkelLib.seq_nth, Nat2Z.id in H1.
-      destruct lt_dec; [|omega].
-      rewrites (>>SkelLib.nth_error_some' (@defval' t)) in H1; [omega|].
-      inverts H1; eauto.
-      rewrite Z.add_0_l, Nat2Z.id in H3; eauto.
-    - dependent destruction f0; inverts H1; simpl.
-      extensionality x; simpl.
-      eauto.
-  Qed.
-  destruct (darr_of_arr arr1) as [body1 len1] eqn:Heq1.
-  destruct (darr_of_arr arr2) as [body2 len2] eqn:Heq2.
-  rewrites* (>>darr_of_arr_ok Heq1).
-  rewrites* (>>darr_of_arr_ok Heq2).
-  simpl.
-  repeat (destruct Z_le_dec; try rewrite Z.min_glb_iff in *; try lia); simpl; eauto.
-  2: destruct mapM; simpl; eauto.
-Abort.
+      rewrite Zpos_P_of_succ_nat.
+      destruct H; [substs; nia|].
+      apply IHn in H.
+      omega.
+    Qed.
+    apply seq'_In in H0.
+    forwards*: (>>nth_error_some' (hget l m) x0 (@defval' t)).
+    rewrite Nat2Z.id in *.
+    omega.
+    substs; eexists; eauto.
+    unfold SkelLib.comp in *.
+    rewrite Hres.
+    unfold ret; simpl; f_equal.
+    forwards*: SkelLib.mapM_length.
+    rewrite SkelLib.seq_length, Nat2Z.id in H.
+    apply (@eq_from_nth _ defval'); eauto.
+    intros.
+    forwards*: (>>SkelLib.mapM_some i (0%Z) (@defval' t) Hres).
+    rewrite SkelLib.seq_length, Nat2Z.id, option_ret_LI, SkelLib.seq_nth, Nat2Z.id in H1.
+    destruct lt_dec; [|omega].
+    rewrites (>>SkelLib.nth_error_some' (@defval' t)) in H1; [omega|].
+    inverts H1; eauto.
+    rewrite Z.add_0_l, Nat2Z.id in H3; eauto.
+  - dependent destruction f0; inverts H1; simpl.
+    extensionality x; simpl.
+    eauto.
+Qed.
+
+(* Lemma zip_AE_ok GA typ1 typ2 (arr1 : Skel.AE GA typ1) (arr2 : Skel.AE GA typ2) aeenv : *)
+(*   Skel.aeDenote _ _ (zip_AE arr1 arr2) aeenv = *)
+(*   (do! a1 <- Skel.aeDenote _ _ arr1 aeenv in *)
+(*    do! a2 <- Skel.aeDenote _ _ arr2 aeenv in *)
+(*    ret (SkelLib.zip a1 a2)). *)
+(* Proof. *)
+(*   unfold zip_AE. *)
+(*   destruct (darr_of_arr arr1) as [body1 len1] eqn:Heq1. *)
+(*   destruct (darr_of_arr arr2) as [body2 len2] eqn:Heq2. *)
+(*   rewrites* (>>darr_of_arr_ok Heq1). *)
+(*   rewrites* (>>darr_of_arr_ok Heq2). *)
+(*   simpl. *)
+(*   repeat (destruct Z_le_dec; try rewrite Z.min_glb_iff in *; try lia); simpl; eauto. *)
+(*   2: destruct mapM; simpl; eauto. *)
+(* Abort. *)
 
 Lemma compile_skel_ok GA ntrd nblk typ
       (avenv : AVarEnv GA) (apenv : APtrEnv GA) (aeenv : AEvalEnv GA)

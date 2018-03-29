@@ -1549,7 +1549,7 @@ Proof.
       destruct h as [h ?]; apply pheap_eq; extensionality l; simpl in *.
       apply (f_equal (fun h => h (GLoc l))) in H0.
       unfold PHeap.emp_h, as_gheap' in *; auto.
-    - remember (as_gheap h0) as h0'; inverts H.
+    - remember (as_gheap h0) as h0'.
       Lemma phplus_gheap (h1 h2 : pheap) (h3 : zpheap) :
         phplus h1 h2 = as_gheap h3 ->
         exists h1' h2', h1 = as_gheap h1' /\ h2 = as_gheap h2' /\ phplus h1' h2' = h3.
@@ -1569,8 +1569,9 @@ Proof.
         simpl in H.
         rewrite <-phplus_as_gheap in H; apply as_gheap_inj in H; auto.
       Qed.
-      lets phgh : phplus_gheap; simpl in phgh; apply (f_equal (fun h => this h)) in H0; simpl in H0.
-      apply phgh in H0 as (h' & ph' & ? & ? & ?); subst.
+      inverts H. rename TEMP into H.
+      lets phgh : phplus_gheap; simpl in phgh; apply (f_equal (fun h => this h)) in H; simpl in H.
+      apply phgh in H as (h' & ph' & ? & ? & ?); subst.
       lets (hs' & ?): (>> IHn H4); clear IHn; subst.
       exists (Vector.cons _ h' _ hs'); split.
       + apply eq_nth_iff; intros; destruct H; subst; erewrite Vector.nth_map; eauto.

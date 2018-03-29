@@ -287,8 +287,8 @@ Proof.
   - remember (q + q0) as q0'; remember (q + q1) as q1'.
     inversion heq'. subst.
     assert (q + q0 - q = q + q1 - q) by (rewrite H12; eauto).
-    cutrewrite (q + q0 - q = q0) in H2; [| ring].
-    cutrewrite (q + q1 - q = q1) in H2; [| ring].
+    cutrewrite (q + q0 - q = q0) in H; [| ring].
+    cutrewrite (q + q1 - q = q1) in H; [| ring].
     congruence.
   - remember (q + q0) as q'.
     inversion heq'; subst.

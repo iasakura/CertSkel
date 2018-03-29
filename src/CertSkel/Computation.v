@@ -37,13 +37,13 @@ Ltac in_skels skel :=
 
 Ltac findArgs skel term :=
   match term with
-  | context [skel ?a0] => constr:(tt, a0)
-  | context [skel ?a0 ?a1] => constr:(tt, a0, a1)
-  | context [skel ?a0 ?a1 ?a2] => constr:(tt, a0, a1, a2)
-  | context [skel ?a0 ?a1 ?a2 ?a3] => constr:(tt, a0, a1, a2, a3)
-  | context [skel ?a0 ?a1 ?a2 ?a3 ?a4] => constr:(a0, a1, a2, a3, a4)
-  | context [skel ?a0 ?a1 ?a2 ?a3 ?a4 ?a5] => constr:(a0, a1, a2, a3, a4, a5)
-  | context [skel ?a0 ?a1 ?a2 ?a3 ?a4 ?a5 ?a6] => constr:(a0, a1, a2, a3, a4, a5, a6)
+  | context [skel ?a0] => constr:((tt, a0))
+  | context [skel ?a0 ?a1] => constr:((tt, a0, a1))
+  | context [skel ?a0 ?a1 ?a2] => constr:((tt, a0, a1, a2))
+  | context [skel ?a0 ?a1 ?a2 ?a3] => constr:((tt, a0, a1, a2, a3))
+  | context [skel ?a0 ?a1 ?a2 ?a3 ?a4] => constr:((a0, a1, a2, a3, a4))
+  | context [skel ?a0 ?a1 ?a2 ?a3 ?a4 ?a5] => constr:((a0, a1, a2, a3, a4, a5))
+  | context [skel ?a0 ?a1 ?a2 ?a3 ?a4 ?a5 ?a6] => constr:((a0, a1, a2, a3, a4, a5, a6))
   end.
 
 Ltac forEach f xs :=
@@ -156,7 +156,7 @@ Ltac collect_params T k :=
   end.
 
 Goal False.
-  let t := constr:(unit * TyVar (VarE "xO") (Z * Z) * TyVar (VarE "xSO") (Z * Z))%type in
+  let t := constr:((unit * TyVar (VarE "xO") (Z * Z) * TyVar (VarE "xSO") (Z * Z))%type) in
   (* let t := constr:(TyVar (VarE "xO") (Z * Z)) in *)
   collect_params t ltac:(fun t =>
   pose t).

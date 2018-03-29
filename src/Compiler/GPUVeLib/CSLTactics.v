@@ -118,10 +118,10 @@ Ltac prove_mod_eq :=
         (* t = t + t' * n *)
         match iter t with (?t, ?t') =>
         match iter u with (?u, ?u') =>
-        constr:(t + u, t' + u') end end
-      | ?t * n => constr:(0, t)
-      | n * ?t => constr:(0, t)
-      | _ => constr:(t, 0)
+        constr:((t + u, t' + u')) end end
+      | ?t * n => constr:((0, t))
+      | n * ?t => constr:((0, t))
+      | _ => constr:((t, 0))
       end in
     match iter x with
     | (?t, ?u) => cutrewrite (x = t + u * n);
@@ -315,12 +315,12 @@ Ltac prove_pure :=
 
 Ltac is_const v :=
   match v with
-  | Z0 => constr:true
+  | Z0 => constr:(true)
   | Zpos ?v => is_const v
   | Zneg ?v => is_const v
   | xI ?v => is_const v
   | xO ?v => is_const v
-  | xH => constr:true
+  | xH => constr:(true)
   end.
 
 Ltac simpl_to_zn v :=
@@ -446,25 +446,25 @@ Proof.
 Qed.
 
 Ltac matches P Q :=
-  match constr:(P, Q) with
-  | (?P, ?P) => constr:(Some true)
-  | ((?l |->p (_, _)), (?l |->p (_, _))) => constr:(Some mps_eq)
-  | ((array ?l _ _), (array ?l _ _)) => constr:(Some array_eq)
-  | ((array' ?l _ _), (array' ?l _ _)) => constr:(Some array'_eq)
-  | ((arrays ?l _ _), (arrays ?l _ _)) => constr:(Some arrays_eq)
-  | ((arrays' ?l _ _), (arrays' ?l _ _)) => constr:(Some arrays'_eq)
-  | _ => constr:false
+  match constr:((P, Q)) with
+  | (?P, ?P) => constr:((Some true))
+  | ((?l |->p (_, _)), (?l |->p (_, _))) => constr:((Some mps_eq))
+  | ((array ?l _ _), (array ?l _ _)) => constr:((Some array_eq))
+  | ((array' ?l _ _), (array' ?l _ _)) => constr:((Some array'_eq))
+  | ((arrays ?l _ _), (arrays ?l _ _)) => constr:((Some arrays_eq))
+  | ((arrays' ?l _ _), (arrays' ?l _ _)) => constr:((Some arrays'_eq))
+  | _ => constr:(false)
   end.
 
 Ltac find_idx P Q :=
   lazymatch Q with
   | ?Q1 *** ?Q2 =>
     lazymatch matches P Q1 with
-    | Some _ => constr:0 
-    | false => let idx' := find_idx P Q2 in constr:(S idx') end
+    | Some _ => constr:(0)
+    | false => let idx' := find_idx P Q2 in constr:((S idx')) end
   | ?Q1 =>
     lazymatch matches P Q1 with
-    | Some _ => constr:0
+    | Some _ => constr:(0)
     end
   end.
 
@@ -1572,14 +1572,14 @@ Ltac evalExps :=
 
 Ltac is_IO_cmd c :=
   lazymatch c with
-  | (_ ::T _ ::= _) => constr:true
-  | (_ ::T _ ::= [_]) => constr:true
-  | ([_] ::= _) => constr:true
-  | assigns _ _ _ => constr:true
-  | reads _ _ _ => constr:true
-  | writes _ _ => constr:true
-  | Cbarrier _ => constr:true
-  | _ => constr:false
+  | (_ ::T _ ::= _) => constr:(true)
+  | (_ ::T _ ::= [_]) => constr:(true)
+  | ([_] ::= _) => constr:(true)
+  | assigns _ _ _ => constr:(true)
+  | reads _ _ _ => constr:(true)
+  | writes _ _ => constr:(true)
+  | Cbarrier _ => constr:(true)
+  | _ => constr:(false)
   end.
 
 Ltac evalLExps := 

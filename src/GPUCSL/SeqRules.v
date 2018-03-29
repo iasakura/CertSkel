@@ -1244,7 +1244,6 @@ Section ParCSL.
       specialize (Hsat' tid); erewrite !Vector.nth_map in *; 
       eauto.
       rewrite Heqc; apply Hsafei.
-      erewrite Vector.nth_map in Hsat'; eauto.
       exists prehs[@tid] (emp_ph loc); simpl; splits; eauto.
       apply disj_emp1.
       apply phplus_emp2.

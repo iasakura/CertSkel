@@ -1214,7 +1214,7 @@ Lemma sh_decl_length n ty pref st:
   length (sh_decl n ty pref st) = nleaf ty.
 Proof. unfold sh_decl; apply sh_decl_length_aux. Qed.
 
-Fixpoint to_shvals {ty} :=
+Fixpoint to_shvals {ty} : list (vals ty) -> list (list val) :=
   match ty return list (vals ty) -> list (list val) with
   | Skel.TZ | Skel.TBool => fun vals => vals :: nil
   | Skel.TTup t1 t2 => fun vals => to_shvals (map fst vals) ++ to_shvals (map snd vals)

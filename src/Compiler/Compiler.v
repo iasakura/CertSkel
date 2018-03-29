@@ -187,7 +187,7 @@ Section Compiler.
     | Skel.F2 _ _ _ _ body => Skel.F2 _ _ _ _ (shift_sexp_GA newTy body)
     end.
 
-  Fixpoint addTyp {ty} :=
+  Fixpoint addTyp {ty} : vars ty -> vartys ty :=
     match ty return vars ty -> vartys ty with 
     | Skel.TBool => fun x => (x, Bool)
     | Skel.TZ => fun x => (x, Int)

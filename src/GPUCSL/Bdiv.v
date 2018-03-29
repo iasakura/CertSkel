@@ -84,11 +84,12 @@ Notation Aex P := (fun (s : stack) (h : pheap) => exists v, P v s h).
     induction l; ins; auto using precise_emp, precise_star.
   Qed.*)
 Import VectorNotations.
+Import Vector.
 Fixpoint Aistar_v (n : nat) (assns : Vector.t assn n) :=
   match assns with
-    | [] => Emp_assn
+    | nil _ => Emp_assn
     | (a :: assns) => a ** (Aistar_v assns)
-  end.
+  end%vector.
 
 Lemma aistar_disj (n : nat) (assns : Vector.t assn n) (s : stack) (h : pheap) :
   sat s h (Aistar_v assns) ->
@@ -116,13 +117,13 @@ Section Low_eq.
 
   Fixpoint low_eq_l (n : nat) (s : stack) (sts : Vector.t stack n) :=
     match sts with
-      | [] => True
+      | nil _ => True
       | x :: xs => low_eq env s x /\ low_eq_l s xs
     end.
 
   Fixpoint low_eq_l2 (ng : nat) (sts : Vector.t stack ng) :=
     match sts with
-      | [] => True
+      | nil _ => True
       | x :: xs => low_eq_l x xs /\ low_eq_l2 xs
     end.
   Lemma loweq_l_leq (n : nat) (ss : Vector.t stack n) (s : stack) (leq : low_eq_l s ss) (i : Fin.t n) :
@@ -222,7 +223,7 @@ Section Barrier.
   Proof.
     intros heq hsat.
     revert h heq assns hsat; induction hs; intros h' heq assns hsat.
-    - assert (assns = []) by (apply (case0 (fun (v : t assn 0) => v = [])); eauto).
+    - assert (assns = nil _) by (apply (case0 (fun (v : t assn 0) => v = nil _)); eauto).
       simpl in heq; inversion heq.
       rewrite H; simpl; intros; simpl; unfold emp_h; eauto.
       unfold sat; simpl; eauto.

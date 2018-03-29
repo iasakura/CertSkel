@@ -43,7 +43,7 @@ Proof.
   exists (fun i : nat => nth i result (defval')).
   intros i Hi.
   forwards*: (>>mapM_some i (@defval' dom) (@defval' cod)).
-  destruct lt_dec; eauto; try lia.
+  destruct lt_dec; eauto; try first [nia | tauto].
 Qed.
 
 Definition f_res := let (f, _) := eval_f_ok in f.
@@ -190,7 +190,7 @@ Proof.
   intros.
   forwards*: (>>mapM_some i (@defval' dom)).
   forwards*: mapM_length; eauto.
-  destruct lt_dec; [|clear H1; lia].
+  destruct lt_dec; [|clear H1; lia ].
   rewrite H in H1; eauto.
   inverts H1.
   eauto.
