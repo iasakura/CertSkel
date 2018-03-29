@@ -3,5 +3,5 @@
 	url = https://github.com/snu-sf/cpdtlib.git
 [submodule "tlc"]
 	path = external/tlc
-	url = https://gforge.inria.fr/git/tlc/tlc.git
+	url =  https://gitlab.inria.fr/charguer/tlc.git
     branch = master
