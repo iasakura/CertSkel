@@ -587,7 +587,7 @@ Definition equivGC {GA : list Skel.Typ} {cod : Skel.Typ}
                 All aeenv apenv outp result vs,
                 FDbl (kernelInv
                         (remove_typeinfo (gen_params GA)) apenv aeenv
-                        (TT *** arrays (val2gl outp) vs 1)
+                        (arrays (val2gl outp) vs 1)
                         (uncurry_aeenv aeenv p_g = Some result /\ length result <= length vs)%nat
                         (outArr cod |=> outp) 1)
                      (fun l => kernelInv'
@@ -609,7 +609,7 @@ Definition equivIC {GA : list Skel.Typ} {cod : Skel.Typ} (p_i : Skel.AS GA cod) 
                 All aeenv apenv outp result vs,
                 FDbl (kernelInv
                         (remove_typeinfo (gen_params GA)) apenv aeenv
-                        (TT *** arrays (val2gl outp) vs 1)
+                        (arrays (val2gl outp) vs 1)
                         (Skel.asDenote GA cod p_i aeenv = Some result /\ length result <= length vs)%nat
                         (outArr cod |=> outp) 1)
                      (fun l => kernelInv'

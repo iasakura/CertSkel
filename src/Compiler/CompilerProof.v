@@ -1494,7 +1494,7 @@ Theorem compile_prog_ok GA typ ntrd nblk (p : Skel.AS GA typ) :
        fs_tri := 
          All aeenv apenv outp result vs,
          FDbl (kernelInv (remove_typeinfo (gen_params GA)) apenv aeenv
-                         (TT *** arrays (val2gl outp) vs 1)
+                         (arrays (val2gl outp) vs 1)
                          (Skel.asDenote GA typ p aeenv = Some result /\ length result <= length vs)
                          (outArr typ |=> outp) 1)
               (fun l => kernelInv' apenv aeenv
@@ -1539,6 +1539,8 @@ Proof.
     intros Hin; forwards*(? & Hfn' & _): fnOk'_In.
     unfold kname in Hfn'; cbv in Hfn'; congruence.    
   - eapply rule_host_forward; [apply Hcsl|..]; unfold kernelInv; prove_imp.
+    exists (emp_ph loc) h0; splits; jauto.
+    apply disj_emp2.
   - applys* incl_tl.
   - introv Hsat'.
     unfold sat, kernelInv in Hsat'; simpl in Hsat'.
