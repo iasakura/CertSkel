@@ -4,4 +4,4 @@
 [submodule "tlc"]
 	path = external/tlc
 	url =  https://gitlab.inria.fr/charguer/tlc.git
-    branch = master
+	branch = master
