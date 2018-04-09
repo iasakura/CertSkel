@@ -22,14 +22,16 @@ Definition dot_fused_GPGPU :
   {p : GModule | @equivGC (Skel.TZ :: Skel.TZ :: nil) (Skel.TZ) dot p}.
 Proof.
   unfold dot; simpl.
+  (* Reification *)
   reifyFunc.
   eapply equivIC_weaken.
-  { introv Heq; applys (>>simple_fusion_correct Heq).
+  { (* Fusion transformation *)
+    introv Heq; applys (>>simple_fusion_correct Heq).
+    (* Currently, my fusion transformation also requires algebraic properties of reduce function... *)
     repeat econstructor; simpl.
     - intros; omega.
     - intros; omega. }
-  unfold simple_fusion; simpl.
-  unfold fuse_f1, body_of_func1, lift_sexp; simpl.
+  (* GPGPU code generation *)
   apply compileOk.
   repeat econstructor; simpl.
   - intros; omega.
