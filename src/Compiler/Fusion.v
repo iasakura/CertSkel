@@ -136,7 +136,7 @@ Proof.
   rewrites* IHle1; rewrites* IHle2.
 Qed.
 
-Definition shift_fused_env {GA GA' typ} (avfenv : AVFusedEnv0 GA GA') : AVFusedEnv0 GA (typ :: GA') :=
+Definition shift_fused_env {GA GA'} typ (avfenv : AVFusedEnv0 GA GA') : AVFusedEnv0 GA (typ :: GA') :=
   hmap (fun typ' darr =>
     match darr with
     | inl m => inl (liftVar m typ 0)
@@ -251,18 +251,18 @@ Definition fuse_skel {GA GA' resTy} (skel : SkelE GA resTy) : AVFusedEnv0 GA GA'
   | Zip _ _ _ ae1 ae2 => fun avfenv => Zip _ _ _ (fuse_ae ae1 avfenv) (fuse_ae ae2 avfenv)
   end.
 
-Fixpoint simple_fusion {GA GA' typ} (p : AS GA typ) : AVFusedEnv0 GA GA' -> AS GA' typ :=
+Fixpoint simple_fusion_aux {GA GA' typ} (p : AS GA typ) : AVFusedEnv0 GA GA' -> AS GA' typ :=
   match p with
   | ALet _ tyapp tyres skel res =>
     fun avfenv =>
       let skel := fuse_skel skel avfenv in
       if true then
         match darr_of_skelapp skel with
-        | Some darr => simple_fusion res (inr darr ::: avfenv)
-        | None => ALet _ _ _ skel (simple_fusion res (inl HFirst ::: shift_fused_env avfenv))
+        | Some darr => simple_fusion_aux res (inr darr ::: avfenv)
+        | None => ALet _ _ _ skel (simple_fusion_aux res (inl HFirst ::: shift_fused_env _ avfenv))
         end
       else
-        ALet _ _ _ skel (simple_fusion res (inl HFirst ::: shift_fused_env avfenv))
+        ALet _ _ _ skel (simple_fusion_aux res (inl HFirst ::: shift_fused_env _ avfenv))
   | ARet _ t x =>
     fun avfenv =>
       match hget avfenv x with
@@ -272,6 +272,15 @@ Fixpoint simple_fusion {GA GA' typ} (p : AS GA typ) : AVFusedEnv0 GA GA' -> AS G
              (ARet _ _ HFirst)
       end
   end.
+
+Fixpoint init_avfenv GA : AVFusedEnv GA :=
+  match GA with
+  | [] => HNil
+  | ty :: GA => inl HFirst ::: shift_fused_env ty (init_avfenv GA)
+  end.
+
+Definition simple_fusion {GA typ} (p : AS GA typ) : AS GA typ :=
+  simple_fusion_aux p (init_avfenv GA).
 
 Lemma fuse_le_correct GA GA' typ (le : LExp GA typ) :
   forall (avfenv : AVFusedEnv0 GA GA') (aeenv : AEvalEnv GA) (aeenv' : AEvalEnv GA'),
@@ -556,7 +565,7 @@ Proof.
         unfold ret in Heq3; simpl in Heq3; congruence.
 Qed.
 
-Lemma simple_fusion_correct GA typ (p : AS GA typ) : forall GA',
+Lemma simple_fusion_aux_correct GA typ (p : AS GA typ) : forall GA',
   forall (avfenv : AVFusedEnv0 GA GA') (aeenv : AEvalEnv GA) (aeenv' : AEvalEnv GA'),
     (forall ty (m : member ty GA) m',
         hget avfenv m = inl m' -> hget aeenv' m' = hget aeenv m)
@@ -566,7 +575,7 @@ Lemma simple_fusion_correct GA typ (p : AS GA typ) : forall GA',
     -> skel_as_wf _ _ p
     -> forall res,
       asDenote _ _ p aeenv = Some res
-      -> asDenote _ _ (simple_fusion p avfenv) aeenv' = Some res.
+      -> asDenote _ _ (simple_fusion_aux p avfenv) aeenv' = Some res.
 Proof.
   dependent induction p; simpl; eauto; introv Henv1 Henv2 Hwf.
   - unfold bind, ret; simpl; unfold bind_opt; simpl.
@@ -620,4 +629,32 @@ Proof.
     rewrite Hres.
     rewrite mapM_total.
     rewrites* List.map_id.
+Qed.
+
+Lemma simple_fusion_correct GA typ (p : AS GA typ) :
+  skel_as_wf _ _ p
+  -> forall aeenv res,
+    asDenote _ _ p aeenv = Some res
+    -> asDenote _ _ (simple_fusion p) aeenv = Some res.
+Proof.
+  unfold simple_fusion; introv Hwf Hres.
+  applys* simple_fusion_aux_correct; eauto.
+  - clear typ p Hwf res Hres.
+    induction GA; introv; dependent destruction m; dependent destruction m'; dependent destruction aeenv; simpl; intros; try congruence.
+    + unfold shift_fused_env in H; rewrite hget_hmap in H.
+      destruct hget as [m'|[? ?]].
+      dependent destruction m'; simpl in H; inverts H.
+      inverts H.
+    + unfold shift_fused_env in H; rewrite hget_hmap in H.
+      destruct hget as [m''|[? ?]] eqn:Heq; [|inverts H].
+      inverts H.
+      apply* (>>IHGA).
+      rewrite Heq; dependent destruction m''; simpl in H1; inverts H1; eauto.
+  - introv.
+    clear typ p Hwf res Hres.
+    intros; false; dependent induction aeenv; dependent destruction m; simpl in *; try congruence.
+    unfold shift_fused_env in H.
+    rewrite hget_hmap in H.
+    destruct hget as [|[? ?]] eqn:Heq; try congruence.
+    forwards*: IHaeenv.
 Qed.

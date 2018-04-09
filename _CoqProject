@@ -16,6 +16,7 @@ src/Compiler/Skeletons/mkMap.v
 src/Compiler/Skeletons/mkReduce.v
 src/Compiler/Skeletons/Utils.v
 src/Compiler/SeqCompiler.v
+src/Compiler/Fusion.v
 src/GPUCSL/SeqRules.v
 src/GPUCSL/FreeVariables.v
 src/GPUCSL/CSLLemma.v
