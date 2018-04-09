@@ -1,6 +1,6 @@
-Require Import Monad SkelLib Computation ZArith TypedTerm Program DepList.
+Require Import Monad SkelLib ZArith TypedTerm Program DepList.
 Require Import CUDALib Correctness.
-Require Import Compiler Ext Extract Host CompilerProof LibTactics.
+Require Import Compiler Host CompilerProof LibTactics.
 Open Scope Z_scope.
 
 Notation AVFusedEnv0 GA1 GA2 := (hlist (fun typ => sum (member typ GA2) (Skel.Func GA2 (Skel.Fun1 Skel.TZ typ) * Skel.LExp GA2 Skel.TZ)) GA1).
@@ -47,6 +47,8 @@ Fixpoint insertAtS {A ls f} (t : A) (x : f t) (n : nat) {struct n}
                 | t' :: G' => fun s => hhd s ::: insertAtS t x n' (htl s)
               end
   end.
+
+Arguments Skel.ENum {GA GS} _.
 
 Fixpoint lift_sexp {GA GS} {resTy} ty (se : SExp GA GS resTy) n : SExp GA (insertAt ty GS n) resTy :=
   match se with

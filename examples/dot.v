@@ -1,5 +1,5 @@
 Require Import Monad SkelLib Computation ZArith TypedTerm Program.
-Require Import Compiler Ext Extract Host CompilerProof LibTactics.
+Require Import Compiler Ext Extract Host CompilerProof Fusion LibTactics.
 Open Scope Z_scope.
 
 Definition dot (xs ys : list Z) : comp (list Z)

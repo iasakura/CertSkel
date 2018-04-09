@@ -692,6 +692,31 @@ Proof.
   eexists; eapply equiv_trans; eauto.
 Qed.
 
+Require Import CSLTactics.
+
+Lemma equivIC_weaken : forall GA typ (f f' : Skel.AS GA typ) p,
+    (forall aeenv res, Skel.asDenote _ _ f aeenv = Some res -> Skel.asDenote _ _ f' aeenv = Some res)
+    -> equivIC f' p
+    -> equivIC f p.
+Proof.
+  introv Heq.
+  unfold equivIC.
+  unfold interp_f; simpl.
+  unfold with_ctx.
+  unfold interp_f_n.
+  introv Hsat Hctx.
+  forwards*: Hsat.
+  destruct func_disp; try eauto.
+  unfold interp_fd_simp, interp_hfun_n_simp, interp_kfun_n_simp, CSLhfun_n_simp, CSLkfun_n_simp in *; simpl in *.
+  revert Heq H; clear; intros.
+  destruct f0.
+  intros; forwards*: H.
+  unfold Correctness.kernelInv in *.
+  generalize s (Grid.as_gheap h0) H1; prove_imp.
+  intros; forwards*: (>>H x x0 x1 x2 x3 ntrd nblk vs tst shs h s).
+  generalize s (Grid.as_gheap h) H4; prove_imp.
+Qed.
+
 Ltac uncurry_func func k :=
   idtac "uncurry func = " func;
   lazymatch func with
