@@ -5,10 +5,12 @@ Open Scope Z_scope.
 Require Import DepList.
 Import Skel.
 
+(* DSL source code: dot product *)
 Definition dot (xs ys : list Z) : comp (list Z)
   := do! t <- mapM (fun xy => ret (fst xy * snd xy)) (zip xs ys) in
      reduceM (fun x y => ret (x + y)) t.
 
+(* Compilation by theorem proving: there exists a GPGPU program which is equivalent to the source program *)
 Definition dot_fused_GPGPU :
   {p : GModule | @equivGC (Skel.TZ :: Skel.TZ :: nil) (Skel.TZ) dot p}.
 Proof.

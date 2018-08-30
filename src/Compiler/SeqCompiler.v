@@ -740,7 +740,7 @@ Ltac prove_fv_assn :=
                  rewrite incl_cons_iff |
                  rewrite map_flatTup]; simpl); jauto.
 
-Lemma compileExp_ok E ty1 ty2 ty3 (op : Skel.BinOp ty1 ty2 ty3) v1 (x1 : vars ty1) v2 (x2 : vars ty2) :
+Lemma compile_op_ok E ty1 ty2 ty3 (op : Skel.BinOp ty1 ty2 ty3) v1 (x1 : vars ty1) v2 (x2 : vars ty2) :
   evalExps E (v2e x1) (sc2CUDA v1)
   -> evalExps E (v2e x2) (sc2CUDA v2)
   -> evalExps E (compile_op op x1 x2) (sc2CUDA (Skel.opDenote _ _ _ op v1 v2)).
@@ -953,7 +953,7 @@ Proof.
     introv.
     eapply rule_backward_c.
     { apply rule_fLets_s.
-      intros; apply compileExp_ok; evalExps. }
+      intros; apply compile_op_ok; evalExps. }
     + simpl; intros ?; prove_imp.
       intros; forwards*(? & He): Heval.
       destructM He; jauto.
